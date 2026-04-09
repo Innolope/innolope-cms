@@ -22,13 +22,14 @@ function AuthGate() {
 	const { user, loading, currentProject } = useAuth()
 	const navigate = useNavigate()
 	const location = useLocation()
-	const isLoginPage = location.pathname === '/login'
+	const publicPaths = ['/login', '/forgot-password', '/reset-password', '/accept-invite']
+	const isPublicPage = publicPaths.some((p) => location.pathname.startsWith(p))
 
 	useEffect(() => {
-		if (!loading && !user && !isLoginPage) {
+		if (!loading && !user && !isPublicPage) {
 			navigate({ to: '/login' })
 		}
-	}, [user, loading, isLoginPage, navigate])
+	}, [user, loading, isPublicPage, navigate])
 
 	if (loading) {
 		return (
@@ -38,8 +39,8 @@ function AuthGate() {
 		)
 	}
 
-	if (!user && !isLoginPage) return null
-	if (isLoginPage) return <Outlet />
+	if (!user && !isPublicPage) return null
+	if (isPublicPage) return <Outlet />
 
 	// Show project creation if user has no projects
 	if (!currentProject) return <NoProjectView />

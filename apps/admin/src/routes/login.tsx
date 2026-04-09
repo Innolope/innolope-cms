@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/auth'
 
@@ -131,12 +131,12 @@ function LoginPage() {
 					</button>
 				</form>
 				{mode === 'login' && (
-					<a
-						href="/forgot-password"
+					<Link
+						to="/forgot-password"
 						className="block text-center text-xs text-zinc-500 hover:text-zinc-300 mt-4 transition-colors"
 					>
 						Forgot password?
-					</a>
+					</Link>
 				)}
 			</div>
 		</div>
