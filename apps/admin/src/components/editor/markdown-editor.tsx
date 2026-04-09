@@ -5,7 +5,7 @@ import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import TurndownService from 'turndown'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ImagePickerModal } from './image-picker-modal'
+import { ImagePickerModal, type ImageSelection } from './image-picker-modal'
 
 const turndown = new TurndownService({
 	headingStyle: 'atx',
@@ -70,9 +70,35 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 	}, [])
 
 	const handleImageSelect = useCallback(
-		(url: string, alt: string) => {
-			if (editor) {
-				editor.chain().focus().setImage({ src: url, alt }).run()
+		(image: ImageSelection) => {
+			if (!editor) return
+			// Insert the image
+			editor.chain().focus().setImage({ src: image.url, alt: image.alt }).run()
+
+			// If Unsplash, insert attribution line below the image
+			if (image.attribution) {
+				const { author, authorUrl } = image.attribution
+				editor
+					.chain()
+					.focus()
+					.insertContent({
+						type: 'paragraph',
+						content: [
+							{ type: 'text', text: 'Photo by ' },
+							{
+								type: 'text',
+								marks: [{ type: 'link', attrs: { href: authorUrl } }],
+								text: author,
+							},
+							{ type: 'text', text: ' on ' },
+							{
+								type: 'text',
+								marks: [{ type: 'link', attrs: { href: 'https://unsplash.com/?utm_source=innolope_cms&utm_medium=referral' } }],
+								text: 'Unsplash',
+							},
+						],
+					})
+					.run()
 			}
 		},
 		[editor],

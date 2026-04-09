@@ -1,8 +1,18 @@
 import { useState } from 'react'
 import { UnsplashPicker } from '../media/unsplash-picker'
 
+export interface ImageSelection {
+	url: string
+	alt: string
+	attribution?: {
+		author: string
+		authorUrl: string
+		source: 'unsplash'
+	}
+}
+
 interface ImagePickerModalProps {
-	onSelect: (url: string, alt: string) => void
+	onSelect: (image: ImageSelection) => void
 	onClose: () => void
 }
 
@@ -15,7 +25,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 
 	const handleUrlSubmit = () => {
 		if (!url.trim()) return
-		onSelect(url, alt || '')
+		onSelect({ url, alt: alt || '' })
 		onClose()
 	}
 
@@ -52,10 +62,15 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 					{tab === 'unsplash' && (
 						<UnsplashPicker
 							onSelect={(photo) => {
-								onSelect(
-									photo.url,
-									`Photo by ${photo.author} on Unsplash`,
-								)
+								onSelect({
+									url: photo.url,
+									alt: photo.alt || `Photo by ${photo.author}`,
+									attribution: {
+										author: photo.author,
+										authorUrl: `${photo.authorUrl}?utm_source=innolope_cms&utm_medium=referral`,
+										source: 'unsplash',
+									},
+								})
 								onClose()
 							}}
 						/>
