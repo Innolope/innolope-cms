@@ -18,6 +18,7 @@
     "@innolope/config": "workspace:*",
     "@innolope/db": "workspace:*",
     "@innolope/types": "workspace:*",
+    "@sentry/node": "^10.48.0",
     "bcrypt": "^6.0.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.4",
