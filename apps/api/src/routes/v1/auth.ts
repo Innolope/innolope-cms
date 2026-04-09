@@ -5,6 +5,12 @@ import { randomUUID } from 'node:crypto'
 import { hashApiKey, hashPassword, verifyPassword, createJwt } from '../../plugins/auth.js'
 
 export async function authRoutes(app: FastifyInstance) {
+	// Check if setup is needed (public)
+	app.get('/setup-status', async () => {
+		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
+		return { needsSetup: Number(count) === 0 }
+	})
+
 	// Register first admin (only works when no users exist)
 	app.post('/register', async (request, reply) => {
 		const { email, password, name } = request.body as { email: string; password: string; name: string }

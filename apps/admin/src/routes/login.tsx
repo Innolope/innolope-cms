@@ -24,23 +24,10 @@ function LoginPage() {
 
 	// Check if first user needs to be created
 	useEffect(() => {
-		fetch('/api/v1/health')
+		fetch('/api/v1/auth/setup-status')
 			.then((r) => r.json())
-			.then(() => {
-				// Try register with empty body to see if setup is needed
-				// If register returns 403, setup is done
-				return fetch('/api/v1/auth/register', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ email: '', password: '', name: '' }),
-				})
-			})
-			.then((r) => {
-				if (r.status === 403) {
-					setMode('login')
-				} else {
-					setMode('setup')
-				}
+			.then((data: { needsSetup: boolean }) => {
+				setMode(data.needsSetup ? 'setup' : 'login')
 			})
 			.catch(() => setMode('login'))
 			.finally(() => setCheckingSetup(false))
@@ -76,23 +63,28 @@ function LoginPage() {
 		<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
+					<img
+						src="/logo.svg"
+						alt="Innolope CMS"
+						className="w-10 h-10 mx-auto mb-4 invert brightness-200"
+					/>
 					<h1 className="text-2xl font-bold text-white">Innolope CMS</h1>
 					<p className="text-zinc-500 text-sm mt-1">
-						{mode === 'setup' ? 'Create your admin account' : 'Sign in to continue'}
+						{mode === 'setup' ? 'Welcome! Set up your Innolope CMS account to get started.' : 'Sign in to your Innolope CMS account'}
 					</p>
 				</div>
 
 				<form onSubmit={handleSubmit} className="space-y-4">
 					{mode === 'setup' && (
 						<div>
-							<label className="block text-xs text-zinc-500 mb-1.5">Name</label>
+							<label className="block text-xs text-zinc-500 mb-1.5">Your name</label>
 							<input
 								type="text"
 								value={name}
 								onChange={(e) => setName(e.target.value)}
 								required
 								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
-								placeholder="Admin name"
+								placeholder="Inna Lope"
 								autoFocus
 							/>
 						</div>
