@@ -1,1 +1,49 @@
 @import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+	--color-bg: #fafafa;
+	--color-surface: #ffffff;
+	--color-surface-alt: #f4f4f5;
+	--color-border: #e4e4e7;
+	--color-border-strong: #d4d4d8;
+	--color-text: #18181b;
+	--color-text-secondary: #71717a;
+	--color-text-muted: #a1a1aa;
+	--color-text-faint: #d4d4d8;
+	--color-input: #ffffff;
+	--color-btn-primary: #18181b;
+	--color-btn-primary-text: #ffffff;
+	--color-btn-primary-hover: #27272a;
+	--color-btn-secondary: #f4f4f5;
+	--color-btn-secondary-hover: #e4e4e7;
+	--color-danger: #dc2626;
+	--color-danger-surface: #fef2f2;
+}
+
+html {
+	color-scheme: light;
+}
+html.dark {
+	color-scheme: dark;
+}
+
+.dark {
+	--color-bg: #09090b;
+	--color-surface: #18181b;
+	--color-surface-alt: #27272a;
+	--color-border: #27272a;
+	--color-border-strong: #3f3f46;
+	--color-text: #f4f4f5;
+	--color-text-secondary: #a1a1aa;
+	--color-text-muted: #71717a;
+	--color-text-faint: #52525b;
+	--color-input: #27272a;
+	--color-btn-primary: #f4f4f5;
+	--color-btn-primary-text: #18181b;
+	--color-btn-primary-hover: #e4e4e7;
+	--color-btn-secondary: #27272a;
+	--color-btn-secondary-hover: #3f3f46;
+	--color-danger: #f87171;
+	--color-danger-surface: #450a0a;
+}

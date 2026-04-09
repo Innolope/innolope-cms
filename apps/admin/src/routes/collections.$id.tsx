@@ -98,7 +98,7 @@ function CollectionEditor() {
 		}
 	}
 
-	if (loading) return <div className="p-8 text-zinc-500 text-sm">Loading...</div>
+	if (loading) return <div className="p-8 text-text-secondary text-sm">Loading...</div>
 
 	return (
 		<div className="p-8 max-w-3xl">
@@ -116,7 +116,7 @@ function CollectionEditor() {
 							if (isNew) setSlug(generateSlug(e.target.value))
 						}}
 						placeholder="e.g. Articles, Products, FAQ"
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
@@ -125,7 +125,7 @@ function CollectionEditor() {
 						type="text"
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
@@ -135,7 +135,7 @@ function CollectionEditor() {
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
 						placeholder="What this collection is for"
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
@@ -145,14 +145,14 @@ function CollectionEditor() {
 						<button
 							type="button"
 							onClick={addField}
-							className="px-3 py-1 bg-zinc-100 rounded text-xs hover:bg-zinc-200"
+							className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
 						>
 							+ Add Field
 						</button>
 					</div>
 
 					{fields.length === 0 ? (
-						<p className="text-zinc-600 text-sm">
+						<p className="text-text-secondary text-sm">
 							No fields yet. Every collection gets markdown content by default.
 						</p>
 					) : (
@@ -160,20 +160,20 @@ function CollectionEditor() {
 							{fields.map((field, i) => (
 								<div
 									key={i}
-									className="flex items-center gap-2 p-3 bg-white rounded-lg border border-zinc-200"
+									className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border"
 								>
 									<div className="flex flex-col gap-1">
 										<button
 											type="button"
 											onClick={() => moveField(i, -1)}
-											className="text-zinc-600 hover:text-zinc-600 text-xs leading-none"
+											className="text-text-secondary hover:text-text text-xs leading-none"
 										>
 											&#x25B2;
 										</button>
 										<button
 											type="button"
 											onClick={() => moveField(i, 1)}
-											className="text-zinc-600 hover:text-zinc-600 text-xs leading-none"
+											className="text-text-secondary hover:text-text text-xs leading-none"
 										>
 											&#x25BC;
 										</button>
@@ -183,12 +183,12 @@ function CollectionEditor() {
 										value={field.name}
 										onChange={(e) => updateField(i, { name: e.target.value })}
 										placeholder="Field name"
-										className="flex-1 px-2 py-1.5 bg-zinc-100 border border-zinc-300 rounded text-sm font-mono focus:outline-none"
+										className="flex-1 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none"
 									/>
 									<select
 										value={field.type}
 										onChange={(e) => updateField(i, { type: e.target.value })}
-										className="px-2 py-1.5 bg-zinc-100 border border-zinc-300 rounded text-sm focus:outline-none"
+										className="px-2 py-1.5 bg-input border border-border-strong rounded text-sm focus:outline-none"
 									>
 										{FIELD_TYPES.map((t) => (
 											<option key={t} value={t}>
@@ -196,7 +196,7 @@ function CollectionEditor() {
 											</option>
 										))}
 									</select>
-									<label className="flex items-center gap-1 text-xs text-zinc-500">
+									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
 											type="checkbox"
 											checked={field.required || false}
@@ -205,7 +205,7 @@ function CollectionEditor() {
 										/>
 										Required
 									</label>
-									<label className="flex items-center gap-1 text-xs text-zinc-500">
+									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
 											type="checkbox"
 											checked={field.localized || false}
@@ -217,7 +217,7 @@ function CollectionEditor() {
 									<button
 										type="button"
 										onClick={() => removeField(i)}
-										className="text-red-500 hover:text-red-600 text-xs px-2"
+										className="text-danger hover:opacity-80 text-xs px-2"
 									>
 										Remove
 									</button>
@@ -232,14 +232,14 @@ function CollectionEditor() {
 						type="button"
 						onClick={save}
 						disabled={saving}
-						className="px-6 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
+						className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
 						{saving ? 'Saving...' : isNew ? 'Create Collection' : 'Save Changes'}
 					</button>
 					<button
 						type="button"
 						onClick={() => navigate({ to: '/collections' })}
-						className="px-6 py-2 bg-zinc-100 rounded text-sm hover:bg-zinc-200"
+						className="px-6 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 					>
 						Cancel
 					</button>

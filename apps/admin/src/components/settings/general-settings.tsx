@@ -48,50 +48,50 @@ export function GeneralSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Project name</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Project name</label>
 				<input
 					type="text"
 					value={name}
 					onChange={(e) => setName(e.target.value)}
-					className="w-full max-w-sm px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Project slug</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Project slug</label>
 				<input
 					type="text"
 					value={slug}
 					onChange={(e) => setSlug(e.target.value)}
-					className="w-full max-w-sm px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 font-mono focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 				/>
-				<p className="text-[11px] text-zinc-400 mt-1">Used in URLs and API. Changing this may break existing integrations.</p>
+				<p className="text-[11px] text-text-muted mt-1">Used in URLs and API. Changing this may break existing integrations.</p>
 			</div>
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Default locale</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Default locale</label>
 				<input
 					type="text"
 					value={defaultLocale}
 					onChange={(e) => setDefaultLocale(e.target.value)}
 					placeholder="en"
-					className="w-full max-w-xs px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Available locales</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Available locales</label>
 				<input
 					type="text"
 					value={locales}
 					onChange={(e) => setLocales(e.target.value)}
 					placeholder="en, es, fr, de"
-					className="w-full max-w-sm px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
-				<p className="text-[11px] text-zinc-400 mt-1">Comma-separated locale codes.</p>
+				<p className="text-[11px] text-text-muted mt-1">Comma-separated locale codes.</p>
 			</div>
 			<button
 				type="button"
 				onClick={save}
 				disabled={saving}
-				className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 			>
 				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
 			</button>

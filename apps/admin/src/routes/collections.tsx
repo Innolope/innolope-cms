@@ -52,16 +52,16 @@ function CollectionsList() {
 				<Link
 					to="/collections/$id"
 					params={{ id: 'new' }}
-					className="px-4 py-2 bg-zinc-900 text-white rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 				>
 					New Collection
 				</Link>
 			</div>
 
 			{loading ? (
-				<p className="text-zinc-500 text-sm">Loading...</p>
+				<p className="text-text-secondary text-sm">Loading...</p>
 			) : collections.length === 0 ? (
-				<div className="rounded-lg border border-zinc-200 p-8 text-center text-zinc-500 text-sm">
+				<div className="rounded-lg border border-border p-8 text-center text-text-secondary text-sm">
 					No collections yet. Create one to start organizing content.
 				</div>
 			) : (
@@ -69,7 +69,7 @@ function CollectionsList() {
 					{collections.map((col) => (
 						<div
 							key={col.id}
-							className="rounded-lg border border-zinc-200 p-4 hover:border-zinc-600 transition-colors"
+							className="rounded-lg border border-border p-4 hover:border-text-muted transition-colors"
 						>
 							<div className="flex items-start justify-between">
 								<Link
@@ -78,17 +78,17 @@ function CollectionsList() {
 									className="block"
 								>
 									<h3 className="font-semibold">{col.name}</h3>
-									<p className="text-sm text-zinc-500 mt-0.5">
+									<p className="text-sm text-text-secondary mt-0.5">
 										/{col.slug} — {col.fields.length} fields
 									</p>
 									{col.description && (
-										<p className="text-sm text-zinc-600 mt-1">{col.description}</p>
+										<p className="text-sm text-text-secondary mt-1">{col.description}</p>
 									)}
 								</Link>
 								<button
 									type="button"
 									onClick={() => deleteCollection(col.id)}
-									className="text-xs text-red-500 hover:text-red-600"
+									className="text-xs text-danger hover:opacity-80"
 								>
 									Delete
 								</button>
@@ -98,11 +98,11 @@ function CollectionsList() {
 									{col.fields.map((f) => (
 										<span
 											key={f.name}
-											className="px-2 py-0.5 bg-zinc-100 rounded text-xs text-zinc-400"
+											className="px-2 py-0.5 bg-surface-alt rounded text-xs text-text-muted"
 										>
 											{f.name}
-											<span className="text-zinc-600 ml-1">{f.type}</span>
-											{f.required && <span className="text-zinc-400 ml-0.5">*</span>}
+											<span className="text-text-secondary ml-1">{f.type}</span>
+											{f.required && <span className="text-text-muted ml-0.5">*</span>}
 										</span>
 									))}
 								</div>

@@ -31,7 +31,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 	const editor = useEditor({
 		extensions: [
 			StarterKit.configure({
-				codeBlock: { HTMLAttributes: { class: 'bg-white rounded-lg p-4 my-3' } },
+				codeBlock: { HTMLAttributes: { class: 'bg-surface-alt rounded-lg p-4 my-3' } },
 			}),
 			Image.configure({ inline: false, allowBase64: true }),
 			Link.configure({ openOnClick: false }),
@@ -41,7 +41,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		editorProps: {
 			attributes: {
 				class:
-					'prose prose-invert prose-zinc max-w-none min-h-[400px] focus:outline-none px-4 py-3',
+					'prose prose-zinc dark:prose-invert max-w-none min-h-[400px] focus:outline-none px-4 py-3',
 			},
 		},
 		onUpdate: ({ editor }) => {
@@ -114,8 +114,8 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 	if (!editor) return null
 
 	return (
-		<div className="border border-zinc-200 rounded-lg overflow-hidden">
-			<div className="flex flex-wrap gap-1 p-2 border-b border-zinc-200 bg-zinc-100">
+		<div className="border border-border rounded-lg overflow-hidden">
+			<div className="flex flex-wrap gap-1 p-2 border-b border-border bg-surface-alt">
 				<ToolbarBtn
 					active={editor.isActive('bold')}
 					onClick={() => editor.chain().focus().toggleBold().run()}
@@ -134,7 +134,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 					label="S"
 					className="line-through"
 				/>
-				<div className="w-px bg-zinc-700 mx-1" />
+				<div className="w-px bg-border mx-1" />
 				<ToolbarBtn
 					active={editor.isActive('heading', { level: 1 })}
 					onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
@@ -150,7 +150,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 					onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
 					label="H3"
 				/>
-				<div className="w-px bg-zinc-700 mx-1" />
+				<div className="w-px bg-border mx-1" />
 				<ToolbarBtn
 					active={editor.isActive('bulletList')}
 					onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -171,7 +171,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 					onClick={() => editor.chain().focus().toggleCodeBlock().run()}
 					label="Code"
 				/>
-				<div className="w-px bg-zinc-700 mx-1" />
+				<div className="w-px bg-border mx-1" />
 				<ToolbarBtn active={false} onClick={addImage} label="Image" />
 				<ToolbarBtn
 					active={editor.isActive('link')}
@@ -206,7 +206,7 @@ function ToolbarBtn({
 			type="button"
 			onClick={onClick}
 			className={`px-2 py-1 rounded text-xs transition-colors ${
-				active ? 'bg-zinc-700 text-zinc-900' : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-300'
+				active ? 'bg-btn-primary text-btn-primary-text' : 'text-text-muted hover:bg-surface hover:text-text-secondary'
 			} ${className}`}
 		>
 			{label}

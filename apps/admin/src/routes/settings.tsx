@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
+import { useTheme } from '../lib/theme'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { MediaSettings } from '../components/settings/media-settings'
@@ -29,6 +30,9 @@ function Settings() {
 		<div className="p-8 max-w-4xl">
 			<h2 className="text-2xl font-bold mb-8">Settings</h2>
 			<div className="space-y-8">
+				<Section title="Appearance">
+					<AppearanceSettings />
+				</Section>
 				<ApiKeysSection />
 				<Section title="AI Models">
 					<AiSettingsPanel />
@@ -42,6 +46,40 @@ function Settings() {
 				<Section title="Database">
 					<DatabaseSettings />
 				</Section>
+			</div>
+		</div>
+	)
+}
+
+function AppearanceSettings() {
+	const { theme, setTheme } = useTheme()
+
+	return (
+		<div className="space-y-3">
+			<label className="block text-xs text-text-secondary mb-1.5">Theme</label>
+			<div className="flex gap-2">
+				<button
+					type="button"
+					onClick={() => setTheme('light')}
+					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+						theme === 'light'
+							? 'bg-btn-primary text-btn-primary-text'
+							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
+					}`}
+				>
+					Light
+				</button>
+				<button
+					type="button"
+					onClick={() => setTheme('dark')}
+					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+						theme === 'dark'
+							? 'bg-btn-primary text-btn-primary-text'
+							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
+					}`}
+				>
+					Dark
+				</button>
 			</div>
 		</div>
 	)
@@ -101,45 +139,45 @@ function ApiKeysSection() {
 	}
 
 	return (
-		<div className="rounded-lg border border-zinc-200 p-6">
+		<div className="rounded-lg border border-border p-6">
 			<div className="flex items-center justify-between mb-4">
 				<div>
 					<h3 className="text-lg font-semibold">API Keys</h3>
-					<p className="text-zinc-500 text-sm mt-1">
+					<p className="text-text-secondary text-sm mt-1">
 						Generate keys for AI agents and external integrations
 					</p>
 				</div>
 				<button
 					type="button"
 					onClick={() => setShowCreate(true)}
-					className="px-3 py-1.5 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 				>
 					Create Key
 				</button>
 			</div>
 
 			{createdKey && (
-				<div className="mb-4 p-4 rounded-lg bg-zinc-100 border border-zinc-200">
-					<p className="text-sm font-medium text-zinc-700 mb-2">
+				<div className="mb-4 p-4 rounded-lg bg-surface-alt border border-border">
+					<p className="text-sm font-medium text-text-secondary mb-2">
 						Save this key now. It will not be shown again.
 					</p>
 					<div className="flex items-center gap-2">
-						<code className="flex-1 text-sm bg-black/30 px-3 py-2 rounded font-mono break-all">
+						<code className="flex-1 text-sm bg-surface px-3 py-2 rounded font-mono break-all border border-border">
 							{createdKey}
 						</code>
 						<button
 							type="button"
 							onClick={copyKey}
-							className="px-3 py-2 bg-zinc-200 text-emerald-100 rounded text-sm hover:bg-zinc-800"
+							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
 							{copied ? 'Copied' : 'Copy'}
 						</button>
 					</div>
 					<details className="mt-3">
-						<summary className="text-xs text-zinc-700 cursor-pointer">
+						<summary className="text-xs text-text-secondary cursor-pointer">
 							Claude Desktop config
 						</summary>
-						<pre className="mt-2 text-xs bg-black/30 p-3 rounded overflow-x-auto">
+						<pre className="mt-2 text-xs bg-surface p-3 rounded overflow-x-auto border border-border">
 							{JSON.stringify(
 								{
 									mcpServers: {
@@ -161,7 +199,7 @@ function ApiKeysSection() {
 					<button
 						type="button"
 						onClick={() => setCreatedKey(null)}
-						className="mt-3 text-xs text-zinc-600 hover:text-zinc-700"
+						className="mt-3 text-xs text-text-secondary hover:text-text"
 					>
 						Dismiss
 					</button>
@@ -169,7 +207,7 @@ function ApiKeysSection() {
 			)}
 
 			{showCreate && (
-				<div className="mb-4 p-4 rounded-lg bg-white border border-zinc-300">
+				<div className="mb-4 p-4 rounded-lg bg-surface border border-border-strong">
 					<label className="block text-sm mb-2">Key name</label>
 					<div className="flex gap-2">
 						<input
@@ -178,20 +216,20 @@ function ApiKeysSection() {
 							onChange={(e) => setNewKeyName(e.target.value)}
 							onKeyDown={(e) => e.key === 'Enter' && createKey()}
 							placeholder="e.g. Claude Agent, CI Pipeline"
-							className="flex-1 px-3 py-2 bg-zinc-100 border border-zinc-300 rounded text-sm focus:outline-none focus:border-zinc-500"
+							className="flex-1 px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none focus:border-border-strong"
 							autoFocus
 						/>
 						<button
 							type="button"
 							onClick={createKey}
-							className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-200"
+							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover"
 						>
 							Create
 						</button>
 						<button
 							type="button"
 							onClick={() => setShowCreate(false)}
-							className="px-4 py-2 bg-zinc-100 rounded text-sm hover:bg-zinc-200"
+							className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
 							Cancel
 						</button>
@@ -200,13 +238,13 @@ function ApiKeysSection() {
 			)}
 
 			{loading ? (
-				<p className="text-zinc-500 text-sm">Loading...</p>
+				<p className="text-text-secondary text-sm">Loading...</p>
 			) : keys.length === 0 ? (
-				<p className="text-zinc-500 text-sm">No API keys yet.</p>
+				<p className="text-text-secondary text-sm">No API keys yet.</p>
 			) : (
 				<table className="w-full text-sm">
 					<thead>
-						<tr className="text-left text-zinc-500 border-b border-zinc-200">
+						<tr className="text-left text-text-secondary border-b border-border">
 							<th className="pb-2 font-medium">Name</th>
 							<th className="pb-2 font-medium">Key</th>
 							<th className="pb-2 font-medium">Created</th>
@@ -216,20 +254,20 @@ function ApiKeysSection() {
 					</thead>
 					<tbody>
 						{keys.map((k) => (
-							<tr key={k.id} className="border-b border-zinc-200">
+							<tr key={k.id} className="border-b border-border">
 								<td className="py-3">{k.name}</td>
-								<td className="py-3 font-mono text-zinc-500">{k.keyPrefix}...</td>
-								<td className="py-3 text-zinc-500">
+								<td className="py-3 font-mono text-text-secondary">{k.keyPrefix}...</td>
+								<td className="py-3 text-text-secondary">
 									{new Date(k.createdAt).toLocaleDateString()}
 								</td>
-								<td className="py-3 text-zinc-500">
+								<td className="py-3 text-text-secondary">
 									{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : 'Never'}
 								</td>
 								<td className="py-3 text-right">
 									<button
 										type="button"
 										onClick={() => deleteKey(k.id)}
-										className="text-red-500 hover:text-red-600 text-xs"
+										className="text-danger hover:opacity-80 text-xs"
 									>
 										Revoke
 									</button>
@@ -245,7 +283,7 @@ function ApiKeysSection() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
 	return (
-		<div className="rounded-lg border border-zinc-200 p-6">
+		<div className="rounded-lg border border-border p-6">
 			<h3 className="text-lg font-semibold mb-2">{title}</h3>
 			{children}
 		</div>

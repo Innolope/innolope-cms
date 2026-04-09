@@ -83,21 +83,21 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 	}
 
 	return (
-		<div className="flex flex-col h-full border-l border-zinc-200 bg-zinc-50">
+		<div className="flex flex-col h-full border-l border-border bg-bg">
 			{/* Header */}
-			<div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
+			<div className="flex items-center justify-between px-4 py-3 border-b border-border">
 				<div>
 					<h3 className="text-sm font-semibold">AI Assistant</h3>
 					{targetField && (
-						<p className="text-[10px] text-zinc-500 mt-0.5">
-							Targeting: <span className="text-zinc-400">{targetField}</span>
+						<p className="text-[10px] text-text-secondary mt-0.5">
+							Targeting: <span className="text-text-muted">{targetField}</span>
 						</p>
 					)}
 				</div>
 				<button
 					type="button"
 					onClick={onClose}
-					className="text-zinc-600 hover:text-zinc-600 text-xs p-1"
+					className="text-text-secondary hover:text-text text-xs p-1"
 				>
 					Close
 				</button>
@@ -106,7 +106,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 			{/* Messages */}
 			<div className="flex-1 overflow-auto px-4 py-3 space-y-3">
 				{messages.length === 0 && (
-					<div className="text-center text-zinc-600 text-xs py-8">
+					<div className="text-center text-text-secondary text-xs py-8">
 						<p>Select text in a field and use quick actions,</p>
 						<p>or type a prompt below.</p>
 					</div>
@@ -114,9 +114,9 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 				{messages.map((msg) => (
 					<div key={msg.id} className={msg.role === 'user' ? 'text-right' : ''}>
 						{msg.role === 'user' ? (
-							<div className="inline-block bg-zinc-100 rounded-lg px-3 py-2 text-sm max-w-[85%] text-left">
+							<div className="inline-block bg-surface-alt rounded-lg px-3 py-2 text-sm max-w-[85%] text-left">
 								{msg.field && (
-									<span className="text-[10px] text-zinc-500 block mb-1">
+									<span className="text-[10px] text-text-secondary block mb-1">
 										{msg.field}
 									</span>
 								)}
@@ -124,18 +124,18 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 							</div>
 						) : (
 							<div className="space-y-2">
-								<div className="bg-white rounded-lg px-3 py-3 text-sm border border-zinc-200">
+								<div className="bg-surface rounded-lg px-3 py-3 text-sm border border-border">
 									{msg.field && (
 										<div className="flex items-center justify-between mb-2">
-											<span className="text-[10px] text-zinc-500">
+											<span className="text-[10px] text-text-secondary">
 												{msg.field}
 											</span>
-											<span className="text-[10px] text-zinc-600">
+											<span className="text-[10px] text-text-muted">
 												{msg.model}
 											</span>
 										</div>
 									)}
-									<pre className="whitespace-pre-wrap text-zinc-300 text-sm leading-relaxed font-sans">
+									<pre className="whitespace-pre-wrap text-text-secondary text-sm leading-relaxed font-sans">
 										{msg.text}
 									</pre>
 								</div>
@@ -144,7 +144,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 										<button
 											type="button"
 											onClick={() => onApply(msg.field!, msg.text)}
-											className="px-3 py-1 bg-zinc-900 text-white rounded text-xs font-medium hover:bg-zinc-200 transition-colors"
+											className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover transition-colors"
 										>
 											Apply to {msg.field}
 										</button>
@@ -153,7 +153,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 											onClick={() => {
 												navigator.clipboard.writeText(msg.text)
 											}}
-											className="px-3 py-1 bg-zinc-100 rounded text-xs hover:bg-zinc-200 transition-colors"
+											className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover transition-colors"
 										>
 											Copy
 										</button>
@@ -165,9 +165,9 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 				))}
 				{loading && (
 					<div className="flex gap-1 px-3 py-2">
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse" />
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse [animation-delay:150ms]" />
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse [animation-delay:300ms]" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse [animation-delay:150ms]" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse [animation-delay:300ms]" />
 					</div>
 				)}
 				<div ref={bottomRef} />
@@ -175,7 +175,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 
 			{/* Quick actions */}
 			{selectedText && (
-				<div className="px-4 py-2 border-t border-zinc-200 flex flex-wrap gap-1.5">
+				<div className="px-4 py-2 border-t border-border flex flex-wrap gap-1.5">
 					{[
 						{ label: 'Rewrite', action: 'rewrite' },
 						{ label: 'Shorter', action: 'shorter' },
@@ -188,7 +188,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 							type="button"
 							onClick={() => send(undefined, action)}
 							disabled={loading}
-							className="px-2.5 py-1 bg-zinc-100 rounded text-[11px] text-zinc-400 hover:bg-zinc-200 hover:text-zinc-300 disabled:opacity-50 transition-colors"
+							className="px-2.5 py-1 bg-btn-secondary rounded text-[11px] text-text-muted hover:bg-btn-secondary-hover hover:text-text-secondary disabled:opacity-50 transition-colors"
 						>
 							{label}
 						</button>
@@ -197,7 +197,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 			)}
 
 			{/* Input */}
-			<div className="px-4 py-3 border-t border-zinc-200">
+			<div className="px-4 py-3 border-t border-border">
 				<div className="flex gap-2">
 					<textarea
 						ref={inputRef}
@@ -211,13 +211,13 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 						}}
 						placeholder="Ask AI to help..."
 						rows={2}
-						className="flex-1 px-3 py-2 bg-white border border-zinc-200 rounded-lg text-sm resize-none focus:outline-none focus:border-zinc-600"
+						className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm resize-none focus:outline-none focus:border-border-strong"
 					/>
 					<button
 						type="button"
 						onClick={() => send()}
 						disabled={loading || !input.trim()}
-						className="px-3 self-end py-2 bg-zinc-900 text-white rounded-lg text-xs font-medium hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+						className="px-3 self-end py-2 bg-btn-primary text-btn-primary-text rounded-lg text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-30 transition-colors"
 					>
 						Send
 					</button>

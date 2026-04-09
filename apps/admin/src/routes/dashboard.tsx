@@ -44,13 +44,11 @@ function Dashboard() {
 					label="Published"
 					value={stats?.content.published ?? '—'}
 					to="/content"
-					accent="emerald"
 				/>
 				<StatCard
 					label="Drafts"
 					value={stats?.content.draft ?? '—'}
 					to="/content"
-					accent="amber"
 				/>
 				<StatCard label="Media Files" value={stats?.media ?? '—'} to="/media" />
 				<StatCard label="API Keys" value={stats?.apiKeys ?? '—'} to="/settings" />
@@ -58,12 +56,12 @@ function Dashboard() {
 
 			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 				{/* Recent activity */}
-				<div className="rounded-lg border border-zinc-200 p-5">
-					<h3 className="text-sm font-semibold mb-3 text-zinc-400 uppercase tracking-wide">
+				<div className="rounded-lg border border-border p-5">
+					<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
 						Recent Activity
 					</h3>
 					{recent.length === 0 ? (
-						<p className="text-zinc-600 text-sm">No activity yet.</p>
+						<p className="text-text-secondary text-sm">No activity yet.</p>
 					) : (
 						<div className="space-y-2">
 							{recent.slice(0, 10).map((item) => (
@@ -71,19 +69,19 @@ function Dashboard() {
 									key={item.id}
 									to="/content/$id"
 									params={{ id: item.id }}
-									className="flex items-center justify-between py-2 px-3 rounded hover:bg-white transition-colors"
+									className="flex items-center justify-between py-2 px-3 rounded hover:bg-surface transition-colors"
 								>
 									<div className="flex-1 min-w-0">
 										<p className="text-sm truncate">
 											{(item.metadata?.title as string) || item.slug}
 										</p>
-										<p className="text-xs text-zinc-600">
+										<p className="text-xs text-text-secondary">
 											v{item.version} — {item.locale}
 										</p>
 									</div>
 									<div className="flex items-center gap-2 ml-3">
 										<StatusBadge status={item.status} />
-										<span className="text-xs text-zinc-600">
+										<span className="text-xs text-text-secondary">
 											{timeAgo(item.updatedAt)}
 										</span>
 									</div>
@@ -94,46 +92,46 @@ function Dashboard() {
 				</div>
 
 				{/* Quick start */}
-				<div className="rounded-lg border border-zinc-200 p-5">
-					<h3 className="text-sm font-semibold mb-3 text-zinc-400 uppercase tracking-wide">
+				<div className="rounded-lg border border-border p-5">
+					<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
 						Quick Start
 					</h3>
-					<div className="space-y-3 text-sm text-zinc-400">
+					<div className="space-y-3 text-sm text-text-muted">
 						<Step n={1}>
-							<Link to="/collections" className="text-zinc-900 hover:underline">
+							<Link to="/collections" className="text-text hover:underline">
 								Create a collection
 							</Link>{' '}
 							to define your content types
 						</Step>
 						<Step n={2}>
-							<Link to="/settings" className="text-zinc-900 hover:underline">
+							<Link to="/settings" className="text-text hover:underline">
 								Generate an API key
 							</Link>{' '}
 							for Claude or other AI agents
 						</Step>
 						<Step n={3}>
-							<Link to="/content/$id" params={{ id: 'new' }} className="text-zinc-900 hover:underline">
+							<Link to="/content/$id" params={{ id: 'new' }} className="text-text hover:underline">
 								Create content
 							</Link>{' '}
 							manually or via MCP
 						</Step>
 						<Step n={4}>
 							Consume via REST API at{' '}
-							<code className="text-zinc-300 bg-zinc-100 px-1 rounded text-xs">
+							<code className="text-text-faint bg-surface-alt px-1 rounded text-xs">
 								/api/v1/content
 							</code>
 						</Step>
 						<Step n={5}>
 							Or use the SDK:{' '}
-							<code className="text-zinc-300 bg-zinc-100 px-1 rounded text-xs">
+							<code className="text-text-faint bg-surface-alt px-1 rounded text-xs">
 								npm i @innolope/sdk
 							</code>
 						</Step>
 					</div>
 
-					<div className="mt-6 pt-4 border-t border-zinc-200">
-						<h4 className="text-xs font-medium text-zinc-500 mb-2">MCP Config</h4>
-						<pre className="text-xs bg-white p-3 rounded overflow-x-auto text-zinc-500">
+					<div className="mt-6 pt-4 border-t border-border">
+						<h4 className="text-xs font-medium text-text-secondary mb-2">MCP Config</h4>
+						<pre className="text-xs bg-surface p-3 rounded overflow-x-auto text-text-secondary border border-border">
 {`{
   "mcpServers": {
     "innolope": {
@@ -158,36 +156,27 @@ function StatCard({
 	label,
 	value,
 	to,
-	accent,
 }: {
 	label: string
 	value: number | string
 	to: string
-	accent?: 'emerald' | 'amber'
 }) {
-	const accentClass =
-		accent === 'emerald'
-			? 'text-zinc-700'
-			: accent === 'amber'
-				? 'text-zinc-900'
-				: 'text-zinc-900'
-
 	return (
 		<Link
 			to={to}
-			className="rounded-lg border border-zinc-200 p-4 hover:border-zinc-600 transition-colors"
+			className="rounded-lg border border-border p-4 hover:border-text-muted transition-colors"
 		>
-			<p className="text-xs text-zinc-500">{label}</p>
-			<p className={`text-2xl font-bold mt-1 ${accentClass}`}>{value}</p>
+			<p className="text-xs text-text-secondary">{label}</p>
+			<p className="text-2xl font-bold mt-1 text-text">{value}</p>
 		</Link>
 	)
 }
 
 function StatusBadge({ status }: { status: string }) {
 	const styles: Record<string, string> = {
-		draft: 'bg-zinc-100 text-zinc-500',
-		published: 'bg-zinc-100 text-zinc-700',
-		archived: 'bg-zinc-100 text-zinc-400',
+		draft: 'bg-surface-alt text-text-secondary',
+		published: 'bg-surface-alt text-text',
+		archived: 'bg-surface-alt text-text-muted',
 	}
 	return (
 		<span className={`px-1.5 py-0.5 rounded text-[10px] ${styles[status] || ''}`}>
@@ -199,7 +188,7 @@ function StatusBadge({ status }: { status: string }) {
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
 	return (
 		<div className="flex items-start gap-3">
-			<span className="text-zinc-600 font-mono text-xs mt-0.5">{n}.</span>
+			<span className="text-text-secondary font-mono text-xs mt-0.5">{n}.</span>
 			<span>{children}</span>
 		</div>
 	)

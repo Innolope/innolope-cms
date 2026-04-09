@@ -80,12 +80,12 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 		onSelect(photo)
 	}
 
-	if (enabled === null) return <p className="text-zinc-500 text-sm p-4">Checking Unsplash...</p>
+	if (enabled === null) return <p className="text-text-secondary text-sm p-4">Checking Unsplash...</p>
 	if (!enabled) {
 		return (
-			<div className="p-8 text-center text-zinc-500 text-sm">
+			<div className="p-8 text-center text-text-secondary text-sm">
 				<p>Unsplash not configured.</p>
-				<p className="text-xs mt-1">Set <code className="bg-zinc-100 px-1 rounded">UNSPLASH_ACCESS_KEY</code> to enable.</p>
+				<p className="text-xs mt-1">Set <code className="bg-surface-alt px-1 rounded">UNSPLASH_ACCESS_KEY</code> to enable.</p>
 			</div>
 		)
 	}
@@ -97,16 +97,16 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 				value={query}
 				onChange={(e) => handleInput(e.target.value)}
 				placeholder="Search Unsplash photos..."
-				className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
+				className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm focus:outline-none focus:border-border-strong"
 				autoFocus
 			/>
 
 			{photos.length === 0 && !loading && query && (
-				<p className="text-zinc-600 text-sm text-center py-4">No photos found.</p>
+				<p className="text-text-secondary text-sm text-center py-4">No photos found.</p>
 			)}
 
 			{photos.length === 0 && !loading && !query && (
-				<p className="text-zinc-600 text-sm text-center py-4">Type to search free photos on Unsplash.</p>
+				<p className="text-text-secondary text-sm text-center py-4">Type to search free photos on Unsplash.</p>
 			)}
 
 			<div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -115,7 +115,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 						type="button"
 						key={photo.id}
 						onClick={() => handleSelect(photo)}
-						className="group relative aspect-[4/3] rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-600 transition-colors"
+						className="group relative aspect-[4/3] rounded-lg overflow-hidden border border-border hover:border-text-muted transition-colors"
 						style={{ backgroundColor: photo.color }}
 					>
 						<img
@@ -125,7 +125,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 							loading="lazy"
 						/>
 						<div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-							<p className="text-[10px] text-zinc-900 truncate">
+							<p className="text-[10px] text-white truncate">
 								{photo.author}
 							</p>
 						</div>
@@ -136,9 +136,9 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 			{loading && (
 				<div className="flex justify-center py-4">
 					<div className="flex gap-1">
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse" />
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse [animation-delay:150ms]" />
-						<span className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-pulse [animation-delay:300ms]" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse [animation-delay:150ms]" />
+						<span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse [animation-delay:300ms]" />
 					</div>
 				</div>
 			)}
@@ -147,14 +147,14 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 				<button
 					type="button"
 					onClick={loadMore}
-					className="w-full py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+					className="w-full py-2 text-xs text-text-secondary hover:text-text-muted transition-colors"
 				>
 					Load more
 				</button>
 			)}
 
 			{photos.length > 0 && (
-				<p className="text-[10px] text-zinc-300 text-center">
+				<p className="text-[10px] text-text-faint text-center">
 					Photos by <a href="https://unsplash.com" target="_blank" rel="noopener noreferrer" className="underline">Unsplash</a>
 				</p>
 			)}

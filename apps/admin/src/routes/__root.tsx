@@ -1,5 +1,6 @@
 import { createRootRoute, Link, Outlet, useNavigate, useLocation } from '@tanstack/react-router'
 import { useAuth, AuthProvider } from '../lib/auth'
+import { ThemeProvider } from '../lib/theme'
 import { LicenseProvider } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
 import { useEffect, useState } from 'react'
@@ -11,11 +12,13 @@ export const Route = createRootRoute({
 
 function RootWithAuth() {
 	return (
-		<AuthProvider>
-			<LicenseProvider>
-				<AuthGate />
-			</LicenseProvider>
-		</AuthProvider>
+		<ThemeProvider>
+			<AuthProvider>
+				<LicenseProvider>
+					<AuthGate />
+				</LicenseProvider>
+			</AuthProvider>
+		</ThemeProvider>
 	)
 }
 
@@ -34,7 +37,7 @@ function AuthGate() {
 
 	if (loading) {
 		return (
-			<div className="min-h-screen bg-zinc-50 flex items-center justify-center text-zinc-400">
+			<div className="min-h-screen bg-bg flex items-center justify-center text-text-muted">
 				Loading...
 			</div>
 		)
@@ -70,10 +73,10 @@ function NoProjectView() {
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
+		<div className="min-h-screen bg-bg flex items-center justify-center p-4">
 			<div className="w-full max-w-sm text-center">
-				<h1 className="text-2xl font-bold text-zinc-900">Welcome, {user?.name}</h1>
-				<p className="text-zinc-500 text-sm mt-2 mb-6">Create your first project to get started.</p>
+				<h1 className="text-2xl font-bold text-text">Welcome, {user?.name}</h1>
+				<p className="text-text-secondary text-sm mt-2 mb-6">Create your first project to get started.</p>
 				<div className="flex gap-2">
 					<input
 						type="text"
@@ -81,14 +84,14 @@ function NoProjectView() {
 						onChange={(e) => setName(e.target.value)}
 						onKeyDown={(e) => e.key === 'Enter' && create()}
 						placeholder="Project name"
-						className="flex-1 px-3 py-2.5 bg-white border border-zinc-300 rounded-lg text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+						className="flex-1 px-3 py-2.5 bg-input border border-border-strong rounded-lg text-sm text-text focus:outline-none focus:border-border-strong"
 						autoFocus
 					/>
 					<button
 						type="button"
 						onClick={create}
 						disabled={creating}
-						className="px-4 py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
+						className="px-4 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
 						Create
 					</button>
@@ -96,7 +99,7 @@ function NoProjectView() {
 				<button
 					type="button"
 					onClick={logout}
-					className="mt-4 text-xs text-zinc-400 hover:text-zinc-600"
+					className="mt-4 text-xs text-text-muted hover:text-text-secondary"
 				>
 					Logout
 				</button>
@@ -115,9 +118,9 @@ function AppLayout() {
 	}
 
 	return (
-		<div className="flex h-screen bg-zinc-50 text-zinc-900">
-			<aside className="w-64 bg-white border-r border-zinc-200 flex flex-col">
-				<div className="p-3 border-b border-zinc-200">
+		<div className="flex h-screen bg-bg text-text">
+			<aside className="w-64 bg-surface border-r border-border flex flex-col">
+				<div className="p-3 border-b border-border">
 					<ProjectSelector />
 				</div>
 				<nav className="flex-1 p-3 space-y-0.5">
@@ -127,24 +130,24 @@ function AppLayout() {
 					<NavLink to="/media" label="Media" />
 					<NavLink to="/settings" label="Settings" />
 				</nav>
-				<div className="p-4 border-t border-zinc-200">
+				<div className="p-4 border-t border-border">
 					<div className="flex items-center justify-between">
 						<div className="min-w-0">
-							<p className="text-sm truncate text-zinc-900">{user?.name}</p>
-							<p className="text-xs text-zinc-400 truncate">{user?.email}</p>
+							<p className="text-sm truncate text-text">{user?.name}</p>
+							<p className="text-xs text-text-muted truncate">{user?.email}</p>
 						</div>
 						<button
 							type="button"
 							onClick={handleLogout}
-							className="text-xs text-zinc-400 hover:text-zinc-600 shrink-0 ml-2"
+							className="text-xs text-text-muted hover:text-text-secondary shrink-0 ml-2"
 						>
 							Logout
 						</button>
 					</div>
-					<p className="text-[10px] text-zinc-300 mt-2">v0.1.0</p>
+					<p className="text-[10px] text-text-faint mt-2">v0.1.0</p>
 				</div>
 			</aside>
-			<main className="flex-1 overflow-auto bg-zinc-50">
+			<main className="flex-1 overflow-auto bg-bg">
 				<Outlet />
 			</main>
 		</div>
@@ -155,8 +158,8 @@ function NavLink({ to, label }: { to: string; label: string }) {
 	return (
 		<Link
 			to={to}
-			className="block px-3 py-2 rounded-md text-sm text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-			activeProps={{ className: 'bg-zinc-100 text-zinc-900 font-medium' }}
+			className="block px-3 py-2 rounded-md text-sm text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+			activeProps={{ className: 'bg-surface-alt text-text font-medium' }}
 		>
 			{label}
 		</Link>

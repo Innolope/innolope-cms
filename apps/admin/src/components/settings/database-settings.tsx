@@ -92,7 +92,7 @@ export function DatabaseSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Database source</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Database source</label>
 				<select
 					value={dbType}
 					onChange={(e) => {
@@ -100,7 +100,7 @@ export function DatabaseSettings() {
 						setTestResult(null)
 						setTables([])
 					}}
-					className="w-full max-w-xs px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				>
 					<option value="built-in">Built-in (Innolope CMS database)</option>
 					<option value="postgresql">PostgreSQL</option>
@@ -114,7 +114,7 @@ export function DatabaseSettings() {
 			{dbType !== 'built-in' && (
 				<>
 					<div>
-						<label className="block text-xs text-zinc-500 mb-1.5">
+						<label className="block text-xs text-text-secondary mb-1.5">
 							{dbType === 'supabase' ? 'Supabase connection string' :
 							 dbType === 'vercel-postgres' ? 'POSTGRES_URL from Vercel dashboard' :
 							 'Connection string'}
@@ -128,7 +128,7 @@ export function DatabaseSettings() {
 								dbType === 'mysql' ? 'mysql://user:pass@host:3306/db' :
 								'postgresql://user:pass@host:5432/db'
 							}
-							className="w-full px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 font-mono focus:outline-none focus:border-zinc-500"
+							className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 						/>
 					</div>
 
@@ -137,7 +137,7 @@ export function DatabaseSettings() {
 							type="button"
 							onClick={testConnection}
 							disabled={testing || !connectionString.trim()}
-							className="px-4 py-2 bg-zinc-100 border border-zinc-200 rounded text-sm hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+							className="px-4 py-2 bg-btn-secondary border border-border rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50 transition-colors"
 						>
 							{testing ? 'Testing...' : 'Test Connection'}
 						</button>
@@ -146,7 +146,7 @@ export function DatabaseSettings() {
 								type="button"
 								onClick={scanTables}
 								disabled={scanning}
-								className="px-4 py-2 bg-zinc-900 text-white rounded text-sm hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 							>
 								{scanning ? 'Scanning...' : 'Scan Tables'}
 							</button>
@@ -154,21 +154,21 @@ export function DatabaseSettings() {
 					</div>
 
 					{testResult && (
-						<p className={`text-sm px-3 py-2 rounded ${testResult.ok ? 'bg-zinc-50 text-zinc-700 border border-zinc-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+						<p className={`text-sm px-3 py-2 rounded ${testResult.ok ? 'bg-surface text-text border border-border' : 'bg-danger-surface text-danger border border-danger'}`}>
 							{testResult.message}
 						</p>
 					)}
 
 					{tables.length > 0 && (
 						<div>
-							<label className="block text-xs text-zinc-500 mb-2">
+							<label className="block text-xs text-text-secondary mb-2">
 								Detected tables — select which to manage as CMS collections
 							</label>
-							<div className="space-y-1 max-h-60 overflow-auto border border-zinc-200 rounded p-2">
+							<div className="space-y-1 max-h-60 overflow-auto border border-border rounded p-2">
 								{tables.map((t) => (
 									<label
 										key={t.name}
-										className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-50 cursor-pointer"
+										className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-alt cursor-pointer"
 									>
 										<input
 											type="checkbox"
@@ -177,7 +177,7 @@ export function DatabaseSettings() {
 											className="rounded"
 										/>
 										<span className="text-sm font-mono">{t.name}</span>
-										<span className="text-[11px] text-zinc-400">
+										<span className="text-[11px] text-text-muted">
 											{t.columns.length} columns
 										</span>
 									</label>
@@ -189,14 +189,14 @@ export function DatabaseSettings() {
 			)}
 
 			{dbType === 'built-in' && (
-				<p className="text-xs text-zinc-400">Content stored in the default Innolope CMS database. No external connection needed.</p>
+				<p className="text-xs text-text-muted">Content stored in the default Innolope CMS database. No external connection needed.</p>
 			)}
 
 			<button
 				type="button"
 				onClick={save}
 				disabled={saving}
-				className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 			>
 				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
 			</button>

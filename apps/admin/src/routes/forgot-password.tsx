@@ -27,26 +27,26 @@ function ForgotPassword() {
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
+		<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<h1 className="text-2xl font-bold">Reset Password</h1>
-					<p className="text-zinc-500 text-sm mt-1">
+					<p className="text-text-secondary text-sm mt-1">
 						Enter your email and we'll send a reset link.
 					</p>
 				</div>
 
 				{sent ? (
 					<div className="text-center space-y-4">
-						<div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center mx-auto">
+						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mx-auto">
 							<span className="text-xl">✉️</span>
 						</div>
-						<p className="text-sm text-zinc-400">
+						<p className="text-sm text-text-muted">
 							If an account exists for <strong>{email}</strong>, you'll receive a reset link shortly.
 						</p>
 						<Link
 							to="/login"
-							className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+							className="text-xs text-text-secondary hover:text-text-muted transition-colors"
 						>
 							Back to login
 						</Link>
@@ -54,33 +54,33 @@ function ForgotPassword() {
 				) : (
 					<form onSubmit={handleSubmit} className="space-y-4">
 						<div>
-							<label className="block text-xs text-zinc-500 mb-1.5">Email</label>
+							<label className="block text-xs text-text-secondary mb-1.5">Email</label>
 							<input
 								type="email"
 								value={email}
 								onChange={(e) => setEmail(e.target.value)}
 								required
-								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 								placeholder="your@email.com"
 								autoFocus
 							/>
 						</div>
 
 						{error && (
-							<p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>
+							<p className="text-sm text-danger bg-danger-surface px-3 py-2 rounded">{error}</p>
 						)}
 
 						<button
 							type="submit"
 							disabled={submitting}
-							className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
 							{submitting ? 'Sending...' : 'Send Reset Link'}
 						</button>
 
 						<Link
 							to="/login"
-							className="block text-center text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+							className="block text-center text-xs text-text-secondary hover:text-text-muted transition-colors"
 						>
 							Back to login
 						</Link>

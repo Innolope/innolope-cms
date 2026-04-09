@@ -62,11 +62,11 @@ export function MediaSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-zinc-500 mb-1.5">Storage adapter</label>
+				<label className="block text-xs text-text-secondary mb-1.5">Storage adapter</label>
 				<select
 					value={adapter}
 					onChange={(e) => setAdapter(e.target.value)}
-					className="w-full max-w-xs px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 focus:outline-none focus:border-zinc-500"
+					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				>
 					<option value="local">Local filesystem</option>
 					<option value="cloudflare">Cloudflare (Images + R2 + Stream)</option>
@@ -75,7 +75,7 @@ export function MediaSettings() {
 			</div>
 
 			{adapter === 'cloudflare' && (
-				<div className="space-y-3 pl-0 border-l-2 border-zinc-200 pl-4">
+				<div className="space-y-3 border-l-2 border-border pl-4">
 					<CfField label="Account ID" value={cfAccountId} onChange={setCfAccountId} />
 					<CfField label="API Token" value={cfApiToken} onChange={setCfApiToken} password />
 					<CfField label="Images Account Hash" value={cfImagesHash} onChange={setCfImagesHash} />
@@ -87,14 +87,14 @@ export function MediaSettings() {
 			)}
 
 			{adapter === 'local' && (
-				<p className="text-xs text-zinc-400">Files stored on the server filesystem. Good for development and small deployments.</p>
+				<p className="text-xs text-text-muted">Files stored on the server filesystem. Good for development and small deployments.</p>
 			)}
 
 			<button
 				type="button"
 				onClick={save}
 				disabled={saving}
-				className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 			>
 				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
 			</button>
@@ -111,13 +111,13 @@ function CfField({ label, value, onChange, password, placeholder }: {
 }) {
 	return (
 		<div>
-			<label className="block text-xs text-zinc-500 mb-1">{label}</label>
+			<label className="block text-xs text-text-secondary mb-1">{label}</label>
 			<input
 				type={password ? 'password' : 'text'}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				placeholder={placeholder || ''}
-				className="w-full max-w-sm px-3 py-2 bg-white border border-zinc-300 rounded text-sm text-zinc-900 font-mono focus:outline-none focus:border-zinc-500"
+				className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 			/>
 		</div>
 	)

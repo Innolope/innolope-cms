@@ -23,9 +23,9 @@ interface ContentResponse {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-	draft: 'bg-zinc-100 text-zinc-500',
-	published: 'bg-zinc-100 text-zinc-700',
-	archived: 'bg-zinc-100 text-zinc-400',
+	draft: 'bg-surface-alt text-text-secondary',
+	published: 'bg-surface-alt text-text',
+	archived: 'bg-surface-alt text-text-muted',
 }
 
 function ContentList() {
@@ -60,7 +60,7 @@ function ContentList() {
 				<Link
 					to="/content/$id"
 					params={{ id: 'new' }}
-					className="px-4 py-2 bg-zinc-900 text-white rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 				>
 					New Content
 				</Link>
@@ -75,7 +75,7 @@ function ContentList() {
 						setSearch(e.target.value)
 						setPage(1)
 					}}
-					className="flex-1 px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
+					className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 				/>
 				<select
 					value={statusFilter}
@@ -83,7 +83,7 @@ function ContentList() {
 						setStatusFilter(e.target.value)
 						setPage(1)
 					}}
-					className="px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
+					className="px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
 				>
 					<option value="">All statuses</option>
 					<option value="draft">Draft</option>
@@ -92,11 +92,11 @@ function ContentList() {
 				</select>
 			</div>
 
-			<div className="rounded-lg border border-zinc-200">
+			<div className="rounded-lg border border-border">
 				{loading ? (
-					<div className="p-8 text-center text-zinc-500 text-sm">Loading...</div>
+					<div className="p-8 text-center text-text-secondary text-sm">Loading...</div>
 				) : items.length === 0 ? (
-					<div className="p-8 text-center text-zinc-500 text-sm">
+					<div className="p-8 text-center text-text-secondary text-sm">
 						{search || statusFilter
 							? 'No content matches your filters.'
 							: 'No content yet. Create your first article.'}
@@ -104,7 +104,7 @@ function ContentList() {
 				) : (
 					<table className="w-full text-sm">
 						<thead>
-							<tr className="text-left text-zinc-500 border-b border-zinc-200">
+							<tr className="text-left text-text-secondary border-b border-border">
 								<th className="px-4 py-3 font-medium">Title</th>
 								<th className="px-4 py-3 font-medium">Slug</th>
 								<th className="px-4 py-3 font-medium">Status</th>
@@ -115,18 +115,18 @@ function ContentList() {
 							{items.map((item) => (
 								<tr
 									key={item.id}
-									className="border-b border-zinc-200 hover:bg-zinc-100 transition-colors"
+									className="border-b border-border hover:bg-surface-alt transition-colors"
 								>
 									<td className="px-4 py-3">
 										<Link
 											to="/content/$id"
 											params={{ id: item.id }}
-											className="hover:text-zinc-900 transition-colors"
+											className="hover:text-text transition-colors"
 										>
 											{(item.metadata?.title as string) || item.slug}
 										</Link>
 									</td>
-									<td className="px-4 py-3 text-zinc-500 font-mono text-xs">
+									<td className="px-4 py-3 text-text-secondary font-mono text-xs">
 										{item.slug}
 									</td>
 									<td className="px-4 py-3">
@@ -136,7 +136,7 @@ function ContentList() {
 											{item.status}
 										</span>
 									</td>
-									<td className="px-4 py-3 text-zinc-500">
+									<td className="px-4 py-3 text-text-secondary">
 										{new Date(item.updatedAt).toLocaleDateString()}
 									</td>
 								</tr>
@@ -147,7 +147,7 @@ function ContentList() {
 			</div>
 
 			{total > 25 && (
-				<div className="flex items-center justify-between mt-4 text-sm text-zinc-500">
+				<div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
 					<span>
 						{total} items — page {page}
 					</span>
@@ -156,7 +156,7 @@ function ContentList() {
 							type="button"
 							onClick={() => setPage((p) => Math.max(1, p - 1))}
 							disabled={page === 1}
-							className="px-3 py-1 bg-zinc-100 rounded disabled:opacity-30"
+							className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 						>
 							Previous
 						</button>
@@ -164,7 +164,7 @@ function ContentList() {
 							type="button"
 							onClick={() => setPage((p) => p + 1)}
 							disabled={items.length < 25}
-							className="px-3 py-1 bg-zinc-100 rounded disabled:opacity-30"
+							className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 						>
 							Next
 						</button>

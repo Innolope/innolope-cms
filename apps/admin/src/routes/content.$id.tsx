@@ -174,7 +174,7 @@ function ContentEditor() {
 
 	if (loading) {
 		return (
-			<div className="p-8 text-zinc-500 text-sm">Loading...</div>
+			<div className="p-8 text-text-secondary text-sm">Loading...</div>
 		)
 	}
 
@@ -200,7 +200,7 @@ function ContentEditor() {
 						}}
 						onFocus={() => setAiTargetField('title')}
 						placeholder="Article title"
-						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-zinc-300"
+						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-text-faint"
 					/>
 					<div className="relative" onFocus={() => setAiTargetField('body')}>
 						{aiLicensed && (
@@ -224,7 +224,7 @@ function ContentEditor() {
 								setShowAi(true)
 								setAiTargetField('body')
 							}}
-							className="fixed bottom-6 right-6 w-10 h-10 bg-white text-obsidian rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-40"
+							className="fixed bottom-6 right-6 w-10 h-10 bg-surface text-text rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-40 border border-border"
 							title="Open AI Assistant"
 						>
 							<span className="text-lg">✨</span>
@@ -234,13 +234,13 @@ function ContentEditor() {
 			</div>
 
 			{/* Sidebar */}
-			<div className="w-72 border-l border-zinc-200 p-6 space-y-5 overflow-auto">
+			<div className="w-72 border-l border-border p-6 space-y-5 overflow-auto">
 				<div className="flex gap-2">
 					<button
 						type="button"
 						onClick={save}
 						disabled={saving}
-						className="flex-1 px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
+						className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
 						{saving ? 'Saving...' : 'Save'}
 					</button>
@@ -249,7 +249,7 @@ function ContentEditor() {
 							type="button"
 							onClick={publish}
 							disabled={saving}
-							className="px-4 py-2 bg-zinc-800 text-zinc-900 rounded text-sm font-medium hover:bg-zinc-700 disabled:opacity-50"
+							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 						>
 							Publish
 						</button>
@@ -261,7 +261,7 @@ function ContentEditor() {
 						type="text"
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600 font-mono"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
 					/>
 				</Field>
 
@@ -269,7 +269,7 @@ function ContentEditor() {
 					<select
 						value={status}
 						onChange={(e) => setStatus(e.target.value)}
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
 					>
 						<option value="draft">Draft</option>
 						<option value="published">Published</option>
@@ -281,7 +281,7 @@ function ContentEditor() {
 					<select
 						value={collectionId}
 						onChange={(e) => setCollectionId(e.target.value)}
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
 					>
 						<option value="">Select collection</option>
 						{collections.map((c) => (
@@ -298,12 +298,12 @@ function ContentEditor() {
 						value={tags}
 						onChange={(e) => setTags(e.target.value)}
 						placeholder="tag1, tag2, tag3"
-						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
 				{!isNew && (
-					<div className="pt-4 border-t border-zinc-200">
+					<div className="pt-4 border-t border-border">
 						<VersionPanel
 							contentId={id}
 							currentVersion={version}
@@ -316,7 +316,7 @@ function ContentEditor() {
 								})
 							}}
 						/>
-						<p className="text-xs text-zinc-600 mt-3">ID: {id}</p>
+						<p className="text-xs text-text-secondary mt-3">ID: {id}</p>
 					</div>
 				)}
 			</div>
@@ -339,7 +339,7 @@ function ContentEditor() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
 		<div>
-			<label className="block text-xs text-zinc-500 mb-1.5">{label}</label>
+			<label className="block text-xs text-text-secondary mb-1.5">{label}</label>
 			{children}
 		</div>
 	)

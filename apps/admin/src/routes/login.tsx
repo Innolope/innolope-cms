@@ -53,14 +53,14 @@ function LoginPage() {
 
 	if (loading || checkingSetup) {
 		return (
-			<div className="min-h-screen bg-zinc-50 flex items-center justify-center text-zinc-500">
+			<div className="min-h-screen bg-bg flex items-center justify-center text-text-secondary">
 				Loading...
 			</div>
 		)
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
+		<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<img
@@ -68,8 +68,8 @@ function LoginPage() {
 						alt="Innolope CMS"
 						className="w-10 h-10 mx-auto mb-4 "
 					/>
-					<h1 className="text-2xl font-bold text-zinc-900">Innolope CMS</h1>
-					<p className="text-zinc-500 text-sm mt-1">
+					<h1 className="text-2xl font-bold text-text">Innolope CMS</h1>
+					<p className="text-text-secondary text-sm mt-1">
 						{mode === 'setup' ? 'Welcome! Set up your Innolope CMS account to get started.' : 'Sign in to your Innolope CMS account'}
 					</p>
 				</div>
@@ -77,51 +77,51 @@ function LoginPage() {
 				<form onSubmit={handleSubmit} className="space-y-4">
 					{mode === 'setup' && (
 						<div>
-							<label className="block text-xs text-zinc-500 mb-1.5">Your name</label>
+							<label className="block text-xs text-text-secondary mb-1.5">Your name</label>
 							<input
 								type="text"
 								value={name}
 								onChange={(e) => setName(e.target.value)}
 								required
-								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 								placeholder="Inna Lope"
 								autoFocus
 							/>
 						</div>
 					)}
 					<div>
-						<label className="block text-xs text-zinc-500 mb-1.5">Email</label>
+						<label className="block text-xs text-text-secondary mb-1.5">Email</label>
 						<input
 							type="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							required
-							className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 							placeholder="admin@example.com"
 							autoFocus={mode === 'login'}
 						/>
 					</div>
 					<div>
-						<label className="block text-xs text-zinc-500 mb-1.5">Password</label>
+						<label className="block text-xs text-text-secondary mb-1.5">Password</label>
 						<input
 							type="password"
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}
 							required
 							minLength={8}
-							className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 							placeholder="Min 8 characters"
 						/>
 					</div>
 
 					{error && (
-						<p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>
+						<p className="text-sm text-danger bg-danger-surface px-3 py-2 rounded">{error}</p>
 					)}
 
 					<button
 						type="submit"
 						disabled={submitting}
-						className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+						className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 					>
 						{submitting
 							? 'Please wait...'
@@ -133,7 +133,7 @@ function LoginPage() {
 				{mode === 'login' && (
 					<Link
 						to="/forgot-password"
-						className="block text-center text-xs text-zinc-500 hover:text-zinc-300 mt-4 transition-colors"
+						className="block text-center text-xs text-text-secondary hover:text-text-muted mt-4 transition-colors"
 					>
 						Forgot password?
 					</Link>
