@@ -22,7 +22,7 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 			file instanceof Buffer ? file : Buffer.from(await new Response(file).arrayBuffer())
 
 		const form = new FormData()
-		form.append('file', new Blob([buffer], { type: mimeType }), filename)
+		form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename)
 
 		const response = await fetch(
 			`https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/images/v1`,

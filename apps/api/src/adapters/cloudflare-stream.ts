@@ -51,7 +51,7 @@ export class CloudflareStreamAdapter implements MediaAdapter {
 
 		// Step 2: Upload the video to the direct upload URL
 		const form = new FormData()
-		form.append('file', new Blob([buffer], { type: mimeType }), filename)
+		form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename)
 
 		const uploadRes = await fetch(uploadURL, { method: 'POST', body: form })
 
