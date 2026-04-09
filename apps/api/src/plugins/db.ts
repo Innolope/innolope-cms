@@ -8,7 +8,6 @@ declare module 'fastify' {
 	}
 }
 
-// Auto-create tables if they don't exist (safe for CockroachDB + PostgreSQL)
 async function ensureTables(connectionUrl: string) {
 	const sql = postgres(connectionUrl, {
 		ssl: connectionUrl.includes('sslmode=verify-full') || connectionUrl.includes('sslmode=require')
@@ -16,16 +15,25 @@ async function ensureTables(connectionUrl: string) {
 			: false,
 	})
 
-	// Create tables in dependency order
+	// Drop old snake_case tables if they exist (one-time migration)
+	// Drizzle uses camelCase column names — old tables had snake_case
+	const migrationNeeded = await sql`
+		SELECT column_name FROM information_schema.columns
+		WHERE table_name = 'users' AND column_name = 'password_hash' LIMIT 1
+	`
+	if (migrationNeeded.length > 0) {
+		await sql`DROP TABLE IF EXISTS invites, password_reset_tokens, ai_settings, api_keys, media, content_versions, content, collections, project_members, projects, users CASCADE`
+	}
+
 	await sql`
 		CREATE TABLE IF NOT EXISTS users (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			email TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
-			password_hash TEXT NOT NULL,
+			"passwordHash" TEXT NOT NULL,
 			role TEXT NOT NULL DEFAULT 'editor',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
 	`
 
@@ -34,111 +42,136 @@ async function ensureTables(connectionUrl: string) {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			name TEXT NOT NULL,
 			slug TEXT NOT NULL UNIQUE,
-			owner_id UUID NOT NULL REFERENCES users(id),
+			"ownerId" UUID NOT NULL REFERENCES users(id),
 			settings JSONB NOT NULL DEFAULT '{"locales":["en"],"defaultLocale":"en","mediaAdapter":"local"}',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS project_members (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			role TEXT NOT NULL DEFAULT 'viewer',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			UNIQUE(project_id, user_id)
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE("projectId", "userId")
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS collections (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
 			slug TEXT NOT NULL,
 			description TEXT,
 			fields JSONB NOT NULL DEFAULT '[]',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			UNIQUE(slug, project_id)
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(slug, "projectId")
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS content (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			slug TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'draft',
-			collection_id UUID NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+			"collectionId" UUID NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
 			metadata JSONB NOT NULL DEFAULT '{}',
 			markdown TEXT NOT NULL DEFAULT '',
 			html TEXT NOT NULL DEFAULT '',
 			locale TEXT NOT NULL DEFAULT 'en',
 			version INT NOT NULL DEFAULT 1,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			published_at TIMESTAMPTZ,
-			created_by UUID REFERENCES users(id),
-			UNIQUE(slug, locale, project_id)
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"publishedAt" TIMESTAMPTZ,
+			"createdBy" UUID REFERENCES users(id),
+			UNIQUE(slug, locale, "projectId")
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS content_versions (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			content_id UUID NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+			"contentId" UUID NOT NULL REFERENCES content(id) ON DELETE CASCADE,
 			version INT NOT NULL,
 			markdown TEXT NOT NULL,
 			metadata JSONB NOT NULL DEFAULT '{}',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			created_by UUID REFERENCES users(id)
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"createdBy" UUID REFERENCES users(id)
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS media (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			type TEXT NOT NULL,
 			filename TEXT NOT NULL,
-			mime_type TEXT NOT NULL,
+			"mimeType" TEXT NOT NULL,
 			size INT NOT NULL,
 			url TEXT NOT NULL,
 			alt TEXT,
 			adapter TEXT NOT NULL DEFAULT 'local',
-			external_id TEXT,
+			"externalId" TEXT,
 			metadata JSONB NOT NULL DEFAULT '{}',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			created_by UUID REFERENCES users(id)
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"createdBy" UUID REFERENCES users(id)
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS api_keys (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
-			key_hash TEXT NOT NULL UNIQUE,
-			key_prefix TEXT NOT NULL,
-			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			"keyHash" TEXT NOT NULL UNIQUE,
+			"keyPrefix" TEXT NOT NULL,
+			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			permissions JSONB NOT NULL DEFAULT '[]',
-			expires_at TIMESTAMPTZ,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			last_used_at TIMESTAMPTZ
+			"expiresAt" TIMESTAMPTZ,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"lastUsedAt" TIMESTAMPTZ
 		)
 	`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS ai_settings (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			project_id UUID NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
-			default_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite',
+			"projectId" UUID NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+			"defaultModel" TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite',
 			providers JSONB NOT NULL DEFAULT '[]',
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS password_reset_tokens (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			"tokenHash" TEXT NOT NULL UNIQUE,
+			"expiresAt" TIMESTAMPTZ NOT NULL,
+			used BOOLEAN NOT NULL DEFAULT false,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS invites (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			email TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'viewer',
+			"tokenHash" TEXT NOT NULL UNIQUE,
+			"invitedBy" UUID NOT NULL REFERENCES users(id),
+			"expiresAt" TIMESTAMPTZ NOT NULL,
+			accepted BOOLEAN NOT NULL DEFAULT false,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
 	`
 
@@ -155,7 +188,6 @@ export const dbPlugin = fp(async (app) => {
 		return
 	}
 
-	// Auto-create tables on startup
 	try {
 		await ensureTables(url)
 		app.log.info('Database tables ensured')

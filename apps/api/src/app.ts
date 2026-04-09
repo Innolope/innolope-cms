@@ -10,6 +10,7 @@ import { authPlugin } from './plugins/auth.js'
 import { eventsPlugin } from './plugins/events.js'
 import { licensePlugin } from './plugins/license.js'
 import { projectPlugin } from './plugins/project.js'
+import { emailPlugin } from './plugins/email.js'
 import { mediaPlugin } from './plugins/media.js'
 import { auditLogRoutes } from './ee/audit-log.js'
 import { webhookRoutes } from './ee/webhooks.js'
@@ -24,6 +25,8 @@ import { projectRoutes } from './routes/v1/projects.js'
 import { statsRoutes } from './routes/v1/stats.js'
 import { streamRoutes } from './routes/v1/stream.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
+import { passwordResetRoutes } from './routes/v1/password-reset.js'
+import { inviteRoutes } from './routes/v1/invites.js'
 
 export async function buildApp() {
 	const app = Fastify({
@@ -48,6 +51,7 @@ export async function buildApp() {
 	await app.register(authPlugin)
 	await app.register(projectPlugin)
 	await app.register(eventsPlugin)
+	await app.register(emailPlugin)
 	await app.register(mediaPlugin)
 
 	// Health check (public)
@@ -78,6 +82,8 @@ export async function buildApp() {
 
 	// Auth routes (no project context needed)
 	await app.register(authRoutes, { prefix: '/api/v1/auth' })
+	await app.register(passwordResetRoutes, { prefix: '/api/v1/auth' })
+	await app.register(inviteRoutes, { prefix: '/api/v1/invites' })
 
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })

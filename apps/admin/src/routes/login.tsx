@@ -138,6 +138,14 @@ function LoginPage() {
 								: 'Sign In'}
 					</button>
 				</form>
+				{mode === 'login' && (
+					<a
+						href="/forgot-password"
+						className="block text-center text-xs text-zinc-500 hover:text-zinc-300 mt-4 transition-colors"
+					>
+						Forgot password?
+					</a>
+				)}
 			</div>
 		</div>
 	)
