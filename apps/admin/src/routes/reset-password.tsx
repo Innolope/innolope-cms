@@ -19,10 +19,10 @@ function ResetPassword() {
 
 	if (!token) {
 		return (
-			<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+			<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
 				<div className="text-center">
 					<p className="text-zinc-500">Invalid reset link.</p>
-					<Link to="/login" className="text-xs text-zinc-400 hover:text-zinc-200 mt-2 block">
+					<Link to="/login" className="text-xs text-zinc-400 hover:text-zinc-300 mt-2 block">
 						Back to login
 					</Link>
 				</div>
@@ -50,7 +50,7 @@ function ResetPassword() {
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+		<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<h1 className="text-2xl font-bold">New Password</h1>
@@ -59,7 +59,7 @@ function ResetPassword() {
 
 				{done ? (
 					<div className="text-center space-y-3">
-						<p className="text-sm text-emerald-400">Password updated! Redirecting to login...</p>
+						<p className="text-sm text-zinc-700">Password updated! Redirecting to login...</p>
 					</div>
 				) : (
 					<form onSubmit={handleSubmit} className="space-y-4">
@@ -71,7 +71,7 @@ function ResetPassword() {
 								onChange={(e) => setPassword(e.target.value)}
 								required
 								minLength={8}
-								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 								placeholder="Min 8 characters"
 								autoFocus
 							/>
@@ -84,19 +84,19 @@ function ResetPassword() {
 								onChange={(e) => setConfirm(e.target.value)}
 								required
 								minLength={8}
-								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 								placeholder="Repeat password"
 							/>
 						</div>
 
 						{error && (
-							<p className="text-sm text-red-400 bg-red-950/50 px-3 py-2 rounded">{error}</p>
+							<p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>
 						)}
 
 						<button
 							type="submit"
 							disabled={submitting}
-							className="w-full py-2.5 bg-white text-black rounded-lg text-sm font-medium hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+							className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
 						>
 							{submitting ? 'Updating...' : 'Set New Password'}
 						</button>

@@ -52,7 +52,7 @@ function CollectionsList() {
 				<Link
 					to="/collections/$id"
 					params={{ id: 'new' }}
-					className="px-4 py-2 bg-white text-black rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-4 py-2 bg-zinc-900 text-white rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
 				>
 					New Collection
 				</Link>
@@ -61,7 +61,7 @@ function CollectionsList() {
 			{loading ? (
 				<p className="text-zinc-500 text-sm">Loading...</p>
 			) : collections.length === 0 ? (
-				<div className="rounded-lg border border-zinc-800 p-8 text-center text-zinc-500 text-sm">
+				<div className="rounded-lg border border-zinc-200 p-8 text-center text-zinc-500 text-sm">
 					No collections yet. Create one to start organizing content.
 				</div>
 			) : (
@@ -69,7 +69,7 @@ function CollectionsList() {
 					{collections.map((col) => (
 						<div
 							key={col.id}
-							className="rounded-lg border border-zinc-800 p-4 hover:border-zinc-600 transition-colors"
+							className="rounded-lg border border-zinc-200 p-4 hover:border-zinc-600 transition-colors"
 						>
 							<div className="flex items-start justify-between">
 								<Link
@@ -88,7 +88,7 @@ function CollectionsList() {
 								<button
 									type="button"
 									onClick={() => deleteCollection(col.id)}
-									className="text-xs text-red-500 hover:text-red-400"
+									className="text-xs text-red-500 hover:text-red-600"
 								>
 									Delete
 								</button>
@@ -98,11 +98,11 @@ function CollectionsList() {
 									{col.fields.map((f) => (
 										<span
 											key={f.name}
-											className="px-2 py-0.5 bg-zinc-800 rounded text-xs text-zinc-400"
+											className="px-2 py-0.5 bg-zinc-100 rounded text-xs text-zinc-400"
 										>
 											{f.name}
 											<span className="text-zinc-600 ml-1">{f.type}</span>
-											{f.required && <span className="text-amber-500 ml-0.5">*</span>}
+											{f.required && <span className="text-zinc-400 ml-0.5">*</span>}
 										</span>
 									))}
 								</div>

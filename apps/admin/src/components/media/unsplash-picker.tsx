@@ -85,7 +85,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 		return (
 			<div className="p-8 text-center text-zinc-500 text-sm">
 				<p>Unsplash not configured.</p>
-				<p className="text-xs mt-1">Set <code className="bg-zinc-800 px-1 rounded">UNSPLASH_ACCESS_KEY</code> to enable.</p>
+				<p className="text-xs mt-1">Set <code className="bg-zinc-100 px-1 rounded">UNSPLASH_ACCESS_KEY</code> to enable.</p>
 			</div>
 		)
 	}
@@ -97,7 +97,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 				value={query}
 				onChange={(e) => handleInput(e.target.value)}
 				placeholder="Search Unsplash photos..."
-				className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
+				className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
 				autoFocus
 			/>
 
@@ -115,7 +115,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 						type="button"
 						key={photo.id}
 						onClick={() => handleSelect(photo)}
-						className="group relative aspect-[4/3] rounded-lg overflow-hidden border border-zinc-800 hover:border-zinc-600 transition-colors"
+						className="group relative aspect-[4/3] rounded-lg overflow-hidden border border-zinc-200 hover:border-zinc-600 transition-colors"
 						style={{ backgroundColor: photo.color }}
 					>
 						<img
@@ -125,7 +125,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 							loading="lazy"
 						/>
 						<div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-							<p className="text-[10px] text-white truncate">
+							<p className="text-[10px] text-zinc-900 truncate">
 								{photo.author}
 							</p>
 						</div>
@@ -154,7 +154,7 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 			)}
 
 			{photos.length > 0 && (
-				<p className="text-[10px] text-zinc-700 text-center">
+				<p className="text-[10px] text-zinc-300 text-center">
 					Photos by <a href="https://unsplash.com" target="_blank" rel="noopener noreferrer" className="underline">Unsplash</a>
 				</p>
 			)}

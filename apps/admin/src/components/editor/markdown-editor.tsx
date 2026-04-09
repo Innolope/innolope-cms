@@ -31,7 +31,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 	const editor = useEditor({
 		extensions: [
 			StarterKit.configure({
-				codeBlock: { HTMLAttributes: { class: 'bg-zinc-900 rounded-lg p-4 my-3' } },
+				codeBlock: { HTMLAttributes: { class: 'bg-white rounded-lg p-4 my-3' } },
 			}),
 			Image.configure({ inline: false, allowBase64: true }),
 			Link.configure({ openOnClick: false }),
@@ -114,8 +114,8 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 	if (!editor) return null
 
 	return (
-		<div className="border border-zinc-800 rounded-lg overflow-hidden">
-			<div className="flex flex-wrap gap-1 p-2 border-b border-zinc-800 bg-zinc-900/50">
+		<div className="border border-zinc-200 rounded-lg overflow-hidden">
+			<div className="flex flex-wrap gap-1 p-2 border-b border-zinc-200 bg-zinc-100">
 				<ToolbarBtn
 					active={editor.isActive('bold')}
 					onClick={() => editor.chain().focus().toggleBold().run()}
@@ -206,7 +206,7 @@ function ToolbarBtn({
 			type="button"
 			onClick={onClick}
 			className={`px-2 py-1 rounded text-xs transition-colors ${
-				active ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+				active ? 'bg-zinc-700 text-zinc-900' : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-300'
 			} ${className}`}
 		>
 			{label}

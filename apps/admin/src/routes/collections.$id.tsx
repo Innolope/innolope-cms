@@ -116,7 +116,7 @@ function CollectionEditor() {
 							if (isNew) setSlug(generateSlug(e.target.value))
 						}}
 						placeholder="e.g. Articles, Products, FAQ"
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 					/>
 				</Field>
 
@@ -125,7 +125,7 @@ function CollectionEditor() {
 						type="text"
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
 					/>
 				</Field>
 
@@ -135,7 +135,7 @@ function CollectionEditor() {
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
 						placeholder="What this collection is for"
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 					/>
 				</Field>
 
@@ -145,7 +145,7 @@ function CollectionEditor() {
 						<button
 							type="button"
 							onClick={addField}
-							className="px-3 py-1 bg-zinc-800 rounded text-xs hover:bg-zinc-700"
+							className="px-3 py-1 bg-zinc-100 rounded text-xs hover:bg-zinc-200"
 						>
 							+ Add Field
 						</button>
@@ -160,20 +160,20 @@ function CollectionEditor() {
 							{fields.map((field, i) => (
 								<div
 									key={i}
-									className="flex items-center gap-2 p-3 bg-zinc-900 rounded-lg border border-zinc-800"
+									className="flex items-center gap-2 p-3 bg-white rounded-lg border border-zinc-200"
 								>
 									<div className="flex flex-col gap-1">
 										<button
 											type="button"
 											onClick={() => moveField(i, -1)}
-											className="text-zinc-600 hover:text-zinc-400 text-xs leading-none"
+											className="text-zinc-600 hover:text-zinc-600 text-xs leading-none"
 										>
 											&#x25B2;
 										</button>
 										<button
 											type="button"
 											onClick={() => moveField(i, 1)}
-											className="text-zinc-600 hover:text-zinc-400 text-xs leading-none"
+											className="text-zinc-600 hover:text-zinc-600 text-xs leading-none"
 										>
 											&#x25BC;
 										</button>
@@ -183,12 +183,12 @@ function CollectionEditor() {
 										value={field.name}
 										onChange={(e) => updateField(i, { name: e.target.value })}
 										placeholder="Field name"
-										className="flex-1 px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm font-mono focus:outline-none"
+										className="flex-1 px-2 py-1.5 bg-zinc-100 border border-zinc-300 rounded text-sm font-mono focus:outline-none"
 									/>
 									<select
 										value={field.type}
 										onChange={(e) => updateField(i, { type: e.target.value })}
-										className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm focus:outline-none"
+										className="px-2 py-1.5 bg-zinc-100 border border-zinc-300 rounded text-sm focus:outline-none"
 									>
 										{FIELD_TYPES.map((t) => (
 											<option key={t} value={t}>
@@ -217,7 +217,7 @@ function CollectionEditor() {
 									<button
 										type="button"
 										onClick={() => removeField(i)}
-										className="text-red-500 hover:text-red-400 text-xs px-2"
+										className="text-red-500 hover:text-red-600 text-xs px-2"
 									>
 										Remove
 									</button>
@@ -232,14 +232,14 @@ function CollectionEditor() {
 						type="button"
 						onClick={save}
 						disabled={saving}
-						className="px-6 py-2 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200 disabled:opacity-50"
+						className="px-6 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
 					>
 						{saving ? 'Saving...' : isNew ? 'Create Collection' : 'Save Changes'}
 					</button>
 					<button
 						type="button"
 						onClick={() => navigate({ to: '/collections' })}
-						className="px-6 py-2 bg-zinc-800 rounded text-sm hover:bg-zinc-700"
+						className="px-6 py-2 bg-zinc-100 rounded text-sm hover:bg-zinc-200"
 					>
 						Cancel
 					</button>

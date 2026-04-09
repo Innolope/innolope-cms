@@ -53,22 +53,22 @@ function LoginPage() {
 
 	if (loading || checkingSetup) {
 		return (
-			<div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-500">
+			<div className="min-h-screen bg-zinc-50 flex items-center justify-center text-zinc-500">
 				Loading...
 			</div>
 		)
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+		<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<img
 						src="/logo.svg"
 						alt="Innolope CMS"
-						className="w-10 h-10 mx-auto mb-4 invert brightness-200"
+						className="w-10 h-10 mx-auto mb-4 "
 					/>
-					<h1 className="text-2xl font-bold text-white">Innolope CMS</h1>
+					<h1 className="text-2xl font-bold text-zinc-900">Innolope CMS</h1>
 					<p className="text-zinc-500 text-sm mt-1">
 						{mode === 'setup' ? 'Welcome! Set up your Innolope CMS account to get started.' : 'Sign in to your Innolope CMS account'}
 					</p>
@@ -83,7 +83,7 @@ function LoginPage() {
 								value={name}
 								onChange={(e) => setName(e.target.value)}
 								required
-								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 								placeholder="Inna Lope"
 								autoFocus
 							/>
@@ -96,7 +96,7 @@ function LoginPage() {
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							required
-							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 							placeholder="admin@example.com"
 							autoFocus={mode === 'login'}
 						/>
@@ -109,19 +109,19 @@ function LoginPage() {
 							onChange={(e) => setPassword(e.target.value)}
 							required
 							minLength={8}
-							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 							placeholder="Min 8 characters"
 						/>
 					</div>
 
 					{error && (
-						<p className="text-sm text-red-400 bg-red-950/50 px-3 py-2 rounded">{error}</p>
+						<p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>
 					)}
 
 					<button
 						type="submit"
 						disabled={submitting}
-						className="w-full py-2.5 bg-white text-black rounded-lg text-sm font-medium hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+						className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
 					>
 						{submitting
 							? 'Please wait...'

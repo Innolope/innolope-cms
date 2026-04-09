@@ -85,7 +85,7 @@ export function AiSettingsPanel() {
 				<select
 					value={defaultModel}
 					onChange={(e) => setDefaultModel(e.target.value)}
-					className="w-full max-w-xs px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+					className="w-full max-w-xs px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 				>
 					{settings.availableModels.length > 0 ? (
 						settings.availableModels.map((m) => (
@@ -121,10 +121,10 @@ export function AiSettingsPanel() {
 											setKeys({ ...keys, [provider]: e.target.value })
 										}
 										placeholder={isConnected ? 'Connected (enter new key to replace)' : 'Paste API key...'}
-										className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
+										className="flex-1 px-3 py-2 bg-white border border-zinc-200 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
 									/>
 									{isConnected && (
-										<span className="text-xs text-emerald-400 shrink-0">Connected</span>
+										<span className="text-xs text-zinc-700 shrink-0">Connected</span>
 									)}
 								</div>
 							)
@@ -134,7 +134,7 @@ export function AiSettingsPanel() {
 			)}
 
 			{settings.cloudMode && (
-				<p className="text-sm text-zinc-500 bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+				<p className="text-sm text-zinc-500 bg-white p-4 rounded-lg border border-zinc-200">
 					AI providers are managed by Innolope Cloud. All major models are available. Select your preferred default model above.
 				</p>
 			)}
@@ -143,7 +143,7 @@ export function AiSettingsPanel() {
 				type="button"
 				onClick={save}
 				disabled={saving}
-				className="px-4 py-2 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+				className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
 			>
 				{saving ? 'Saving...' : saved ? 'Saved' : 'Save AI Settings'}
 			</button>

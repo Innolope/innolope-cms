@@ -200,7 +200,7 @@ function ContentEditor() {
 						}}
 						onFocus={() => setAiTargetField('title')}
 						placeholder="Article title"
-						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-zinc-700"
+						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-zinc-300"
 					/>
 					<div className="relative" onFocus={() => setAiTargetField('body')}>
 						{aiLicensed && (
@@ -234,13 +234,13 @@ function ContentEditor() {
 			</div>
 
 			{/* Sidebar */}
-			<div className="w-72 border-l border-zinc-800 p-6 space-y-5 overflow-auto">
+			<div className="w-72 border-l border-zinc-200 p-6 space-y-5 overflow-auto">
 				<div className="flex gap-2">
 					<button
 						type="button"
 						onClick={save}
 						disabled={saving}
-						className="flex-1 px-4 py-2 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200 disabled:opacity-50"
+						className="flex-1 px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
 					>
 						{saving ? 'Saving...' : 'Save'}
 					</button>
@@ -249,7 +249,7 @@ function ContentEditor() {
 							type="button"
 							onClick={publish}
 							disabled={saving}
-							className="px-4 py-2 bg-emerald-700 text-white rounded text-sm font-medium hover:bg-emerald-600 disabled:opacity-50"
+							className="px-4 py-2 bg-zinc-800 text-zinc-900 rounded text-sm font-medium hover:bg-zinc-700 disabled:opacity-50"
 						>
 							Publish
 						</button>
@@ -261,7 +261,7 @@ function ContentEditor() {
 						type="text"
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600 font-mono"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600 font-mono"
 					/>
 				</Field>
 
@@ -269,7 +269,7 @@ function ContentEditor() {
 					<select
 						value={status}
 						onChange={(e) => setStatus(e.target.value)}
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
 					>
 						<option value="draft">Draft</option>
 						<option value="published">Published</option>
@@ -281,7 +281,7 @@ function ContentEditor() {
 					<select
 						value={collectionId}
 						onChange={(e) => setCollectionId(e.target.value)}
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
 					>
 						<option value="">Select collection</option>
 						{collections.map((c) => (
@@ -298,12 +298,12 @@ function ContentEditor() {
 						value={tags}
 						onChange={(e) => setTags(e.target.value)}
 						placeholder="tag1, tag2, tag3"
-						className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+						className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 					/>
 				</Field>
 
 				{!isNew && (
-					<div className="pt-4 border-t border-zinc-800">
+					<div className="pt-4 border-t border-zinc-200">
 						<VersionPanel
 							contentId={id}
 							currentVersion={version}

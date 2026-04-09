@@ -59,8 +59,8 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 						onClick={() => setSelected(selected?.id === v.id ? null : v)}
 						className={`w-full text-left px-3 py-2 rounded text-xs transition-colors ${
 							selected?.id === v.id
-								? 'bg-zinc-700 text-white'
-								: 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+								? 'bg-zinc-700 text-zinc-900'
+								: 'bg-white text-zinc-400 hover:bg-zinc-100'
 						}`}
 					>
 						<span className="font-mono">v{v.version}</span>
@@ -73,7 +73,7 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 
 			{selected && (
 				<div className="mt-3 space-y-2">
-					<div className="bg-zinc-900 rounded p-3 text-xs max-h-32 overflow-auto">
+					<div className="bg-white rounded p-3 text-xs max-h-32 overflow-auto">
 						<pre className="whitespace-pre-wrap text-zinc-400">
 							{selected.markdown.slice(0, 500)}
 							{selected.markdown.length > 500 ? '...' : ''}
@@ -83,7 +83,7 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 						type="button"
 						onClick={() => revert(selected.version)}
 						disabled={reverting}
-						className="w-full px-3 py-1.5 bg-amber-900/50 text-amber-300 rounded text-xs hover:bg-amber-900 disabled:opacity-50"
+						className="w-full px-3 py-1.5 bg-zinc-100 text-zinc-500 rounded text-xs hover:bg-zinc-800 disabled:opacity-50"
 					>
 						{reverting ? 'Reverting...' : `Revert to v${selected.version}`}
 					</button>

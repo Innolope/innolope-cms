@@ -51,7 +51,7 @@ export function SelectionToolbar({ containerRef, onAction, fieldName }: Selectio
 			className="absolute z-50 -translate-x-1/2 -translate-y-full"
 			style={{ left: position.x, top: position.y }}
 		>
-			<div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl px-1 py-1 animate-in fade-in slide-in-from-bottom-1 duration-150">
+			<div className="flex items-center gap-0.5 bg-white border border-zinc-300 rounded-lg shadow-xl px-1 py-1 animate-in fade-in slide-in-from-bottom-1 duration-150">
 				<ToolbarButton
 					label="✨ AI"
 					onClick={() => onAction('custom', selectedText, fieldName)}
@@ -86,7 +86,7 @@ function ToolbarButton({ label, onClick }: { label: string; onClick: () => void 
 				e.preventDefault()
 				onClick()
 			}}
-			className="px-2 py-1 text-[11px] text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors whitespace-nowrap"
+			className="px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded transition-colors whitespace-nowrap"
 		>
 			{label}
 		</button>

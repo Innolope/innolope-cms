@@ -23,9 +23,9 @@ interface ContentResponse {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-	draft: 'bg-amber-900/50 text-amber-300',
-	published: 'bg-emerald-900/50 text-emerald-300',
-	archived: 'bg-zinc-700/50 text-zinc-400',
+	draft: 'bg-zinc-100 text-zinc-500',
+	published: 'bg-zinc-100 text-zinc-700',
+	archived: 'bg-zinc-100 text-zinc-400',
 }
 
 function ContentList() {
@@ -60,7 +60,7 @@ function ContentList() {
 				<Link
 					to="/content/$id"
 					params={{ id: 'new' }}
-					className="px-4 py-2 bg-white text-black rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-4 py-2 bg-zinc-900 text-white rounded-md text-sm font-medium hover:bg-zinc-200 transition-colors"
 				>
 					New Content
 				</Link>
@@ -75,7 +75,7 @@ function ContentList() {
 						setSearch(e.target.value)
 						setPage(1)
 					}}
-					className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+					className="flex-1 px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 				/>
 				<select
 					value={statusFilter}
@@ -83,7 +83,7 @@ function ContentList() {
 						setStatusFilter(e.target.value)
 						setPage(1)
 					}}
-					className="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none"
+					className="px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none"
 				>
 					<option value="">All statuses</option>
 					<option value="draft">Draft</option>
@@ -92,7 +92,7 @@ function ContentList() {
 				</select>
 			</div>
 
-			<div className="rounded-lg border border-zinc-800">
+			<div className="rounded-lg border border-zinc-200">
 				{loading ? (
 					<div className="p-8 text-center text-zinc-500 text-sm">Loading...</div>
 				) : items.length === 0 ? (
@@ -104,7 +104,7 @@ function ContentList() {
 				) : (
 					<table className="w-full text-sm">
 						<thead>
-							<tr className="text-left text-zinc-500 border-b border-zinc-800">
+							<tr className="text-left text-zinc-500 border-b border-zinc-200">
 								<th className="px-4 py-3 font-medium">Title</th>
 								<th className="px-4 py-3 font-medium">Slug</th>
 								<th className="px-4 py-3 font-medium">Status</th>
@@ -115,13 +115,13 @@ function ContentList() {
 							{items.map((item) => (
 								<tr
 									key={item.id}
-									className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors"
+									className="border-b border-zinc-200 hover:bg-zinc-100 transition-colors"
 								>
 									<td className="px-4 py-3">
 										<Link
 											to="/content/$id"
 											params={{ id: item.id }}
-											className="hover:text-white transition-colors"
+											className="hover:text-zinc-900 transition-colors"
 										>
 											{(item.metadata?.title as string) || item.slug}
 										</Link>
@@ -156,7 +156,7 @@ function ContentList() {
 							type="button"
 							onClick={() => setPage((p) => Math.max(1, p - 1))}
 							disabled={page === 1}
-							className="px-3 py-1 bg-zinc-800 rounded disabled:opacity-30"
+							className="px-3 py-1 bg-zinc-100 rounded disabled:opacity-30"
 						>
 							Previous
 						</button>
@@ -164,7 +164,7 @@ function ContentList() {
 							type="button"
 							onClick={() => setPage((p) => p + 1)}
 							disabled={items.length < 25}
-							className="px-3 py-1 bg-zinc-800 rounded disabled:opacity-30"
+							className="px-3 py-1 bg-zinc-100 rounded disabled:opacity-30"
 						>
 							Next
 						</button>

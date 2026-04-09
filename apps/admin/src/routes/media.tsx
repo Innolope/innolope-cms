@@ -77,18 +77,18 @@ function MediaLibrary() {
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
 						<h2 className="text-2xl font-bold">Media</h2>
-						<div className="flex bg-zinc-900 rounded-lg p-0.5">
+						<div className="flex bg-white rounded-lg p-0.5">
 							<button
 								type="button"
 								onClick={() => setTab('uploaded')}
-								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'uploaded' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'uploaded' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-300'}`}
 							>
 								Uploaded
 							</button>
 							<button
 								type="button"
 								onClick={() => setTab('unsplash')}
-								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-300'}`}
 							>
 								Unsplash
 							</button>
@@ -98,7 +98,7 @@ function MediaLibrary() {
 						<select
 							value={typeFilter}
 							onChange={(e) => setTypeFilter(e.target.value)}
-							className="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm"
+							className="px-3 py-2 bg-white border border-zinc-200 rounded text-sm"
 						>
 							<option value="">All types</option>
 							<option value="image">Images</option>
@@ -109,7 +109,7 @@ function MediaLibrary() {
 							type="button"
 							onClick={() => fileRef.current?.click()}
 							disabled={uploading}
-							className="px-4 py-2 bg-white text-black rounded-md text-sm font-medium hover:bg-zinc-200 disabled:opacity-50"
+							className="px-4 py-2 bg-zinc-900 text-white rounded-md text-sm font-medium hover:bg-zinc-800 disabled:opacity-50"
 						>
 							{uploading ? 'Uploading...' : 'Upload'}
 						</button>
@@ -131,7 +131,7 @@ function MediaLibrary() {
 				) : (<>
 				{/* Drop zone */}
 				<div
-					className="mb-4 border-2 border-dashed border-zinc-800 rounded-lg p-6 text-center text-zinc-600 text-sm hover:border-zinc-600 transition-colors"
+					className="mb-4 border-2 border-dashed border-zinc-200 rounded-lg p-6 text-center text-zinc-600 text-sm hover:border-zinc-600 transition-colors"
 					onDragOver={(e) => {
 						e.preventDefault()
 						e.currentTarget.classList.add('border-zinc-500')
@@ -162,7 +162,7 @@ function MediaLibrary() {
 								className={`group relative aspect-square rounded-lg overflow-hidden border transition-colors ${
 									selected?.id === item.id
 										? 'border-white'
-										: 'border-zinc-800 hover:border-zinc-600'
+										: 'border-zinc-200 hover:border-zinc-600'
 								}`}
 							>
 								{item.type === 'image' ? (
@@ -172,7 +172,7 @@ function MediaLibrary() {
 										className="w-full h-full object-cover"
 									/>
 								) : (
-									<div className="flex items-center justify-center h-full bg-zinc-900 text-zinc-500 text-xs">
+									<div className="flex items-center justify-center h-full bg-white text-zinc-500 text-xs">
 										{item.type === 'video' ? 'Video' : 'File'}
 										<br />
 										{item.filename}
@@ -190,7 +190,7 @@ function MediaLibrary() {
 
 			{/* Detail panel */}
 			{selected && (
-				<div className="w-72 border-l border-zinc-800 p-6 space-y-4 overflow-auto">
+				<div className="w-72 border-l border-zinc-200 p-6 space-y-4 overflow-auto">
 					<h3 className="font-semibold text-sm">Details</h3>
 					{selected.type === 'image' && (
 						<img
@@ -221,18 +221,18 @@ function MediaLibrary() {
 						<dt className="text-zinc-500">Uploaded</dt>
 						<dd>{new Date(selected.createdAt).toLocaleString()}</dd>
 					</dl>
-					<div className="pt-4 border-t border-zinc-800 flex gap-2">
+					<div className="pt-4 border-t border-zinc-200 flex gap-2">
 						<button
 							type="button"
 							onClick={() => deleteMedia(selected.id)}
-							className="px-3 py-1.5 bg-red-900/50 text-red-300 rounded text-sm hover:bg-red-900"
+							className="px-3 py-1.5 bg-red-50 text-red-600 rounded text-sm hover:bg-red-100"
 						>
 							Delete
 						</button>
 						<button
 							type="button"
 							onClick={() => setSelected(null)}
-							className="px-3 py-1.5 bg-zinc-800 rounded text-sm hover:bg-zinc-700"
+							className="px-3 py-1.5 bg-zinc-100 rounded text-sm hover:bg-zinc-200"
 						>
 							Close
 						</button>

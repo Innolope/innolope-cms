@@ -27,7 +27,7 @@ function ForgotPassword() {
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+		<div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<h1 className="text-2xl font-bold">Reset Password</h1>
@@ -38,7 +38,7 @@ function ForgotPassword() {
 
 				{sent ? (
 					<div className="text-center space-y-4">
-						<div className="w-12 h-12 bg-zinc-800 rounded-xl flex items-center justify-center mx-auto">
+						<div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center mx-auto">
 							<span className="text-xl">✉️</span>
 						</div>
 						<p className="text-sm text-zinc-400">
@@ -60,20 +60,20 @@ function ForgotPassword() {
 								value={email}
 								onChange={(e) => setEmail(e.target.value)}
 								required
-								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 								placeholder="your@email.com"
 								autoFocus
 							/>
 						</div>
 
 						{error && (
-							<p className="text-sm text-red-400 bg-red-950/50 px-3 py-2 rounded">{error}</p>
+							<p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>
 						)}
 
 						<button
 							type="submit"
 							disabled={submitting}
-							className="w-full py-2.5 bg-white text-black rounded-lg text-sm font-medium hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+							className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
 						>
 							{submitting ? 'Sending...' : 'Send Reset Link'}
 						</button>

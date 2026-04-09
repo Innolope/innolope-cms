@@ -32,23 +32,23 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
 			<div
-				className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
+				className="bg-zinc-50 border border-zinc-200 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
 				onClick={(e) => e.stopPropagation()}
 			>
 				{/* Header */}
-				<div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+				<div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200">
 					<h3 className="text-sm font-semibold">Insert Image</h3>
 					<button
 						type="button"
 						onClick={onClose}
-						className="text-zinc-600 hover:text-zinc-400 text-xs"
+						className="text-zinc-600 hover:text-zinc-600 text-xs"
 					>
 						Close
 					</button>
 				</div>
 
 				{/* Tabs */}
-				<div className="flex border-b border-zinc-800">
+				<div className="flex border-b border-zinc-200">
 					<TabButton active={tab === 'unsplash'} onClick={() => setTab('unsplash')}>
 						Unsplash
 					</TabButton>
@@ -86,7 +86,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 									onChange={(e) => setUrl(e.target.value)}
 									onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
 									placeholder="https://..."
-									className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+									className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 									autoFocus
 								/>
 							</div>
@@ -98,14 +98,14 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 									onChange={(e) => setAlt(e.target.value)}
 									onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
 									placeholder="Describe the image"
-									className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+									className="w-full px-3 py-2 bg-white border border-zinc-200 rounded text-sm focus:outline-none focus:border-zinc-600"
 								/>
 							</div>
 							<button
 								type="button"
 								onClick={handleUrlSubmit}
 								disabled={!url.trim()}
-								className="px-4 py-2 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200 disabled:opacity-30 transition-colors"
+								className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-800 disabled:opacity-30 transition-colors"
 							>
 								Insert Image
 							</button>
@@ -132,7 +132,7 @@ function TabButton({
 			onClick={onClick}
 			className={`px-4 py-2.5 text-xs font-medium transition-colors ${
 				active
-					? 'text-white border-b-2 border-white'
+					? 'text-zinc-900 border-b-2 border-white'
 					: 'text-zinc-500 hover:text-zinc-300'
 			}`}
 		>

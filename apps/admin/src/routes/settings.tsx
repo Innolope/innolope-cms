@@ -2,6 +2,9 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
+import { GeneralSettings } from '../components/settings/general-settings'
+import { MediaSettings } from '../components/settings/media-settings'
+import { DatabaseSettings } from '../components/settings/database-settings'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -31,12 +34,13 @@ function Settings() {
 					<AiSettingsPanel />
 				</Section>
 				<Section title="General">
-					<p className="text-zinc-400 text-sm">CMS name, locales, and defaults.</p>
+					<GeneralSettings />
 				</Section>
 				<Section title="Media">
-					<p className="text-zinc-400 text-sm">
-						Configure Cloudflare Images, Stream, R2, or local storage.
-					</p>
+					<MediaSettings />
+				</Section>
+				<Section title="Database">
+					<DatabaseSettings />
 				</Section>
 			</div>
 		</div>
@@ -97,7 +101,7 @@ function ApiKeysSection() {
 	}
 
 	return (
-		<div className="rounded-lg border border-zinc-800 p-6">
+		<div className="rounded-lg border border-zinc-200 p-6">
 			<div className="flex items-center justify-between mb-4">
 				<div>
 					<h3 className="text-lg font-semibold">API Keys</h3>
@@ -108,15 +112,15 @@ function ApiKeysSection() {
 				<button
 					type="button"
 					onClick={() => setShowCreate(true)}
-					className="px-3 py-1.5 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200 transition-colors"
+					className="px-3 py-1.5 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-200 transition-colors"
 				>
 					Create Key
 				</button>
 			</div>
 
 			{createdKey && (
-				<div className="mb-4 p-4 rounded-lg bg-emerald-950 border border-emerald-800">
-					<p className="text-sm font-medium text-emerald-300 mb-2">
+				<div className="mb-4 p-4 rounded-lg bg-zinc-100 border border-zinc-200">
+					<p className="text-sm font-medium text-zinc-700 mb-2">
 						Save this key now. It will not be shown again.
 					</p>
 					<div className="flex items-center gap-2">
@@ -126,13 +130,13 @@ function ApiKeysSection() {
 						<button
 							type="button"
 							onClick={copyKey}
-							className="px-3 py-2 bg-emerald-800 text-emerald-100 rounded text-sm hover:bg-emerald-700"
+							className="px-3 py-2 bg-zinc-200 text-emerald-100 rounded text-sm hover:bg-zinc-800"
 						>
 							{copied ? 'Copied' : 'Copy'}
 						</button>
 					</div>
 					<details className="mt-3">
-						<summary className="text-xs text-emerald-400 cursor-pointer">
+						<summary className="text-xs text-zinc-700 cursor-pointer">
 							Claude Desktop config
 						</summary>
 						<pre className="mt-2 text-xs bg-black/30 p-3 rounded overflow-x-auto">
@@ -157,7 +161,7 @@ function ApiKeysSection() {
 					<button
 						type="button"
 						onClick={() => setCreatedKey(null)}
-						className="mt-3 text-xs text-emerald-500 hover:text-emerald-400"
+						className="mt-3 text-xs text-zinc-600 hover:text-zinc-700"
 					>
 						Dismiss
 					</button>
@@ -165,7 +169,7 @@ function ApiKeysSection() {
 			)}
 
 			{showCreate && (
-				<div className="mb-4 p-4 rounded-lg bg-zinc-900 border border-zinc-700">
+				<div className="mb-4 p-4 rounded-lg bg-white border border-zinc-300">
 					<label className="block text-sm mb-2">Key name</label>
 					<div className="flex gap-2">
 						<input
@@ -174,20 +178,20 @@ function ApiKeysSection() {
 							onChange={(e) => setNewKeyName(e.target.value)}
 							onKeyDown={(e) => e.key === 'Enter' && createKey()}
 							placeholder="e.g. Claude Agent, CI Pipeline"
-							className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm focus:outline-none focus:border-zinc-500"
+							className="flex-1 px-3 py-2 bg-zinc-100 border border-zinc-300 rounded text-sm focus:outline-none focus:border-zinc-500"
 							autoFocus
 						/>
 						<button
 							type="button"
 							onClick={createKey}
-							className="px-4 py-2 bg-white text-black rounded text-sm font-medium hover:bg-zinc-200"
+							className="px-4 py-2 bg-zinc-900 text-white rounded text-sm font-medium hover:bg-zinc-200"
 						>
 							Create
 						</button>
 						<button
 							type="button"
 							onClick={() => setShowCreate(false)}
-							className="px-4 py-2 bg-zinc-800 rounded text-sm hover:bg-zinc-700"
+							className="px-4 py-2 bg-zinc-100 rounded text-sm hover:bg-zinc-200"
 						>
 							Cancel
 						</button>
@@ -202,7 +206,7 @@ function ApiKeysSection() {
 			) : (
 				<table className="w-full text-sm">
 					<thead>
-						<tr className="text-left text-zinc-500 border-b border-zinc-800">
+						<tr className="text-left text-zinc-500 border-b border-zinc-200">
 							<th className="pb-2 font-medium">Name</th>
 							<th className="pb-2 font-medium">Key</th>
 							<th className="pb-2 font-medium">Created</th>
@@ -212,7 +216,7 @@ function ApiKeysSection() {
 					</thead>
 					<tbody>
 						{keys.map((k) => (
-							<tr key={k.id} className="border-b border-zinc-800/50">
+							<tr key={k.id} className="border-b border-zinc-200">
 								<td className="py-3">{k.name}</td>
 								<td className="py-3 font-mono text-zinc-500">{k.keyPrefix}...</td>
 								<td className="py-3 text-zinc-500">
@@ -225,7 +229,7 @@ function ApiKeysSection() {
 									<button
 										type="button"
 										onClick={() => deleteKey(k.id)}
-										className="text-red-500 hover:text-red-400 text-xs"
+										className="text-red-500 hover:text-red-600 text-xs"
 									>
 										Revoke
 									</button>
@@ -241,7 +245,7 @@ function ApiKeysSection() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
 	return (
-		<div className="rounded-lg border border-zinc-800 p-6">
+		<div className="rounded-lg border border-zinc-200 p-6">
 			<h3 className="text-lg font-semibold mb-2">{title}</h3>
 			{children}
 		</div>

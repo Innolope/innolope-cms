@@ -15,6 +15,7 @@ import { mediaPlugin } from './plugins/media.js'
 import { auditLogRoutes } from './ee/audit-log.js'
 import { webhookRoutes } from './ee/webhooks.js'
 import { schedulingRoutes } from './ee/scheduling.js'
+import { databaseRoutes } from './routes/v1/database.js'
 import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { contentRoutes } from './routes/v1/content.js'
@@ -87,6 +88,7 @@ export async function buildApp() {
 
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
+	await app.register(databaseRoutes, { prefix: '/api/v1/projects' })
 
 	// Project-scoped data routes
 	await app.register(aiRoutes, { prefix: '/api/v1/ai' })
