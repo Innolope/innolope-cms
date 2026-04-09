@@ -1,0 +1,20 @@
+{
+  "name": "@innolope/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TypeScript SDK for consuming Innolope CMS content",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2"
+  },
+  "keywords": ["cms", "innolope", "sdk", "headless", "markdown"],
+  "license": "BSL-1.1"
+}

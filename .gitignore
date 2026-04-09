@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test
+coverage/
+
+# Drizzle
+drizzle/meta/
+
+# Uploads (local dev media)
+uploads/
+
+# Lock files from wrong package manager
+package-lock.json
+yarn.lock
+
+# Generated route tree (TanStack Router regenerates this)
+apps/admin/src/routeTree.gen.ts
+
+# Cloud deployment (separate private repo)
+cloud/
+
+# Landing page (deployed separately)
+landing/

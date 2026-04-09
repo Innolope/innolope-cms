@@ -1,0 +1,35 @@
+{
+  "name": "@innolope/mcp-server",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server for connecting Claude and AI agents to Innolope CMS",
+  "bin": {
+    "innolope-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsx src/index.ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.17"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.2"
+  },
+  "keywords": [
+    "mcp",
+    "cms",
+    "innolope",
+    "claude",
+    "ai",
+    "markdown"
+  ],
+  "license": "BSL-1.1"
+}

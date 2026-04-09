@@ -1,0 +1,31 @@
+{
+  "name": "innolope-cms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic-native, markdown-first headless CMS",
+  "license": "BSL-1.1",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "db:generate": "turbo db:generate",
+    "db:migrate": "turbo db:migrate",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "packageManager": "pnpm@10.8.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "turbo": "^2.9.5",
+    "typescript": "^6.0.2"
+  }
+}
