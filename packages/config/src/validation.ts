@@ -25,7 +25,7 @@ export const contentListSchema = z.object({
 })
 
 export const envSchema = z.object({
-	DATABASE_URL: z.string().url(),
+	DATABASE_URL: z.string().min(1),
 	AUTH_SECRET: z.string().min(16),
 	API_PORT: z.coerce.number().default(3001),
 	API_HOST: z.string().default('0.0.0.0'),
