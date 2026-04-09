@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
+import { UnsplashPicker } from '../components/media/unsplash-picker'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -18,6 +19,7 @@ interface MediaItem {
 }
 
 function MediaLibrary() {
+	const [tab, setTab] = useState<'uploaded' | 'unsplash'>('uploaded')
 	const [items, setItems] = useState<MediaItem[]>([])
 	const [loading, setLoading] = useState(true)
 	const [uploading, setUploading] = useState(false)
@@ -73,7 +75,25 @@ function MediaLibrary() {
 		<div className="flex h-full">
 			<div className="flex-1 overflow-auto p-8">
 				<div className="flex items-center justify-between mb-6">
-					<h2 className="text-2xl font-bold">Media</h2>
+					<div className="flex items-center gap-4">
+						<h2 className="text-2xl font-bold">Media</h2>
+						<div className="flex bg-zinc-900 rounded-lg p-0.5">
+							<button
+								type="button"
+								onClick={() => setTab('uploaded')}
+								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'uploaded' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+							>
+								Uploaded
+							</button>
+							<button
+								type="button"
+								onClick={() => setTab('unsplash')}
+								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+							>
+								Unsplash
+							</button>
+						</div>
+					</div>
 					<div className="flex gap-3">
 						<select
 							value={typeFilter}
@@ -103,6 +123,12 @@ function MediaLibrary() {
 					</div>
 				</div>
 
+				{tab === 'unsplash' ? (
+					<UnsplashPicker onSelect={(photo) => {
+						navigator.clipboard.writeText(photo.url)
+						alert(`Copied URL for "${photo.alt}" by ${photo.author}`)
+					}} />
+				) : (<>
 				{/* Drop zone */}
 				<div
 					className="mb-4 border-2 border-dashed border-zinc-800 rounded-lg p-6 text-center text-zinc-600 text-sm hover:border-zinc-600 transition-colors"
@@ -159,6 +185,7 @@ function MediaLibrary() {
 						))}
 					</div>
 				)}
+				</>)}
 			</div>
 
 			{/* Detail panel */}

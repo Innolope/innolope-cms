@@ -4,7 +4,8 @@ import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import TurndownService from 'turndown'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ImagePickerModal } from './image-picker-modal'
 
 const turndown = new TurndownService({
 	headingStyle: 'atx',
@@ -62,12 +63,20 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		}
 	}, [content, editor])
 
+	const [showImagePicker, setShowImagePicker] = useState(false)
+
 	const addImage = useCallback(() => {
-		const url = prompt('Image URL:')
-		if (url && editor) {
-			editor.chain().focus().setImage({ src: url }).run()
-		}
-	}, [editor])
+		setShowImagePicker(true)
+	}, [])
+
+	const handleImageSelect = useCallback(
+		(url: string, alt: string) => {
+			if (editor) {
+				editor.chain().focus().setImage({ src: url, alt }).run()
+			}
+		},
+		[editor],
+	)
 
 	const addLink = useCallback(() => {
 		const url = prompt('Link URL:')
@@ -145,6 +154,12 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 				/>
 			</div>
 			<EditorContent editor={editor} />
+			{showImagePicker && (
+				<ImagePickerModal
+					onSelect={handleImageSelect}
+					onClose={() => setShowImagePicker(false)}
+				/>
+			)}
 		</div>
 	)
 }

@@ -23,6 +23,7 @@ import { mediaRoutes } from './routes/v1/media.js'
 import { projectRoutes } from './routes/v1/projects.js'
 import { statsRoutes } from './routes/v1/stats.js'
 import { streamRoutes } from './routes/v1/stream.js'
+import { unsplashRoutes } from './routes/v1/unsplash.js'
 
 export async function buildApp() {
 	const app = Fastify({
@@ -89,6 +90,7 @@ export async function buildApp() {
 	await app.register(mediaRoutes, { prefix: '/api/v1/media' })
 	await app.register(statsRoutes, { prefix: '/api/v1/stats' })
 	await app.register(streamRoutes, { prefix: '/api/v1/stream' })
+	await app.register(unsplashRoutes, { prefix: '/api/v1/unsplash' })
 
 	// Enterprise Edition routes
 	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })
