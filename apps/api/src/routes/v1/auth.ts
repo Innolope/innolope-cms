@@ -15,6 +15,10 @@ export async function authRoutes(app: FastifyInstance) {
 	app.post('/register', async (request, reply) => {
 		const { email, password, name } = request.body as { email: string; password: string; name: string }
 
+		if (!email?.trim()) return reply.status(400).send({ error: 'Email is required.' })
+		if (!name?.trim()) return reply.status(400).send({ error: 'Name is required.' })
+		if (!password || password.length < 8) return reply.status(400).send({ error: 'Password must be at least 8 characters.' })
+
 		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
 
 		if (Number(count) > 0) {
@@ -35,6 +39,8 @@ export async function authRoutes(app: FastifyInstance) {
 	// Login
 	app.post('/login', async (request, reply) => {
 		const { email, password } = request.body as { email: string; password: string }
+
+		if (!email?.trim() || !password) return reply.status(400).send({ error: 'Email and password are required.' })
 
 		const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
 		if (!user || !(await verifyPassword(password, user.passwordHash))) {
