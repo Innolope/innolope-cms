@@ -26,11 +26,11 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 		// Generate token
 		const rawToken = randomUUID()
 		const tokenHash = createHash('sha256').update(rawToken).digest('hex')
-		const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+		const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
 
 		// Store token (raw SQL since we don't have a Drizzle schema for this table yet)
 		await app.db.execute(
-			sql`INSERT INTO password_reset_tokens ("userId", "tokenHash", "expiresAt") VALUES (${user.id}, ${tokenHash}, ${expiresAt})`,
+			sql`INSERT INTO password_reset_tokens ("userId", "tokenHash", "expiresAt") VALUES (${user.id}, ${tokenHash}, ${expiresAt}::timestamptz)`,
 		)
 
 		// Send email

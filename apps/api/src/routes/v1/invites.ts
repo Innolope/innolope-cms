@@ -44,11 +44,11 @@ export async function inviteRoutes(app: FastifyInstance) {
 			// Generate invite token
 			const rawToken = randomUUID()
 			const tokenHash = createHash('sha256').update(rawToken).digest('hex')
-			const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+			const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
 
 			await app.db.execute(
 				sql`INSERT INTO invites ("projectId", email, role, "tokenHash", "invitedBy", "expiresAt")
-					VALUES (${request.project!.id}, ${email}, ${role}, ${tokenHash}, ${request.user!.id}, ${expiresAt})`,
+					VALUES (${request.project!.id}, ${email}, ${role}, ${tokenHash}, ${request.user!.id}, ${expiresAt}::timestamptz)`,
 			)
 
 			// Send email
