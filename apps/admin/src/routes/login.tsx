@@ -73,7 +73,7 @@ function LoginPage() {
 	}
 
 	return (
-		<div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+		<div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<h1 className="text-2xl font-bold text-white">Innolope CMS</h1>
@@ -91,7 +91,7 @@ function LoginPage() {
 								value={name}
 								onChange={(e) => setName(e.target.value)}
 								required
-								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
+								className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 								placeholder="Admin name"
 								autoFocus
 							/>
@@ -104,7 +104,7 @@ function LoginPage() {
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							required
-							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 							placeholder="admin@example.com"
 							autoFocus={mode === 'login'}
 						/>
@@ -117,7 +117,7 @@ function LoginPage() {
 							onChange={(e) => setPassword(e.target.value)}
 							required
 							minLength={8}
-							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-zinc-600"
+							className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
 							placeholder="Min 8 characters"
 						/>
 					</div>

@@ -24,7 +24,8 @@
     "fastify-plugin": "^5.1.0",
     "jose": "^6.2.2",
     "marked": "^16.0.0",
-    "oslo": "^1.2.1"
+    "oslo": "^1.2.1",
+    "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
