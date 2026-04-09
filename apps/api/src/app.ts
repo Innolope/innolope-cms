@@ -103,7 +103,6 @@ export async function buildApp() {
 		await app.register(fastifyStatic, {
 			root: adminDistPath,
 			prefix: '/',
-			decorateReply: false,
 		})
 		app.log.info(`Serving admin UI from ${adminDistPath}`)
 	}
