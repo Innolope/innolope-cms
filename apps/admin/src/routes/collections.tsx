@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useMatches } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
 
@@ -7,10 +7,10 @@ export const Route = createFileRoute('/collections')({
 })
 
 function CollectionsLayout() {
-	const matches = useMatches()
-	const hasChild = matches.some((m) => m.id === '/collections/$id')
+	const location = useLocation()
+	const isChildRoute = location.pathname !== '/collections'
 
-	if (hasChild) return <Outlet />
+	if (isChildRoute) return <Outlet />
 	return <CollectionsList />
 }
 

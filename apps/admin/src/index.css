@@ -12,6 +12,9 @@
 	--color-text-muted: #a1a1aa;
 	--color-text-faint: #d4d4d8;
 	--color-input: #ffffff;
+	--color-accent: #18181b;
+	--color-accent-hover: #27272a;
+	--color-accent-soft: #f4f4f5;
 	--color-btn-primary: #18181b;
 	--color-btn-primary-text: #ffffff;
 	--color-btn-primary-hover: #27272a;
@@ -24,6 +27,10 @@
 html {
 	color-scheme: light;
 	font-family: "Red Hat Display", "Sora", system-ui, sans-serif;
+}
+
+button, [role="button"] {
+	cursor: pointer;
 }
 html.dark {
 	color-scheme: dark;
@@ -40,6 +47,9 @@ html.dark {
 	--color-text-muted: #71717a;
 	--color-text-faint: #52525b;
 	--color-input: #27272a;
+	--color-accent: #f4f4f5;
+	--color-accent-hover: #e4e4e7;
+	--color-accent-soft: #27272a;
 	--color-btn-primary: #f4f4f5;
 	--color-btn-primary-text: #18181b;
 	--color-btn-primary-hover: #e4e4e7;

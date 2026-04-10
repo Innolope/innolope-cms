@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useMatches } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
 import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
@@ -9,10 +9,10 @@ export const Route = createFileRoute('/content')({
 })
 
 function ContentLayout() {
-	const matches = useMatches()
-	const hasChild = matches.some((m) => m.id === '/content/$id')
+	const location = useLocation()
+	const isChildRoute = location.pathname !== '/content'
 
-	if (hasChild) return <Outlet />
+	if (isChildRoute) return <Outlet />
 	return <ContentList />
 }
 

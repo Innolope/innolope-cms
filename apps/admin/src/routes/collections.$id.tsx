@@ -148,6 +148,43 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 			{ name: 'requirements', type: 'array' },
 		],
 	},
+	{
+		name: 'SEO Article',
+		slug: 'seo-article',
+		description: 'Content optimized for search engines with full SEO and Open Graph metadata',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'slug', type: 'text', required: true },
+			{ name: 'excerpt', type: 'text', localized: true },
+			{ name: 'author', type: 'text' },
+			{ name: 'publishDate', type: 'date' },
+			{ name: 'metaTitle', type: 'text', localized: true },
+			{ name: 'metaDescription', type: 'text', localized: true },
+			{ name: 'canonicalUrl', type: 'text' },
+			{ name: 'ogImage', type: 'relation' },
+			{ name: 'ogTitle', type: 'text' },
+			{ name: 'ogDescription', type: 'text' },
+			{ name: 'keywords', type: 'array' },
+			{ name: 'noIndex', type: 'boolean' },
+		],
+	},
+	{
+		name: 'Events',
+		slug: 'events',
+		description: 'Webinars, meetups, and conferences with scheduling and registration data',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'type', type: 'enum', required: true, options: ['webinar', 'meetup', 'conference', 'workshop', 'launch'] },
+			{ name: 'startDate', type: 'date', required: true },
+			{ name: 'endDate', type: 'date' },
+			{ name: 'timezone', type: 'text' },
+			{ name: 'location', type: 'text' },
+			{ name: 'online', type: 'boolean' },
+			{ name: 'registrationUrl', type: 'text' },
+			{ name: 'speakers', type: 'array' },
+			{ name: 'capacity', type: 'number' },
+		],
+	},
 ]
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array']
@@ -248,36 +285,51 @@ function CollectionEditor() {
 
 	if (showTemplatePicker) {
 		return (
-			<div className="p-8 max-w-4xl">
-				<h2 className="text-2xl font-bold mb-2">New Collection</h2>
-				<p className="text-text-secondary text-sm mb-6">
-					Start from a template or create a blank collection.
-				</p>
+			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
+				<div className="max-w-4xl w-full">
+				<div className="text-center mb-10">
+					<h2 className="text-2xl font-bold mb-2">New Collection</h2>
+					<p className="text-text-secondary text-sm">
+						Choose a template or start with a blank schema.
+					</p>
+				</div>
 
-				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{COLLECTION_TEMPLATES.map((template) => (
 						<button
 							key={template.slug}
 							type="button"
 							onClick={() => applyTemplate(template)}
-							className="text-left p-4 bg-surface border border-border rounded-lg hover:border-border-strong transition-colors"
+							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
 						>
-							<h3 className="text-sm font-semibold mb-1">{template.name}</h3>
-							<p className="text-xs text-text-secondary mb-2">{template.description}</p>
-							<p className="text-xs text-text-muted">
-								{template.fields.length} fields: {template.fields.map((f) => f.name).join(', ')}
-							</p>
+							<h3 className="font-semibold text-white mb-1">{template.name}</h3>
+							<p className="text-xs text-white/70">{template.description}</p>
+							<div className="bg-white/10 rounded-lg p-3 space-y-1 w-full mt-3">
+								{template.fields.map((f) => (
+									<div key={f.name} className="flex items-center justify-between text-xs font-mono">
+										<span className="text-white">{f.name}{f.required ? <span className="text-white/40 ml-0.5">*</span> : ''}</span>
+										<span className="text-white/50">{f.type}</span>
+									</div>
+								))}
+							</div>
 						</button>
 					))}
-				</div>
 
-				<button
-					type="button"
-					onClick={() => setShowTemplatePicker(false)}
-					className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
-				>
-					Blank Collection
-				</button>
+					{/* Blank collection card */}
+					<button
+						type="button"
+						onClick={() => setShowTemplatePicker(false)}
+						className="rounded-xl border-2 border-dashed border-border p-6 text-left hover:border-border-strong active:translate-x-px active:translate-y-px transition-all flex flex-col items-center justify-center min-h-[160px]"
+					>
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-2">
+							<line x1="12" y1="5" x2="12" y2="19" />
+							<line x1="5" y1="12" x2="19" y2="12" />
+						</svg>
+						<h3 className="font-semibold text-text-secondary mb-1">Blank Collection</h3>
+						<p className="text-xs text-text-muted">Define your own schema from scratch</p>
+					</button>
+				</div>
+				</div>
 			</div>
 		)
 	}

@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
+import { DatabaseSettings } from '../components/settings/database-settings'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/dashboard')({
@@ -26,87 +27,6 @@ interface RecentItem {
 	locale: string
 }
 
-const COLLECTION_TEMPLATES = [
-	{ name: 'Knowledge Base', slug: 'knowledge-base', description: 'Structured articles for AI agent retrieval and customer self-service', fields: [
-		{ name: 'title', type: 'text', required: true, localized: true },
-		{ name: 'category', type: 'enum', options: ['general', 'technical', 'onboarding', 'troubleshooting'] },
-		{ name: 'tags', type: 'array' },
-		{ name: 'summary', type: 'text', localized: true },
-		{ name: 'difficulty', type: 'enum', options: ['beginner', 'intermediate', 'advanced'] },
-		{ name: 'relatedArticles', type: 'relation' },
-	]},
-	{ name: 'FAQ', slug: 'faq', description: 'Question-answer pairs optimized for AI-powered support agents', fields: [
-		{ name: 'question', type: 'text', required: true, localized: true },
-		{ name: 'answer', type: 'text', required: true, localized: true },
-		{ name: 'category', type: 'enum', options: ['general', 'billing', 'technical', 'account'] },
-		{ name: 'order', type: 'number' },
-		{ name: 'helpful', type: 'number' },
-	]},
-	{ name: 'Product Catalog', slug: 'product-catalog', description: 'Structured product data for AI-driven recommendations and search', fields: [
-		{ name: 'title', type: 'text', required: true, localized: true },
-		{ name: 'price', type: 'number', required: true },
-		{ name: 'currency', type: 'enum', options: ['USD', 'EUR', 'GBP'] },
-		{ name: 'sku', type: 'text', required: true },
-		{ name: 'category', type: 'enum', options: ['software', 'hardware', 'service', 'subscription'] },
-		{ name: 'inStock', type: 'boolean' },
-		{ name: 'specs', type: 'object' },
-		{ name: 'images', type: 'relation' },
-	]},
-	{ name: 'Documentation', slug: 'documentation', description: 'Technical docs with section ordering for developer-facing AI assistants', fields: [
-		{ name: 'title', type: 'text', required: true, localized: true },
-		{ name: 'section', type: 'text', required: true },
-		{ name: 'order', type: 'number' },
-		{ name: 'tags', type: 'array' },
-		{ name: 'codeExamples', type: 'array' },
-		{ name: 'deprecated', type: 'boolean' },
-		{ name: 'relatedDocs', type: 'relation' },
-	]},
-	{ name: 'Changelog', slug: 'changelog', description: 'Version history and release notes for product updates', fields: [
-		{ name: 'title', type: 'text', required: true },
-		{ name: 'version', type: 'text', required: true },
-		{ name: 'date', type: 'date', required: true },
-		{ name: 'type', type: 'enum', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
-		{ name: 'breaking', type: 'boolean' },
-	]},
-	{ name: 'API Reference', slug: 'api-reference', description: 'Endpoint documentation for API-aware AI agents and developer tools', fields: [
-		{ name: 'title', type: 'text', required: true },
-		{ name: 'method', type: 'enum', required: true, options: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
-		{ name: 'endpoint', type: 'text', required: true },
-		{ name: 'parameters', type: 'object' },
-		{ name: 'responseSchema', type: 'object' },
-		{ name: 'authenticated', type: 'boolean' },
-		{ name: 'rateLimit', type: 'number' },
-		{ name: 'deprecated', type: 'boolean' },
-	]},
-	{ name: 'CRM', slug: 'crm', description: 'Customer contacts and deals for AI-assisted sales workflows', fields: [
-		{ name: 'name', type: 'text', required: true },
-		{ name: 'email', type: 'text', required: true },
-		{ name: 'company', type: 'text' },
-		{ name: 'stage', type: 'enum', required: true, options: ['lead', 'qualified', 'proposal', 'negotiation', 'closed-won', 'closed-lost'] },
-		{ name: 'dealValue', type: 'number' },
-		{ name: 'lastContact', type: 'date' },
-		{ name: 'notes', type: 'array' },
-	]},
-	{ name: 'Blog', slug: 'blog', description: 'Articles and posts with SEO metadata for content marketing', fields: [
-		{ name: 'title', type: 'text', required: true, localized: true },
-		{ name: 'excerpt', type: 'text', localized: true },
-		{ name: 'author', type: 'text', required: true },
-		{ name: 'publishDate', type: 'date' },
-		{ name: 'category', type: 'enum', options: ['engineering', 'product', 'company', 'tutorial'] },
-		{ name: 'tags', type: 'array' },
-		{ name: 'featuredImage', type: 'relation' },
-		{ name: 'seoDescription', type: 'text', localized: true },
-	]},
-	{ name: 'Job Board', slug: 'job-board', description: 'Open positions with structured requirements for recruiting agents', fields: [
-		{ name: 'title', type: 'text', required: true },
-		{ name: 'department', type: 'enum', required: true, options: ['engineering', 'design', 'product', 'marketing', 'sales', 'operations'] },
-		{ name: 'location', type: 'text', required: true },
-		{ name: 'remote', type: 'boolean' },
-		{ name: 'salaryMin', type: 'number' },
-		{ name: 'salaryMax', type: 'number' },
-		{ name: 'requirements', type: 'array' },
-	]},
-]
 
 function Dashboard() {
 	const [stats, setStats] = useState<Stats | null>(null)
@@ -247,27 +167,19 @@ function Dashboard() {
 function EmptyDashboard() {
 	const navigate = useNavigate()
 	const toast = useToast()
-	const [step, setStep] = useState<'choose' | 'connect-db' | 'upload' | 'scratch'>('choose')
-	const [scratchStep, setScratchStep] = useState<'choose' | 'template'>('choose')
-	const [creating, setCreating] = useState(false)
-	const fileInputRef = useRef<HTMLInputElement>(null)
+	const [step, setStepState] = useState<'choose' | 'connect-db' | 'upload'>(() => {
+		const params = new URLSearchParams(window.location.search)
+		return (params.get('step') as 'choose' | 'connect-db' | 'upload') || 'choose'
+	})
 
-	const createFromTemplate = async (template: typeof COLLECTION_TEMPLATES[0]) => {
-		setCreating(true)
-		try {
-			await api.post('/api/v1/collections', {
-				name: template.name,
-				slug: template.slug,
-				description: template.description,
-				fields: template.fields,
-			})
-			navigate({ to: '/content/$id', params: { id: 'new' } })
-		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to create collection', 'error')
-		} finally {
-			setCreating(false)
-		}
+	const setStep = (s: typeof step) => {
+		setStepState(s)
+		const url = new URL(window.location.href)
+		if (s === 'choose') url.searchParams.delete('step')
+		else url.searchParams.set('step', s)
+		window.history.replaceState({}, '', url.toString())
 	}
+	const fileInputRef = useRef<HTMLInputElement>(null)
 
 	const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0]
@@ -322,9 +234,9 @@ function EmptyDashboard() {
 							</div>
 						</button>
 
-						<button
-							type="button"
-							onClick={() => setStep('scratch')}
+						<Link
+							to="/collections/$id"
+							params={{ id: 'new' }}
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
 							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
@@ -337,7 +249,7 @@ function EmptyDashboard() {
 								<h3 className="font-semibold text-white mb-1.5">Start from Scratch</h3>
 								<p className="text-sm text-white/70">Create a new collection and add content</p>
 							</div>
-						</button>
+						</Link>
 					</div>
 				</div>
 			</div>
@@ -346,124 +258,19 @@ function EmptyDashboard() {
 
 	if (step === 'connect-db') {
 		return (
-			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
-				<div className="max-w-md w-full">
+			<div className="p-8 pt-[10vh] flex justify-center min-h-[70vh]">
+				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
 						<h2 className="text-2xl font-bold mb-2">Connect Database</h2>
 						<p className="text-text-secondary text-sm">
-							Configure your external database connection in Project Settings to sync content.
+							Connect an external database to import existing content.
 						</p>
 					</div>
-					<div className="flex gap-3 justify-center">
-						<button
-							type="button"
-							onClick={() => setStep('choose')}
-							className="px-4 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover active:translate-x-px active:translate-y-px"
-						>
-							Back
-						</button>
-						<Link
-							to="/settings"
-							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px"
-						>
-							Go to Settings
-						</Link>
-					</div>
-				</div>
-			</div>
-		)
-	}
-
-	if (step === 'upload') {
-		return (
-			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
-				<div className="max-w-md w-full">
-					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Upload Content</h2>
-						<p className="text-text-secondary text-sm">
-							Upload Markdown (.md) or JSON (.json) files to import content.
-						</p>
-					</div>
-					<input
-						ref={fileInputRef}
-						type="file"
-						accept=".md,.json,.jsonl"
-						onChange={handleFileUpload}
-						className="hidden"
-					/>
-					<div className="flex gap-3 justify-center">
-						<button
-							type="button"
-							onClick={() => setStep('choose')}
-							className="px-4 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover active:translate-x-px active:translate-y-px"
-						>
-							Back
-						</button>
-						<button
-							type="button"
-							onClick={() => fileInputRef.current?.click()}
-							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px"
-						>
-							Choose File
-						</button>
-					</div>
-				</div>
-			</div>
-		)
-	}
-
-	// step === 'scratch'
-	if (scratchStep === 'choose') {
-		return (
-			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
-				<div className="max-w-4xl w-full">
-					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Start from Scratch</h2>
-						<p className="text-text-secondary text-sm">Pick a template or create a custom collection.</p>
-					</div>
-
-					<div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[600px] mx-auto">
-						<button
-							type="button"
-							onClick={() => setScratchStep('template')}
-							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
-						>
-							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
-								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
-									<rect x="3" y="3" width="7" height="7" rx="1" />
-									<rect x="14" y="3" width="7" height="7" rx="1" />
-									<rect x="3" y="14" width="7" height="7" rx="1" />
-									<rect x="14" y="14" width="7" height="7" rx="1" />
-								</svg>
-							</div>
-							<div className="mt-6">
-								<h3 className="font-semibold text-white mb-1.5">Choose a Template</h3>
-								<p className="text-sm text-white/70">Pre-built schemas for common content types</p>
-							</div>
-						</button>
-
-						<Link
-							to="/collections/$id"
-							params={{ id: 'new' }}
-							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
-						>
-							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
-								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
-									<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-									<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-								</svg>
-							</div>
-							<div className="mt-6">
-								<h3 className="font-semibold text-white mb-1.5">Create Custom</h3>
-								<p className="text-sm text-white/70">Define your own collection schema from scratch</p>
-							</div>
-						</Link>
-					</div>
-
+					<DatabaseSettings />
 					<div className="text-center mt-12">
 						<button
 							type="button"
-							onClick={() => { setStep('choose'); setScratchStep('choose') }}
+							onClick={() => setStep('choose')}
 							className="text-sm text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5"
 						>
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><polyline points="12 19 5 12 12 5" /></svg>
@@ -475,42 +282,63 @@ function EmptyDashboard() {
 		)
 	}
 
-	// scratchStep === 'template'
-	return (
-		<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
-			<div className="max-w-4xl w-full">
-				<div className="text-center mb-10">
-					<h2 className="text-2xl font-bold mb-2">Choose a Template</h2>
-					<p className="text-text-secondary text-sm">Select a pre-built collection schema to get started quickly.</p>
-				</div>
-
-				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-					{COLLECTION_TEMPLATES.map((t) => (
+	if (step === 'upload') {
+		return (
+			<div className="p-8 pt-[15vh] flex flex-col h-full">
+				<div className="max-w-lg mx-auto w-full">
+					<div className="text-center mb-10">
+						<h2 className="text-2xl font-bold mb-2">Upload Content</h2>
+						<p className="text-text-secondary text-sm">
+							Upload Markdown (.md) or JSON (.json) files to import content.
+						</p>
+					</div>
+					<div className="flex gap-3 justify-center">
 						<button
 							type="button"
-							key={t.slug}
-							onClick={() => createFromTemplate(t)}
-							disabled={creating}
-							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all disabled:opacity-50 flex flex-col"
+							onClick={() => fileInputRef.current?.click()}
+							className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors cursor-pointer"
 						>
-							<h3 className="font-semibold text-white mb-1">{t.name}</h3>
-							<p className="text-xs text-white/70">{t.description}</p>
-							<div className="bg-white/10 rounded-lg p-3 space-y-1 w-full mt-3">
-								{t.fields.map((f) => (
-									<div key={f.name} className="flex items-center justify-between text-xs font-mono">
-										<span className="text-white">{f.name}{f.required ? <span className="text-white/40 ml-0.5">*</span> : ''}</span>
-										<span className="text-white/50">{f.type}</span>
-									</div>
-								))}
-							</div>
+							Choose Files
 						</button>
-					))}
+					</div>
 				</div>
-
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept=".md,.json,.jsonl"
+					onChange={handleFileUpload}
+					className="hidden"
+					multiple
+				/>
+				<div className="mt-auto pt-4">
+					<div
+						className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex flex-col items-center justify-center cursor-pointer"
+						onClick={() => fileInputRef.current?.click()}
+						onDragOver={(e) => {
+							e.preventDefault()
+							e.currentTarget.classList.add('border-text-secondary')
+						}}
+						onDragLeave={(e) => {
+							e.currentTarget.classList.remove('border-text-secondary')
+						}}
+						onDrop={(e) => {
+							e.preventDefault()
+							e.currentTarget.classList.remove('border-text-secondary')
+							if (e.dataTransfer.files.length) handleFileUpload({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>)
+						}}
+					>
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
+							<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+							<polyline points="17 8 12 3 7 8" />
+							<line x1="12" y1="3" x2="12" y2="15" />
+						</svg>
+						Drop .md, .json, or .jsonl files here or click to browse
+					</div>
+				</div>
 				<div className="text-center mt-12">
 					<button
 						type="button"
-						onClick={() => setScratchStep('choose')}
+						onClick={() => setStep('choose')}
 						className="text-sm text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5"
 					>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><polyline points="12 19 5 12 12 5" /></svg>
@@ -518,8 +346,10 @@ function EmptyDashboard() {
 					</button>
 				</div>
 			</div>
-		</div>
-	)
+		)
+	}
+
+	return null
 }
 
 function StatCard({ label, value, to }: { label: string; value: number | string; to: string }) {
