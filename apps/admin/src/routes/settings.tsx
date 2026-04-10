@@ -2,7 +2,6 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
-import { useTheme } from '../lib/theme'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { MediaSettings } from '../components/settings/media-settings'
@@ -32,11 +31,8 @@ interface NewKeyResponse extends ApiKeyItem {
 function Settings() {
 	return (
 		<div className="p-8 max-w-4xl">
-			<h2 className="text-2xl font-bold mb-8">Settings</h2>
+			<h2 className="text-2xl font-bold mb-8">Project Settings</h2>
 			<div className="space-y-8">
-				<Section title="Appearance">
-					<AppearanceSettings />
-				</Section>
 				<Section title="Team">
 					<TeamSettings />
 				</Section>
@@ -140,40 +136,6 @@ function EmbeddingSettings() {
 			>
 				{saving ? 'Saving...' : 'Save'}
 			</button>
-		</div>
-	)
-}
-
-function AppearanceSettings() {
-	const { theme, setTheme } = useTheme()
-
-	return (
-		<div className="space-y-3">
-			<label className="block text-xs text-text-secondary mb-1.5">Theme</label>
-			<div className="flex gap-2">
-				<button
-					type="button"
-					onClick={() => setTheme('light')}
-					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-						theme === 'light'
-							? 'bg-btn-primary text-btn-primary-text'
-							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
-					}`}
-				>
-					Light
-				</button>
-				<button
-					type="button"
-					onClick={() => setTheme('dark')}
-					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-						theme === 'dark'
-							? 'bg-btn-primary text-btn-primary-text'
-							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
-					}`}
-				>
-					Dark
-				</button>
-			</div>
 		</div>
 	)
 }

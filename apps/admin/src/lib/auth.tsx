@@ -26,6 +26,7 @@ interface AuthState {
 	logout: () => void
 	switchProject: (projectId: string) => void
 	refreshProjects: () => Promise<void>
+	refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -53,6 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		},
 		[token],
 	)
+
+	const refreshUser = useCallback(async () => {
+		if (!token) return
+		try {
+			const u = (await apiRequest('/api/v1/auth/me')) as User
+			setUser(u)
+		} catch { /* ignore */ }
+	}, [token, apiRequest])
 
 	const refreshProjects = useCallback(async () => {
 		if (!token) return
@@ -133,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	return (
 		<AuthContext.Provider
-			value={{ user, token, loading, projects, currentProject, login, register, logout, switchProject, refreshProjects }}
+			value={{ user, token, loading, projects, currentProject, login, register, logout, switchProject, refreshProjects, refreshUser }}
 		>
 			{children}
 		</AuthContext.Provider>

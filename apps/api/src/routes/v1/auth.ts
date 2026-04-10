@@ -62,6 +62,51 @@ export async function authRoutes(app: FastifyInstance) {
 		return request.user
 	})
 
+	// Update profile
+	app.put('/profile', { preHandler: [app.authenticate] }, async (request, reply) => {
+		const { name, email } = request.body as { name?: string; email?: string }
+
+		if (name !== undefined && !name.trim()) return reply.status(400).send({ error: 'Name cannot be empty' })
+		if (email !== undefined && !email.trim()) return reply.status(400).send({ error: 'Email cannot be empty' })
+
+		if (email && email !== request.user!.email) {
+			const [existing] = await app.db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
+			if (existing && existing.id !== request.user!.id) {
+				return reply.status(409).send({ error: 'Email already in use' })
+			}
+		}
+
+		const updates: Record<string, unknown> = { updatedAt: new Date() }
+		if (name) updates.name = name.trim()
+		if (email) updates.email = email.trim().toLowerCase()
+
+		const [updated] = await app.db
+			.update(users)
+			.set(updates)
+			.where(eq(users.id, request.user!.id))
+			.returning({ id: users.id, email: users.email, name: users.name, role: users.role })
+
+		return updated
+	})
+
+	// Change password
+	app.post('/change-password', { preHandler: [app.authenticate] }, async (request, reply) => {
+		const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string }
+
+		if (!currentPassword || !newPassword) return reply.status(400).send({ error: 'Current password and new password are required' })
+		if (newPassword.length < 8) return reply.status(400).send({ error: 'New password must be at least 8 characters' })
+
+		const [user] = await app.db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, request.user!.id)).limit(1)
+		if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
+			return reply.status(401).send({ error: 'Current password is incorrect' })
+		}
+
+		const passwordHash = await hashPassword(newPassword)
+		await app.db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, request.user!.id))
+
+		return { message: 'Password updated' }
+	})
+
 	// Create API key (admin+, project-scoped)
 	app.post(
 		'/api-keys',

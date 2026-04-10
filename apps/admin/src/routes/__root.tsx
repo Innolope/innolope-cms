@@ -133,7 +133,7 @@ function AppLayout() {
 					)}
 					<NavLink to="/collections" label="Collections" />
 					<NavLink to="/media" label="Media" />
-					<NavLink to="/settings" label="Settings" />
+					<NavLink to="/settings" label="Project Settings" />
 				</nav>
 				<div className="p-4 border-t border-border">
 					<div className="flex items-center justify-between">
@@ -141,13 +141,25 @@ function AppLayout() {
 							<p className="text-sm truncate text-text">{user?.name}</p>
 							<p className="text-xs text-text-muted truncate">{user?.email}</p>
 						</div>
-						<button
-							type="button"
-							onClick={handleLogout}
-							className="text-xs text-text-muted hover:text-text-secondary shrink-0 ml-2"
-						>
-							Logout
-						</button>
+						<div className="flex items-center gap-2 shrink-0 ml-2">
+							<Link
+								to="/account"
+								className="text-text-muted hover:text-text transition-colors"
+								title="Account settings"
+							>
+								<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+									<circle cx="8" cy="8" r="2.5" />
+									<path d="M13.3 10.1a1.1 1.1 0 0 0 .2 1.2l.04.04a1.33 1.33 0 1 1-1.88 1.88l-.04-.04a1.1 1.1 0 0 0-1.2-.2 1.1 1.1 0 0 0-.67 1.01v.11a1.33 1.33 0 1 1-2.67 0v-.06A1.1 1.1 0 0 0 5.9 13.3a1.1 1.1 0 0 0-1.2.2l-.04.04a1.33 1.33 0 1 1-1.88-1.88l.04-.04a1.1 1.1 0 0 0 .2-1.2 1.1 1.1 0 0 0-1.01-.67h-.11a1.33 1.33 0 1 1 0-2.67h.06A1.1 1.1 0 0 0 2.7 5.9a1.1 1.1 0 0 0-.2-1.2l-.04-.04A1.33 1.33 0 1 1 4.34 2.78l.04.04a1.1 1.1 0 0 0 1.2.2h.05a1.1 1.1 0 0 0 .67-1.01v-.11a1.33 1.33 0 0 1 2.67 0v.06a1.1 1.1 0 0 0 .67 1.01 1.1 1.1 0 0 0 1.2-.2l.04-.04a1.33 1.33 0 1 1 1.88 1.88l-.04.04a1.1 1.1 0 0 0-.2 1.2v.05a1.1 1.1 0 0 0 1.01.67h.11a1.33 1.33 0 0 1 0 2.67h-.06a1.1 1.1 0 0 0-1.01.67Z" />
+								</svg>
+							</Link>
+							<button
+								type="button"
+								onClick={handleLogout}
+								className="text-xs text-text-muted hover:text-text-secondary"
+							>
+								Logout
+							</button>
+						</div>
 					</div>
 					<p className="text-[10px] text-text-faint mt-2">v0.1.0</p>
 				</div>
