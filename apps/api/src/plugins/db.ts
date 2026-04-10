@@ -175,6 +175,70 @@ async function ensureTables(connectionUrl: string) {
 		)
 	`
 
+	await sql`
+		CREATE TABLE IF NOT EXISTS webhooks (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			url TEXT NOT NULL,
+			secret TEXT NOT NULL,
+			events JSONB NOT NULL DEFAULT '[]',
+			active BOOLEAN NOT NULL DEFAULT true,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+
+	// pgvector extension for semantic search (graceful fallback if unavailable)
+	try {
+		await sql`CREATE EXTENSION IF NOT EXISTS vector`
+	} catch {
+		// pgvector not available — semantic search will be disabled
+	}
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS content_embeddings (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"contentId" UUID NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+			embedding vector(1536),
+			"chunkIndex" INT NOT NULL DEFAULT 0,
+			"chunkText" TEXT NOT NULL,
+			model TEXT NOT NULL DEFAULT 'text-embedding-3-small',
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`.catch(() => {
+		// Table creation may fail if pgvector extension is not available
+	})
+
+	// HNSW index for fast cosine similarity search
+	await sql`CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON content_embeddings USING hnsw (embedding vector_cosine_ops)`.catch(() => {})
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS content_analytics (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			"contentId" UUID REFERENCES content(id) ON DELETE SET NULL,
+			event TEXT NOT NULL,
+			query TEXT,
+			source TEXT NOT NULL,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS webhook_deliveries (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"webhookId" UUID NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+			event TEXT NOT NULL,
+			payload JSONB NOT NULL DEFAULT '{}',
+			status TEXT NOT NULL DEFAULT 'pending',
+			"statusCode" INT,
+			"responseBody" TEXT,
+			attempts INT NOT NULL DEFAULT 0,
+			"nextRetry" TIMESTAMPTZ,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+
 	await sql.end()
 }
 

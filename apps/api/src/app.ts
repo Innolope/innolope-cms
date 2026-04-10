@@ -28,6 +28,10 @@ import { streamRoutes } from './routes/v1/stream.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { passwordResetRoutes } from './routes/v1/password-reset.js'
 import { inviteRoutes } from './routes/v1/invites.js'
+import { exportRoutes } from './routes/v1/export.js'
+import { semanticSearchRoutes } from './routes/v1/semantic-search.js'
+import { initWebhookDispatcher } from './services/webhook-dispatch.js'
+import { initAutoEmbedding } from './services/embedding.js'
 
 export async function buildApp() {
 	const app = Fastify({
@@ -52,6 +56,8 @@ export async function buildApp() {
 	await app.register(authPlugin)
 	await app.register(projectPlugin)
 	await app.register(eventsPlugin)
+	initWebhookDispatcher(app)
+	initAutoEmbedding(app)
 	await app.register(emailPlugin)
 	await app.register(mediaPlugin)
 
@@ -92,6 +98,8 @@ export async function buildApp() {
 
 	// Project-scoped data routes
 	await app.register(aiRoutes, { prefix: '/api/v1/ai' })
+	await app.register(exportRoutes, { prefix: '/api/v1/content/export' })
+	await app.register(semanticSearchRoutes, { prefix: '/api/v1/content/semantic-search' })
 	await app.register(contentRoutes, { prefix: '/api/v1/content' })
 	await app.register(collectionRoutes, { prefix: '/api/v1/collections' })
 	await app.register(localeRoutes, { prefix: '/api/v1/locales' })

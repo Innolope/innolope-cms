@@ -2,14 +2,14 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
 
-export const Route = createFileRoute('/content')({
-	component: ContentList,
+export const Route = createFileRoute('/review-queue')({
+	component: ReviewQueue,
 })
 
 interface ContentItem {
 	id: string
 	slug: string
-	status: 'draft' | 'pending_review' | 'published' | 'archived'
+	status: string
 	metadata: Record<string, unknown>
 	locale: string
 	version: number
@@ -17,88 +17,56 @@ interface ContentItem {
 	updatedAt: string
 }
 
-interface ContentResponse {
+interface ReviewResponse {
 	data: ContentItem[]
 	pagination: { page: number; limit: number; total: number; totalPages: number }
 }
 
-const STATUS_STYLES: Record<string, string> = {
-	draft: 'bg-surface-alt text-text-secondary',
-	pending_review: 'bg-surface-alt text-text',
-	published: 'bg-surface-alt text-text',
-	archived: 'bg-surface-alt text-text-muted',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-	draft: 'draft',
-	pending_review: 'pending review',
-	published: 'published',
-	archived: 'archived',
-}
-
-function ContentList() {
+function ReviewQueue() {
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
 	const [loading, setLoading] = useState(true)
-	const [search, setSearch] = useState('')
-	const [statusFilter, setStatusFilter] = useState<string>('')
 
-	useEffect(() => {
-		const params = new URLSearchParams()
-		params.set('page', String(page))
-		params.set('limit', '25')
-		if (search) params.set('search', search)
-		if (statusFilter) params.set('status', statusFilter)
-
+	const fetchQueue = () => {
 		setLoading(true)
-		api.get<ContentResponse>(`/api/v1/content?${params}`)
+		api.get<ReviewResponse>(`/api/v1/content/review-queue?page=${page}&limit=25`)
 			.then((res) => {
 				setItems(res.data)
 				setTotal(res.pagination.total)
 			})
 			.catch(() => {})
 			.finally(() => setLoading(false))
-	}, [page, search, statusFilter])
+	}
+
+	useEffect(() => {
+		fetchQueue()
+	}, [page])
+
+	const approve = async (id: string) => {
+		try {
+			await api.post(`/api/v1/content/${id}/approve`, {})
+			fetchQueue()
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Approve failed')
+		}
+	}
+
+	const reject = async (id: string) => {
+		const reason = prompt('Rejection reason (optional):')
+		try {
+			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
+			fetchQueue()
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Reject failed')
+		}
+	}
 
 	return (
 		<div className="p-8">
-			<div className="flex items-center justify-between mb-6">
-				<h2 className="text-2xl font-bold">Content</h2>
-				<Link
-					to="/content/$id"
-					params={{ id: 'new' }}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover transition-colors"
-				>
-					New Content
-				</Link>
-			</div>
-
-			<div className="flex gap-3 mb-4">
-				<input
-					type="text"
-					placeholder="Search..."
-					value={search}
-					onChange={(e) => {
-						setSearch(e.target.value)
-						setPage(1)
-					}}
-					className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-				/>
-				<select
-					value={statusFilter}
-					onChange={(e) => {
-						setStatusFilter(e.target.value)
-						setPage(1)
-					}}
-					className="px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
-				>
-					<option value="">All statuses</option>
-					<option value="draft">Draft</option>
-					<option value="pending_review">Pending Review</option>
-					<option value="published">Published</option>
-					<option value="archived">Archived</option>
-				</select>
+			<div className="mb-6">
+				<h2 className="text-2xl font-bold">Review Queue</h2>
+				<p className="text-sm text-text-secondary mt-1">Content awaiting editorial approval</p>
 			</div>
 
 			<div className="rounded-lg border border-border">
@@ -106,9 +74,7 @@ function ContentList() {
 					<div className="p-8 text-center text-text-secondary text-sm">Loading...</div>
 				) : items.length === 0 ? (
 					<div className="p-8 text-center text-text-secondary text-sm">
-						{search || statusFilter
-							? 'No content matches your filters.'
-							: 'No content yet. Create your first article.'}
+						No content pending review.
 					</div>
 				) : (
 					<table className="w-full text-sm">
@@ -116,8 +82,8 @@ function ContentList() {
 							<tr className="text-left text-text-secondary border-b border-border">
 								<th className="px-4 py-3 font-medium">Title</th>
 								<th className="px-4 py-3 font-medium">Slug</th>
-								<th className="px-4 py-3 font-medium">Status</th>
 								<th className="px-4 py-3 font-medium">Updated</th>
+								<th className="px-4 py-3 font-medium text-right">Actions</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -138,15 +104,26 @@ function ContentList() {
 									<td className="px-4 py-3 text-text-secondary font-mono text-xs">
 										{item.slug}
 									</td>
-									<td className="px-4 py-3">
-										<span
-											className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}
-										>
-											{STATUS_LABELS[item.status] || item.status}
-										</span>
-									</td>
 									<td className="px-4 py-3 text-text-secondary">
 										{new Date(item.updatedAt).toLocaleDateString()}
+									</td>
+									<td className="px-4 py-3 text-right">
+										<div className="flex gap-2 justify-end">
+											<button
+												type="button"
+												onClick={() => approve(item.id)}
+												className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
+											>
+												Approve
+											</button>
+											<button
+												type="button"
+												onClick={() => reject(item.id)}
+												className="px-3 py-1 bg-btn-secondary rounded text-xs font-medium hover:bg-btn-secondary-hover"
+											>
+												Reject
+											</button>
+										</div>
 									</td>
 								</tr>
 							))}

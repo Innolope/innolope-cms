@@ -14,6 +14,85 @@ interface CollectionField {
 	options?: string[]
 }
 
+interface CollectionTemplate {
+	name: string
+	slug: string
+	description: string
+	fields: CollectionField[]
+}
+
+const COLLECTION_TEMPLATES: CollectionTemplate[] = [
+	{
+		name: 'Knowledge Base',
+		slug: 'knowledge-base',
+		description: 'Structured articles for AI agent retrieval and customer self-service',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'category', type: 'select', options: ['general', 'technical', 'onboarding', 'troubleshooting'] },
+			{ name: 'tags', type: 'json' },
+			{ name: 'summary', type: 'text', localized: true },
+		],
+	},
+	{
+		name: 'FAQ',
+		slug: 'faq',
+		description: 'Question-answer pairs optimized for AI-powered support agents',
+		fields: [
+			{ name: 'question', type: 'text', required: true, localized: true },
+			{ name: 'answer', type: 'text', required: true, localized: true },
+			{ name: 'category', type: 'select', options: ['general', 'billing', 'technical', 'account'] },
+			{ name: 'order', type: 'number' },
+		],
+	},
+	{
+		name: 'Product Catalog',
+		slug: 'product-catalog',
+		description: 'Structured product data for AI-driven recommendations and search',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'price', type: 'number' },
+			{ name: 'sku', type: 'text' },
+			{ name: 'category', type: 'select', options: ['software', 'hardware', 'service', 'subscription'] },
+			{ name: 'inStock', type: 'boolean' },
+			{ name: 'specs', type: 'json' },
+		],
+	},
+	{
+		name: 'Documentation',
+		slug: 'documentation',
+		description: 'Technical docs with section ordering for developer-facing AI assistants',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'section', type: 'text' },
+			{ name: 'order', type: 'number' },
+			{ name: 'tags', type: 'json' },
+		],
+	},
+	{
+		name: 'Changelog',
+		slug: 'changelog',
+		description: 'Version history and release notes for product updates',
+		fields: [
+			{ name: 'title', type: 'text', required: true },
+			{ name: 'version', type: 'text', required: true },
+			{ name: 'date', type: 'date', required: true },
+			{ name: 'type', type: 'select', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
+		],
+	},
+	{
+		name: 'API Reference',
+		slug: 'api-reference',
+		description: 'Endpoint documentation for API-aware AI agents and developer tools',
+		fields: [
+			{ name: 'title', type: 'text', required: true },
+			{ name: 'method', type: 'select', required: true, options: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
+			{ name: 'endpoint', type: 'text', required: true },
+			{ name: 'parameters', type: 'json' },
+			{ name: 'responseSchema', type: 'json' },
+		],
+	},
+]
+
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'select', 'relation', 'json']
 
 function CollectionEditor() {
@@ -27,6 +106,7 @@ function CollectionEditor() {
 	const [fields, setFields] = useState<CollectionField[]>([])
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
+	const [showTemplatePicker, setShowTemplatePicker] = useState(isNew)
 
 	useEffect(() => {
 		if (!isNew) {
@@ -98,7 +178,51 @@ function CollectionEditor() {
 		}
 	}
 
+	const applyTemplate = (template: CollectionTemplate) => {
+		setName(template.name)
+		setSlug(template.slug)
+		setDescription(template.description)
+		setFields(template.fields)
+		setShowTemplatePicker(false)
+	}
+
 	if (loading) return <div className="p-8 text-text-secondary text-sm">Loading...</div>
+
+	if (showTemplatePicker) {
+		return (
+			<div className="p-8 max-w-4xl">
+				<h2 className="text-2xl font-bold mb-2">New Collection</h2>
+				<p className="text-text-secondary text-sm mb-6">
+					Start from a template or create a blank collection.
+				</p>
+
+				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+					{COLLECTION_TEMPLATES.map((template) => (
+						<button
+							key={template.slug}
+							type="button"
+							onClick={() => applyTemplate(template)}
+							className="text-left p-4 bg-surface border border-border rounded-lg hover:border-border-strong transition-colors"
+						>
+							<h3 className="text-sm font-semibold mb-1">{template.name}</h3>
+							<p className="text-xs text-text-secondary mb-2">{template.description}</p>
+							<p className="text-xs text-text-muted">
+								{template.fields.length} fields: {template.fields.map((f) => f.name).join(', ')}
+							</p>
+						</button>
+					))}
+				</div>
+
+				<button
+					type="button"
+					onClick={() => setShowTemplatePicker(false)}
+					className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
+				>
+					Blank Collection
+				</button>
+			</div>
+		)
+	}
 
 	return (
 		<div className="p-8 max-w-3xl">

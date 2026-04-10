@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
+import { AnalyticsPanel } from '../components/settings/analytics-panel'
 
 export const Route = createFileRoute('/dashboard')({
 	component: Dashboard,
@@ -52,6 +53,14 @@ function Dashboard() {
 				/>
 				<StatCard label="Media Files" value={stats?.media ?? '—'} to="/media" />
 				<StatCard label="API Keys" value={stats?.apiKeys ?? '—'} to="/settings" />
+			</div>
+
+			{/* Analytics */}
+			<div className="rounded-lg border border-border p-5 mb-6">
+				<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
+					Content Analytics (30d)
+				</h3>
+				<AnalyticsPanel />
 			</div>
 
 			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

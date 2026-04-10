@@ -1,12 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { MediaSettings } from '../components/settings/media-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { TeamSettings } from '../components/settings/team-settings'
+import { WebhookSettings } from '../components/settings/webhook-settings'
+import { LicenseGate } from '../components/license-gate'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -41,6 +44,16 @@ function Settings() {
 				<Section title="AI Models">
 					<AiSettingsPanel />
 				</Section>
+				<Section title="Semantic Search">
+					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
+						<EmbeddingSettings />
+					</LicenseGate>
+				</Section>
+				<Section title="Webhooks">
+					<LicenseGate feature="webhooks" featureLabel="Webhooks">
+						<WebhookSettings />
+					</LicenseGate>
+				</Section>
 				<Section title="General">
 					<GeneralSettings />
 				</Section>
@@ -51,6 +64,82 @@ function Settings() {
 					<DatabaseSettings />
 				</Section>
 			</div>
+		</div>
+	)
+}
+
+function EmbeddingSettings() {
+	const { currentProject, refreshProjects } = useAuth()
+	const [autoEmbed, setAutoEmbed] = useState(false)
+	const [status, setStatus] = useState<{ totalContent: number; embeddedContent: number } | null>(null)
+	const [saving, setSaving] = useState(false)
+
+	useEffect(() => {
+		if (currentProject) {
+			const settings = currentProject.settings as Record<string, unknown> || {}
+			setAutoEmbed(Boolean(settings.autoEmbed))
+		}
+		api.get<{ totalContent: number; embeddedContent: number }>('/api/v1/content/semantic-search/status')
+			.then(setStatus)
+			.catch(() => {})
+	}, [currentProject])
+
+	const save = async () => {
+		if (!currentProject) return
+		setSaving(true)
+		try {
+			await api.put(`/api/v1/projects/${currentProject.id}`, {
+				settings: {
+					...(currentProject.settings as Record<string, unknown>),
+					autoEmbed,
+				},
+			})
+			await refreshProjects()
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Failed to save')
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	return (
+		<div className="space-y-4">
+			<p className="text-sm text-text-secondary">
+				Semantic search uses vector embeddings to find content by meaning, not just keywords.
+				Requires an OpenAI API key (configured in AI Models).
+			</p>
+
+			{status && (
+				<div className="flex gap-4">
+					<div className="text-center">
+						<p className="text-2xl font-bold">{status.embeddedContent}</p>
+						<p className="text-xs text-text-secondary">Embedded</p>
+					</div>
+					<div className="text-center">
+						<p className="text-2xl font-bold">{status.totalContent}</p>
+						<p className="text-xs text-text-secondary">Total Content</p>
+					</div>
+				</div>
+			)}
+
+			<label className="flex items-center gap-2">
+				<input
+					type="checkbox"
+					checked={autoEmbed}
+					onChange={(e) => setAutoEmbed(e.target.checked)}
+					className="rounded"
+				/>
+				<span className="text-sm">Auto-generate embeddings on content create/update</span>
+			</label>
+
+			<button
+				type="button"
+				onClick={save}
+				disabled={saving}
+				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+			>
+				{saving ? 'Saving...' : 'Save'}
+			</button>
 		</div>
 	)
 }

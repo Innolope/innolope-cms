@@ -1,3 +1,5 @@
 export { contentInputSchema, contentListSchema, envSchema } from './validation.js'
 export type { InnolopeConfig } from './cms-config.js'
 export { defaultConfig } from './cms-config.js'
+export type { CollectionTemplate, CollectionField } from './templates.js'
+export { COLLECTION_TEMPLATES } from './templates.js'

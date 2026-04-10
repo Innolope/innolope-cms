@@ -1,6 +1,6 @@
-import { content, media, apiKeys, collections, projectMembers } from '@innolope/db'
+import { content, media, apiKeys, collections, projectMembers, contentAnalytics } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
-import { sql, desc, eq } from 'drizzle-orm'
+import { sql, desc, eq, and } from 'drizzle-orm'
 
 export async function statsRoutes(app: FastifyInstance) {
 	// Dashboard stats (viewer+, project-scoped)
@@ -50,5 +50,113 @@ export async function statsRoutes(app: FastifyInstance) {
 			.from(apiKeys)
 			.where(eq(apiKeys.projectId, request.project!.id))
 			.orderBy(desc(apiKeys.lastUsedAt))
+	})
+
+	// Content analytics (viewer+, project-scoped)
+	app.get('/analytics', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+		const pid = request.project!.id
+		const thirtyDaysAgo = sql`now() - interval '30 days'`
+
+		const [topContent, topQueries, bySource] = await Promise.all([
+			// Top content by reads (last 30 days)
+			app.db
+				.select({
+					contentId: contentAnalytics.contentId,
+					reads: sql<number>`count(*)`,
+				})
+				.from(contentAnalytics)
+				.where(and(
+					eq(contentAnalytics.projectId, pid),
+					sql`${contentAnalytics.event} IN ('api_read', 'mcp_read')`,
+					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+				))
+				.groupBy(contentAnalytics.contentId)
+				.orderBy(sql`count(*) desc`)
+				.limit(20),
+
+			// Top search queries with hit/miss breakdown
+			app.db
+				.select({
+					query: contentAnalytics.query,
+					total: sql<number>`count(*)`,
+					hits: sql<number>`count(*) filter (where ${contentAnalytics.event} = 'search_hit')`,
+					misses: sql<number>`count(*) filter (where ${contentAnalytics.event} = 'search_miss')`,
+				})
+				.from(contentAnalytics)
+				.where(and(
+					eq(contentAnalytics.projectId, pid),
+					sql`${contentAnalytics.query} IS NOT NULL`,
+					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+				))
+				.groupBy(contentAnalytics.query)
+				.orderBy(sql`count(*) desc`)
+				.limit(20),
+
+			// Reads by source
+			app.db
+				.select({
+					source: contentAnalytics.source,
+					count: sql<number>`count(*)`,
+				})
+				.from(contentAnalytics)
+				.where(and(
+					eq(contentAnalytics.projectId, pid),
+					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+				))
+				.groupBy(contentAnalytics.source),
+		])
+
+		// Enrich top content with titles
+		const contentIds = topContent.map((c) => c.contentId).filter(Boolean) as string[]
+		let contentMap: Record<string, string> = {}
+		if (contentIds.length > 0) {
+			const items = await app.db
+				.select({ id: content.id, slug: content.slug, metadata: content.metadata })
+				.from(content)
+				.where(sql`${content.id} IN (${sql.join(contentIds.map((id) => sql`${id}`), sql`, `)})`)
+			contentMap = Object.fromEntries(
+				items.map((i) => [i.id, (i.metadata as Record<string, unknown>)?.title as string || i.slug]),
+			)
+		}
+
+		return {
+			topContent: topContent.map((c) => ({
+				contentId: c.contentId,
+				title: c.contentId ? contentMap[c.contentId] || 'Unknown' : 'Deleted',
+				reads: Number(c.reads),
+			})),
+			topQueries: topQueries.map((q) => ({
+				query: q.query,
+				total: Number(q.total),
+				hits: Number(q.hits),
+				misses: Number(q.misses),
+			})),
+			bySource: bySource.map((s) => ({ source: s.source, count: Number(s.count) })),
+		}
+	})
+
+	// Track analytics event (for MCP server)
+	app.post('/track', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
+		const body = request.body as Record<string, unknown>
+		const validEvents = ['api_read', 'mcp_read', 'search_hit', 'search_miss'] as const
+		const validSources = ['api', 'mcp', 'sdk'] as const
+
+		const event = String(body.event || '')
+		const source = String(body.source || '')
+		if (!validEvents.includes(event as typeof validEvents[number])) return reply.status(400).send({ error: `event must be one of: ${validEvents.join(', ')}` })
+		if (!validSources.includes(source as typeof validSources[number])) return reply.status(400).send({ error: `source must be one of: ${validSources.join(', ')}` })
+
+		const contentId = body.contentId ? String(body.contentId) : null
+		const query = body.query ? String(body.query) : null
+
+		await app.db.insert(contentAnalytics).values({
+			projectId: request.project!.id,
+			contentId,
+			event: event as typeof validEvents[number],
+			query,
+			source: source as typeof validSources[number],
+		})
+
+		return reply.status(204).send()
 	})
 }

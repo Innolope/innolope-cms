@@ -1,10 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../lib/auth'
 import { api } from '../lib/api-client'
 
 export function ProjectSelector() {
 	const { projects, currentProject, switchProject, refreshProjects } = useAuth()
 	const [open, setOpen] = useState(false)
+	const containerRef = useRef<HTMLDivElement>(null)
+
+	useEffect(() => {
+		if (!open) return
+		const handler = (e: MouseEvent) => {
+			if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+				setOpen(false)
+			}
+		}
+		document.addEventListener('mousedown', handler)
+		return () => document.removeEventListener('mousedown', handler)
+	}, [open])
 	const [creating, setCreating] = useState(false)
 	const [newName, setNewName] = useState('')
 
@@ -23,7 +35,7 @@ export function ProjectSelector() {
 	}
 
 	return (
-		<div className="relative">
+		<div className="relative" ref={containerRef}>
 			<button
 				type="button"
 				onClick={() => setOpen(!open)}

@@ -10,12 +10,12 @@ export const contentInputSchema = z.object({
 	metadata: z.record(z.unknown()).optional(),
 	markdown: z.string(),
 	locale: z.string().min(2).max(10).optional(),
-	status: z.enum(['draft', 'published', 'archived']).optional(),
+	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
 })
 
 export const contentListSchema = z.object({
 	collectionId: z.string().uuid().optional(),
-	status: z.enum(['draft', 'published', 'archived']).optional(),
+	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
 	locale: z.string().optional(),
 	search: z.string().optional(),
 	page: z.coerce.number().int().positive().default(1),

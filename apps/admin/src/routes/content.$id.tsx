@@ -160,17 +160,57 @@ function ContentEditor() {
 	}
 
 	const publish = async () => {
-		setStatus('published')
+		const prevStatus = status
 		setSaving(true)
 		try {
 			await api.put(`/api/v1/content/${id}`, { status: 'published' })
 			setStatus('published')
 		} catch (err) {
+			setStatus(prevStatus)
 			alert(err instanceof Error ? err.message : 'Publish failed')
 		} finally {
 			setSaving(false)
 		}
 	}
+
+	const submitForReview = async () => {
+		setSaving(true)
+		try {
+			await api.post(`/api/v1/content/${id}/submit-for-review`, {})
+			setStatus('pending_review')
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Submit failed')
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	const approveContent = async () => {
+		setSaving(true)
+		try {
+			await api.post(`/api/v1/content/${id}/approve`, {})
+			setStatus('published')
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Approve failed')
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	const rejectContent = async () => {
+		const reason = prompt('Rejection reason (optional):')
+		setSaving(true)
+		try {
+			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
+			setStatus('draft')
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Reject failed')
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
 
 	if (loading) {
 		return (
@@ -244,7 +284,37 @@ function ContentEditor() {
 					>
 						{saving ? 'Saving...' : 'Save'}
 					</button>
-					{!isNew && status !== 'published' && (
+					{!isNew && status === 'draft' && reviewWorkflowsLicensed && (
+						<button
+							type="button"
+							onClick={submitForReview}
+							disabled={saving}
+							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							Submit
+						</button>
+					)}
+					{!isNew && status === 'pending_review' && reviewWorkflowsLicensed && (
+						<>
+							<button
+								type="button"
+								onClick={approveContent}
+								disabled={saving}
+								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								Approve
+							</button>
+							<button
+								type="button"
+								onClick={rejectContent}
+								disabled={saving}
+								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+							>
+								Reject
+							</button>
+						</>
+					)}
+					{!isNew && status !== 'published' && !reviewWorkflowsLicensed && (
 						<button
 							type="button"
 							onClick={publish}
@@ -272,6 +342,7 @@ function ContentEditor() {
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
 					>
 						<option value="draft">Draft</option>
+						<option value="pending_review">Pending Review</option>
 						<option value="published">Published</option>
 						<option value="archived">Archived</option>
 					</select>

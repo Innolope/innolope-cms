@@ -9,7 +9,7 @@ export const content = pgTable('content', {
 		.notNull()
 		.references(() => projects.id, { onDelete: 'cascade' }),
 	slug: text().notNull(),
-	status: text({ enum: ['draft', 'published', 'archived'] })
+	status: text({ enum: ['draft', 'pending_review', 'published', 'archived'] })
 		.notNull()
 		.default('draft'),
 	collectionId: uuid()

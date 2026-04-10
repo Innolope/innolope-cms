@@ -23,6 +23,7 @@
 
 html {
 	color-scheme: light;
+	font-family: "Red Hat Display", "Sora", system-ui, sans-serif;
 }
 html.dark {
 	color-scheme: dark;
