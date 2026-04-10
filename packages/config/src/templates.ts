@@ -1,6 +1,6 @@
 export interface CollectionField {
 	name: string
-	type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'relation' | 'json'
+	type: 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'relation' | 'object' | 'array'
 	required?: boolean
 	localized?: boolean
 	options?: string[]
@@ -21,9 +21,11 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		description: 'Structured articles for AI agent retrieval and customer self-service',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
-			{ name: 'category', type: 'select', options: ['general', 'technical', 'onboarding', 'troubleshooting'] },
-			{ name: 'tags', type: 'json' },
+			{ name: 'category', type: 'enum', options: ['general', 'technical', 'onboarding', 'troubleshooting'] },
+			{ name: 'tags', type: 'array' },
 			{ name: 'summary', type: 'text', localized: true },
+			{ name: 'difficulty', type: 'enum', options: ['beginner', 'intermediate', 'advanced'] },
+			{ name: 'relatedArticles', type: 'relation' },
 		],
 	},
 	{
@@ -33,8 +35,9 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		fields: [
 			{ name: 'question', type: 'text', required: true, localized: true },
 			{ name: 'answer', type: 'text', required: true, localized: true },
-			{ name: 'category', type: 'select', options: ['general', 'billing', 'technical', 'account'] },
+			{ name: 'category', type: 'enum', options: ['general', 'billing', 'technical', 'account'] },
 			{ name: 'order', type: 'number', defaultValue: 0 },
+			{ name: 'helpful', type: 'number' },
 		],
 	},
 	{
@@ -43,11 +46,13 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		description: 'Structured product data for AI-driven recommendations and search',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
-			{ name: 'price', type: 'number' },
-			{ name: 'sku', type: 'text' },
-			{ name: 'category', type: 'select', options: ['software', 'hardware', 'service', 'subscription'] },
+			{ name: 'price', type: 'number', required: true },
+			{ name: 'currency', type: 'enum', options: ['USD', 'EUR', 'GBP'] },
+			{ name: 'sku', type: 'text', required: true },
+			{ name: 'category', type: 'enum', options: ['software', 'hardware', 'service', 'subscription'] },
 			{ name: 'inStock', type: 'boolean', defaultValue: true },
-			{ name: 'specs', type: 'json' },
+			{ name: 'specs', type: 'object' },
+			{ name: 'images', type: 'relation' },
 		],
 	},
 	{
@@ -56,9 +61,12 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		description: 'Technical docs with section ordering for developer-facing AI assistants',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
-			{ name: 'section', type: 'text' },
+			{ name: 'section', type: 'text', required: true },
 			{ name: 'order', type: 'number', defaultValue: 0 },
-			{ name: 'tags', type: 'json' },
+			{ name: 'tags', type: 'array' },
+			{ name: 'codeExamples', type: 'array' },
+			{ name: 'deprecated', type: 'boolean' },
+			{ name: 'relatedDocs', type: 'relation' },
 		],
 	},
 	{
@@ -69,7 +77,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 			{ name: 'title', type: 'text', required: true },
 			{ name: 'version', type: 'text', required: true },
 			{ name: 'date', type: 'date', required: true },
-			{ name: 'type', type: 'select', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
+			{ name: 'type', type: 'enum', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
+			{ name: 'breaking', type: 'boolean' },
 		],
 	},
 	{
@@ -78,10 +87,56 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		description: 'Endpoint documentation for API-aware AI agents and developer tools',
 		fields: [
 			{ name: 'title', type: 'text', required: true },
-			{ name: 'method', type: 'select', required: true, options: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
+			{ name: 'method', type: 'enum', required: true, options: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
 			{ name: 'endpoint', type: 'text', required: true },
-			{ name: 'parameters', type: 'json' },
-			{ name: 'responseSchema', type: 'json' },
+			{ name: 'parameters', type: 'object' },
+			{ name: 'responseSchema', type: 'object' },
+			{ name: 'authenticated', type: 'boolean' },
+			{ name: 'rateLimit', type: 'number' },
+			{ name: 'deprecated', type: 'boolean' },
+		],
+	},
+	{
+		name: 'CRM',
+		slug: 'crm',
+		description: 'Customer contacts and deals for AI-assisted sales workflows',
+		fields: [
+			{ name: 'name', type: 'text', required: true },
+			{ name: 'email', type: 'text', required: true },
+			{ name: 'company', type: 'text' },
+			{ name: 'stage', type: 'enum', required: true, options: ['lead', 'qualified', 'proposal', 'negotiation', 'closed-won', 'closed-lost'] },
+			{ name: 'dealValue', type: 'number' },
+			{ name: 'lastContact', type: 'date' },
+			{ name: 'notes', type: 'array' },
+		],
+	},
+	{
+		name: 'Blog',
+		slug: 'blog',
+		description: 'Articles and posts with SEO metadata for content marketing',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'excerpt', type: 'text', localized: true },
+			{ name: 'author', type: 'text', required: true },
+			{ name: 'publishDate', type: 'date' },
+			{ name: 'category', type: 'enum', options: ['engineering', 'product', 'company', 'tutorial'] },
+			{ name: 'tags', type: 'array' },
+			{ name: 'featuredImage', type: 'relation' },
+			{ name: 'seoDescription', type: 'text', localized: true },
+		],
+	},
+	{
+		name: 'Job Board',
+		slug: 'job-board',
+		description: 'Open positions with structured requirements for recruiting agents',
+		fields: [
+			{ name: 'title', type: 'text', required: true },
+			{ name: 'department', type: 'enum', required: true, options: ['engineering', 'design', 'product', 'marketing', 'sales', 'operations'] },
+			{ name: 'location', type: 'text', required: true },
+			{ name: 'remote', type: 'boolean' },
+			{ name: 'salaryMin', type: 'number' },
+			{ name: 'salaryMax', type: 'number' },
+			{ name: 'requirements', type: 'array' },
 		],
 	},
 ]

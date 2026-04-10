@@ -18,7 +18,7 @@ export const collections = pgTable('collections', {
 
 export interface CollectionField {
 	name: string
-	type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'relation' | 'json'
+	type: 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'relation' | 'object' | 'array'
 	required?: boolean
 	localized?: boolean
 	options?: string[]

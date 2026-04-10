@@ -90,7 +90,7 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 					: ' Unlock SSO, audit logs, custom roles, and more.'}
 			</p>
 			<a
-				href="https://innolope.dev/pricing"
+				href="https://innolope.com/apps/cms#pricing"
 				target="_blank"
 				rel="noopener noreferrer"
 				className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"

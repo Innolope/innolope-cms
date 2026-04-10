@@ -29,39 +29,64 @@ interface NewKeyResponse extends ApiKeyItem {
 	warning: string
 }
 
+type SettingsTab = 'general' | 'team' | 'api-keys' | 'ai' | 'search' | 'webhooks' | 'media' | 'database'
+
+const TABS: { id: SettingsTab; label: string; pro?: string }[] = [
+	{ id: 'general', label: 'General' },
+	{ id: 'team', label: 'Team' },
+	{ id: 'api-keys', label: 'API Keys' },
+	{ id: 'ai', label: 'AI Models' },
+	{ id: 'search', label: 'Semantic Search', pro: 'ai-assistant' },
+	{ id: 'webhooks', label: 'Webhooks', pro: 'webhooks' },
+	{ id: 'media', label: 'Media' },
+	{ id: 'database', label: 'Database' },
+]
+
 function Settings() {
 	const license = useLicense()
+	const [tab, setTab] = useState<SettingsTab>('general')
 
 	return (
 		<div className="p-8 max-w-4xl">
-			<h2 className="text-2xl font-bold mb-8">Project Settings</h2>
-			<div className="space-y-8">
-				<Section title="Team">
-					<TeamSettings />
-				</Section>
-				<ApiKeysSection />
-				<Section title="AI Models">
-					<AiSettingsPanel />
-				</Section>
-				<Section title="Semantic Search" pro={!hasFeature(license, 'ai-assistant')}>
+			<h2 className="text-2xl font-bold mb-6">Project Settings</h2>
+
+			{/* Tabs */}
+			<div className="flex gap-1 border-b border-border mb-8 overflow-x-auto">
+				{TABS.map((t) => (
+					<button
+						key={t.id}
+						type="button"
+						onClick={() => setTab(t.id)}
+						className={`px-3 py-2 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center ${
+							tab === t.id
+								? 'border-b-2 border-text text-text'
+								: 'text-text-secondary hover:text-text'
+						}`}
+					>
+						{t.label}
+						{t.pro && !hasFeature(license, t.pro) && <ProBadge />}
+					</button>
+				))}
+			</div>
+
+			{/* Tab content */}
+			<div>
+				{tab === 'general' && <GeneralSettings />}
+				{tab === 'team' && <TeamSettings />}
+				{tab === 'api-keys' && <ApiKeysContent />}
+				{tab === 'ai' && <AiSettingsPanel />}
+				{tab === 'search' && (
 					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
 						<EmbeddingSettings />
 					</LicenseGate>
-				</Section>
-				<Section title="Webhooks" pro={!hasFeature(license, 'webhooks')}>
+				)}
+				{tab === 'webhooks' && (
 					<LicenseGate feature="webhooks" featureLabel="Webhooks">
 						<WebhookSettings />
 					</LicenseGate>
-				</Section>
-				<Section title="General">
-					<GeneralSettings />
-				</Section>
-				<Section title="Media">
-					<MediaSettings />
-				</Section>
-				<Section title="Database">
-					<DatabaseSettings />
-				</Section>
+				)}
+				{tab === 'media' && <MediaSettings />}
+				{tab === 'database' && <DatabaseSettings />}
 			</div>
 		</div>
 	)
@@ -144,7 +169,7 @@ function EmbeddingSettings() {
 	)
 }
 
-function ApiKeysSection() {
+function ApiKeysContent() {
 	const toast = useToast()
 	const [keys, setKeys] = useState<ApiKeyItem[]>([])
 	const [loading, setLoading] = useState(true)
@@ -199,14 +224,11 @@ function ApiKeysSection() {
 	}
 
 	return (
-		<div className="rounded-lg border border-border p-6">
+		<div>
 			<div className="flex items-center justify-between mb-4">
-				<div>
-					<h3 className="text-lg font-semibold">API Keys</h3>
-					<p className="text-text-secondary text-sm mt-1">
-						Generate keys for AI agents and external integrations
-					</p>
-				</div>
+				<p className="text-text-secondary text-sm">
+					Generate keys for AI agents and external integrations
+				</p>
 				<button
 					type="button"
 					onClick={() => setShowCreate(true)}
@@ -341,14 +363,3 @@ function ApiKeysSection() {
 	)
 }
 
-function Section({ title, pro, children }: { title: string; pro?: boolean; children: React.ReactNode }) {
-	return (
-		<div className="rounded-lg border border-border p-6">
-			<h3 className="text-lg font-semibold mb-2 flex items-center">
-				{title}
-				{pro && <ProBadge />}
-			</h3>
-			{children}
-		</div>
-	)
-}

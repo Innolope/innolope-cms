@@ -63,7 +63,7 @@ export async function seed(databaseUrl: string) {
 			fields: [
 				{ name: 'title', type: 'text', required: true, localized: true },
 				{ name: 'excerpt', type: 'text', localized: true },
-				{ name: 'tags', type: 'json' },
+				{ name: 'tags', type: 'array' },
 				{ name: 'featuredImage', type: 'text' },
 				{ name: 'author', type: 'text' },
 			],
