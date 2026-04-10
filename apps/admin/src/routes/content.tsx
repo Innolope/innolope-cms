@@ -2,6 +2,7 @@ import { createFileRoute, Link, Outlet, useMatches } from '@tanstack/react-route
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
 import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
+import { Dropdown } from '../components/dropdown'
 
 export const Route = createFileRoute('/content')({
 	component: ContentLayout,
@@ -49,11 +50,20 @@ function ContentList() {
 	const license = useLicense()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
 
-	const [tab, setTab] = useState<'all' | 'review'>('all')
+	const [tab, setTabState] = useState<'all' | 'review'>(() => {
+		const params = new URLSearchParams(window.location.search)
+		return (params.get('tab') as 'all' | 'review') || 'all'
+	})
+	const setTab = (t: 'all' | 'review') => {
+		setTabState(t)
+		const url = new URL(window.location.href)
+		url.searchParams.set('tab', t)
+		window.history.replaceState({}, '', url.toString())
+	}
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
-	const [loading, setLoading] = useState(true)
+	const [ready, setReady] = useState(false)
 	const [search, setSearch] = useState('')
 	const [statusFilter, setStatusFilter] = useState<string>('')
 
@@ -70,14 +80,13 @@ function ContentList() {
 		if (search) params.set('search', search)
 		if (statusFilter) params.set('status', statusFilter)
 
-		setLoading(true)
 		api.get<ContentResponse>(`/api/v1/content?${params}`)
 			.then((res) => {
 				setItems(res.data)
 				setTotal(res.pagination.total)
 			})
 			.catch(() => {})
-			.finally(() => setLoading(false))
+			.finally(() => setReady(true))
 	}, [page, search, statusFilter])
 
 	const fetchReviewQueue = useCallback(() => {
@@ -107,27 +116,17 @@ function ContentList() {
 	}
 
 	return (
-		<div className="p-8">
+		<div className="p-8 pt-5 flex flex-col h-full">
 			<div className="flex items-center justify-between mb-6">
-				<h2 className="text-2xl font-bold">Content</h2>
-				<Link
-					to="/content/$id"
-					params={{ id: 'new' }}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
-				>
-					New Content
-				</Link>
-			</div>
-
-			{/* Tabs */}
-			<div className="flex gap-1 mb-4 border-b border-border">
+				<div className="flex items-center gap-4">
+					<h2 className="text-2xl font-bold">Content</h2>
+					{/* Tabs */}
+					<div className="flex bg-surface rounded-lg p-0.5 border border-border">
 				<button
 					type="button"
 					onClick={() => setTab('all')}
-					className={`px-3 py-2 text-sm font-medium -mb-px transition-colors ${
-						tab === 'all'
-							? 'border-b-2 border-text text-text'
-							: 'text-text-secondary hover:text-text'
+					className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+						tab === 'all' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
 					}`}
 				>
 					All Content
@@ -135,58 +134,91 @@ function ContentList() {
 				<button
 					type="button"
 					onClick={() => setTab('review')}
-					className={`px-3 py-2 text-sm font-medium -mb-px transition-colors flex items-center ${
-						tab === 'review'
-							? 'border-b-2 border-text text-text'
-							: 'text-text-secondary hover:text-text'
+					className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${
+						tab === 'review' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
 					}`}
 				>
 					Review Queue
 					{showReviewQueue && reviewTotal > 0 && (
-						<span className="ml-1.5 px-1.5 py-0.5 bg-surface-alt rounded-full text-xs">{reviewTotal}</span>
+						<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">{reviewTotal}</span>
 					)}
 					{!showReviewQueue && <ProBadge />}
 				</button>
+					</div>
+				</div>
+				{(total > 0 || search || statusFilter) && (
+					<Link
+						to="/content/$id"
+						params={{ id: 'new' }}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
+					>
+						New Content
+					</Link>
+				)}
 			</div>
 
 			{tab === 'all' ? (
 				<>
-					<div className="flex gap-3 mb-4">
-						<input
-							type="text"
-							placeholder="Search..."
-							value={search}
-							onChange={(e) => {
-								setSearch(e.target.value)
-								setPage(1)
-							}}
-							className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-						/>
-						<select
-							value={statusFilter}
-							onChange={(e) => {
-								setStatusFilter(e.target.value)
-								setPage(1)
-							}}
-							className="px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
-						>
-							<option value="">All statuses</option>
-							<option value="draft">Draft</option>
-							<option value="pending_review">Pending Review</option>
-							<option value="published">Published</option>
-							<option value="archived">Archived</option>
-						</select>
-					</div>
+					{(total > 0 || search || statusFilter) && (
+						<div className="flex gap-3 mb-4">
+							<input
+								type="text"
+								placeholder="Search..."
+								value={search}
+								onChange={(e) => {
+									setSearch(e.target.value)
+									setPage(1)
+								}}
+								className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
+							/>
+							<Dropdown
+								value={statusFilter}
+								onChange={(v) => {
+									setStatusFilter(v)
+									setPage(1)
+								}}
+								options={[
+									{ value: '', label: 'All statuses' },
+									{ value: 'draft', label: 'Draft' },
+									{ value: 'pending_review', label: 'Pending Review' },
+									{ value: 'published', label: 'Published' },
+									{ value: 'archived', label: 'Archived' },
+								]}
+								className="px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
+							/>
+						</div>
+					)}
 
-					<div className="rounded-lg border border-border">
-						{loading ? (
-							<div className="p-8 text-center text-text-secondary text-sm">Loading...</div>
+					<div className={total > 0 || search || statusFilter ? 'rounded-lg border border-border' : ''}>
+						{!ready ? (
+							<div className="p-8" />
 						) : items.length === 0 ? (
-							<div className="p-8 text-center text-text-secondary text-sm">
-								{search || statusFilter
-									? 'No content matches your filters.'
-									: 'No content yet. Create your first article.'}
-							</div>
+							search || statusFilter ? (
+								<div className="p-8 text-center text-text-secondary text-sm">No content matches your filters.</div>
+							) : (
+								<div className="flex flex-col items-center pt-[15vh] text-center">
+									<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+										<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+											<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+											<polyline points="14 2 14 8 20 8" />
+											<line x1="16" y1="13" x2="8" y2="13" />
+											<line x1="16" y1="17" x2="8" y2="17" />
+											<polyline points="10 9 9 9 8 9" />
+										</svg>
+									</div>
+									<h3 className="font-semibold text-text mb-1">No content yet</h3>
+									<p className="text-sm text-text-secondary max-w-xs mb-5">
+										Create your first piece of content or use the MCP server to populate it with AI agents.
+									</p>
+									<Link
+										to="/content/$id"
+										params={{ id: 'new' }}
+										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+									>
+										Create Content
+									</Link>
+								</div>
+							)
 						) : (
 							<table className="w-full text-sm">
 								<thead>
@@ -264,7 +296,7 @@ function ContentList() {
 				/* Review Queue Tab */
 				<div className="rounded-lg border border-border">
 					{reviewLoading ? (
-						<div className="p-8 text-center text-text-secondary text-sm">Loading...</div>
+						<div className="p-8" />
 					) : reviewItems.length === 0 ? (
 						<div className="p-8 text-center text-text-secondary text-sm">
 							No content pending review.

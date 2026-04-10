@@ -7,6 +7,7 @@ import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gate'
 import { useToast } from '../lib/toast'
+import { Dropdown } from '../components/dropdown'
 
 export const Route = createFileRoute('/content/$id')({
 	component: ContentEditor,
@@ -338,31 +339,29 @@ function ContentEditor() {
 				</Field>
 
 				<Field label="Status">
-					<select
+					<Dropdown
 						value={status}
-						onChange={(e) => setStatus(e.target.value)}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
-					>
-						<option value="draft">Draft</option>
-						<option value="pending_review">Pending Review</option>
-						<option value="published">Published</option>
-						<option value="archived">Archived</option>
-					</select>
+						onChange={setStatus}
+						options={[
+							{ value: 'draft', label: 'Draft' },
+							{ value: 'pending_review', label: 'Pending Review' },
+							{ value: 'published', label: 'Published' },
+							{ value: 'archived', label: 'Archived' },
+						]}
+						className="w-full"
+					/>
 				</Field>
 
 				<Field label="Collection">
-					<select
+					<Dropdown
 						value={collectionId}
-						onChange={(e) => setCollectionId(e.target.value)}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
-					>
-						<option value="">Select collection</option>
-						{collections.map((c) => (
-							<option key={c.id} value={c.id}>
-								{c.name}
-							</option>
-						))}
-					</select>
+						onChange={setCollectionId}
+						options={[
+							{ value: '', label: 'Select collection' },
+							...collections.map((c) => ({ value: c.id, label: c.name })),
+						]}
+						className="w-full"
+					/>
 				</Field>
 
 				<Field label="Tags">

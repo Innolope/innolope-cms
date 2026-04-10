@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
@@ -10,6 +10,7 @@ import { DatabaseSettings } from '../components/settings/database-settings'
 import { TeamSettings } from '../components/settings/team-settings'
 import { WebhookSettings } from '../components/settings/webhook-settings'
 import { LicenseGate, ProBadge, useLicense, hasFeature } from '../components/license-gate'
+import { SaveBar } from '../components/save-bar'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -29,35 +30,45 @@ interface NewKeyResponse extends ApiKeyItem {
 	warning: string
 }
 
-type SettingsTab = 'general' | 'team' | 'api-keys' | 'ai' | 'search' | 'webhooks' | 'media' | 'database'
+type SettingsTab = 'general' | 'team' | 'api-keys' | 'ai-models' | 'search' | 'webhooks' | 'media' | 'database'
 
 const TABS: { id: SettingsTab; label: string; pro?: string }[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'team', label: 'Team' },
+	{ id: 'database', label: 'Database' },
 	{ id: 'api-keys', label: 'API Keys' },
-	{ id: 'ai', label: 'AI Models' },
+	{ id: 'ai-models', label: 'AI Models' },
 	{ id: 'search', label: 'Semantic Search', pro: 'ai-assistant' },
 	{ id: 'webhooks', label: 'Webhooks', pro: 'webhooks' },
 	{ id: 'media', label: 'Media' },
-	{ id: 'database', label: 'Database' },
 ]
 
 function Settings() {
 	const license = useLicense()
-	const [tab, setTab] = useState<SettingsTab>('general')
+	const [tab, setTabState] = useState<SettingsTab>(() => {
+		const params = new URLSearchParams(window.location.search)
+		return (params.get('tab') as SettingsTab) || 'general'
+	})
+
+	const setTab = (t: SettingsTab) => {
+		setTabState(t)
+		const url = new URL(window.location.href)
+		url.searchParams.set('tab', t)
+		window.history.replaceState({}, '', url.toString())
+	}
 
 	return (
-		<div className="p-8 max-w-4xl">
+		<div className="p-8 pt-5 relative min-h-full">
 			<h2 className="text-2xl font-bold mb-6">Project Settings</h2>
 
 			{/* Tabs */}
-			<div className="flex gap-1 border-b border-border mb-8 overflow-x-auto">
+			<div className="flex border-b border-border mb-8">
 				{TABS.map((t) => (
 					<button
 						key={t.id}
 						type="button"
 						onClick={() => setTab(t.id)}
-						className={`px-3 py-2 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center ${
+						className={`flex-1 px-6 py-3 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center justify-center ${
 							tab === t.id
 								? 'border-b-2 border-text text-text'
 								: 'text-text-secondary hover:text-text'
@@ -69,25 +80,23 @@ function Settings() {
 				))}
 			</div>
 
-			{/* Tab content */}
-			<div>
-				{tab === 'general' && <GeneralSettings />}
-				{tab === 'team' && <TeamSettings />}
-				{tab === 'api-keys' && <ApiKeysContent />}
-				{tab === 'ai' && <AiSettingsPanel />}
-				{tab === 'search' && (
-					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
-						<EmbeddingSettings />
-					</LicenseGate>
-				)}
-				{tab === 'webhooks' && (
-					<LicenseGate feature="webhooks" featureLabel="Webhooks">
-						<WebhookSettings />
-					</LicenseGate>
-				)}
-				{tab === 'media' && <MediaSettings />}
-				{tab === 'database' && <DatabaseSettings />}
+			{/* Tab content — all mounted, inactive hidden to avoid reload flicker */}
+			<div className={tab === 'general' ? '' : 'hidden'}><GeneralSettings /></div>
+			<div className={tab === 'team' ? '' : 'hidden'}><TeamSettings /></div>
+			<div className={tab === 'api-keys' ? '' : 'hidden'}><ApiKeysContent /></div>
+			<div className={tab === 'ai-models' ? '' : 'hidden'}><AiSettingsPanel /></div>
+			<div className={tab === 'search' ? '' : 'hidden'}>
+				<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
+					<EmbeddingSettings />
+				</LicenseGate>
 			</div>
+			<div className={tab === 'webhooks' ? '' : 'hidden'}>
+				<LicenseGate feature="webhooks" featureLabel="Webhooks">
+					<WebhookSettings />
+				</LicenseGate>
+			</div>
+			<div className={tab === 'media' ? '' : 'hidden'}><MediaSettings /></div>
+			<div className={tab === 'database' ? '' : 'hidden'}><DatabaseSettings /></div>
 		</div>
 	)
 }
@@ -98,16 +107,22 @@ function EmbeddingSettings() {
 	const [autoEmbed, setAutoEmbed] = useState(false)
 	const [status, setStatus] = useState<{ totalContent: number; embeddedContent: number } | null>(null)
 	const [saving, setSaving] = useState(false)
+	const [saved, setSaved] = useState(false)
+	const initialAutoEmbed = useRef(false)
 
 	useEffect(() => {
 		if (currentProject) {
 			const settings = currentProject.settings as Record<string, unknown> || {}
-			setAutoEmbed(Boolean(settings.autoEmbed))
+			const val = Boolean(settings.autoEmbed)
+			setAutoEmbed(val)
+			initialAutoEmbed.current = val
 		}
 		api.get<{ totalContent: number; embeddedContent: number }>('/api/v1/content/semantic-search/status')
 			.then(setStatus)
 			.catch(() => {})
 	}, [currentProject])
+
+	const dirty = autoEmbed !== initialAutoEmbed.current
 
 	const save = async () => {
 		if (!currentProject) return
@@ -120,6 +135,8 @@ function EmbeddingSettings() {
 				},
 			})
 			await refreshProjects()
+			setSaved(true)
+			setTimeout(() => setSaved(false), 2000)
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
@@ -134,18 +151,26 @@ function EmbeddingSettings() {
 				Requires an OpenAI API key (configured in AI Models).
 			</p>
 
-			{status && (
-				<div className="flex gap-4">
-					<div className="text-center">
-						<p className="text-2xl font-bold">{status.embeddedContent}</p>
-						<p className="text-xs text-text-secondary">Embedded</p>
+			{status && (() => {
+				const pct = status.totalContent > 0 ? Math.round((status.embeddedContent / status.totalContent) * 100) : 0
+				return (
+					<div className="rounded-lg bg-surface-alt p-4 space-y-3">
+						<div className="flex items-center justify-between text-sm">
+							<span className="text-text-secondary">Embedding coverage</span>
+							<span className="font-semibold text-text">{status.embeddedContent} / {status.totalContent} items <span className="text-text-muted font-normal">({pct}%)</span></span>
+						</div>
+						<div className="h-2 rounded-full bg-border overflow-hidden">
+							<div className="h-full rounded-full bg-btn-primary transition-all" style={{ width: `${pct}%` }} />
+						</div>
+						{pct === 100 && status.totalContent > 0 && (
+							<p className="text-xs text-text-muted">All content is indexed for semantic search.</p>
+						)}
+						{pct < 100 && status.totalContent > 0 && (
+							<p className="text-xs text-text-muted">{status.totalContent - status.embeddedContent} items not yet embedded. Enable auto-embed below or trigger manually via the API.</p>
+						)}
 					</div>
-					<div className="text-center">
-						<p className="text-2xl font-bold">{status.totalContent}</p>
-						<p className="text-xs text-text-secondary">Total Content</p>
-					</div>
-				</div>
-			)}
+				)
+			})()}
 
 			<label className="flex items-center gap-2">
 				<input
@@ -157,14 +182,7 @@ function EmbeddingSettings() {
 				<span className="text-sm">Auto-generate embeddings on content create/update</span>
 			</label>
 
-			<button
-				type="button"
-				onClick={save}
-				disabled={saving}
-				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-			>
-				{saving ? 'Saving...' : 'Save'}
-			</button>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => setAutoEmbed(initialAutoEmbed.current)} />
 		</div>
 	)
 }
@@ -234,7 +252,7 @@ function ApiKeysContent() {
 					onClick={() => setShowCreate(true)}
 					className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 				>
-					Create Key
+					Create API Key
 				</button>
 			</div>
 
@@ -321,9 +339,26 @@ function ApiKeysContent() {
 
 			{loading ? (
 				<p className="text-text-secondary text-sm">Loading...</p>
-			) : keys.length === 0 ? (
-				<p className="text-text-secondary text-sm">No API keys yet.</p>
-			) : (
+			) : keys.length === 0 && !showCreate && !createdKey ? (
+				<div className="flex flex-col items-center justify-center py-16 text-center">
+					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+							<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+						</svg>
+					</div>
+					<h3 className="font-semibold text-text mb-1">No API keys yet</h3>
+					<p className="text-sm text-text-secondary max-w-xs mb-5">
+						API keys let Claude, AI agents, and external services access your content via the REST API and MCP server.
+					</p>
+					<button
+						type="button"
+						onClick={() => setShowCreate(true)}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						Create Your First API Key
+					</button>
+				</div>
+			) : keys.length === 0 ? null : (
 				<table className="w-full text-sm">
 					<thead>
 						<tr className="text-left text-text-secondary border-b border-border">

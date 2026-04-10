@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { SaveBar } from '../save-bar'
+import { Dropdown } from '../dropdown'
 
 export function MediaSettings() {
 	const { currentProject, refreshProjects } = useAuth()
@@ -16,11 +18,14 @@ export function MediaSettings() {
 	const [cfR2Endpoint, setCfR2Endpoint] = useState('')
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const initialAdapter = useRef('local')
 
 	useEffect(() => {
 		if (currentProject) {
 			const settings = currentProject.settings as Record<string, unknown> || {}
-			setAdapter((settings.mediaAdapter as string) || 'local')
+			const a = (settings.mediaAdapter as string) || 'local'
+			setAdapter(a)
+			initialAdapter.current = a
 			const cf = (settings.cloudflare as Record<string, string>) || {}
 			setCfAccountId(cf.accountId || '')
 			setCfApiToken(cf.apiToken || '')
@@ -31,6 +36,8 @@ export function MediaSettings() {
 			setCfR2Endpoint(cf.r2Endpoint || '')
 		}
 	}, [currentProject])
+
+	const dirty = adapter !== initialAdapter.current
 
 	const save = async () => {
 		if (!currentProject) return
@@ -65,15 +72,16 @@ export function MediaSettings() {
 		<div className="space-y-4">
 			<div>
 				<label className="block text-xs text-text-secondary mb-1.5">Storage adapter</label>
-				<select
+				<Dropdown
 					value={adapter}
-					onChange={(e) => setAdapter(e.target.value)}
-					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
-				>
-					<option value="local">Local filesystem</option>
-					<option value="cloudflare">Cloudflare (Images + R2 + Stream)</option>
-					<option value="s3">S3-compatible</option>
-				</select>
+					onChange={setAdapter}
+					options={[
+						{ value: 'local', label: 'Local filesystem' },
+						{ value: 'cloudflare', label: 'Cloudflare (Images + R2 + Stream)' },
+						{ value: 's3', label: 'S3-compatible' },
+					]}
+					className="w-full max-w-xs"
+				/>
 			</div>
 
 			{adapter === 'cloudflare' && (
@@ -92,14 +100,7 @@ export function MediaSettings() {
 				<p className="text-xs text-text-muted">Files stored on the server filesystem. Good for development and small deployments.</p>
 			)}
 
-			<button
-				type="button"
-				onClick={save}
-				disabled={saving}
-				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
-			>
-				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-			</button>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => setAdapter(initialAdapter.current)} />
 		</div>
 	)
 }

@@ -111,30 +111,22 @@ const COLLECTION_TEMPLATES = [
 function Dashboard() {
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [recent, setRecent] = useState<RecentItem[]>([])
-	const [loading, setLoading] = useState(true)
+	const [ready, setReady] = useState(false)
 
 	useEffect(() => {
 		Promise.all([
 			api.get<Stats>('/api/v1/stats').then(setStats).catch(() => {}),
 			api.get<RecentItem[]>('/api/v1/stats/recent').then(setRecent).catch(() => {}),
-		]).finally(() => setLoading(false))
+		]).finally(() => setReady(true))
 	}, [])
 
-	if (loading) {
-		return (
-			<div className="p-8">
-				<h2 className="text-2xl font-bold mb-6">Dashboard</h2>
-				<p className="text-text-secondary text-sm">Loading...</p>
-			</div>
-		)
-	}
-
-	const isEmpty = stats && stats.content.total === 0 && stats.collections === 0
+	const isEmpty = ready && stats && stats.content.total === 0 && stats.collections === 0
 
 	if (isEmpty) return <EmptyDashboard />
+	if (!ready) return <div className="p-8 pt-5" />
 
 	return (
-		<div className="p-8">
+		<div className="p-8 pt-5">
 			<h2 className="text-2xl font-bold mb-6">Dashboard</h2>
 
 			{/* Stats grid */}

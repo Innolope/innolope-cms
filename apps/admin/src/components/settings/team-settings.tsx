@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { Dropdown } from '../dropdown'
 
 interface Member {
 	id: string
@@ -111,15 +112,12 @@ export function TeamSettings() {
 							</div>
 							<div className="flex items-center gap-2 ml-3 shrink-0">
 								{isAdmin && m.role !== 'owner' && m.userId !== user?.id ? (
-									<select
+									<Dropdown
 										value={m.role}
-										onChange={(e) => updateRole(m.userId, e.target.value)}
+										onChange={(v) => updateRole(m.userId, v)}
+										options={ROLES.map((r) => ({ value: r, label: r }))}
 										className="px-2 py-1 bg-input border border-border rounded text-xs focus:outline-none"
-									>
-										{ROLES.map((r) => (
-											<option key={r} value={r}>{r}</option>
-										))}
-									</select>
+									/>
 								) : (
 									<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border">
 										{m.role}
@@ -175,22 +173,19 @@ export function TeamSettings() {
 							placeholder="email@example.com"
 							className="flex-1 px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none focus:border-border-strong"
 						/>
-						<select
+						<Dropdown
 							value={role}
-							onChange={(e) => setRole(e.target.value)}
+							onChange={setRole}
+							options={ROLES.map((r) => ({ value: r, label: r }))}
 							className="px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none"
-						>
-							{ROLES.map((r) => (
-								<option key={r} value={r}>{r}</option>
-							))}
-						</select>
+						/>
 						<button
 							type="button"
 							onClick={sendInvite}
 							disabled={sending || !email.trim()}
-							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
+							className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
-							{sending ? 'Sending...' : 'Invite'}
+							{sending ? 'Sending...' : 'Send Invite'}
 						</button>
 					</div>
 					{sent && (

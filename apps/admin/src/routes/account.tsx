@@ -1,27 +1,60 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
+import { SaveBar } from '../components/save-bar'
 
 export const Route = createFileRoute('/account')({
 	component: AccountSettings,
 })
 
+type AccountTab = 'profile' | 'password' | 'appearance'
+
+const TABS: { id: AccountTab; label: string }[] = [
+	{ id: 'profile', label: 'Profile' },
+	{ id: 'password', label: 'Password' },
+	{ id: 'appearance', label: 'Appearance' },
+]
+
 function AccountSettings() {
+	const [tab, setTabState] = useState<AccountTab>(() => {
+		const params = new URLSearchParams(window.location.search)
+		return (params.get('tab') as AccountTab) || 'profile'
+	})
+
+	const setTab = (t: AccountTab) => {
+		setTabState(t)
+		const url = new URL(window.location.href)
+		url.searchParams.set('tab', t)
+		window.history.replaceState({}, '', url.toString())
+	}
+
 	return (
-		<div className="p-8 max-w-4xl">
-			<h2 className="text-2xl font-bold mb-8">Account</h2>
-			<div className="space-y-8">
-				<Section title="Profile">
-					<ProfileSettings />
-				</Section>
-				<Section title="Password">
-					<PasswordSettings />
-				</Section>
-				<Section title="Appearance">
-					<AppearanceSettings />
-				</Section>
+		<div className="p-8 pt-5">
+			<h2 className="text-2xl font-bold mb-6">Account</h2>
+
+			<div className="flex border-b border-border mb-8">
+				{TABS.map((t) => (
+					<button
+						key={t.id}
+						type="button"
+						onClick={() => setTab(t.id)}
+						className={`flex-1 px-6 py-3 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center justify-center ${
+							tab === t.id
+								? 'border-b-2 border-text text-text'
+								: 'text-text-secondary hover:text-text'
+						}`}
+					>
+						{t.label}
+					</button>
+				))}
+			</div>
+
+			<div className="max-w-xl">
+				<div className={tab === 'profile' ? '' : 'hidden'}><ProfileSettings /></div>
+				<div className={tab === 'password' ? '' : 'hidden'}><PasswordSettings /></div>
+				<div className={tab === 'appearance' ? '' : 'hidden'}><AppearanceSettings /></div>
 			</div>
 		</div>
 	)
@@ -32,17 +65,21 @@ function ProfileSettings() {
 	const [name, setName] = useState(user?.name || '')
 	const [email, setEmail] = useState(user?.email || '')
 	const [saving, setSaving] = useState(false)
-	const [message, setMessage] = useState('')
+	const [saved, setSaved] = useState(false)
+	const initialRef = useRef({ name: user?.name || '', email: user?.email || '' })
+
+	const dirty = name !== initialRef.current.name || email !== initialRef.current.email
 
 	const save = async () => {
 		setSaving(true)
-		setMessage('')
 		try {
 			await api.put('/api/v1/auth/profile', { name, email })
 			await refreshUser()
-			setMessage('Profile updated')
+			initialRef.current = { name, email }
+			setSaved(true)
+			setTimeout(() => setSaved(false), 2000)
 		} catch (err) {
-			setMessage(err instanceof Error ? err.message : 'Failed to save')
+			// handled by toast if needed
 		} finally {
 			setSaving(false)
 		}
@@ -68,17 +105,10 @@ function ProfileSettings() {
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
-			<div className="flex items-center gap-3">
-				<button
-					type="button"
-					onClick={save}
-					disabled={saving}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-				>
-					{saving ? 'Saving...' : 'Save'}
-				</button>
-				{message && <p className="text-sm text-text-secondary">{message}</p>}
-			</div>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
+				setName(initialRef.current.name)
+				setEmail(initialRef.current.email)
+			}} />
 		</div>
 	)
 }
@@ -88,26 +118,18 @@ function PasswordSettings() {
 	const [newPassword, setNewPassword] = useState('')
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [saving, setSaving] = useState(false)
-	const [message, setMessage] = useState('')
-	const [isError, setIsError] = useState(false)
+	const [saved, setSaved] = useState(false)
+	const [error, setError] = useState('')
+
+	const dirty = currentPassword.length > 0 || newPassword.length > 0 || confirmPassword.length > 0
+	const valid = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword
 
 	const save = async () => {
-		setMessage('')
-		setIsError(false)
-
-		if (!currentPassword || !newPassword) {
-			setMessage('All fields are required')
-			setIsError(true)
-			return
-		}
-		if (newPassword.length < 8) {
-			setMessage('New password must be at least 8 characters')
-			setIsError(true)
-			return
-		}
-		if (newPassword !== confirmPassword) {
-			setMessage('Passwords do not match')
-			setIsError(true)
+		setError('')
+		if (!valid) {
+			if (!currentPassword || !newPassword) setError('All fields are required')
+			else if (newPassword.length < 8) setError('New password must be at least 8 characters')
+			else if (newPassword !== confirmPassword) setError('Passwords do not match')
 			return
 		}
 
@@ -117,11 +139,10 @@ function PasswordSettings() {
 			setCurrentPassword('')
 			setNewPassword('')
 			setConfirmPassword('')
-			setMessage('Password updated')
-			setIsError(false)
+			setSaved(true)
+			setTimeout(() => setSaved(false), 2000)
 		} catch (err) {
-			setMessage(err instanceof Error ? err.message : 'Failed to change password')
-			setIsError(true)
+			setError(err instanceof Error ? err.message : 'Failed to change password')
 		} finally {
 			setSaving(false)
 		}
@@ -156,19 +177,13 @@ function PasswordSettings() {
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
-			<div className="flex items-center gap-3">
-				<button
-					type="button"
-					onClick={save}
-					disabled={saving}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-				>
-					{saving ? 'Saving...' : 'Change Password'}
-				</button>
-				{message && (
-					<p className={`text-sm ${isError ? 'text-danger' : 'text-text-secondary'}`}>{message}</p>
-				)}
-			</div>
+			{error && <p className="text-sm text-danger">{error}</p>}
+			<SaveBar dirty={dirty && valid} saving={saving} saved={saved} onSave={save} saveLabel="Change Password" onReset={() => {
+				setCurrentPassword('')
+				setNewPassword('')
+				setConfirmPassword('')
+				setError('')
+			}} />
 		</div>
 	)
 }
@@ -179,39 +194,22 @@ function AppearanceSettings() {
 	return (
 		<div className="space-y-3">
 			<label className="block text-xs text-text-secondary mb-1.5">Theme</label>
-			<div className="flex gap-2">
-				<button
-					type="button"
-					onClick={() => setTheme('light')}
-					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-						theme === 'light'
-							? 'bg-btn-primary text-btn-primary-text'
-							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
-					}`}
-				>
-					Light
-				</button>
-				<button
-					type="button"
-					onClick={() => setTheme('dark')}
-					className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-						theme === 'dark'
-							? 'bg-btn-primary text-btn-primary-text'
-							: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
-					}`}
-				>
-					Dark
-				</button>
+			<div className="flex gap-2 max-w-sm">
+				{(['light', 'dark', 'system'] as const).map((t) => (
+					<button
+						key={t}
+						type="button"
+						onClick={() => setTheme(t)}
+						className={`flex-1 py-2 rounded text-sm font-medium transition-colors capitalize ${
+							theme === t
+								? 'bg-btn-primary text-btn-primary-text'
+								: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
+						}`}
+					>
+						{t}
+					</button>
+				))}
 			</div>
-		</div>
-	)
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-	return (
-		<div className="rounded-lg border border-border p-6">
-			<h3 className="text-lg font-semibold mb-2">{title}</h3>
-			{children}
 		</div>
 	)
 }

@@ -113,6 +113,21 @@ export function WebhookSettings() {
 
 	return (
 		<div className="space-y-4">
+			<div className="flex items-center justify-between mb-4">
+				<p className="text-text-secondary text-sm">
+					Receive HTTP callbacks when content changes occur
+				</p>
+				{!showCreate && (
+					<button
+						type="button"
+						onClick={() => setShowCreate(true)}
+						className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						Create Webhook
+					</button>
+				)}
+			</div>
+
 			{createdSecret && (
 				<div className="p-3 bg-surface-alt border border-border rounded-lg">
 					<p className="text-sm font-medium mb-1">Webhook secret (copy now — shown only once):</p>
@@ -127,9 +142,27 @@ export function WebhookSettings() {
 				</div>
 			)}
 
-			{hooks.length === 0 && !showCreate ? (
-				<p className="text-sm text-text-secondary">No webhooks configured.</p>
-			) : (
+			{hooks.length === 0 && !showCreate && !createdSecret ? (
+				<div className="flex flex-col items-center justify-center py-16 text-center">
+					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+							<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+							<path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+						</svg>
+					</div>
+					<h3 className="font-semibold text-text mb-1">No webhooks configured</h3>
+					<p className="text-sm text-text-secondary max-w-xs mb-5">
+						Webhooks notify external services in real time when content is created, updated, published, or deleted.
+					</p>
+					<button
+						type="button"
+						onClick={() => setShowCreate(true)}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						Create Your First Webhook
+					</button>
+				</div>
+			) : hooks.length === 0 ? null : (
 				<div className="space-y-2">
 					{hooks.map((hook) => (
 						<div key={hook.id} className="border border-border rounded-lg">
@@ -248,15 +281,7 @@ export function WebhookSettings() {
 						</button>
 					</div>
 				</div>
-			) : (
-				<button
-					type="button"
-					onClick={() => setShowCreate(true)}
-					className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
-				>
-					+ Add Webhook
-				</button>
-			)}
+			) : null}
 		</div>
 	)
 }

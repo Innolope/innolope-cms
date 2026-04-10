@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { SaveBar } from '../save-bar'
 
 export function GeneralSettings() {
 	const { currentProject, refreshProjects } = useAuth()
@@ -12,16 +13,26 @@ export function GeneralSettings() {
 	const [locales, setLocales] = useState('en')
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const initialRef = useRef({ name: '', slug: '', defaultLocale: 'en', locales: 'en' })
 
 	useEffect(() => {
 		if (currentProject) {
-			setName(currentProject.name)
-			setSlug(currentProject.slug)
 			const settings = currentProject.settings as Record<string, unknown> || {}
-			setDefaultLocale((settings.defaultLocale as string) || 'en')
-			setLocales(((settings.locales as string[]) || ['en']).join(', '))
+			const init = {
+				name: currentProject.name,
+				slug: currentProject.slug,
+				defaultLocale: (settings.defaultLocale as string) || 'en',
+				locales: ((settings.locales as string[]) || ['en']).join(', '),
+			}
+			setName(init.name)
+			setSlug(init.slug)
+			setDefaultLocale(init.defaultLocale)
+			setLocales(init.locales)
+			initialRef.current = init
 		}
 	}, [currentProject])
+
+	const dirty = name !== initialRef.current.name || slug !== initialRef.current.slug || defaultLocale !== initialRef.current.defaultLocale || locales !== initialRef.current.locales
 
 	const save = async () => {
 		if (!currentProject) return
@@ -75,7 +86,7 @@ export function GeneralSettings() {
 					value={defaultLocale}
 					onChange={(e) => setDefaultLocale(e.target.value)}
 					placeholder="en"
-					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
+					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
 			<div>
@@ -89,14 +100,12 @@ export function GeneralSettings() {
 				/>
 				<p className="text-[11px] text-text-muted mt-1">Comma-separated locale codes.</p>
 			</div>
-			<button
-				type="button"
-				onClick={save}
-				disabled={saving}
-				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
-			>
-				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-			</button>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
+				setName(initialRef.current.name)
+				setSlug(initialRef.current.slug)
+				setDefaultLocale(initialRef.current.defaultLocale)
+				setLocales(initialRef.current.locales)
+			}} />
 		</div>
 	)
 }

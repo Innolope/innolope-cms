@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
 import { useToast } from '../lib/toast'
+import { Dropdown } from '../components/dropdown'
 
 export const Route = createFileRoute('/collections/$id')({
 	component: CollectionEditor,
@@ -366,17 +367,12 @@ function CollectionEditor() {
 										placeholder="Field name"
 										className="flex-1 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none"
 									/>
-									<select
+									<Dropdown
 										value={field.type}
-										onChange={(e) => updateField(i, { type: e.target.value })}
+										onChange={(v) => updateField(i, { type: v })}
+										options={FIELD_TYPES.map((t) => ({ value: t, label: t }))}
 										className="px-2 py-1.5 bg-input border border-border-strong rounded text-sm focus:outline-none"
-									>
-										{FIELD_TYPES.map((t) => (
-											<option key={t} value={t}>
-												{t}
-											</option>
-										))}
-									</select>
+									/>
 									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
 											type="checkbox"

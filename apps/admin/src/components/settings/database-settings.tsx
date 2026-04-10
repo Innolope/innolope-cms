@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { SaveBar } from '../save-bar'
+import { Dropdown } from '../dropdown'
 
 interface DetectedTable {
 	name: string
@@ -20,17 +22,22 @@ export function DatabaseSettings() {
 	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const initialDbType = useRef('built-in')
 
 	useEffect(() => {
 		if (currentProject) {
 			const settings = currentProject.settings as Record<string, unknown> || {}
 			const extDb = settings.externalDb as Record<string, unknown> | undefined
 			if (extDb) {
-				setDbType((extDb.type as string) || 'built-in')
+				const t = (extDb.type as string) || 'built-in'
+				setDbType(t)
+				initialDbType.current = t
 				setConnectionString((extDb.connectionString as string) || '')
 			}
 		}
 	}, [currentProject])
+
+	const dirty = dbType !== initialDbType.current
 
 	const testConnection = async () => {
 		if (!currentProject || !connectionString.trim()) return
@@ -95,22 +102,23 @@ export function DatabaseSettings() {
 		<div className="space-y-4">
 			<div>
 				<label className="block text-xs text-text-secondary mb-1.5">Database source</label>
-				<select
+				<Dropdown
 					value={dbType}
-					onChange={(e) => {
-						setDbType(e.target.value)
+					onChange={(v) => {
+						setDbType(v)
 						setTestResult(null)
 						setTables([])
 					}}
-					className="w-full max-w-xs px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
-				>
-					<option value="built-in">Built-in (Innolope CMS database)</option>
-					<option value="postgresql">PostgreSQL</option>
-					<option value="mysql">MySQL</option>
-					<option value="mongodb">MongoDB</option>
-					<option value="supabase">Supabase</option>
-					<option value="vercel-postgres">Vercel Postgres</option>
-				</select>
+					options={[
+						{ value: 'built-in', label: 'Built-in (Innolope CMS database)' },
+						{ value: 'postgresql', label: 'PostgreSQL' },
+						{ value: 'mysql', label: 'MySQL' },
+						{ value: 'mongodb', label: 'MongoDB' },
+						{ value: 'supabase', label: 'Supabase' },
+						{ value: 'vercel-postgres', label: 'Vercel Postgres' },
+					]}
+					className="w-full max-w-xs"
+				/>
 			</div>
 
 			{dbType !== 'built-in' && (
@@ -194,14 +202,7 @@ export function DatabaseSettings() {
 				<p className="text-xs text-text-muted">Content stored in the default Innolope CMS database. No external connection needed.</p>
 			)}
 
-			<button
-				type="button"
-				onClick={save}
-				disabled={saving}
-				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
-			>
-				{saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-			</button>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => setDbType(initialDbType.current)} />
 		</div>
 	)
 }

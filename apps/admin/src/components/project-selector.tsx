@@ -43,14 +43,9 @@ export function ProjectSelector() {
 				onClick={() => setOpen(!open)}
 				className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-surface-alt transition-colors"
 			>
-				<div className="min-w-0">
-					<p className="text-sm font-medium truncate text-left">
-						{currentProject?.name || 'Select project'}
-					</p>
-					<p className="text-[10px] text-text-muted truncate text-left">
-						{currentProject ? `/${currentProject.slug}` : 'No project selected'}
-					</p>
-				</div>
+				<p className="text-base font-semibold truncate text-left min-w-0">
+					{currentProject?.name || 'Select project'}
+				</p>
 				<svg
 					className={`w-4 h-4 text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
 					fill="none"

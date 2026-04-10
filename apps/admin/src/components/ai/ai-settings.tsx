@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { SaveBar } from '../save-bar'
+import { Dropdown } from '../dropdown'
 
 interface ProviderStatus {
 	provider: string
@@ -36,13 +38,18 @@ export function AiSettingsPanel() {
 	const [defaultModel, setDefaultModel] = useState('')
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const initialModel = useRef('')
+	const initialKeys = useRef<Record<string, string>>({})
 
 	useEffect(() => {
 		api.get<AiSettingsData>('/api/v1/ai/settings').then((data) => {
 			setSettings(data)
 			setDefaultModel(data.defaultModel)
+			initialModel.current = data.defaultModel
 		}).catch(() => {})
 	}, [])
+
+	const dirty = defaultModel !== initialModel.current || JSON.stringify(keys) !== JSON.stringify(initialKeys.current)
 
 	const save = async () => {
 		setSaving(true)
@@ -84,21 +91,16 @@ export function AiSettingsPanel() {
 		<div className="space-y-6">
 			<div>
 				<label className="block text-sm font-medium mb-2">Default Model</label>
-				<select
+				<Dropdown
 					value={defaultModel}
-					onChange={(e) => setDefaultModel(e.target.value)}
-					className="w-full max-w-xs px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-				>
-					{settings.availableModels.length > 0 ? (
-						settings.availableModels.map((m) => (
-							<option key={m.key} value={m.key}>
-								{m.name}
-							</option>
-						))
-					) : (
-						<option disabled>No models available — connect a provider below</option>
-					)}
-				</select>
+					onChange={setDefaultModel}
+					options={
+						settings.availableModels.length > 0
+							? settings.availableModels.map((m) => ({ value: m.key, label: m.name }))
+							: [{ value: '', label: 'No models available — connect a provider below' }]
+					}
+					className="w-full max-w-xs"
+				/>
 			</div>
 
 			{!settings.cloudMode && (
@@ -136,19 +138,15 @@ export function AiSettingsPanel() {
 			)}
 
 			{settings.cloudMode && (
-				<p className="text-sm text-text-secondary bg-surface p-4 rounded-lg border border-border">
+				<p className="text-sm text-text-secondary">
 					AI providers are managed by Innolope Cloud. All major models are available. Select your preferred default model above.
 				</p>
 			)}
 
-			<button
-				type="button"
-				onClick={save}
-				disabled={saving}
-				className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
-			>
-				{saving ? 'Saving...' : saved ? 'Saved' : 'Save AI Settings'}
-			</button>
+			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
+				setDefaultModel(initialModel.current)
+				setKeys({ ...initialKeys.current })
+			}} />
 		</div>
 	)
 }

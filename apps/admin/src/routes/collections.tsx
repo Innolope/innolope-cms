@@ -33,14 +33,13 @@ interface CollectionField {
 
 function CollectionsList() {
 	const [collections, setCollections] = useState<Collection[]>([])
-	const [loading, setLoading] = useState(true)
+	const [ready, setReady] = useState(false)
 
 	const fetchCollections = () => {
-		setLoading(true)
 		api.get<Collection[]>('/api/v1/collections')
 			.then(setCollections)
 			.catch(() => {})
-			.finally(() => setLoading(false))
+			.finally(() => setReady(true))
 	}
 
 	useEffect(() => {
@@ -54,23 +53,40 @@ function CollectionsList() {
 	}
 
 	return (
-		<div className="p-8">
+		<div className="p-8 pt-5 flex flex-col h-full">
 			<div className="flex items-center justify-between mb-6">
 				<h2 className="text-2xl font-bold">Collections</h2>
-				<Link
-					to="/collections/$id"
-					params={{ id: 'new' }}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
-				>
-					New Collection
-				</Link>
+				{collections.length > 0 && (
+					<Link
+						to="/collections/$id"
+						params={{ id: 'new' }}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
+					>
+						New Collection
+					</Link>
+				)}
 			</div>
 
-			{loading ? (
-				<p className="text-text-secondary text-sm">Loading...</p>
+			{!ready ? (
+				<div />
 			) : collections.length === 0 ? (
-				<div className="rounded-lg border border-border p-8 text-center text-text-secondary text-sm">
-					No collections yet. Create one to start organizing content.
+				<div className="flex flex-col items-center pt-[15vh] text-center">
+					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+							<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+						</svg>
+					</div>
+					<h3 className="font-semibold text-text mb-1">No collections yet</h3>
+					<p className="text-sm text-text-secondary max-w-xs mb-5">
+						Collections define content schemas — the structure and fields for each type of content you manage.
+					</p>
+					<Link
+						to="/collections/$id"
+						params={{ id: 'new' }}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						Create Collection
+					</Link>
 				</div>
 			) : (
 				<div className="space-y-3">

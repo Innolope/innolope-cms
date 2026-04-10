@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
 import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
+import { Dropdown } from '../components/dropdown'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -22,9 +23,18 @@ interface MediaItem {
 function MediaLibrary() {
 	const license = useLicense()
 	const unsplashLicensed = hasFeature(license, 'media-integrations')
-	const [tab, setTab] = useState<'uploaded' | 'unsplash'>('uploaded')
+	const [tab, setTabState] = useState<'uploaded' | 'unsplash'>(() => {
+		const params = new URLSearchParams(window.location.search)
+		return (params.get('tab') as 'uploaded' | 'unsplash') || 'uploaded'
+	})
+	const setTab = (t: 'uploaded' | 'unsplash') => {
+		setTabState(t)
+		const url = new URL(window.location.href)
+		url.searchParams.set('tab', t)
+		window.history.replaceState({}, '', url.toString())
+	}
 	const [items, setItems] = useState<MediaItem[]>([])
-	const [loading, setLoading] = useState(true)
+	const [ready, setReady] = useState(false)
 	const [uploading, setUploading] = useState(false)
 	const [selected, setSelected] = useState<MediaItem | null>(null)
 	const [typeFilter, setTypeFilter] = useState('')
@@ -35,11 +45,10 @@ function MediaLibrary() {
 		params.set('limit', '50')
 		if (typeFilter) params.set('type', typeFilter)
 
-		setLoading(true)
 		api.get<{ data: MediaItem[] }>(`/api/v1/media?${params}`)
 			.then((res) => setItems(res.data))
 			.catch(() => {})
-			.finally(() => setLoading(false))
+			.finally(() => setReady(true))
 	}
 
 	useEffect(() => {
@@ -76,7 +85,7 @@ function MediaLibrary() {
 
 	return (
 		<div className="flex h-full">
-			<div className="flex-1 overflow-auto p-8">
+			<div className="flex-1 overflow-auto p-8 pt-5 flex flex-col">
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
 						<h2 className="text-2xl font-bold">Media</h2>
@@ -98,33 +107,36 @@ function MediaLibrary() {
 							</button>
 						</div>
 					</div>
-					<div className="flex gap-3">
-						<select
-							value={typeFilter}
-							onChange={(e) => setTypeFilter(e.target.value)}
-							className="px-3 py-2 bg-input border border-border rounded text-sm"
-						>
-							<option value="">All types</option>
-							<option value="image">Images</option>
-							<option value="video">Videos</option>
-							<option value="file">Files</option>
-						</select>
-						<button
-							type="button"
-							onClick={() => fileRef.current?.click()}
-							disabled={uploading}
-							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-						>
-							{uploading ? 'Uploading...' : 'Upload'}
-						</button>
-						<input
-							ref={fileRef}
-							type="file"
-							multiple
-							className="hidden"
-							onChange={(e) => e.target.files && upload(e.target.files)}
-						/>
-					</div>
+					{items.length > 0 && (
+						<div className="flex gap-3">
+							<Dropdown
+								value={typeFilter}
+								onChange={setTypeFilter}
+								options={[
+									{ value: '', label: 'All types' },
+									{ value: 'image', label: 'Images' },
+									{ value: 'video', label: 'Videos' },
+									{ value: 'file', label: 'Files' },
+								]}
+								className="px-3 py-2 bg-input border border-border rounded text-sm"
+							/>
+							<button
+								type="button"
+								onClick={() => fileRef.current?.click()}
+								disabled={uploading}
+								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								{uploading ? 'Uploading...' : 'Upload'}
+							</button>
+							<input
+								ref={fileRef}
+								type="file"
+								multiple
+								className="hidden"
+								onChange={(e) => e.target.files && upload(e.target.files)}
+							/>
+						</div>
+					)}
 				</div>
 
 				{/* Unsplash: show picker if licensed, upgrade prompt if not */}
@@ -135,30 +147,30 @@ function MediaLibrary() {
 				) : tab === 'unsplash' ? (
 					<UpgradePrompt feature="Unsplash Integration" plan="Pro" />
 				) : null}
-				{tab === 'uploaded' && (<>
-				{/* Drop zone */}
-				<div
-					className="mb-4 border-2 border-dashed border-border rounded-lg p-6 text-center text-text-secondary text-sm hover:border-text-muted transition-colors"
-					onDragOver={(e) => {
-						e.preventDefault()
-						e.currentTarget.classList.add('border-text-secondary')
-					}}
-					onDragLeave={(e) => {
-						e.currentTarget.classList.remove('border-text-secondary')
-					}}
-					onDrop={(e) => {
-						e.preventDefault()
-						e.currentTarget.classList.remove('border-text-secondary')
-						if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
-					}}
-				>
-					Drop files here or click Upload
-				</div>
-
-				{loading ? (
-					<p className="text-text-secondary text-sm">Loading...</p>
+				{tab === 'uploaded' && (<div className="flex flex-col flex-1">
+				{!ready ? (
+					<div />
 				) : items.length === 0 ? (
-					<p className="text-text-secondary text-sm">No media files yet.</p>
+					<div className="flex flex-col items-center pt-[15vh] text-center">
+						<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+								<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+								<circle cx="8.5" cy="8.5" r="1.5" />
+								<polyline points="21 15 16 10 5 21" />
+							</svg>
+						</div>
+						<h3 className="font-semibold text-text mb-1">No media files yet</h3>
+						<p className="text-sm text-text-secondary max-w-xs mb-5">
+							Upload images, videos, or files by dragging them into the drop zone or clicking Upload.
+						</p>
+						<button
+							type="button"
+							onClick={() => fileRef.current?.click()}
+							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+						>
+							Upload Your First File
+						</button>
+					</div>
 				) : (
 					<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
 						{items.map((item) => (
@@ -192,7 +204,28 @@ function MediaLibrary() {
 						))}
 					</div>
 				)}
-				</>)}
+
+				{/* Drop zone at bottom */}
+				<div className="mt-auto pt-4">
+				<div
+					className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex items-center justify-center"
+					onDragOver={(e) => {
+						e.preventDefault()
+						e.currentTarget.classList.add('border-text-secondary')
+					}}
+					onDragLeave={(e) => {
+						e.currentTarget.classList.remove('border-text-secondary')
+					}}
+					onDrop={(e) => {
+						e.preventDefault()
+						e.currentTarget.classList.remove('border-text-secondary')
+						if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
+					}}
+				>
+					Drop files here or click Upload
+				</div>
+				</div>
+				</div>)}
 			</div>
 
 			{/* Detail panel */}
