@@ -6,6 +6,7 @@ import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { MediaSettings } from '../components/settings/media-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
+import { TeamSettings } from '../components/settings/team-settings'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -32,6 +33,9 @@ function Settings() {
 			<div className="space-y-8">
 				<Section title="Appearance">
 					<AppearanceSettings />
+				</Section>
+				<Section title="Team">
+					<TeamSettings />
 				</Section>
 				<ApiKeysSection />
 				<Section title="AI Models">

@@ -27,14 +27,25 @@ export function ProjectSelector() {
 			<button
 				type="button"
 				onClick={() => setOpen(!open)}
-				className="w-full text-left px-3 py-2 rounded-md hover:bg-surface-alt transition-colors"
+				className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-surface-alt transition-colors"
 			>
-				<p className="text-sm font-medium truncate">
-					{currentProject?.name || 'Select project'}
-				</p>
-				<p className="text-[10px] text-text-muted truncate">
-					{currentProject ? `/${currentProject.slug}` : 'No project selected'}
-				</p>
+				<div className="min-w-0">
+					<p className="text-sm font-medium truncate text-left">
+						{currentProject?.name || 'Select project'}
+					</p>
+					<p className="text-[10px] text-text-muted truncate text-left">
+						{currentProject ? `/${currentProject.slug}` : 'No project selected'}
+					</p>
+				</div>
+				<svg
+					className={`w-4 h-4 text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke="currentColor"
+					strokeWidth={2}
+				>
+					<path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+				</svg>
 			</button>
 
 			{open && (
