@@ -9,7 +9,7 @@ import { MediaSettings } from '../components/settings/media-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { TeamSettings } from '../components/settings/team-settings'
 import { WebhookSettings } from '../components/settings/webhook-settings'
-import { LicenseGate } from '../components/license-gate'
+import { LicenseGate, ProBadge, useLicense, hasFeature } from '../components/license-gate'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -30,6 +30,8 @@ interface NewKeyResponse extends ApiKeyItem {
 }
 
 function Settings() {
+	const license = useLicense()
+
 	return (
 		<div className="p-8 max-w-4xl">
 			<h2 className="text-2xl font-bold mb-8">Project Settings</h2>
@@ -41,12 +43,12 @@ function Settings() {
 				<Section title="AI Models">
 					<AiSettingsPanel />
 				</Section>
-				<Section title="Semantic Search">
+				<Section title="Semantic Search" pro={!hasFeature(license, 'ai-assistant')}>
 					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
 						<EmbeddingSettings />
 					</LicenseGate>
 				</Section>
-				<Section title="Webhooks">
+				<Section title="Webhooks" pro={!hasFeature(license, 'webhooks')}>
 					<LicenseGate feature="webhooks" featureLabel="Webhooks">
 						<WebhookSettings />
 					</LicenseGate>
@@ -339,10 +341,13 @@ function ApiKeysSection() {
 	)
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, pro, children }: { title: string; pro?: boolean; children: React.ReactNode }) {
 	return (
 		<div className="rounded-lg border border-border p-6">
-			<h3 className="text-lg font-semibold mb-2">{title}</h3>
+			<h3 className="text-lg font-semibold mb-2 flex items-center">
+				{title}
+				{pro && <ProBadge />}
+			</h3>
 			{children}
 		</div>
 	)

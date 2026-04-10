@@ -245,9 +245,9 @@ function EmptyDashboard() {
 	if (step === 'choose') {
 		return (
 			<div className="p-8 flex items-center justify-center min-h-[70vh]">
-				<div className="max-w-2xl w-full">
+				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Get Started</h2>
+						<h2 className="text-2xl font-bold mb-2">Welcome to Innolope CMS</h2>
 						<p className="text-text-secondary text-sm">How would you like to add your first content?</p>
 					</div>
 
@@ -255,48 +255,54 @@ function EmptyDashboard() {
 						<button
 							type="button"
 							onClick={() => setStep('connect-db')}
-							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+							className="rounded-xl bg-zinc-900 dark:bg-zinc-800 p-8 text-left hover:bg-zinc-800 dark:hover:bg-zinc-700 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
-							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
 									<ellipse cx="12" cy="5" rx="9" ry="3" />
 									<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
 									<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
 								</svg>
 							</div>
-							<h3 className="font-semibold text-sm mb-1">Connect Database</h3>
-							<p className="text-xs text-text-secondary">I already have content in an external database</p>
+							<div className="mt-6">
+								<h3 className="font-semibold text-white mb-1.5">Connect Database</h3>
+								<p className="text-sm text-zinc-400">I already have content in an external database</p>
+							</div>
 						</button>
 
 						<button
 							type="button"
 							onClick={() => setStep('upload')}
-							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+							className="rounded-xl bg-zinc-900 dark:bg-zinc-800 p-8 text-left hover:bg-zinc-800 dark:hover:bg-zinc-700 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
-							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
 									<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
 									<polyline points="17 8 12 3 7 8" />
 									<line x1="12" y1="3" x2="12" y2="15" />
 								</svg>
 							</div>
-							<h3 className="font-semibold text-sm mb-1">Upload Files</h3>
-							<p className="text-xs text-text-secondary">I have content in Markdown or JSON files</p>
+							<div className="mt-6">
+								<h3 className="font-semibold text-white mb-1.5">Upload Files</h3>
+								<p className="text-sm text-zinc-400">I have content in Markdown or JSON files</p>
+							</div>
 						</button>
 
 						<button
 							type="button"
 							onClick={() => setStep('scratch')}
-							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+							className="rounded-xl bg-zinc-900 dark:bg-zinc-800 p-8 text-left hover:bg-zinc-800 dark:hover:bg-zinc-700 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
-							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
 									<line x1="12" y1="5" x2="12" y2="19" />
 									<line x1="5" y1="12" x2="19" y2="12" />
 								</svg>
 							</div>
-							<h3 className="font-semibold text-sm mb-1">Start from Scratch</h3>
-							<p className="text-xs text-text-secondary">Create a new collection and add content</p>
+							<div className="mt-6">
+								<h3 className="font-semibold text-white mb-1.5">Start from Scratch</h3>
+								<p className="text-sm text-zinc-400">Create a new collection and add content</p>
+							</div>
 						</button>
 					</div>
 				</div>
@@ -384,15 +390,15 @@ function EmptyDashboard() {
 							onClick={() => setScratchStep('template')}
 							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all"
 						>
-							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
 									<rect x="3" y="3" width="7" height="7" rx="1" />
 									<rect x="14" y="3" width="7" height="7" rx="1" />
 									<rect x="3" y="14" width="7" height="7" rx="1" />
 									<rect x="14" y="14" width="7" height="7" rx="1" />
 								</svg>
 							</div>
-							<h3 className="font-semibold text-sm mb-1">Choose a Template</h3>
+							<h3 className="font-semibold mb-1.5">Choose a Template</h3>
 							<p className="text-xs text-text-secondary">Pre-built schemas for common content types</p>
 						</button>
 
@@ -401,13 +407,13 @@ function EmptyDashboard() {
 							params={{ id: 'new' }}
 							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all"
 						>
-							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
 									<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
 									<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
 								</svg>
 							</div>
-							<h3 className="font-semibold text-sm mb-1">Create Custom</h3>
+							<h3 className="font-semibold mb-1.5">Create Custom</h3>
 							<p className="text-xs text-text-secondary">Define your own collection from scratch</p>
 						</Link>
 					</div>
@@ -429,28 +435,29 @@ function EmptyDashboard() {
 	// scratchStep === 'template'
 	return (
 		<div className="p-8 flex items-center justify-center min-h-[70vh]">
-			<div className="max-w-3xl w-full">
+			<div className="max-w-4xl w-full">
 				<div className="text-center mb-8">
 					<h2 className="text-xl font-bold mb-2">Choose a Template</h2>
 					<p className="text-text-secondary text-sm">Select a pre-built collection schema to get started quickly.</p>
 				</div>
 
-				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+				<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 					{COLLECTION_TEMPLATES.map((t) => (
 						<button
 							type="button"
 							key={t.slug}
 							onClick={() => createFromTemplate(t)}
 							disabled={creating}
-							className="rounded-lg border border-border p-4 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all disabled:opacity-50"
+							className="rounded-lg border border-border p-5 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all disabled:opacity-50"
 						>
-							<h3 className="font-semibold text-sm mb-1">{t.name}</h3>
-							<p className="text-xs text-text-secondary mb-2">{t.description}</p>
-							<div className="flex flex-wrap gap-1">
+							<h3 className="font-semibold mb-1">{t.name}</h3>
+							<p className="text-xs text-text-secondary mb-3">{t.description}</p>
+							<div className="bg-surface-alt rounded-lg p-3 space-y-1">
 								{t.fields.map((f) => (
-									<span key={f.name} className="px-1.5 py-0.5 bg-surface-alt rounded text-[10px] text-text-muted">
-										{f.name}
-									</span>
+									<div key={f.name} className="flex items-center justify-between text-xs font-mono">
+										<span className="text-text">{f.name}{f.required ? <span className="text-text-muted ml-0.5">*</span> : ''}</span>
+										<span className="text-zinc-400">{f.type}</span>
+									</div>
 								))}
 							</div>
 						</button>

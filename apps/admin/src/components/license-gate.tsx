@@ -68,6 +68,14 @@ export function LicenseGate({
 	return <UpgradePrompt feature={featureLabel} plan={feature === 'ai-assistant' ? 'Pro' : 'Enterprise'} />
 }
 
+export function ProBadge() {
+	return (
+		<span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded">
+			Pro
+		</span>
+	)
+}
+
 export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan?: string }) {
 	return (
 		<div className="flex flex-col items-center justify-center py-12 px-6 text-center">

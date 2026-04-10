@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useMatches } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
-import { useLicense, hasFeature } from '../components/license-gate'
+import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
 
 export const Route = createFileRoute('/content')({
 	component: ContentLayout,
@@ -120,35 +120,34 @@ function ContentList() {
 			</div>
 
 			{/* Tabs */}
-			{showReviewQueue && (
-				<div className="flex gap-1 mb-4 border-b border-border">
-					<button
-						type="button"
-						onClick={() => setTab('all')}
-						className={`px-3 py-2 text-sm font-medium -mb-px transition-colors ${
-							tab === 'all'
-								? 'border-b-2 border-text text-text'
-								: 'text-text-secondary hover:text-text'
-						}`}
-					>
-						All Content
-					</button>
-					<button
-						type="button"
-						onClick={() => setTab('review')}
-						className={`px-3 py-2 text-sm font-medium -mb-px transition-colors ${
-							tab === 'review'
-								? 'border-b-2 border-text text-text'
-								: 'text-text-secondary hover:text-text'
-						}`}
-					>
-						Review Queue
-						{reviewTotal > 0 && (
-							<span className="ml-1.5 px-1.5 py-0.5 bg-surface-alt rounded-full text-xs">{reviewTotal}</span>
-						)}
-					</button>
-				</div>
-			)}
+			<div className="flex gap-1 mb-4 border-b border-border">
+				<button
+					type="button"
+					onClick={() => setTab('all')}
+					className={`px-3 py-2 text-sm font-medium -mb-px transition-colors ${
+						tab === 'all'
+							? 'border-b-2 border-text text-text'
+							: 'text-text-secondary hover:text-text'
+					}`}
+				>
+					All Content
+				</button>
+				<button
+					type="button"
+					onClick={() => setTab('review')}
+					className={`px-3 py-2 text-sm font-medium -mb-px transition-colors flex items-center ${
+						tab === 'review'
+							? 'border-b-2 border-text text-text'
+							: 'text-text-secondary hover:text-text'
+					}`}
+				>
+					Review Queue
+					{showReviewQueue && reviewTotal > 0 && (
+						<span className="ml-1.5 px-1.5 py-0.5 bg-surface-alt rounded-full text-xs">{reviewTotal}</span>
+					)}
+					{!showReviewQueue && <ProBadge />}
+				</button>
+			</div>
 
 			{tab === 'all' ? (
 				<>
@@ -259,6 +258,8 @@ function ContentList() {
 						</div>
 					)}
 				</>
+			) : !showReviewQueue ? (
+				<UpgradePrompt feature="Review Workflows" plan="Pro" />
 			) : (
 				/* Review Queue Tab */
 				<div className="rounded-lg border border-border">

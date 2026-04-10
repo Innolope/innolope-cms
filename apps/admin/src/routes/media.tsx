@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
-import { useLicense, hasFeature } from '../components/license-gate'
+import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -88,15 +88,14 @@ function MediaLibrary() {
 							>
 								Uploaded
 							</button>
-							{unsplashLicensed && (
-								<button
-									type="button"
-									onClick={() => setTab('unsplash')}
-									className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
-								>
-									Unsplash
-								</button>
-							)}
+							<button
+								type="button"
+								onClick={() => setTab('unsplash')}
+								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
+							>
+								Unsplash
+								{!unsplashLicensed && <ProBadge />}
+							</button>
 						</div>
 					</div>
 					<div className="flex gap-3">
@@ -128,12 +127,14 @@ function MediaLibrary() {
 					</div>
 				</div>
 
-				{/* Keep UnsplashPicker mounted but hidden so it pre-fetches on Media page load */}
-				{unsplashLicensed && (
+				{/* Unsplash: show picker if licensed, upgrade prompt if not */}
+				{unsplashLicensed ? (
 					<div className={tab === 'unsplash' ? '' : 'hidden'}>
 						<UnsplashPicker onSave={fetchMedia} />
 					</div>
-				)}
+				) : tab === 'unsplash' ? (
+					<UpgradePrompt feature="Unsplash Integration" plan="Pro" />
+				) : null}
 				{tab === 'uploaded' && (<>
 				{/* Drop zone */}
 				<div
