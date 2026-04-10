@@ -26,6 +26,26 @@ interface CollectionTemplate {
 
 const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 	{
+		name: 'SEO Article',
+		slug: 'seo-article',
+		description: 'Content optimized for search engines with full SEO and Open Graph metadata',
+		fields: [
+			{ name: 'title', type: 'text', required: true, localized: true },
+			{ name: 'slug', type: 'text', required: true },
+			{ name: 'excerpt', type: 'text', localized: true },
+			{ name: 'author', type: 'text' },
+			{ name: 'publishDate', type: 'date' },
+			{ name: 'metaTitle', type: 'text', localized: true },
+			{ name: 'metaDescription', type: 'text', localized: true },
+			{ name: 'canonicalUrl', type: 'text' },
+			{ name: 'ogImage', type: 'relation' },
+			{ name: 'ogTitle', type: 'text' },
+			{ name: 'ogDescription', type: 'text' },
+			{ name: 'keywords', type: 'array' },
+			{ name: 'noIndex', type: 'boolean' },
+		],
+	},
+	{
 		name: 'Knowledge Base',
 		slug: 'knowledge-base',
 		description: 'Structured articles for AI agent retrieval and customer self-service',
@@ -80,15 +100,17 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Changelog',
-		slug: 'changelog',
-		description: 'Version history and release notes for product updates',
+		name: 'CRM',
+		slug: 'crm',
+		description: 'Customer contacts and deals for AI-assisted sales workflows',
 		fields: [
-			{ name: 'title', type: 'text', required: true },
-			{ name: 'version', type: 'text', required: true },
-			{ name: 'date', type: 'date', required: true },
-			{ name: 'type', type: 'enum', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
-			{ name: 'breaking', type: 'boolean' },
+			{ name: 'name', type: 'text', required: true },
+			{ name: 'email', type: 'text', required: true },
+			{ name: 'company', type: 'text' },
+			{ name: 'stage', type: 'enum', required: true, options: ['lead', 'qualified', 'proposal', 'negotiation', 'closed-won', 'closed-lost'] },
+			{ name: 'dealValue', type: 'number' },
+			{ name: 'lastContact', type: 'date' },
+			{ name: 'notes', type: 'array' },
 		],
 	},
 	{
@@ -107,17 +129,15 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'CRM',
-		slug: 'crm',
-		description: 'Customer contacts and deals for AI-assisted sales workflows',
+		name: 'Changelog',
+		slug: 'changelog',
+		description: 'Version history and release notes for product updates',
 		fields: [
-			{ name: 'name', type: 'text', required: true },
-			{ name: 'email', type: 'text', required: true },
-			{ name: 'company', type: 'text' },
-			{ name: 'stage', type: 'enum', required: true, options: ['lead', 'qualified', 'proposal', 'negotiation', 'closed-won', 'closed-lost'] },
-			{ name: 'dealValue', type: 'number' },
-			{ name: 'lastContact', type: 'date' },
-			{ name: 'notes', type: 'array' },
+			{ name: 'title', type: 'text', required: true },
+			{ name: 'version', type: 'text', required: true },
+			{ name: 'date', type: 'date', required: true },
+			{ name: 'type', type: 'enum', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
+			{ name: 'breaking', type: 'boolean' },
 		],
 	},
 	{
@@ -147,26 +167,6 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 			{ name: 'salaryMin', type: 'number' },
 			{ name: 'salaryMax', type: 'number' },
 			{ name: 'requirements', type: 'array' },
-		],
-	},
-	{
-		name: 'SEO Article',
-		slug: 'seo-article',
-		description: 'Content optimized for search engines with full SEO and Open Graph metadata',
-		fields: [
-			{ name: 'title', type: 'text', required: true, localized: true },
-			{ name: 'slug', type: 'text', required: true },
-			{ name: 'excerpt', type: 'text', localized: true },
-			{ name: 'author', type: 'text' },
-			{ name: 'publishDate', type: 'date' },
-			{ name: 'metaTitle', type: 'text', localized: true },
-			{ name: 'metaDescription', type: 'text', localized: true },
-			{ name: 'canonicalUrl', type: 'text' },
-			{ name: 'ogImage', type: 'relation' },
-			{ name: 'ogTitle', type: 'text' },
-			{ name: 'ogDescription', type: 'text' },
-			{ name: 'keywords', type: 'array' },
-			{ name: 'noIndex', type: 'boolean' },
 		],
 	},
 	{
@@ -271,23 +271,7 @@ function NewCollectionPage() {
 
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{COLLECTION_TEMPLATES.map((template) => (
-						<button
-							key={template.slug}
-							type='button'
-							onClick={() => applyTemplate(template)}
-							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
-						>
-							<h3 className="font-semibold text-white mb-1">{template.name}</h3>
-							<p className="text-xs text-white/70">{template.description}</p>
-							<div className="bg-white/10 rounded-lg p-3 space-y-1 w-full mt-3">
-								{template.fields.map((f) => (
-									<div key={f.name} className="flex items-center justify-between text-xs font-mono">
-										<span className="text-white">{f.name}{f.required ? <span className="text-white/40 ml-0.5">*</span> : ''}</span>
-										<span className="text-white/50">{f.type}</span>
-									</div>
-								))}
-							</div>
-						</button>
+						<TemplateCard key={template.slug} template={template} onSelect={applyTemplate} />
 					))}
 
 					{/* Blank collection card */}
@@ -450,6 +434,46 @@ function NewCollectionPage() {
 				</div>
 			</div>
 		</div>
+	)
+}
+
+const MAX_VISIBLE_FIELDS = 5
+
+function TemplateCard({ template, onSelect }: { template: CollectionTemplate; onSelect: (t: CollectionTemplate) => void }) {
+	const [expanded, setExpanded] = useState(false)
+	const hasMore = template.fields.length > MAX_VISIBLE_FIELDS
+	const visibleFields = expanded ? template.fields : template.fields.slice(0, MAX_VISIBLE_FIELDS)
+	const hiddenCount = template.fields.length - MAX_VISIBLE_FIELDS
+
+	return (
+		<button
+			key={template.slug}
+			type='button'
+			onClick={() => onSelect(template)}
+			className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
+		>
+			<h3 className="font-semibold text-white mb-1">{template.name}</h3>
+			<p className="text-xs text-white/70">{template.description}</p>
+			<div className="bg-white/10 rounded-lg p-3 space-y-1 w-full mt-3">
+				{visibleFields.map((f) => (
+					<div key={f.name} className="flex items-center justify-between text-[10px] font-mono">
+						<span className="text-white">{f.name}{f.required ? <sup className="text-white/40 ml-0.5">*</sup> : ''}</span>
+						<span className="text-white/50">{f.type}</span>
+					</div>
+				))}
+				{hasMore && (
+					<div
+						role="button"
+						onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+						onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setExpanded(!expanded) } }}
+						tabIndex={0}
+						className="text-[10px] text-white/40 hover:text-white/60 pt-1 cursor-pointer transition-colors"
+					>
+						{expanded ? 'Show less' : `+${hiddenCount} more fields`}
+					</div>
+				)}
+			</div>
+		</button>
 	)
 }
 
