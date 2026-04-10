@@ -108,6 +108,49 @@ function NoProjectView() {
 	)
 }
 
+// TODO: Remove after font selection
+const FONT_OPTIONS = [
+	'Inter', 'DM Sans', 'Plus Jakarta Sans', 'Outfit', 'Manrope',
+	'Geist', 'Satoshi', 'Nunito Sans', 'Source Sans 3', 'Rubik',
+	'Albert Sans', 'Figtree', 'Sora', 'General Sans', 'Onest',
+	'Urbanist', 'Red Hat Display', 'Space Grotesk', 'Instrument Sans', 'Lexend',
+]
+
+function FontPicker() {
+	const [font, setFont] = useState(FONT_OPTIONS[0])
+	const [loaded, setLoaded] = useState<Set<string>>(new Set())
+
+	useEffect(() => {
+		// Load all fonts upfront via Google Fonts
+		const families = FONT_OPTIONS.map(f => f.replace(/ /g, '+')).join('&family=')
+		const link = document.createElement('link')
+		link.rel = 'stylesheet'
+		link.href = `https://fonts.googleapis.com/css2?${FONT_OPTIONS.map(f => `family=${f.replace(/ /g, '+')}:wght@400;500;600;700`).join('&')}&display=swap`
+		document.head.appendChild(link)
+		link.onload = () => setLoaded(new Set(FONT_OPTIONS))
+	}, [])
+
+	useEffect(() => {
+		document.documentElement.style.fontFamily = `"${font}", system-ui, sans-serif`
+	}, [font])
+
+	return (
+		<div className="fixed bottom-4 left-72 z-50 flex items-center gap-2 bg-surface border border-border rounded-lg shadow-xl px-3 py-2">
+			<label className="text-xs text-text-secondary whitespace-nowrap">Font:</label>
+			<select
+				value={font}
+				onChange={(e) => setFont(e.target.value)}
+				className="px-2 py-1 bg-input border border-border rounded text-sm font-medium focus:outline-none"
+			>
+				{FONT_OPTIONS.map(f => (
+					<option key={f} value={f} style={{ fontFamily: `"${f}", sans-serif` }}>{f}</option>
+				))}
+			</select>
+			<span className="text-[10px] text-text-faint">{loaded.size > 0 ? `${font}` : 'Loading...'}</span>
+		</div>
+	)
+}
+
 function AppLayout() {
 	const { user, logout } = useAuth()
 	const navigate = useNavigate()
@@ -150,6 +193,7 @@ function AppLayout() {
 			<main className="flex-1 overflow-auto bg-bg">
 				<Outlet />
 			</main>
+			<FontPicker />
 		</div>
 	)
 }
