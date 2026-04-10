@@ -30,10 +30,15 @@ export async function collectionRoutes(app: FastifyInstance) {
 	})
 
 	// Get collection by ID (viewer+, project-scoped)
+	// UUID constraint prevents matching static routes like /with-counts
 	app.get<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.requireProject('viewer')] },
+		{ preHandler: [app.requireProject('viewer')], constraints: {} },
 		async (request, reply) => {
+			// Skip non-UUID params (handled by other routes)
+			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.id)) {
+				return reply.status(404).send({ error: 'Collection not found' })
+			}
 			const [item] = await app.db
 				.select()
 				.from(collections)
