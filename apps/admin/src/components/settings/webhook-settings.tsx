@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface Webhook {
 	id: string
@@ -32,6 +33,7 @@ const EVENT_TYPES = [
 ]
 
 export function WebhookSettings() {
+	const toast = useToast()
 	const [hooks, setHooks] = useState<Webhook[]>([])
 	const [loading, setLoading] = useState(true)
 	const [showCreate, setShowCreate] = useState(false)
@@ -65,7 +67,7 @@ export function WebhookSettings() {
 			setShowCreate(false)
 			fetchHooks()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to create webhook')
+			toast(err instanceof Error ? err.message : 'Failed to create webhook', 'error')
 		}
 	}
 
@@ -83,9 +85,9 @@ export function WebhookSettings() {
 	const testHook = async (id: string) => {
 		try {
 			const result = await api.post<{ success: boolean }>(`/api/v1/ee/webhooks/${id}/test`, {})
-			alert(result.success ? 'Test delivery succeeded!' : 'Test delivery failed.')
+			toast(result.success ? 'Test delivery succeeded!' : 'Test delivery failed.', result.success ? 'success' : 'error')
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Test failed')
+			toast(err instanceof Error ? err.message : 'Test failed', 'error')
 		}
 	}
 

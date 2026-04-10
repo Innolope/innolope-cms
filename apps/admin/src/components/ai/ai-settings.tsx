@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface ProviderStatus {
 	provider: string
@@ -29,6 +30,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 }
 
 export function AiSettingsPanel() {
+	const toast = useToast()
 	const [settings, setSettings] = useState<AiSettingsData | null>(null)
 	const [keys, setKeys] = useState<Record<string, string>>({})
 	const [defaultModel, setDefaultModel] = useState('')
@@ -70,7 +72,7 @@ export function AiSettingsPanel() {
 			setSettings(updated)
 			setKeys({})
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to save')
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
 			setSaving(false)
 		}

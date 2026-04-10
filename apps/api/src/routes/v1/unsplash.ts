@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { media } from '@innolope/db'
 
 const UNSPLASH_API = 'https://api.unsplash.com'
 
@@ -24,7 +25,7 @@ export async function unsplashRoutes(app: FastifyInstance) {
 	})
 
 	// Search photos
-	app.get('/search', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
+	app.get('/search', { preHandler: [app.requireProject('viewer'), app.requireLicense('media-integrations')] }, async (request, reply) => {
 		const accessKey = getAccessKey()
 		if (!accessKey) {
 			return reply.status(503).send({ error: 'Unsplash not configured' })
@@ -77,7 +78,7 @@ export async function unsplashRoutes(app: FastifyInstance) {
 	// Track download (required by Unsplash API guidelines)
 	app.post<{ Params: { id: string } }>(
 		'/download/:id',
-		{ preHandler: [app.requireProject('viewer')] },
+		{ preHandler: [app.requireProject('viewer'), app.requireLicense('media-integrations')] },
 		async (request, reply) => {
 			const accessKey = getAccessKey()
 			if (!accessKey) {
@@ -104,6 +105,63 @@ export async function unsplashRoutes(app: FastifyInstance) {
 			}).catch(() => {})
 
 			return { tracked: true, id: request.params.id }
+		},
+	)
+
+	// Save Unsplash photo to media library
+	app.post<{ Params: { id: string } }>(
+		'/save/:id',
+		{ preHandler: [app.requireProject('editor'), app.requireLicense('media-integrations')] },
+		async (request, reply) => {
+			const accessKey = getAccessKey()
+			if (!accessKey) {
+				return reply.status(503).send({ error: 'Unsplash not configured' })
+			}
+
+			// Fetch photo metadata
+			const photoRes = await fetch(`${UNSPLASH_API}/photos/${request.params.id}`, {
+				headers: { Authorization: `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
+			})
+			if (!photoRes.ok) return reply.status(photoRes.status).send({ error: 'Photo not found' })
+			const photo = (await photoRes.json()) as UnsplashPhoto
+
+			// Trigger download tracking (required by Unsplash guidelines)
+			await fetch(photo.links.download_location, {
+				headers: { Authorization: `Client-ID ${accessKey}` },
+			}).catch(() => {})
+
+			// Download the image
+			const imageRes = await fetch(photo.urls.regular)
+			if (!imageRes.ok) return reply.status(502).send({ error: 'Failed to download image' })
+			const buffer = Buffer.from(await imageRes.arrayBuffer())
+
+			const filename = `unsplash-${photo.id}.jpg`
+			const result = await app.media.upload(buffer, filename, 'image/jpeg')
+
+			const [created] = await app.db
+				.insert(media)
+				.values({
+					projectId: request.project!.id,
+					type: 'image',
+					filename: result.filename,
+					mimeType: 'image/jpeg',
+					size: result.size,
+					url: result.url,
+					alt: photo.alt_description || photo.description || '',
+					adapter: 'unsplash',
+					externalId: result.id,
+					metadata: {
+						unsplashId: photo.id,
+						author: photo.user.name,
+						authorUsername: photo.user.username,
+						authorUrl: photo.user.links.html,
+						unsplashUrl: `https://unsplash.com/photos/${photo.id}`,
+					},
+					createdBy: request.user!.id,
+				})
+				.returning()
+
+			return reply.status(201).send(created)
 		},
 	)
 }

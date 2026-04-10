@@ -6,6 +6,7 @@ import { VersionPanel } from '../components/versions/version-panel'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gate'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/content/$id')({
 	component: ContentEditor,
@@ -25,6 +26,7 @@ interface ContentItem {
 function ContentEditor() {
 	const { id } = Route.useParams()
 	const navigate = useNavigate()
+	const toast = useToast()
 	const isNew = id === 'new'
 
 	const [markdown, setMarkdown] = useState('')
@@ -153,7 +155,7 @@ function ContentEditor() {
 				setDirty(false)
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Save failed')
+			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -167,7 +169,7 @@ function ContentEditor() {
 			setStatus('published')
 		} catch (err) {
 			setStatus(prevStatus)
-			alert(err instanceof Error ? err.message : 'Publish failed')
+			toast(err instanceof Error ? err.message : 'Publish failed', 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -179,7 +181,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/submit-for-review`, {})
 			setStatus('pending_review')
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Submit failed')
+			toast(err instanceof Error ? err.message : 'Submit failed', 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -191,7 +193,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/approve`, {})
 			setStatus('published')
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Approve failed')
+			toast(err instanceof Error ? err.message : 'Approve failed', 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -204,7 +206,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 			setStatus('draft')
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Reject failed')
+			toast(err instanceof Error ? err.message : 'Reject failed', 'error')
 		} finally {
 			setSaving(false)
 		}

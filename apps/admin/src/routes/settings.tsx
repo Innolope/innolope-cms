@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
+import { useToast } from '../lib/toast'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { MediaSettings } from '../components/settings/media-settings'
@@ -66,6 +67,7 @@ function Settings() {
 
 function EmbeddingSettings() {
 	const { currentProject, refreshProjects } = useAuth()
+	const toast = useToast()
 	const [autoEmbed, setAutoEmbed] = useState(false)
 	const [status, setStatus] = useState<{ totalContent: number; embeddedContent: number } | null>(null)
 	const [saving, setSaving] = useState(false)
@@ -92,7 +94,7 @@ function EmbeddingSettings() {
 			})
 			await refreshProjects()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to save')
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -141,6 +143,7 @@ function EmbeddingSettings() {
 }
 
 function ApiKeysSection() {
+	const toast = useToast()
 	const [keys, setKeys] = useState<ApiKeyItem[]>([])
 	const [loading, setLoading] = useState(true)
 	const [showCreate, setShowCreate] = useState(false)
@@ -175,7 +178,7 @@ function ApiKeysSection() {
 			setShowCreate(false)
 			fetchKeys()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to create key')
+			toast(err instanceof Error ? err.message : 'Failed to create key', 'error')
 		}
 	}
 

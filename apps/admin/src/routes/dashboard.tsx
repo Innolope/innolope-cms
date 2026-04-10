@@ -1,7 +1,8 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/dashboard')({
 	component: Dashboard,
@@ -25,14 +26,70 @@ interface RecentItem {
 	locale: string
 }
 
+const COLLECTION_TEMPLATES = [
+	{ name: 'Knowledge Base', slug: 'knowledge-base', description: 'Structured articles for AI agent retrieval', fields: [
+		{ name: 'title', type: 'text', required: true, localized: true },
+		{ name: 'category', type: 'select', options: ['general', 'technical', 'onboarding', 'troubleshooting'] },
+		{ name: 'tags', type: 'json' },
+		{ name: 'summary', type: 'text', localized: true },
+	]},
+	{ name: 'FAQ', slug: 'faq', description: 'Question-answer pairs for AI-powered support', fields: [
+		{ name: 'question', type: 'text', required: true, localized: true },
+		{ name: 'answer', type: 'text', required: true, localized: true },
+		{ name: 'category', type: 'select', options: ['general', 'billing', 'technical', 'account'] },
+		{ name: 'order', type: 'number' },
+	]},
+	{ name: 'Product Catalog', slug: 'product-catalog', description: 'Product data for AI recommendations', fields: [
+		{ name: 'title', type: 'text', required: true, localized: true },
+		{ name: 'price', type: 'number' },
+		{ name: 'sku', type: 'text' },
+		{ name: 'category', type: 'select', options: ['software', 'hardware', 'service', 'subscription'] },
+		{ name: 'inStock', type: 'boolean' },
+	]},
+	{ name: 'Documentation', slug: 'documentation', description: 'Technical docs for developer AI assistants', fields: [
+		{ name: 'title', type: 'text', required: true, localized: true },
+		{ name: 'section', type: 'text' },
+		{ name: 'order', type: 'number' },
+		{ name: 'tags', type: 'json' },
+	]},
+	{ name: 'Changelog', slug: 'changelog', description: 'Release notes and version history', fields: [
+		{ name: 'title', type: 'text', required: true },
+		{ name: 'version', type: 'text', required: true },
+		{ name: 'date', type: 'date', required: true },
+		{ name: 'type', type: 'select', required: true, options: ['feature', 'fix', 'improvement', 'breaking'] },
+	]},
+	{ name: 'API Reference', slug: 'api-reference', description: 'Endpoint docs for API-aware AI agents', fields: [
+		{ name: 'title', type: 'text', required: true },
+		{ name: 'method', type: 'select', required: true, options: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
+		{ name: 'endpoint', type: 'text', required: true },
+		{ name: 'parameters', type: 'json' },
+	]},
+]
+
 function Dashboard() {
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [recent, setRecent] = useState<RecentItem[]>([])
+	const [loading, setLoading] = useState(true)
 
 	useEffect(() => {
-		api.get<Stats>('/api/v1/stats').then(setStats).catch(() => {})
-		api.get<RecentItem[]>('/api/v1/stats/recent').then(setRecent).catch(() => {})
+		Promise.all([
+			api.get<Stats>('/api/v1/stats').then(setStats).catch(() => {}),
+			api.get<RecentItem[]>('/api/v1/stats/recent').then(setRecent).catch(() => {}),
+		]).finally(() => setLoading(false))
 	}, [])
+
+	if (loading) {
+		return (
+			<div className="p-8">
+				<h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+				<p className="text-text-secondary text-sm">Loading...</p>
+			</div>
+		)
+	}
+
+	const isEmpty = stats && stats.content.total === 0 && stats.collections === 0
+
+	if (isEmpty) return <EmptyDashboard />
 
 	return (
 		<div className="p-8">
@@ -41,16 +98,8 @@ function Dashboard() {
 			{/* Stats grid */}
 			<div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
 				<StatCard label="Total Content" value={stats?.content.total ?? '—'} to="/content" />
-				<StatCard
-					label="Published"
-					value={stats?.content.published ?? '—'}
-					to="/content"
-				/>
-				<StatCard
-					label="Drafts"
-					value={stats?.content.draft ?? '—'}
-					to="/content"
-				/>
+				<StatCard label="Published" value={stats?.content.published ?? '—'} to="/content" />
+				<StatCard label="Drafts" value={stats?.content.draft ?? '—'} to="/content" />
 				<StatCard label="Media Files" value={stats?.media ?? '—'} to="/media" />
 				<StatCard label="API Keys" value={stats?.apiKeys ?? '—'} to="/settings" />
 			</div>
@@ -161,15 +210,268 @@ function Dashboard() {
 	)
 }
 
-function StatCard({
-	label,
-	value,
-	to,
-}: {
-	label: string
-	value: number | string
-	to: string
-}) {
+function EmptyDashboard() {
+	const navigate = useNavigate()
+	const toast = useToast()
+	const [step, setStep] = useState<'choose' | 'connect-db' | 'upload' | 'scratch'>('choose')
+	const [scratchStep, setScratchStep] = useState<'choose' | 'template'>('choose')
+	const [creating, setCreating] = useState(false)
+	const fileInputRef = useRef<HTMLInputElement>(null)
+
+	const createFromTemplate = async (template: typeof COLLECTION_TEMPLATES[0]) => {
+		setCreating(true)
+		try {
+			await api.post('/api/v1/collections', {
+				name: template.name,
+				slug: template.slug,
+				description: template.description,
+				fields: template.fields,
+			})
+			navigate({ to: '/content/$id', params: { id: 'new' } })
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to create collection', 'error')
+		} finally {
+			setCreating(false)
+		}
+	}
+
+	const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0]
+		if (!file) return
+		// TODO: implement import endpoint
+		toast('File import is coming soon. For now, use the MCP server or API to bulk-create content.', 'error')
+	}
+
+	if (step === 'choose') {
+		return (
+			<div className="p-8 flex items-center justify-center min-h-[70vh]">
+				<div className="max-w-2xl w-full">
+					<div className="text-center mb-10">
+						<h2 className="text-2xl font-bold mb-2">Get Started</h2>
+						<p className="text-text-secondary text-sm">How would you like to add your first content?</p>
+					</div>
+
+					<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+						<button
+							type="button"
+							onClick={() => setStep('connect-db')}
+							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+						>
+							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+									<ellipse cx="12" cy="5" rx="9" ry="3" />
+									<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+									<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+								</svg>
+							</div>
+							<h3 className="font-semibold text-sm mb-1">Connect Database</h3>
+							<p className="text-xs text-text-secondary">I already have content in an external database</p>
+						</button>
+
+						<button
+							type="button"
+							onClick={() => setStep('upload')}
+							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+						>
+							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+									<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+									<polyline points="17 8 12 3 7 8" />
+									<line x1="12" y1="3" x2="12" y2="15" />
+								</svg>
+							</div>
+							<h3 className="font-semibold text-sm mb-1">Upload Files</h3>
+							<p className="text-xs text-text-secondary">I have content in Markdown or JSON files</p>
+						</button>
+
+						<button
+							type="button"
+							onClick={() => setStep('scratch')}
+							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all group"
+						>
+							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+									<line x1="12" y1="5" x2="12" y2="19" />
+									<line x1="5" y1="12" x2="19" y2="12" />
+								</svg>
+							</div>
+							<h3 className="font-semibold text-sm mb-1">Start from Scratch</h3>
+							<p className="text-xs text-text-secondary">Create a new collection and add content</p>
+						</button>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	if (step === 'connect-db') {
+		return (
+			<div className="p-8 flex items-center justify-center min-h-[70vh]">
+				<div className="max-w-md w-full text-center">
+					<h2 className="text-xl font-bold mb-2">Connect Database</h2>
+					<p className="text-text-secondary text-sm mb-6">
+						Configure your external database connection in Project Settings to sync content.
+					</p>
+					<div className="flex gap-3 justify-center">
+						<button
+							type="button"
+							onClick={() => setStep('choose')}
+							className="px-4 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover active:translate-x-px active:translate-y-px"
+						>
+							Back
+						</button>
+						<Link
+							to="/settings"
+							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px"
+						>
+							Go to Settings
+						</Link>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	if (step === 'upload') {
+		return (
+			<div className="p-8 flex items-center justify-center min-h-[70vh]">
+				<div className="max-w-md w-full text-center">
+					<h2 className="text-xl font-bold mb-2">Upload Content</h2>
+					<p className="text-text-secondary text-sm mb-6">
+						Upload Markdown (.md) or JSON (.json) files to import content.
+					</p>
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept=".md,.json,.jsonl"
+						onChange={handleFileUpload}
+						className="hidden"
+					/>
+					<div className="flex gap-3 justify-center">
+						<button
+							type="button"
+							onClick={() => setStep('choose')}
+							className="px-4 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover active:translate-x-px active:translate-y-px"
+						>
+							Back
+						</button>
+						<button
+							type="button"
+							onClick={() => fileInputRef.current?.click()}
+							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px"
+						>
+							Choose File
+						</button>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	// step === 'scratch'
+	if (scratchStep === 'choose') {
+		return (
+			<div className="p-8 flex items-center justify-center min-h-[70vh]">
+				<div className="max-w-lg w-full">
+					<div className="text-center mb-8">
+						<h2 className="text-xl font-bold mb-2">Start from Scratch</h2>
+						<p className="text-text-secondary text-sm">Pick a template or create a custom collection.</p>
+					</div>
+
+					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+						<button
+							type="button"
+							onClick={() => setScratchStep('template')}
+							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all"
+						>
+							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+									<rect x="3" y="3" width="7" height="7" rx="1" />
+									<rect x="14" y="3" width="7" height="7" rx="1" />
+									<rect x="3" y="14" width="7" height="7" rx="1" />
+									<rect x="14" y="14" width="7" height="7" rx="1" />
+								</svg>
+							</div>
+							<h3 className="font-semibold text-sm mb-1">Choose a Template</h3>
+							<p className="text-xs text-text-secondary">Pre-built schemas for common content types</p>
+						</button>
+
+						<Link
+							to="/collections/$id"
+							params={{ id: 'new' }}
+							className="rounded-lg border border-border p-6 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all"
+						>
+							<div className="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center mb-3">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+									<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+									<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+								</svg>
+							</div>
+							<h3 className="font-semibold text-sm mb-1">Create Custom</h3>
+							<p className="text-xs text-text-secondary">Define your own collection from scratch</p>
+						</Link>
+					</div>
+
+					<div className="text-center mt-4">
+						<button
+							type="button"
+							onClick={() => { setStep('choose'); setScratchStep('choose') }}
+							className="text-xs text-text-muted hover:text-text-secondary"
+						>
+							Back
+						</button>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	// scratchStep === 'template'
+	return (
+		<div className="p-8 flex items-center justify-center min-h-[70vh]">
+			<div className="max-w-3xl w-full">
+				<div className="text-center mb-8">
+					<h2 className="text-xl font-bold mb-2">Choose a Template</h2>
+					<p className="text-text-secondary text-sm">Select a pre-built collection schema to get started quickly.</p>
+				</div>
+
+				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+					{COLLECTION_TEMPLATES.map((t) => (
+						<button
+							type="button"
+							key={t.slug}
+							onClick={() => createFromTemplate(t)}
+							disabled={creating}
+							className="rounded-lg border border-border p-4 text-left hover:border-text-muted active:translate-x-px active:translate-y-px transition-all disabled:opacity-50"
+						>
+							<h3 className="font-semibold text-sm mb-1">{t.name}</h3>
+							<p className="text-xs text-text-secondary mb-2">{t.description}</p>
+							<div className="flex flex-wrap gap-1">
+								{t.fields.map((f) => (
+									<span key={f.name} className="px-1.5 py-0.5 bg-surface-alt rounded text-[10px] text-text-muted">
+										{f.name}
+									</span>
+								))}
+							</div>
+						</button>
+					))}
+				</div>
+
+				<div className="text-center mt-4">
+					<button
+						type="button"
+						onClick={() => setScratchStep('choose')}
+						className="text-xs text-text-muted hover:text-text-secondary"
+					>
+						Back
+					</button>
+				</div>
+			</div>
+		</div>
+	)
+}
+
+function StatCard({ label, value, to }: { label: string; value: number | string; to: string }) {
 	return (
 		<Link
 			to={to}

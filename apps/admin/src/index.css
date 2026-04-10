@@ -48,3 +48,8 @@ html.dark {
 	--color-danger: #f87171;
 	--color-danger-surface: #450a0a;
 }
+
+@keyframes slideIn {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface UnsplashPhoto {
 	id: string
@@ -16,23 +17,21 @@ interface UnsplashPhoto {
 }
 
 interface UnsplashPickerProps {
-	onSelect: (photo: UnsplashPhoto) => void
+	onSave?: () => void
+	onSelect?: (photo: UnsplashPhoto) => void
 }
 
-export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
+export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
+	const toast = useToast()
 	const [query, setQuery] = useState('')
 	const [photos, setPhotos] = useState<UnsplashPhoto[]>([])
 	const [loading, setLoading] = useState(false)
 	const [page, setPage] = useState(1)
 	const [totalPages, setTotalPages] = useState(0)
 	const [enabled, setEnabled] = useState<boolean | null>(null)
+	const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
+	const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>()
-
-	useEffect(() => {
-		api.get<{ enabled: boolean }>('/api/v1/unsplash/status')
-			.then((res) => setEnabled(res.enabled))
-			.catch(() => setEnabled(false))
-	}, [])
 
 	const search = useCallback(
 		async (q: string, p: number) => {
@@ -61,6 +60,15 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 		[],
 	)
 
+	useEffect(() => {
+		api.get<{ enabled: boolean }>('/api/v1/unsplash/status')
+			.then((res) => {
+				setEnabled(res.enabled)
+				if (res.enabled) search('Hello', 1)
+			})
+			.catch(() => setEnabled(false))
+	}, [search])
+
 	const handleInput = (value: string) => {
 		setQuery(value)
 		setPage(1)
@@ -74,10 +82,24 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 		search(query, next)
 	}
 
-	const handleSelect = async (photo: UnsplashPhoto) => {
-		// Trigger download tracking (required by Unsplash)
-		api.post(`/api/v1/unsplash/download/${photo.id}`, {}).catch(() => {})
-		onSelect(photo)
+	const savePhoto = async (photo: UnsplashPhoto) => {
+		if (savingIds.has(photo.id) || savedIds.has(photo.id)) return
+
+		setSavingIds((prev) => new Set(prev).add(photo.id))
+		try {
+			await api.post(`/api/v1/unsplash/save/${photo.id}`, {})
+			setSavedIds((prev) => new Set(prev).add(photo.id))
+			toast(`Saved "${photo.alt || 'photo'}" by ${photo.author}`, 'success')
+			onSave?.()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to save photo', 'error')
+		} finally {
+			setSavingIds((prev) => {
+				const next = new Set(prev)
+				next.delete(photo.id)
+				return next
+			})
+		}
 	}
 
 	if (enabled === null) return <p className="text-text-secondary text-sm p-4">Checking Unsplash...</p>
@@ -106,31 +128,64 @@ export function UnsplashPicker({ onSelect }: UnsplashPickerProps) {
 			)}
 
 			{photos.length === 0 && !loading && !query && (
-				<p className="text-text-secondary text-sm text-center py-4">Type to search free photos on Unsplash.</p>
+				<p className="text-text-secondary text-sm text-center py-4">Search free photos on Unsplash.</p>
 			)}
 
 			<div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-				{photos.map((photo) => (
-					<button
-						type="button"
-						key={photo.id}
-						onClick={() => handleSelect(photo)}
-						className="group relative aspect-[4/3] rounded-lg overflow-hidden border border-border hover:border-text-muted transition-colors"
-						style={{ backgroundColor: photo.color }}
-					>
-						<img
-							src={photo.thumbUrl}
-							alt={photo.alt}
-							className="w-full h-full object-cover"
-							loading="lazy"
-						/>
-						<div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-							<p className="text-[10px] text-white truncate">
-								{photo.author}
-							</p>
+				{photos.map((photo) => {
+					const isSaving = savingIds.has(photo.id)
+					const isSaved = savedIds.has(photo.id)
+
+					return (
+						<div
+							key={photo.id}
+							className={`group relative aspect-[4/3] rounded-lg overflow-hidden border border-border hover:border-text-muted transition-colors ${onSelect ? 'cursor-pointer' : ''}`}
+							style={{ backgroundColor: photo.color }}
+							onClick={onSelect ? () => { api.post(`/api/v1/unsplash/download/${photo.id}`, {}).catch(() => {}); onSelect(photo) } : undefined}
+						>
+							<img
+								src={photo.thumbUrl}
+								alt={photo.alt}
+								className="w-full h-full object-cover"
+								loading="lazy"
+							/>
+
+							{/* Save button overlay */}
+							<button
+								type="button"
+								onClick={() => savePhoto(photo)}
+								disabled={isSaving || isSaved}
+								className={`absolute top-2 right-2 p-1.5 rounded-md transition-all ${
+									isSaved
+										? 'bg-white/90 text-green-600 opacity-100'
+										: 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-black/70'
+								} disabled:cursor-default`}
+								title={isSaved ? 'Saved to library' : 'Save to library'}
+							>
+								{isSaving ? (
+									<svg width="16" height="16" viewBox="0 0 16 16" className="animate-spin">
+										<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" />
+									</svg>
+								) : isSaved ? (
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<polyline points="20 6 9 17 4 12" />
+									</svg>
+								) : (
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+									</svg>
+								)}
+							</button>
+
+							{/* Author attribution */}
+							<div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+								<p className="text-[10px] text-white truncate">
+									{photo.author}
+								</p>
+							</div>
 						</div>
-					</button>
-				))}
+					)
+				})}
 			</div>
 
 			{loading && (

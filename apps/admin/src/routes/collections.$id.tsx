@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/collections/$id')({
 	component: CollectionEditor,
@@ -98,6 +99,7 @@ const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'select', 'relation', 
 function CollectionEditor() {
 	const { id } = Route.useParams()
 	const navigate = useNavigate()
+	const toast = useToast()
 	const isNew = id === 'new'
 
 	const [name, setName] = useState('')
@@ -151,7 +153,7 @@ function CollectionEditor() {
 	}
 
 	const save = async () => {
-		if (!name.trim()) return alert('Name is required')
+		if (!name.trim()) { toast('Name is required', 'error'); return }
 		const validFields = fields.filter((f) => f.name.trim())
 		setSaving(true)
 		try {
@@ -172,7 +174,7 @@ function CollectionEditor() {
 			}
 			navigate({ to: '/collections' })
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Save failed')
+			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
 			setSaving(false)
 		}

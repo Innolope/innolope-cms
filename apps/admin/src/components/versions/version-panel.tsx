@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface Version {
 	id: string
@@ -16,6 +17,7 @@ interface VersionPanelProps {
 }
 
 export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPanelProps) {
+	const toast = useToast()
 	const [versions, setVersions] = useState<Version[]>([])
 	const [loading, setLoading] = useState(true)
 	const [selected, setSelected] = useState<Version | null>(null)
@@ -37,7 +39,7 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 			onRevert()
 			setSelected(null)
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Revert failed')
+			toast(err instanceof Error ? err.message : 'Revert failed', 'error')
 		} finally {
 			setReverting(false)
 		}

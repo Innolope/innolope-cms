@@ -12,6 +12,7 @@ export type LicenseFeature =
 	| 'custom-roles'
 	| 'white-label'
 	| 'review-workflows'
+	| 'media-integrations'
 
 export interface LicensePayload {
 	org: string

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 export function GeneralSettings() {
 	const { currentProject, refreshProjects } = useAuth()
+	const toast = useToast()
 	const [name, setName] = useState('')
 	const [slug, setSlug] = useState('')
 	const [defaultLocale, setDefaultLocale] = useState('en')
@@ -39,7 +41,7 @@ export function GeneralSettings() {
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to save')
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
 			setSaving(false)
 		}

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../lib/auth'
 import { api } from '../lib/api-client'
+import { useToast } from '../lib/toast'
 
 export function ProjectSelector() {
 	const { projects, currentProject, switchProject, refreshProjects } = useAuth()
+	const toast = useToast()
 	const [open, setOpen] = useState(false)
 	const containerRef = useRef<HTMLDivElement>(null)
 
@@ -28,7 +30,7 @@ export function ProjectSelector() {
 			await refreshProjects()
 			switchProject(project.id)
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to create project')
+			toast(err instanceof Error ? err.message : 'Failed to create project', 'error')
 		}
 		setCreating(false)
 		setNewName('')

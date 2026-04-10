@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface Member {
 	id: string
@@ -25,6 +26,7 @@ const ROLE_ORDER: Record<string, number> = { owner: 4, admin: 3, editor: 2, view
 
 export function TeamSettings() {
 	const { currentProject, user } = useAuth()
+	const toast = useToast()
 	const [members, setMembers] = useState<Member[]>([])
 	const [invites, setInvites] = useState<Invite[]>([])
 	const [loading, setLoading] = useState(true)
@@ -66,7 +68,7 @@ export function TeamSettings() {
 			setTimeout(() => setSent(''), 3000)
 			fetchData()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to send invite')
+			toast(err instanceof Error ? err.message : 'Failed to send invite', 'error')
 		} finally {
 			setSending(false)
 		}
@@ -78,7 +80,7 @@ export function TeamSettings() {
 			await api.put(`/api/v1/projects/${currentProject.id}/members/${userId}`, { role: newRole })
 			fetchData()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to update role')
+			toast(err instanceof Error ? err.message : 'Failed to update role', 'error')
 		}
 	}
 
@@ -89,7 +91,7 @@ export function TeamSettings() {
 			await api.delete(`/api/v1/projects/${currentProject.id}/members/${userId}`)
 			fetchData()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to remove member')
+			toast(err instanceof Error ? err.message : 'Failed to remove member', 'error')
 		}
 	}
 

@@ -1,10 +1,18 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useMatches } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/collections')({
-	component: CollectionsList,
+	component: CollectionsLayout,
 })
+
+function CollectionsLayout() {
+	const matches = useMatches()
+	const hasChild = matches.some((m) => m.id === '/collections/$id')
+
+	if (hasChild) return <Outlet />
+	return <CollectionsList />
+}
 
 interface Collection {
 	id: string
@@ -46,13 +54,13 @@ function CollectionsList() {
 	}
 
 	return (
-		<div className="p-8 max-w-4xl">
+		<div className="p-8">
 			<div className="flex items-center justify-between mb-6">
 				<h2 className="text-2xl font-bold">Collections</h2>
 				<Link
 					to="/collections/$id"
 					params={{ id: 'new' }}
-					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 				>
 					New Collection
 				</Link>

@@ -1,7 +1,8 @@
 import { createRootRoute, Link, Outlet, useNavigate, useLocation } from '@tanstack/react-router'
 import { useAuth, AuthProvider } from '../lib/auth'
 import { ThemeProvider } from '../lib/theme'
-import { LicenseProvider, useLicense, hasFeature } from '../components/license-gate'
+import { LicenseProvider } from '../components/license-gate'
+import { ToastProvider, useToast } from '../lib/toast'
 import { ProjectSelector } from '../components/project-selector'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
@@ -15,7 +16,9 @@ function RootWithAuth() {
 		<ThemeProvider>
 			<AuthProvider>
 				<LicenseProvider>
-					<AuthGate />
+					<ToastProvider>
+						<AuthGate />
+					</ToastProvider>
 				</LicenseProvider>
 			</AuthProvider>
 		</ThemeProvider>
@@ -53,6 +56,7 @@ function AuthGate() {
 function NoProjectView() {
 	const { user, logout } = useAuth()
 	const { refreshProjects } = useAuth()
+	const toast = useToast()
 
 	const [name, setName] = useState('')
 	const [creating, setCreating] = useState(false)
@@ -66,7 +70,7 @@ function NoProjectView() {
 			await refreshProjects()
 			window.location.reload()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed')
+			toast(err instanceof Error ? err.message : 'Failed', 'error')
 		} finally {
 			setCreating(false)
 		}
@@ -112,7 +116,6 @@ function NoProjectView() {
 function AppLayout() {
 	const { user, logout } = useAuth()
 	const navigate = useNavigate()
-	const license = useLicense()
 
 	const handleLogout = () => {
 		logout()
@@ -128,9 +131,6 @@ function AppLayout() {
 				<nav className="flex-1 p-3 space-y-0.5">
 					<NavLink to="/dashboard" label="Dashboard" />
 					<NavLink to="/content" label="Content" />
-					{hasFeature(license, 'review-workflows') && (
-						<NavLink to="/review-queue" label="Review Queue" />
-					)}
 					<NavLink to="/collections" label="Collections" />
 					<NavLink to="/media" label="Media" />
 					<NavLink to="/settings" label="Project Settings" />

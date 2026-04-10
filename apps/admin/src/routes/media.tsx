@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
+import { useLicense, hasFeature } from '../components/license-gate'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -19,6 +20,8 @@ interface MediaItem {
 }
 
 function MediaLibrary() {
+	const license = useLicense()
+	const unsplashLicensed = hasFeature(license, 'media-integrations')
 	const [tab, setTab] = useState<'uploaded' | 'unsplash'>('uploaded')
 	const [items, setItems] = useState<MediaItem[]>([])
 	const [loading, setLoading] = useState(true)
@@ -85,13 +88,15 @@ function MediaLibrary() {
 							>
 								Uploaded
 							</button>
-							<button
-								type="button"
-								onClick={() => setTab('unsplash')}
-								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
-							>
-								Unsplash
-							</button>
+							{unsplashLicensed && (
+								<button
+									type="button"
+									onClick={() => setTab('unsplash')}
+									className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
+								>
+									Unsplash
+								</button>
+							)}
 						</div>
 					</div>
 					<div className="flex gap-3">
@@ -123,12 +128,13 @@ function MediaLibrary() {
 					</div>
 				</div>
 
-				{tab === 'unsplash' ? (
-					<UnsplashPicker onSelect={(photo) => {
-						navigator.clipboard.writeText(photo.url)
-						alert(`Copied URL for "${photo.alt}" by ${photo.author}`)
-					}} />
-				) : (<>
+				{/* Keep UnsplashPicker mounted but hidden so it pre-fetches on Media page load */}
+				{unsplashLicensed && (
+					<div className={tab === 'unsplash' ? '' : 'hidden'}>
+						<UnsplashPicker onSave={fetchMedia} />
+					</div>
+				)}
+				{tab === 'uploaded' && (<>
 				{/* Drop zone */}
 				<div
 					className="mb-4 border-2 border-dashed border-border rounded-lg p-6 text-center text-text-secondary text-sm hover:border-text-muted transition-colors"

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 export function MediaSettings() {
 	const { currentProject, refreshProjects } = useAuth()
+	const toast = useToast()
 	const [adapter, setAdapter] = useState('local')
 	const [cfAccountId, setCfAccountId] = useState('')
 	const [cfApiToken, setCfApiToken] = useState('')
@@ -53,7 +55,7 @@ export function MediaSettings() {
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to save')
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
 			setSaving(false)
 		}

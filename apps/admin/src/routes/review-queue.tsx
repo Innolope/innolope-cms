@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/review-queue')({
 	component: ReviewQueue,
@@ -23,6 +24,7 @@ interface ReviewResponse {
 }
 
 function ReviewQueue() {
+	const toast = useToast()
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
@@ -48,7 +50,7 @@ function ReviewQueue() {
 			await api.post(`/api/v1/content/${id}/approve`, {})
 			fetchQueue()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Approve failed')
+			toast(err instanceof Error ? err.message : 'Approve failed', 'error')
 		}
 	}
 
@@ -58,7 +60,7 @@ function ReviewQueue() {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 			fetchQueue()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Reject failed')
+			toast(err instanceof Error ? err.message : 'Reject failed', 'error')
 		}
 	}
 

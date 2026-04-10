@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../lib/auth'
 import { api } from '../../lib/api-client'
+import { useToast } from '../../lib/toast'
 
 interface DetectedTable {
 	name: string
@@ -9,6 +10,7 @@ interface DetectedTable {
 
 export function DatabaseSettings() {
 	const { currentProject, refreshProjects } = useAuth()
+	const toast = useToast()
 	const [dbType, setDbType] = useState('built-in')
 	const [connectionString, setConnectionString] = useState('')
 	const [testing, setTesting] = useState(false)
@@ -57,7 +59,7 @@ export function DatabaseSettings() {
 			)
 			setTables(result.tables)
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Scan failed')
+			toast(err instanceof Error ? err.message : 'Scan failed', 'error')
 		} finally {
 			setScanning(false)
 		}
@@ -83,7 +85,7 @@ export function DatabaseSettings() {
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to save')
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
 			setSaving(false)
 		}
