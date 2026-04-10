@@ -86,7 +86,7 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 			<p className="text-sm text-text-secondary max-w-sm mb-6">
 				This feature requires an Innolope CMS {plan} license.
 				{plan === 'Pro'
-					? ' Unlock AI writing, webhooks, and content scheduling.'
+					? ' Unlock AI writing, webhooks, and multiple projects support.'
 					: ' Unlock SSO, audit logs, custom roles, and more.'}
 			</p>
 			<a

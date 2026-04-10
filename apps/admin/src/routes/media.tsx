@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api-client'
-import { UnsplashPicker } from '../components/media/unsplash-picker'
-import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
+import { UnsplashPicker, UnsplashUpgradePreview } from '../components/media/unsplash-picker'
+import { useLicense, hasFeature, ProBadge } from '../components/license-gate'
 import { Dropdown } from '../components/dropdown'
 
 export const Route = createFileRoute('/media')({
@@ -85,7 +85,7 @@ function MediaLibrary() {
 
 	return (
 		<div className="flex h-full">
-			<div className="flex-1 overflow-auto p-8 pt-5 flex flex-col">
+			<div className={`flex-1 p-8 pt-5 flex flex-col ${tab === 'unsplash' && !unsplashLicensed ? 'overflow-hidden pb-0' : 'overflow-auto'}`}>
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
 						<h2 className="text-2xl font-bold">Media</h2>
@@ -145,7 +145,7 @@ function MediaLibrary() {
 						<UnsplashPicker onSave={fetchMedia} />
 					</div>
 				) : tab === 'unsplash' ? (
-					<UpgradePrompt feature="Unsplash Integration" plan="Pro" />
+					<UnsplashUpgradePreview />
 				) : null}
 				{tab === 'uploaded' && (<div className="flex flex-col flex-1">
 				{!ready ? (

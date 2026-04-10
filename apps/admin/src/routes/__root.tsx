@@ -3,6 +3,7 @@ import { useAuth, AuthProvider } from '../lib/auth'
 import { ThemeProvider } from '../lib/theme'
 import { LicenseProvider } from '../components/license-gate'
 import { ToastProvider, useToast } from '../lib/toast'
+import { CollectionsProvider, useCollections } from '../lib/collections'
 import { ProjectSelector } from '../components/project-selector'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
@@ -16,9 +17,11 @@ function RootWithAuth() {
 		<ThemeProvider>
 			<AuthProvider>
 				<LicenseProvider>
-					<ToastProvider>
-						<AuthGate />
-					</ToastProvider>
+					<CollectionsProvider>
+						<ToastProvider>
+							<AuthGate />
+						</ToastProvider>
+					</CollectionsProvider>
 				</LicenseProvider>
 			</AuthProvider>
 		</ThemeProvider>
@@ -160,20 +163,23 @@ function AppLayout() {
 				</button>
 
 				{/* Navigation */}
-				<nav className="flex-1 p-3 space-y-0.5">
+				<nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
 					{collapsed ? (
 						<>
 							<CollapsedNavLink to="/dashboard" title="Dashboard" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>} />
-							<CollapsedNavLink to="/content" title="Content" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>} />
-							<CollapsedNavLink to="/collections" title="Collections" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>} />
+							<div className="my-2 border-t border-border" />
+							<CollectionNavCollapsed />
+							<div className="my-2 border-t border-border" />
 							<CollapsedNavLink to="/media" title="Media" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>} />
 							<CollapsedNavLink to="/settings" title="Project Settings" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>} />
 						</>
 					) : (
 						<>
 							<NavLink to="/dashboard" label="Dashboard" />
-							<NavLink to="/content" label="Content" />
-							<NavLink to="/collections" label="Collections" />
+							<div className="my-2 border-t border-border" />
+							<p className="px-3 py-1 text-[10px] font-semibold text-text-muted uppercase tracking-wider">Collections</p>
+							<CollectionNavExpanded />
+							<div className="my-2 border-t border-border" />
 							<NavLink to="/media" label="Media" />
 							<NavLink to="/settings" label="Project Settings" />
 						</>
@@ -240,5 +246,79 @@ function CollapsedNavLink({ to, title, icon }: { to: string; title: string; icon
 		>
 			{icon}
 		</Link>
+	)
+}
+
+function CollectionNavExpanded() {
+	const { collections, loading } = useCollections()
+	const location = useLocation()
+
+	if (loading) {
+		return (
+			<div className="space-y-1 px-3">
+				{[1, 2, 3].map((i) => (
+					<div key={i} className="h-8 bg-surface-alt rounded-md animate-pulse" />
+				))}
+			</div>
+		)
+	}
+
+	return (
+		<div className="space-y-0.5">
+			{collections.map((col) => {
+				const isActive = location.pathname.startsWith(`/collections/${col.slug}`)
+				return (
+					<Link
+						key={col.id}
+						to={`/collections/${col.slug}`}
+						className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+							isActive
+								? 'bg-surface-alt text-text font-medium'
+								: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+						}`}
+					>
+						<span className="truncate">{col.name}</span>
+						{col.contentCount > 0 && (
+							<span className="text-[10px] text-text-muted shrink-0 ml-2">{col.contentCount}</span>
+						)}
+					</Link>
+				)
+			})}
+			<Link
+				to="/collections/new"
+				className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+				New Collection
+			</Link>
+		</div>
+	)
+}
+
+function CollectionNavCollapsed() {
+	const { collections } = useCollections()
+
+	return (
+		<div className="space-y-0.5">
+			{collections.map((col) => (
+				<Link
+					key={col.id}
+					to={`/collections/${col.slug}`}
+					className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+					title={`${col.name} (${col.contentCount})`}
+				>
+					<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
+						{col.name.charAt(0)}
+					</span>
+				</Link>
+			))}
+			<Link
+				to="/collections/new"
+				className="flex items-center justify-center p-2 rounded-md text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"
+				title="New Collection"
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+			</Link>
+		</div>
 	)
 }

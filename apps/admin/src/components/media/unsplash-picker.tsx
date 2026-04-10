@@ -21,6 +21,77 @@ interface UnsplashPickerProps {
 	onSelect?: (photo: UnsplashPhoto) => void
 }
 
+const SAMPLE_PHOTOS = [
+	{ id: '1', url: 'https://images.unsplash.com/photo-1500576992153-0271099def59?w=400&q=80', color: '#262626' },
+	{ id: '2', url: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=400&q=80', color: '#260c0c' },
+	{ id: '3', url: 'https://images.unsplash.com/photo-1520453803296-c39eabe2dab4?w=400&q=80', color: '#0c2659' },
+	{ id: '4', url: 'https://images.unsplash.com/photo-1531592937781-344ad608fabf?w=400&q=80', color: '#0c260c' },
+	{ id: '5', url: 'https://images.unsplash.com/photo-1568144628871-ccbb00fc297c?w=400&q=80', color: '#262626' },
+	{ id: '6', url: 'https://images.unsplash.com/photo-1542880435-afda6a0019dd?w=400&q=80', color: '#402640' },
+	{ id: '7', url: 'https://images.unsplash.com/photo-1689754014830-c3bb50b5d7af?w=400&q=80', color: '#f3a60c' },
+	{ id: '8', url: 'https://images.unsplash.com/photo-1596276122653-651a3898309f?w=400&q=80', color: '#d9d9d9' },
+	{ id: '9', url: 'https://images.unsplash.com/photo-1633989464081-16ccd31287a1?w=400&q=80', color: '#260c0c' },
+	{ id: '10', url: 'https://images.unsplash.com/photo-1693314872521-95d94790d59f?w=400&q=80', color: '#4073f3' },
+	{ id: '11', url: 'https://images.unsplash.com/photo-1627008767693-20498ff18ab7?w=400&q=80', color: '#262626' },
+	{ id: '12', url: 'https://images.unsplash.com/photo-1596443686812-2f45229eebc3?w=400&q=80', color: '#262626' },
+]
+
+export function UnsplashUpgradePreview() {
+	return (
+		<div className="relative overflow-hidden">
+			<input
+				type="text"
+				disabled
+				value="Hello"
+				readOnly
+				className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm opacity-50 cursor-not-allowed"
+			/>
+
+			<div className="mt-4 grid grid-cols-3 md:grid-cols-4 gap-2 blur-[2px] opacity-60 pointer-events-none select-none">
+				{SAMPLE_PHOTOS.map((photo) => (
+					<div
+						key={photo.id}
+						className="aspect-[4/3] rounded-lg overflow-hidden border border-border"
+						style={{ backgroundColor: photo.color }}
+					>
+						<img
+							src={photo.url}
+							alt=""
+							className="w-full h-full object-cover"
+							loading="lazy"
+						/>
+					</div>
+				))}
+			</div>
+
+			<div className="absolute inset-0 flex items-center justify-center mt-12">
+				<div className="backdrop-blur-sm bg-surface/80 rounded-xl border border-border p-8 shadow-lg max-w-sm text-center">
+					<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mb-4 mx-auto">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+							<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+							<circle cx="8.5" cy="8.5" r="1.5" />
+							<polyline points="21 15 16 10 5 21" />
+						</svg>
+					</div>
+					<h3 className="text-lg font-semibold mb-2">Unsplash Integration</h3>
+					<p className="text-sm text-text-secondary max-w-sm mb-6">
+						This feature requires an Innolope CMS Pro license.
+						Unlock AI writing, webhooks, and multiple projects support.
+					</p>
+					<a
+						href="https://innolope.com/apps/cms#pricing"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						View Plans
+					</a>
+				</div>
+			</div>
+		</div>
+	)
+}
+
 export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 	const toast = useToast()
 	const [query, setQuery] = useState('')

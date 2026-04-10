@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { api } from '../lib/api-client'
 import { useToast } from '../lib/toast'
+import { useCollections } from '../lib/collections'
 import { Dropdown } from '../components/dropdown'
 
-export const Route = createFileRoute('/collections/$id')({
-	component: CollectionEditor,
+export const Route = createFileRoute('/collections/new')({
+	component: NewCollectionPage,
 })
 
 interface CollectionField {
@@ -189,11 +190,11 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array']
 
-function CollectionEditor() {
-	const { id } = Route.useParams()
+function NewCollectionPage() {
 	const navigate = useNavigate()
 	const toast = useToast()
-	const isNew = id === 'new'
+	const { refreshCollections } = useCollections()
+	const isNew = true
 
 	const [name, setName] = useState('')
 	const [slug, setSlug] = useState('')
@@ -203,24 +204,6 @@ function CollectionEditor() {
 	const [loading, setLoading] = useState(!isNew)
 	const [showTemplatePicker, setShowTemplatePicker] = useState(isNew)
 
-	useEffect(() => {
-		if (!isNew) {
-			api.get<{
-				name: string
-				slug: string
-				description: string | null
-				fields: CollectionField[]
-			}>(`/api/v1/collections/${id}`)
-				.then((col) => {
-					setName(col.name)
-					setSlug(col.slug)
-					setDescription(col.description || '')
-					setFields(col.fields)
-				})
-				.catch(() => navigate({ to: '/collections' }))
-				.finally(() => setLoading(false))
-		}
-	}, [id, isNew, navigate])
 
 	const generateSlug = (text: string) =>
 		text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -250,22 +233,15 @@ function CollectionEditor() {
 		const validFields = fields.filter((f) => f.name.trim())
 		setSaving(true)
 		try {
-			if (isNew) {
-				await api.post('/api/v1/collections', {
-					name,
-					slug: slug || generateSlug(name),
-					description: description || undefined,
-					fields: validFields,
-				})
-			} else {
-				await api.put(`/api/v1/collections/${id}`, {
-					name,
-					slug,
-					description: description || undefined,
-					fields: validFields,
-				})
-			}
-			navigate({ to: '/collections' })
+			const finalSlug = slug || generateSlug(name)
+			await api.post('/api/v1/collections', {
+				name,
+				slug: finalSlug,
+				description: description || undefined,
+				fields: validFields,
+			})
+			await refreshCollections()
+			navigate({ to: `/collections/${finalSlug}` })
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
@@ -281,7 +257,6 @@ function CollectionEditor() {
 		setShowTemplatePicker(false)
 	}
 
-	if (loading) return <div className="p-8 text-text-secondary text-sm">Loading...</div>
 
 	if (showTemplatePicker) {
 		return (
@@ -298,7 +273,7 @@ function CollectionEditor() {
 					{COLLECTION_TEMPLATES.map((template) => (
 						<button
 							key={template.slug}
-							type="button"
+							type='button'
 							onClick={() => applyTemplate(template)}
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
 						>
@@ -317,7 +292,7 @@ function CollectionEditor() {
 
 					{/* Blank collection card */}
 					<button
-						type="button"
+						type='button'
 						onClick={() => setShowTemplatePicker(false)}
 						className="rounded-xl border-2 border-dashed border-border p-6 text-left hover:border-border-strong active:translate-x-px active:translate-y-px transition-all flex flex-col items-center justify-center min-h-[160px]"
 					>
@@ -343,7 +318,7 @@ function CollectionEditor() {
 			<div className="space-y-5">
 				<Field label="Name">
 					<input
-						type="text"
+						type='text'
 						value={name}
 						onChange={(e) => {
 							setName(e.target.value)
@@ -356,7 +331,7 @@ function CollectionEditor() {
 
 				<Field label="Slug">
 					<input
-						type="text"
+						type='text'
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
@@ -365,7 +340,7 @@ function CollectionEditor() {
 
 				<Field label="Description">
 					<input
-						type="text"
+						type='text'
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
 						placeholder="What this collection is for"
@@ -377,7 +352,7 @@ function CollectionEditor() {
 					<div className="flex items-center justify-between mb-3">
 						<label className="text-sm font-medium">Fields</label>
 						<button
-							type="button"
+							type='button'
 							onClick={addField}
 							className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
 						>
@@ -398,25 +373,25 @@ function CollectionEditor() {
 								>
 									<div className="flex flex-col gap-1">
 										<button
-											type="button"
+											type='button'
 											onClick={() => moveField(i, -1)}
 											className="text-text-secondary hover:text-text text-xs leading-none"
 										>
-											&#x25B2;
+											&#x25B2
 										</button>
 										<button
-											type="button"
+											type='button'
 											onClick={() => moveField(i, 1)}
 											className="text-text-secondary hover:text-text text-xs leading-none"
 										>
-											&#x25BC;
+											&#x25BC
 										</button>
 									</div>
 									<input
-										type="text"
+										type='text'
 										value={field.name}
 										onChange={(e) => updateField(i, { name: e.target.value })}
-										placeholder="Field name"
+										placeholder='Field name'
 										className="flex-1 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none"
 									/>
 									<Dropdown
@@ -427,24 +402,24 @@ function CollectionEditor() {
 									/>
 									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
-											type="checkbox"
+											type='checkbox'
 											checked={field.required || false}
 											onChange={(e) => updateField(i, { required: e.target.checked })}
-											className="rounded"
+											className='rounded'
 										/>
 										Required
 									</label>
 									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
-											type="checkbox"
+											type='checkbox'
 											checked={field.localized || false}
 											onChange={(e) => updateField(i, { localized: e.target.checked })}
-											className="rounded"
+											className='rounded'
 										/>
 										i18n
 									</label>
 									<button
-										type="button"
+										type='button'
 										onClick={() => removeField(i)}
 										className="text-danger hover:opacity-80 text-xs px-2"
 									>
@@ -458,7 +433,7 @@ function CollectionEditor() {
 
 				<div className="flex gap-3 pt-4">
 					<button
-						type="button"
+						type='button'
 						onClick={save}
 						disabled={saving}
 						className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
@@ -466,8 +441,8 @@ function CollectionEditor() {
 						{saving ? 'Saving...' : isNew ? 'Create Collection' : 'Save Changes'}
 					</button>
 					<button
-						type="button"
-						onClick={() => navigate({ to: '/collections' })}
+						type='button'
+						onClick={() => navigate({ to: '/dashboard' })}
 						className="px-6 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 					>
 						Cancel

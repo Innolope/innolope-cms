@@ -1,19 +1,22 @@
 import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api-client'
+import { useCollections } from '../lib/collections'
 import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
 import { Dropdown } from '../components/dropdown'
 
-export const Route = createFileRoute('/content')({
-	component: ContentLayout,
+export const Route = createFileRoute('/collections/$slug')({
+	component: CollectionLayout,
 })
 
-function ContentLayout() {
+function CollectionLayout() {
+	const { slug } = Route.useParams()
 	const location = useLocation()
-	const isChildRoute = location.pathname !== '/content'
+	// If path is deeper than /collections/slug (e.g. /collections/slug/new or /collections/slug/someId)
+	const isChildRoute = location.pathname !== `/collections/${slug}`
 
 	if (isChildRoute) return <Outlet />
-	return <ContentList />
+	return <CollectionContentList />
 }
 
 interface ContentItem {
@@ -46,7 +49,10 @@ const STATUS_LABELS: Record<string, string> = {
 	archived: 'archived',
 }
 
-function ContentList() {
+function CollectionContentList() {
+	const { slug } = Route.useParams()
+	const { getCollectionBySlug } = useCollections()
+	const collection = getCollectionBySlug(slug)
 	const license = useLicense()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
 
@@ -60,6 +66,7 @@ function ContentList() {
 		url.searchParams.set('tab', t)
 		window.history.replaceState({}, '', url.toString())
 	}
+
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
@@ -67,16 +74,17 @@ function ContentList() {
 	const [search, setSearch] = useState('')
 	const [statusFilter, setStatusFilter] = useState<string>('')
 
-	// Review queue state
 	const [reviewItems, setReviewItems] = useState<ContentItem[]>([])
 	const [reviewTotal, setReviewTotal] = useState(0)
 	const [reviewPage, setReviewPage] = useState(1)
 	const [reviewLoading, setReviewLoading] = useState(false)
 
 	useEffect(() => {
+		if (!collection) return
 		const params = new URLSearchParams()
 		params.set('page', String(page))
 		params.set('limit', '25')
+		params.set('collectionId', collection.id)
 		if (search) params.set('search', search)
 		if (statusFilter) params.set('status', statusFilter)
 
@@ -87,18 +95,19 @@ function ContentList() {
 			})
 			.catch(() => {})
 			.finally(() => setReady(true))
-	}, [page, search, statusFilter])
+	}, [page, search, statusFilter, collection])
 
 	const fetchReviewQueue = useCallback(() => {
+		if (!collection) return
 		setReviewLoading(true)
-		api.get<{ data: ContentItem[]; pagination: { total: number } }>(`/api/v1/content/review-queue?page=${reviewPage}&limit=25`)
+		api.get<{ data: ContentItem[]; pagination: { total: number } }>(`/api/v1/content/review-queue?page=${reviewPage}&limit=25&collectionId=${collection.id}`)
 			.then((res) => {
 				setReviewItems(res.data)
 				setReviewTotal(res.pagination.total)
 			})
 			.catch(() => {})
 			.finally(() => setReviewLoading(false))
-	}, [reviewPage])
+	}, [reviewPage, collection])
 
 	useEffect(() => {
 		if (tab === 'review') fetchReviewQueue()
@@ -115,44 +124,50 @@ function ContentList() {
 		fetchReviewQueue()
 	}
 
+	if (!collection) {
+		return (
+			<div className="p-8 pt-5">
+				<p className="text-text-secondary text-sm">Collection not found.</p>
+			</div>
+		)
+	}
+
 	return (
 		<div className="p-8 pt-5 flex flex-col h-full">
 			<div className="flex items-center justify-between mb-6">
 				<div className="flex items-center gap-4">
-					<h2 className="text-2xl font-bold">Content</h2>
-					{/* Tabs */}
+					<h2 className="text-2xl font-bold">{collection.name}</h2>
 					<div className="flex bg-surface rounded-lg p-0.5 border border-border">
-				<button
-					type="button"
-					onClick={() => setTab('all')}
-					className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-						tab === 'all' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
-					}`}
-				>
-					All Content
-				</button>
-				<button
-					type="button"
-					onClick={() => setTab('review')}
-					className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${
-						tab === 'review' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
-					}`}
-				>
-					Review Queue
-					{showReviewQueue && reviewTotal > 0 && (
-						<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">{reviewTotal}</span>
-					)}
-					{!showReviewQueue && <ProBadge />}
-				</button>
+						<button
+							type="button"
+							onClick={() => setTab('all')}
+							className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+								tab === 'all' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
+							}`}
+						>
+							All
+						</button>
+						<button
+							type="button"
+							onClick={() => setTab('review')}
+							className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${
+								tab === 'review' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
+							}`}
+						>
+							Review
+							{showReviewQueue && reviewTotal > 0 && (
+								<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">{reviewTotal}</span>
+							)}
+							{!showReviewQueue && <ProBadge />}
+						</button>
 					</div>
 				</div>
 				{(total > 0 || search || statusFilter) && (
 					<Link
-						to="/content/$id"
-						params={{ id: 'new' }}
+						to={`/collections/${slug}/new`}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 					>
-						New Content
+						New {collection.name.replace(/s$/, '')}
 					</Link>
 				)}
 			</div>
@@ -165,18 +180,12 @@ function ContentList() {
 								type="text"
 								placeholder="Search..."
 								value={search}
-								onChange={(e) => {
-									setSearch(e.target.value)
-									setPage(1)
-								}}
+								onChange={(e) => { setSearch(e.target.value); setPage(1) }}
 								className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 							/>
 							<Dropdown
 								value={statusFilter}
-								onChange={(v) => {
-									setStatusFilter(v)
-									setPage(1)
-								}}
+								onChange={(v) => { setStatusFilter(v); setPage(1) }}
 								options={[
 									{ value: '', label: 'All statuses' },
 									{ value: 'draft', label: 'Draft' },
@@ -184,7 +193,7 @@ function ContentList() {
 									{ value: 'published', label: 'Published' },
 									{ value: 'archived', label: 'Archived' },
 								]}
-								className="px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none"
+								className="px-3 py-2 bg-input border border-border rounded text-sm"
 							/>
 						</div>
 					)}
@@ -203,19 +212,17 @@ function ContentList() {
 											<polyline points="14 2 14 8 20 8" />
 											<line x1="16" y1="13" x2="8" y2="13" />
 											<line x1="16" y1="17" x2="8" y2="17" />
-											<polyline points="10 9 9 9 8 9" />
 										</svg>
 									</div>
 									<h3 className="font-semibold text-text mb-1">No content yet</h3>
 									<p className="text-sm text-text-secondary max-w-xs mb-5">
-										Create your first piece of content or use the MCP server to populate it with AI agents.
+										Create your first {collection.name.toLowerCase()} entry.
 									</p>
 									<Link
-										to="/content/$id"
-										params={{ id: 'new' }}
+										to={`/collections/${slug}/new`}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
-										Create Content
+										Create {collection.name.replace(/s$/, '')}
 									</Link>
 								</div>
 							)
@@ -231,32 +238,22 @@ function ContentList() {
 								</thead>
 								<tbody>
 									{items.map((item) => (
-										<tr
-											key={item.id}
-											className="border-b border-border hover:bg-surface-alt transition-colors"
-										>
+										<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
 											<td className="px-4 py-3">
 												<Link
-													to="/content/$id"
-													params={{ id: item.id }}
+													to={`/collections/${slug}/${item.id}`}
 													className="hover:text-text transition-colors"
 												>
 													{(item.metadata?.title as string) || item.slug}
 												</Link>
 											</td>
-											<td className="px-4 py-3 text-text-secondary font-mono text-xs">
-												{item.slug}
-											</td>
+											<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
 											<td className="px-4 py-3">
-												<span
-													className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}
-												>
+												<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
 													{STATUS_LABELS[item.status] || item.status}
 												</span>
 											</td>
-											<td className="px-4 py-3 text-text-secondary">
-												{new Date(item.updatedAt).toLocaleDateString()}
-											</td>
+											<td className="px-4 py-3 text-text-secondary">{new Date(item.updatedAt).toLocaleDateString()}</td>
 										</tr>
 									))}
 								</tbody>
@@ -266,26 +263,10 @@ function ContentList() {
 
 					{total > 25 && (
 						<div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
-							<span>
-								{total} items — page {page}
-							</span>
+							<span>{total} items — page {page}</span>
 							<div className="flex gap-2">
-								<button
-									type="button"
-									onClick={() => setPage((p) => Math.max(1, p - 1))}
-									disabled={page === 1}
-									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
-								>
-									Previous
-								</button>
-								<button
-									type="button"
-									onClick={() => setPage((p) => p + 1)}
-									disabled={items.length < 25}
-									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
-								>
-									Next
-								</button>
+								<button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30">Previous</button>
+								<button type="button" onClick={() => setPage((p) => p + 1)} disabled={items.length < 25} className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30">Next</button>
 							</div>
 						</div>
 					)}
@@ -293,14 +274,11 @@ function ContentList() {
 			) : !showReviewQueue ? (
 				<UpgradePrompt feature="Review Workflows" plan="Pro" />
 			) : (
-				/* Review Queue Tab */
 				<div className="rounded-lg border border-border">
 					{reviewLoading ? (
 						<div className="p-8" />
 					) : reviewItems.length === 0 ? (
-						<div className="p-8 text-center text-text-secondary text-sm">
-							No content pending review.
-						</div>
+						<div className="p-8 text-center text-text-secondary text-sm">No content pending review.</div>
 					) : (
 						<table className="w-full text-sm">
 							<thead>
@@ -313,73 +291,24 @@ function ContentList() {
 							</thead>
 							<tbody>
 								{reviewItems.map((item) => (
-									<tr
-										key={item.id}
-										className="border-b border-border hover:bg-surface-alt transition-colors"
-									>
+									<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
 										<td className="px-4 py-3">
-											<Link
-												to="/content/$id"
-												params={{ id: item.id }}
-												className="hover:text-text transition-colors"
-											>
+											<Link to={`/collections/${slug}/${item.id}`} className="hover:text-text transition-colors">
 												{(item.metadata?.title as string) || item.slug}
 											</Link>
 										</td>
-										<td className="px-4 py-3 text-text-secondary font-mono text-xs">
-											{item.slug}
-										</td>
-										<td className="px-4 py-3 text-text-secondary">
-											{new Date(item.updatedAt).toLocaleDateString()}
-										</td>
+										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
+										<td className="px-4 py-3 text-text-secondary">{new Date(item.updatedAt).toLocaleDateString()}</td>
 										<td className="px-4 py-3 text-right">
 											<div className="flex gap-2 justify-end">
-												<button
-													type="button"
-													onClick={() => approveItem(item.id)}
-													className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px"
-												>
-													Approve
-												</button>
-												<button
-													type="button"
-													onClick={() => rejectItem(item.id)}
-													className="px-3 py-1 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover active:translate-x-px active:translate-y-px"
-												>
-													Reject
-												</button>
+												<button type="button" onClick={() => approveItem(item.id)} className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover">Approve</button>
+												<button type="button" onClick={() => rejectItem(item.id)} className="px-3 py-1 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover">Reject</button>
 											</div>
 										</td>
 									</tr>
 								))}
 							</tbody>
 						</table>
-					)}
-
-					{reviewTotal > 25 && (
-						<div className="flex items-center justify-between p-4 border-t border-border text-sm text-text-secondary">
-							<span>
-								{reviewTotal} items — page {reviewPage}
-							</span>
-							<div className="flex gap-2">
-								<button
-									type="button"
-									onClick={() => setReviewPage((p) => Math.max(1, p - 1))}
-									disabled={reviewPage === 1}
-									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
-								>
-									Previous
-								</button>
-								<button
-									type="button"
-									onClick={() => setReviewPage((p) => p + 1)}
-									disabled={reviewItems.length < 25}
-									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
-								>
-									Next
-								</button>
-							</div>
-						</div>
 					)}
 				</div>
 			)}

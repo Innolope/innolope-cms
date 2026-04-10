@@ -231,7 +231,7 @@ export function DatabaseSettings() {
 							disabled={scanning}
 							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
-							{scanning ? 'Scanning...' : dbType === 'mongodb' || dbType === 'firebase' ? 'Scan Collections' : 'Scan Tables'}
+							{scanning ? 'Scanning...' : needsDbSelect ? 'Scan Collections' : 'Scan Tables'}
 						</button>
 					)}
 
@@ -249,7 +249,7 @@ export function DatabaseSettings() {
 					{tables.length > 0 && (
 						<div>
 							<label className="block text-xs text-text-secondary mb-2">
-								{dbType === 'mongodb' ? 'Detected collections' : 'Detected tables'} — select which to manage as CMS collections
+								{needsDbSelect ? 'Detected collections' : 'Detected tables'} — select which to manage as CMS collections
 							</label>
 							<div className="space-y-1 max-h-60 overflow-auto border border-border rounded p-2">
 								{tables.map((t) => (
@@ -265,7 +265,7 @@ export function DatabaseSettings() {
 										/>
 										<span className="text-sm font-mono">{t.name}</span>
 										<span className="text-[11px] text-text-muted">
-											{t.columns.length} columns
+											{t.columns.length} {needsDbSelect ? 'fields' : 'columns'}
 										</span>
 									</label>
 								))}

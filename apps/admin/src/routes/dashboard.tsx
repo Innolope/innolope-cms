@@ -51,9 +51,9 @@ function Dashboard() {
 
 			{/* Stats grid */}
 			<div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-				<StatCard label="Total Content" value={stats?.content.total ?? '—'} to="/content" />
-				<StatCard label="Published" value={stats?.content.published ?? '—'} to="/content" />
-				<StatCard label="Drafts" value={stats?.content.draft ?? '—'} to="/content" />
+				<StatCard label="Total Content" value={stats?.content.total ?? '—'} to="/collections" />
+				<StatCard label="Published" value={stats?.content.published ?? '—'} to="/collections" />
+				<StatCard label="Drafts" value={stats?.content.draft ?? '—'} to="/collections" />
 				<StatCard label="Media Files" value={stats?.media ?? '—'} to="/media" />
 				<StatCard label="API Keys" value={stats?.apiKeys ?? '—'} to="/settings" />
 			</div>

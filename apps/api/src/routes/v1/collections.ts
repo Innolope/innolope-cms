@@ -1,11 +1,32 @@
-import { collections } from '@innolope/db'
+import { collections, content } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql, asc } from 'drizzle-orm'
 
 export async function collectionRoutes(app: FastifyInstance) {
 	// List collections (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		return app.db.select().from(collections).where(eq(collections.projectId, request.project!.id))
+	})
+
+	// List collections with content counts (viewer+, project-scoped)
+	app.get('/with-counts', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+		const pid = request.project!.id
+		const results = await app.db
+			.select({
+				id: collections.id,
+				name: collections.name,
+				slug: collections.slug,
+				description: collections.description,
+				fields: collections.fields,
+				createdAt: collections.createdAt,
+				contentCount: sql<number>`cast(count(${content.id}) as int)`,
+			})
+			.from(collections)
+			.leftJoin(content, and(eq(content.collectionId, collections.id), eq(content.projectId, pid)))
+			.where(eq(collections.projectId, pid))
+			.groupBy(collections.id)
+			.orderBy(asc(collections.name))
+		return results
 	})
 
 	// Get collection by ID (viewer+, project-scoped)
