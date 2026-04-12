@@ -235,8 +235,7 @@ function EmptyDashboard() {
 						</button>
 
 						<Link
-							to="/collections/$id"
-							params={{ id: 'new' }}
+							to="/collections/new"
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
 							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
@@ -258,7 +257,16 @@ function EmptyDashboard() {
 
 	if (step === 'connect-db') {
 		return (
-			<div className="p-8 pt-[10vh] flex justify-center min-h-[70vh]">
+			<div className="p-8 pt-6">
+				<button
+					type="button"
+					onClick={() => setStep('choose')}
+					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-6"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					Choose a different method
+				</button>
+				<div className="flex justify-center min-h-[70vh]">
 				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
 						<h2 className="text-2xl font-bold mb-2">Connect Database</h2>
@@ -266,17 +274,8 @@ function EmptyDashboard() {
 							Connect an external database to import existing content.
 						</p>
 					</div>
-					<DatabaseSettings />
-					<div className="text-center mt-12">
-						<button
-							type="button"
-							onClick={() => setStep('choose')}
-							className="text-sm text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5"
-						>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><polyline points="12 19 5 12 12 5" /></svg>
-							Back
-						</button>
-					</div>
+					<DatabaseSettings onChangeDatabase={() => setStep('choose')} />
+				</div>
 				</div>
 			</div>
 		)
@@ -284,22 +283,55 @@ function EmptyDashboard() {
 
 	if (step === 'upload') {
 		return (
-			<div className="p-8 pt-[15vh] flex flex-col h-full">
-				<div className="max-w-lg mx-auto w-full">
-					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Upload Content</h2>
-						<p className="text-text-secondary text-sm">
-							Upload Markdown (.md) or JSON (.json) files to import content.
-						</p>
-					</div>
-					<div className="flex gap-3 justify-center">
-						<button
-							type="button"
+			<div className="p-8 pt-6">
+				<button
+					type="button"
+					onClick={() => setStep('choose')}
+					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-6"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					Choose a different method
+				</button>
+				<div className="flex justify-center min-h-[70vh]">
+					<div className="max-w-lg w-full">
+						<div className="text-center mb-10">
+							<h2 className="text-2xl font-bold mb-2">Upload Content</h2>
+							<p className="text-text-secondary text-sm">
+								Upload Markdown (.md) or JSON (.json) files to import content.
+							</p>
+						</div>
+						<div className="flex gap-3 justify-center mb-8">
+							<button
+								type="button"
+								onClick={() => fileInputRef.current?.click()}
+								className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors cursor-pointer"
+							>
+								Choose Files
+							</button>
+						</div>
+						<div
+							className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex flex-col items-center justify-center cursor-pointer"
 							onClick={() => fileInputRef.current?.click()}
-							className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors cursor-pointer"
+							onDragOver={(e) => {
+								e.preventDefault()
+								e.currentTarget.classList.add('border-text-secondary')
+							}}
+							onDragLeave={(e) => {
+								e.currentTarget.classList.remove('border-text-secondary')
+							}}
+							onDrop={(e) => {
+								e.preventDefault()
+								e.currentTarget.classList.remove('border-text-secondary')
+								if (e.dataTransfer.files.length) handleFileUpload({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>)
+							}}
 						>
-							Choose Files
-						</button>
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
+								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+								<polyline points="17 8 12 3 7 8" />
+								<line x1="12" y1="3" x2="12" y2="15" />
+							</svg>
+							Drop .md, .json, or .jsonl files here or click to browse
+						</div>
 					</div>
 				</div>
 				<input
@@ -310,41 +342,6 @@ function EmptyDashboard() {
 					className="hidden"
 					multiple
 				/>
-				<div className="mt-auto pt-4">
-					<div
-						className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex flex-col items-center justify-center cursor-pointer"
-						onClick={() => fileInputRef.current?.click()}
-						onDragOver={(e) => {
-							e.preventDefault()
-							e.currentTarget.classList.add('border-text-secondary')
-						}}
-						onDragLeave={(e) => {
-							e.currentTarget.classList.remove('border-text-secondary')
-						}}
-						onDrop={(e) => {
-							e.preventDefault()
-							e.currentTarget.classList.remove('border-text-secondary')
-							if (e.dataTransfer.files.length) handleFileUpload({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>)
-						}}
-					>
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
-							<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-							<polyline points="17 8 12 3 7 8" />
-							<line x1="12" y1="3" x2="12" y2="15" />
-						</svg>
-						Drop .md, .json, or .jsonl files here or click to browse
-					</div>
-				</div>
-				<div className="text-center mt-12">
-					<button
-						type="button"
-						onClick={() => setStep('choose')}
-						className="text-sm text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5"
-					>
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><polyline points="12 19 5 12 12 5" /></svg>
-						Back
-					</button>
-				</div>
 			</div>
 		)
 	}

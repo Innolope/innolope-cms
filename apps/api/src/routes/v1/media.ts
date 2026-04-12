@@ -3,6 +3,23 @@ import type { FastifyInstance } from 'fastify'
 import { eq, and, desc, sql } from 'drizzle-orm'
 
 export async function mediaRoutes(app: FastifyInstance) {
+	// Media config — returns which env vars are set (booleans only, never actual values)
+	app.get('/config', { preHandler: [app.requireProject('viewer')] }, async () => {
+		return {
+			adapter: process.env.MEDIA_ADAPTER || 'local',
+			cloudMode: !!process.env.CLOUD_MODE,
+			env: {
+				accountId: !!process.env.CLOUDFLARE_ACCOUNT_ID,
+				apiToken: !!process.env.CLOUDFLARE_API_TOKEN,
+				imagesAccountHash: !!process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH,
+				r2Bucket: !!process.env.CLOUDFLARE_R2_BUCKET,
+				r2AccessKeyId: !!process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+				r2SecretAccessKey: !!process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+				r2Endpoint: !!process.env.CLOUDFLARE_R2_ENDPOINT,
+			},
+		}
+	})
+
 	// List media (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		const { page = 1, limit = 25, type } = request.query as { page?: number; limit?: number; type?: string }

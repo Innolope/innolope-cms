@@ -110,20 +110,55 @@ const CONNECTION_HELP: Record<string, { label: string; placeholder: string; inst
 	},
 }
 
+const STORAGE_KEY = 'innolope:db-wizard'
+
 /** Mask the password portion of a connection string, keeping everything else visible */
 function maskConnectionString(str: string): string {
 	if (!str) return ''
-	// Firebase JSON — mask private_key value
 	if (str.trim().startsWith('{')) {
-		return str.replace(/"private_key"\s*:\s*"[^"]*"/, '"private_key": "••••••"')
+		return str.replace(/"private_key"\s*:\s*"[^"]*"/, '"private_key": "\u2022\u2022\u2022\u2022\u2022\u2022"')
 	}
-	// URI format: protocol://user:PASSWORD@host...
 	return str.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:\u2022\u2022\u2022\u2022@')
+}
+
+function updateUrlStep(stepName: string | null) {
+	const url = new URL(window.location.href)
+	if (stepName) url.searchParams.set('step', stepName)
+	else url.searchParams.delete('step')
+	window.history.replaceState({}, '', url.toString())
+}
+
+function saveWizardState(data: { dbType: string; connectionString: string; selectedDb: string }) {
+	try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+}
+
+function loadWizardState(): { dbType: string; connectionString: string; selectedDb: string } | null {
+	try {
+		const raw = sessionStorage.getItem(STORAGE_KEY)
+		return raw ? JSON.parse(raw) : null
+	} catch { return null }
+}
+
+function clearWizardState() {
+	try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+}
+
+function BackLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+			{children}
+		</button>
+	)
 }
 
 function StepIndicator({ steps, current }: { steps: string[]; current: number }) {
 	return (
-		<div className="flex items-center gap-1.5 mb-6">
+		<div className="flex items-center justify-center gap-1.5 mb-10">
 			{steps.map((label, i) => (
 				<div key={label} className="flex items-center gap-1.5">
 					<div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
@@ -151,25 +186,53 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
 	)
 }
 
-export function DatabaseSettings() {
+interface DatabaseSettingsProps {
+	/** When provided, the step-1 "Change database" back link is hidden (parent handles it) */
+	onChangeDatabase?: () => void
+}
+
+export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {}) {
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 
-	const [step, setStep] = useState(0)
-	const [dbType, setDbType] = useState('built-in')
-	const [connectionString, setConnectionString] = useState('')
+	const needsDbSelectFor = (type: string) => type === 'mongodb' || type === 'firebase'
+	const isNoSqlType = (type: string) => type === 'mongodb' || type === 'firebase'
+
+	// Restore state from URL + sessionStorage
+	const [dbType, setDbType] = useState(() => {
+		const saved = loadWizardState()
+		return saved?.dbType || 'built-in'
+	})
+	const [connectionString, setConnectionString] = useState(() => {
+		const saved = loadWizardState()
+		return saved?.connectionString || ''
+	})
+	const [selectedDb, setSelectedDb] = useState(() => {
+		const saved = loadWizardState()
+		return saved?.selectedDb || ''
+	})
+	const [step, setStepLocal] = useState(() => {
+		const params = new URLSearchParams(window.location.search)
+		const s = params.get('step')
+		const saved = loadWizardState()
+		const type = saved?.dbType || 'built-in'
+		if (s === 'tables') return needsDbSelectFor(type) ? 3 : 2
+		if (s === 'select-db') return 2
+		if (s === 'connection') return 1
+		return 0
+	})
+
 	const [testing, setTesting] = useState(false)
 	const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 	const [scanning, setScanning] = useState(false)
 	const [databases, setDatabases] = useState<string[]>([])
-	const [selectedDb, setSelectedDb] = useState<string>('')
 	const [tables, setTables] = useState<DetectedTable[]>([])
 	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const initialDbType = useRef('built-in')
-	const debounceRef = useRef<ReturnType<typeof setTimeout>>()
-	const abortRef = useRef<AbortController>()
+	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+	const abortRef = useRef<AbortController>(undefined)
 
 	useEffect(() => {
 		if (currentProject) {
@@ -184,15 +247,34 @@ export function DatabaseSettings() {
 		}
 	}, [currentProject])
 
+	// Persist wizard state on changes
+	useEffect(() => {
+		if (step > 0) {
+			saveWizardState({ dbType, connectionString, selectedDb })
+		}
+	}, [dbType, connectionString, selectedDb, step])
+
 	const dirty = dbType !== initialDbType.current
-	const needsDbSelect = dbType === 'mongodb' || dbType === 'firebase'
+	const needsDbSelect = needsDbSelectFor(dbType)
 	const isFirebase = dbType === 'firebase'
+	const isNoSql = isNoSqlType(dbType)
 	const help = CONNECTION_HELP[dbType]
 
-	// Build step labels dynamically
+	// Build step labels dynamically — use "Collections" for NoSQL, "Tables" for SQL
+	const tableWord = isNoSql ? 'Collections' : 'Tables'
 	const stepLabels = ['Database', 'Connection']
-	if (needsDbSelect) stepLabels.push('Select DB')
-	stepLabels.push('Tables')
+	if (needsDbSelect) stepLabels.push('Confirm DB')
+	stepLabels.push(tableWord)
+
+	const setStep = (n: number) => {
+		setStepLocal(n)
+		const stepName = n === 0 ? null
+			: n === 1 ? 'connection'
+			: n === 2 ? (needsDbSelect ? 'select-db' : 'tables')
+			: n === 3 ? 'tables'
+			: null
+		updateUrlStep(stepName)
+	}
 
 	const selectDbType = (value: string) => {
 		setDbType(value)
@@ -204,6 +286,7 @@ export function DatabaseSettings() {
 		setConnectionString('')
 		if (value === 'built-in') {
 			setStep(0)
+			clearWizardState()
 		} else {
 			setStep(1)
 		}
@@ -213,7 +296,6 @@ export function DatabaseSettings() {
 	const testAndAdvance = useCallback(async (connStr: string) => {
 		if (!currentProject || !connStr.trim()) return
 
-		// Cancel any in-flight request
 		abortRef.current?.abort()
 		abortRef.current = new AbortController()
 
@@ -237,7 +319,6 @@ export function DatabaseSettings() {
 						if (dbResult.databases.length === 1) {
 							setSelectedDb(dbResult.databases[0])
 							setStep(3)
-							// Scan tables for the single database
 							setScanning(true)
 							try {
 								const tableResult = await api.post<{ tables: DetectedTable[] }>(
@@ -260,7 +341,6 @@ export function DatabaseSettings() {
 					}
 				} else {
 					setStep(2)
-					// Scan tables immediately
 					setScanning(true)
 					try {
 						const tableResult = await api.post<{ tables: DetectedTable[] }>(
@@ -333,6 +413,7 @@ export function DatabaseSettings() {
 				tables: Array.from(selectedTables),
 			})
 			setSaved(true)
+			clearWizardState()
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
@@ -347,20 +428,18 @@ export function DatabaseSettings() {
 			setStep(0)
 			setConnectionString('')
 			setTestResult(null)
+			clearWizardState()
 		} else if (step === 2) {
 			if (needsDbSelect) {
-				// Step 2 is DB select for mongo/firebase — go back to connection
 				setStep(1)
 				setTestResult(null)
 				setDatabases([])
 			} else {
-				// Step 2 is tables for non-dbSelect — go back to connection
 				setStep(1)
 				setTestResult(null)
 				setTables([])
 			}
 		} else if (step === 3) {
-			// Step 3 is tables for dbSelect providers — go back to DB select
 			setStep(2)
 			setTables([])
 		}
@@ -403,7 +482,10 @@ export function DatabaseSettings() {
 					<p className="text-xs text-text-muted">Content stored in the default Innolope CMS database. No external connection needed.</p>
 				)}
 
-				<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => { setDbType(initialDbType.current); setStep(0) }} />
+				{/* Only show save when switching back to built-in (disconnecting external DB) */}
+				{dbType === 'built-in' && dirty && (
+					<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} saveLabel="Switch to Built-in" />
+				)}
 			</div>
 		)
 	}
@@ -413,89 +495,86 @@ export function DatabaseSettings() {
 		const masked = maskConnectionString(connectionString)
 
 		return (
-			<div className="space-y-5">
-				<StepIndicator steps={stepLabels} current={0} />
+			<div>
+				{!onChangeDatabase && (
+					<div className="-mt-2 -ml-1 mb-6">
+						<BackLink onClick={goBack}>Change provider</BackLink>
+					</div>
+				)}
+				<div className="space-y-5">
+					<StepIndicator steps={stepLabels} current={1} />
 
-				<button
-					type="button"
-					onClick={goBack}
-					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
-				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					Change database
-				</button>
+					<div className="flex items-center gap-3 mb-8">
+						<img src={selectedOption.logo} alt="" className="w-8 h-8" />
+						<div>
+							<p className="font-medium text-text">{selectedOption.label}</p>
+							<p className="text-xs text-text-muted">{selectedOption.desc}</p>
+						</div>
+					</div>
 
-				<div className="flex items-center gap-3 mb-1">
-					<img src={selectedOption.logo} alt="" className="w-8 h-8" />
+					{/* Input */}
 					<div>
-						<p className="font-medium text-text">{selectedOption.label}</p>
-						<p className="text-xs text-text-muted">{selectedOption.desc}</p>
+						<label className="block text-xs text-text-secondary mb-1.5">{help.label}</label>
+						{isFirebase ? (
+							<textarea
+								value={connectionString}
+								onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
+								placeholder={help.placeholder}
+								rows={6}
+								className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong resize-y"
+							/>
+						) : (
+							<input
+								type="password"
+								value={connectionString}
+								onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
+								placeholder={help.placeholder}
+								className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+							/>
+						)}
+						{connectionString && !isFirebase && (
+							<p className="mt-1.5 text-[11px] text-text-muted font-mono break-all">{masked}</p>
+						)}
 					</div>
-				</div>
 
-				{/* Input */}
-				<div>
-					<label className="block text-xs text-text-secondary mb-1.5">{help.label}</label>
-					{isFirebase ? (
-						<textarea
-							value={connectionString}
-							onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
-							placeholder={help.placeholder}
-							rows={6}
-							className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong resize-y"
-						/>
-					) : (
-						<input
-							type="password"
-							value={connectionString}
-							onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
-							placeholder={help.placeholder}
-							className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
-						/>
+					{/* Instructions */}
+					<div className="bg-surface-alt rounded-lg p-4 space-y-2">
+						<p className="text-xs font-medium text-text-secondary">How to find your connection string</p>
+						<ol className="space-y-1.5">
+							{help.instructions.map((line, i) => (
+								<li key={i} className="flex gap-2 text-sm text-text-muted">
+									<span className="text-text-secondary font-medium shrink-0">{i + 1}.</span>
+									{line}
+								</li>
+							))}
+						</ol>
+						<div className="mt-2 pt-2 border-t border-border">
+							<p className="text-[11px] text-text-muted font-mono break-all">Format: {help.format}</p>
+						</div>
+					</div>
+
+					{/* Status indicator */}
+					{testing && (
+						<div className="flex items-center gap-2 text-sm text-text-muted">
+							<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+							Testing connection...
+						</div>
 					)}
-					{/* Safe preview with password masked */}
-					{connectionString && !isFirebase && (
-						<p className="mt-1.5 text-[11px] text-text-muted font-mono break-all">{masked}</p>
+
+					{scanning && (
+						<div className="flex items-center gap-2 text-sm text-text-muted">
+							<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+							Scanning...
+						</div>
+					)}
+
+					{testResult && !testResult.ok && !testing && (
+						<div className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg bg-danger-surface text-danger">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+							{testResult.message}
+						</div>
 					)}
 				</div>
-
-				{/* Instructions */}
-				<div className="bg-surface-alt rounded-lg p-4 space-y-2">
-					<p className="text-xs font-medium text-text-secondary">How to find your connection string</p>
-					<ol className="space-y-1.5">
-						{help.instructions.map((line, i) => (
-							<li key={i} className="flex gap-2 text-sm text-text-muted">
-								<span className="text-text-secondary font-medium shrink-0">{i + 1}.</span>
-								{line}
-							</li>
-						))}
-					</ol>
-					<div className="mt-2 pt-2 border-t border-border">
-						<p className="text-[11px] text-text-muted font-mono break-all">Format: {help.format}</p>
-					</div>
-				</div>
-
-				{/* Status indicator */}
-				{testing && (
-					<div className="flex items-center gap-2 text-sm text-text-muted">
-						<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-						Testing connection...
-					</div>
-				)}
-
-				{scanning && (
-					<div className="flex items-center gap-2 text-sm text-text-muted">
-						<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-						Scanning...
-					</div>
-				)}
-
-				{testResult && !testResult.ok && !testing && (
-					<div className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg bg-danger-surface text-danger">
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
-						{testResult.message}
-					</div>
-				)}
 			</div>
 		)
 	}
@@ -503,36 +582,32 @@ export function DatabaseSettings() {
 	// ─── Step 2: Select database (MongoDB / Firebase only) ────────────────
 	if (step === 2 && needsDbSelect) {
 		return (
-			<div className="space-y-5">
-				<StepIndicator steps={stepLabels} current={1} />
+			<div>
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>Edit connection string</BackLink>
+				</div>
+				<div className="space-y-5">
+					<StepIndicator steps={stepLabels} current={2} />
 
-				<button
-					type="button"
-					onClick={goBack}
-					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
-				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					Edit connection string
-				</button>
-
-				<div>
-					<label className="block text-xs text-text-secondary mb-2">
-						Select a database
-					</label>
-					<p className="text-sm text-text-muted mb-3">
-						We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this server. Choose which one to connect.
-					</p>
-					<div className="grid grid-cols-2 gap-2">
-						{databases.map((db) => (
-							<button
-								key={db}
-								type="button"
-								onClick={() => selectDatabase(db)}
-								className="px-4 py-3 rounded-lg border border-border hover:border-border-strong text-left transition-colors group"
-							>
-								<span className="text-sm font-mono text-text group-hover:text-accent transition-colors">{db}</span>
-							</button>
-						))}
+					<div>
+						<label className="block text-xs text-text-secondary mb-2">
+							Select a database
+						</label>
+						<p className="text-sm text-text-muted mb-3">
+							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this server. Choose which one to connect.
+						</p>
+						<div className="grid grid-cols-2 gap-2">
+							{databases.map((db) => (
+								<button
+									key={db}
+									type="button"
+									onClick={() => selectDatabase(db)}
+									className="px-4 py-3 rounded-lg border border-border hover:border-border-strong text-left transition-colors group"
+								>
+									<span className="text-sm font-mono text-text group-hover:text-accent transition-colors">{db}</span>
+								</button>
+							))}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -543,17 +618,14 @@ export function DatabaseSettings() {
 	const tableStepIndex = needsDbSelect ? 3 : 2
 	if (step === tableStepIndex) {
 		return (
-			<div className="space-y-5">
+			<div>
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>
+						{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
+					</BackLink>
+				</div>
+				<div className="space-y-5">
 				<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
-
-				<button
-					type="button"
-					onClick={goBack}
-					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
-				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
-				</button>
 
 				<div className="flex items-center gap-2">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
@@ -567,13 +639,13 @@ export function DatabaseSettings() {
 					<div className="flex items-center gap-3 py-8 justify-center">
 						<div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
 						<span className="text-sm text-text-muted">
-							Scanning {needsDbSelect ? 'collections' : 'tables'}...
+							Scanning {isNoSql ? 'collections' : 'tables'}...
 						</span>
 					</div>
 				) : tables.length > 0 ? (
 					<div>
 						<label className="block text-xs text-text-secondary mb-2">
-							{needsDbSelect ? 'Detected collections' : 'Detected tables'} &mdash; select which to manage as CMS collections
+							{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to manage as CMS collections
 						</label>
 						<div className="space-y-1 max-h-60 overflow-auto border border-border rounded p-2">
 							{tables.map((t) => (
@@ -589,7 +661,7 @@ export function DatabaseSettings() {
 									/>
 									<span className="text-sm font-mono">{t.name}</span>
 									<span className="text-[11px] text-text-muted">
-										{t.columns.length} {needsDbSelect ? 'fields' : 'columns'}
+										{t.columns.length} {isNoSql ? 'fields' : 'columns'}
 									</span>
 								</label>
 							))}
@@ -597,7 +669,7 @@ export function DatabaseSettings() {
 					</div>
 				) : (
 					<p className="text-sm text-text-muted py-4 text-center">
-						No {needsDbSelect ? 'collections' : 'tables'} found in this database.
+						No {isNoSql ? 'collections' : 'tables'} found in this database.
 					</p>
 				)}
 
@@ -606,9 +678,10 @@ export function DatabaseSettings() {
 					saving={saving}
 					saved={saved}
 					onSave={save}
-					onReset={() => { setDbType(initialDbType.current); setStep(0); setConnectionString(''); setTestResult(null); setDatabases([]); setSelectedDb(''); setTables([]); setSelectedTables(new Set()) }}
+					onReset={() => { setDbType(initialDbType.current); setStep(0); setConnectionString(''); setTestResult(null); setDatabases([]); setSelectedDb(''); setTables([]); setSelectedTables(new Set()); clearWizardState() }}
 					saveLabel="Save & Connect"
 				/>
+				</div>
 			</div>
 		)
 	}

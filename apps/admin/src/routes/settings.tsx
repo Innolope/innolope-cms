@@ -32,7 +32,7 @@ interface NewKeyResponse extends ApiKeyItem {
 
 type SettingsTab = 'general' | 'team' | 'api-keys' | 'ai-models' | 'search' | 'webhooks' | 'media' | 'database'
 
-const TABS: { id: SettingsTab; label: string; pro?: string }[] = [
+const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'team', label: 'Team' },
 	{ id: 'database', label: 'Database' },
@@ -40,7 +40,7 @@ const TABS: { id: SettingsTab; label: string; pro?: string }[] = [
 	{ id: 'ai-models', label: 'AI Models' },
 	{ id: 'search', label: 'Semantic Search', pro: 'ai-assistant' },
 	{ id: 'webhooks', label: 'Webhooks', pro: 'webhooks' },
-	{ id: 'media', label: 'Media' },
+	{ id: 'media', label: 'Media', hideInCloud: true },
 ]
 
 function Settings() {
@@ -57,13 +57,15 @@ function Settings() {
 		window.history.replaceState({}, '', url.toString())
 	}
 
+	const visibleTabs = TABS.filter(t => !(t.hideInCloud && license.cloudMode))
+
 	return (
 		<div className="p-8 pt-5 relative min-h-full">
 			<h2 className="text-2xl font-bold mb-6">Project Settings</h2>
 
 			{/* Tabs */}
 			<div className="flex border-b border-border mb-8">
-				{TABS.map((t) => (
+				{visibleTabs.map((t) => (
 					<button
 						key={t.id}
 						type="button"

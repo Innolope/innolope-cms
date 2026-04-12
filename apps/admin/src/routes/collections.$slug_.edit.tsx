@@ -173,12 +173,9 @@ function CollectionSchemaEditor() {
 				</div>
 
 				<div className="flex items-center justify-between pt-4">
-					<div className="flex gap-3">
-						<button type="button" onClick={save} disabled={saving} className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">
-							{saving ? 'Saving...' : 'Save Changes'}
-						</button>
-						<button type="button" onClick={() => navigate({ to: `/collections/${slug}` })} className="px-6 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover">Cancel</button>
-					</div>
+					<button type="button" onClick={save} disabled={saving} className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">
+						{saving ? 'Saving...' : 'Save Changes'}
+					</button>
 					<button type="button" onClick={deleteCollection} className="text-xs text-danger hover:opacity-80">Delete Collection</button>
 				</div>
 			</div>

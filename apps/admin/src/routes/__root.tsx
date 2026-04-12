@@ -270,7 +270,8 @@ function CollectionNavExpanded() {
 				return (
 					<Link
 						key={col.id}
-						to={`/collections/${col.slug}`}
+						to="/collections/$slug"
+						params={{ slug: col.slug }}
 						className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
 							isActive
 								? 'bg-surface-alt text-text font-medium'
@@ -303,7 +304,8 @@ function CollectionNavCollapsed() {
 			{collections.map((col) => (
 				<Link
 					key={col.id}
-					to={`/collections/${col.slug}`}
+					to="/collections/$slug"
+					params={{ slug: col.slug }}
 					className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
 					title={`${col.name} (${col.contentCount})`}
 				>

@@ -115,7 +115,7 @@ function ContentEditor() {
 							: '',
 					)
 				})
-				.catch(() => navigate({ to: '/content' }))
+				.catch(() => navigate({ to: '/dashboard' }))
 				.finally(() => setLoading(false))
 		}
 	}, [id, isNew, navigate])

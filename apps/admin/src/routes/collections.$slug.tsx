@@ -164,7 +164,7 @@ function CollectionContentList() {
 				</div>
 				{(total > 0 || search || statusFilter) && (
 					<Link
-						to={`/collections/${slug}/new`}
+						to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 					>
 						New {collection.name.replace(/s$/, '')}
@@ -219,7 +219,7 @@ function CollectionContentList() {
 										Create your first {collection.name.toLowerCase()} entry.
 									</p>
 									<Link
-										to={`/collections/${slug}/new`}
+										to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
 										Create {collection.name.replace(/s$/, '')}
@@ -241,7 +241,8 @@ function CollectionContentList() {
 										<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
 											<td className="px-4 py-3">
 												<Link
-													to={`/collections/${slug}/${item.id}`}
+													to="/collections/$slug/$contentId"
+													params={{ slug, contentId: item.id }}
 													className="hover:text-text transition-colors"
 												>
 													{(item.metadata?.title as string) || item.slug}
@@ -293,7 +294,7 @@ function CollectionContentList() {
 								{reviewItems.map((item) => (
 									<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
 										<td className="px-4 py-3">
-											<Link to={`/collections/${slug}/${item.id}`} className="hover:text-text transition-colors">
+											<Link to="/collections/$slug/$contentId" params={{ slug, contentId: item.id }} className="hover:text-text transition-colors">
 												{(item.metadata?.title as string) || item.slug}
 											</Link>
 										</td>

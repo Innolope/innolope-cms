@@ -102,7 +102,7 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 	const [enabled, setEnabled] = useState<boolean | null>(null)
 	const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
 	const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
-	const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
 	const search = useCallback(
 		async (q: string, p: number) => {

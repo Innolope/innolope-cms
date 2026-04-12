@@ -165,15 +165,15 @@ function CollectionContentEditor() {
 				</div>
 
 				<MarkdownEditor
-					value={markdown}
+					content={markdown}
 					onChange={(v) => { setMarkdown(v); setDirty(true) }}
 				/>
 
 				{editorContainerRef.current && aiSelectedText && (
 					<SelectionToolbar
-						selectedText={aiSelectedText}
-						onAction={(action) => { setAiTargetField('markdown'); setShowAi(true) }}
 						containerRef={editorContainerRef as React.RefObject<HTMLElement>}
+						onAction={(action: string, _selectedText: string, _fieldName: string) => { setAiTargetField('markdown'); setShowAi(true) }}
+						fieldName="markdown"
 					/>
 				)}
 			</div>
@@ -256,7 +256,21 @@ function CollectionContentEditor() {
 					</Field>
 				)}
 
-				{!isNew && <VersionPanel contentId={contentId} />}
+				{!isNew && (
+					<VersionPanel
+						contentId={contentId}
+						currentVersion={version}
+						onRevert={() => {
+							api.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(`/api/v1/content/${contentId}`)
+								.then((item) => {
+									setMarkdown(item.markdown)
+									setTitle((item.metadata?.title as string) || '')
+									setVersion(item.version)
+									setDirty(false)
+								})
+						}}
+					/>
+				)}
 
 				{aiLicensed ? (
 					<button
@@ -273,12 +287,10 @@ function CollectionContentEditor() {
 
 			{showAi && aiLicensed && (
 				<AiChatPanel
-					contentId={isNew ? undefined : contentId}
-					markdown={markdown}
-					onInsert={(text) => { setMarkdown((prev) => `${prev}\n\n${text}`); setDirty(true) }}
-					onClose={() => setShowAi(false)}
 					targetField={aiTargetField}
 					selectedText={aiSelectedText}
+					onApply={(_field: string, text: string) => { setMarkdown((prev) => `${prev}\n\n${text}`); setDirty(true) }}
+					onClose={() => setShowAi(false)}
 				/>
 			)}
 		</div>

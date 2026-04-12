@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 import { useCollections } from '../lib/collections'
 import { Dropdown } from '../components/dropdown'
@@ -193,6 +194,7 @@ const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'enum', 'relation', 'o
 function NewCollectionPage() {
 	const navigate = useNavigate()
 	const toast = useToast()
+	const { currentProject } = useAuth()
 	const { refreshCollections } = useCollections()
 	const isNew = true
 
@@ -202,7 +204,18 @@ function NewCollectionPage() {
 	const [fields, setFields] = useState<CollectionField[]>([])
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
-	const [showTemplatePicker, setShowTemplatePicker] = useState(isNew)
+	const [showTemplatePicker, setShowTemplatePickerLocal] = useState(() => {
+		const params = new URLSearchParams(window.location.search)
+		return params.get('step') !== 'configure'
+	})
+
+	const setShowTemplatePicker = (show: boolean) => {
+		setShowTemplatePickerLocal(show)
+		const url = new URL(window.location.href)
+		if (!show) url.searchParams.set('step', 'configure')
+		else url.searchParams.delete('step')
+		window.history.replaceState({}, '', url.toString())
+	}
 
 
 	const generateSlug = (text: string) =>
@@ -260,7 +273,16 @@ function NewCollectionPage() {
 
 	if (showTemplatePicker) {
 		return (
-			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
+			<div className="p-8 pt-6">
+				<button
+					type="button"
+					onClick={() => navigate({ to: '/dashboard' })}
+					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-6"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					Back to dashboard
+				</button>
+				<div className="flex justify-center min-h-[70vh]">
 				<div className="max-w-4xl w-full">
 				<div className="text-center mb-10">
 					<h2 className="text-2xl font-bold mb-2">New Collection</h2>
@@ -288,6 +310,18 @@ function NewCollectionPage() {
 						<p className="text-xs text-text-muted">Define your own schema from scratch</p>
 					</button>
 				</div>
+
+				{!((currentProject?.settings as Record<string, unknown>)?.externalDb) && (
+					<div className="flex items-center justify-center gap-2 mt-8 px-4 py-3 rounded-lg bg-surface-alt border border-border text-sm text-text-muted">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0">
+							<ellipse cx="12" cy="5" rx="9" ry="3" />
+							<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+							<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+						</svg>
+						Content will be stored in the built-in Innolope CMS database.
+					</div>
+				)}
+				</div>
 				</div>
 			</div>
 		)
@@ -298,11 +332,11 @@ function NewCollectionPage() {
 			{isNew && (
 				<button
 					type="button"
-					onClick={() => navigate({ to: '/dashboard' })}
+					onClick={() => setShowTemplatePicker(true)}
 					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-4"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					Back to collections
+					Choose a different template
 				</button>
 			)}
 			<h2 className="text-2xl font-bold mb-6">

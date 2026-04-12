@@ -171,19 +171,19 @@ export function TeamSettings() {
 							onChange={(e) => setEmail(e.target.value)}
 							onKeyDown={(e) => e.key === 'Enter' && sendInvite()}
 							placeholder="email@example.com"
-							className="flex-1 px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none focus:border-border-strong"
+							className="flex-1 px-3 py-2.5 bg-input border border-border-strong rounded text-sm focus:outline-none focus:border-border-strong"
 						/>
 						<Dropdown
 							value={role}
 							onChange={setRole}
 							options={ROLES.map((r) => ({ value: r, label: r }))}
-							className="px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none"
+							className="w-28 shrink-0"
 						/>
 						<button
 							type="button"
 							onClick={sendInvite}
 							disabled={sending || !email.trim()}
-							className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
+							className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors shrink-0"
 						>
 							{sending ? 'Sending...' : 'Send Invite'}
 						</button>
