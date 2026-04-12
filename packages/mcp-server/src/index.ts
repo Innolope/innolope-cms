@@ -382,7 +382,7 @@ server.tool(
 	async () => {
 		const summary = COLLECTION_TEMPLATES.map((t) => {
 			const fields = t.fields.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`).join(', ')
-			return `**${t.name}** (${t.slug})\n  ${t.description}\n  Fields: ${fields}`
+			return `**${t.label}** (${t.name})\n  ${t.description}\n  Fields: ${fields}`
 		}).join('\n\n')
 		return { content: [{ type: 'text', text: summary }] }
 	},
