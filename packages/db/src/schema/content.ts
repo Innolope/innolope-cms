@@ -23,6 +23,7 @@ export const content = pgTable('content', {
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	publishedAt: timestamp({ withTimezone: true }),
+	externalId: text(),
 	createdBy: uuid().references(() => users.id),
 }, (table) => [
 	uniqueIndex('content_slug_locale_project_idx').on(table.slug, table.locale, table.projectId),

@@ -239,6 +239,13 @@ async function ensureTables(connectionUrl: string) {
 		)
 	`
 
+	// Add columns for external DB integration
+	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT ''`
+	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'internal'`
+	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "externalTable" TEXT`
+	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "accessMode" TEXT DEFAULT 'read-write'`
+	await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
+
 	await sql.end()
 }
 

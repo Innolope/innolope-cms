@@ -16,6 +16,8 @@ export interface CollectionWithCount {
 	label: string
 	description: string | null
 	fields: CollectionField[]
+	source: string
+	accessMode: string | null
 	createdAt: string
 	contentCount: number
 }

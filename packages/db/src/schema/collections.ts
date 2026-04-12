@@ -10,6 +10,9 @@ export const collections = pgTable('collections', {
 	name: text().notNull(),
 	description: text(),
 	fields: jsonb().$type<CollectionField[]>().notNull().default([]),
+	source: text().notNull().default('internal'),
+	externalTable: text(),
+	accessMode: text().default('read-write'),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

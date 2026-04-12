@@ -18,6 +18,8 @@ export async function collectionRoutes(app: FastifyInstance) {
 				label: collections.label,
 				description: collections.description,
 				fields: collections.fields,
+				source: collections.source,
+				accessMode: collections.accessMode,
 				createdAt: collections.createdAt,
 				contentCount: sql<number>`cast(count(${content.id}) as int)`,
 			})

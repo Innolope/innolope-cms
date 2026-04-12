@@ -29,6 +29,7 @@ interface RecentItem {
 
 
 function Dashboard() {
+	const navigate = useNavigate()
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [recent, setRecent] = useState<RecentItem[]>([])
 	const [ready, setReady] = useState(false)
@@ -41,6 +42,13 @@ function Dashboard() {
 	}, [])
 
 	const isEmpty = ready && stats && stats.content.total === 0 && stats.collections === 0
+	const hasCollectionsOnly = ready && stats && stats.collections > 0 && stats.content.total === 0
+
+	// Redirect to collections when they exist but no content yet (e.g., after external DB import)
+	if (hasCollectionsOnly) {
+		navigate({ to: '/collections' })
+		return null
+	}
 
 	if (isEmpty) return <EmptyDashboard />
 	if (!ready) return <div className="p-8 pt-5" />

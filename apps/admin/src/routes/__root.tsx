@@ -278,7 +278,12 @@ function CollectionNavExpanded() {
 								: 'text-text-secondary hover:bg-surface-alt hover:text-text'
 						}`}
 					>
-						<span className="truncate">{col.label}</span>
+						<span className="truncate flex items-center gap-1.5">
+							{col.source === 'external' && (
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-50"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></svg>
+							)}
+							{col.label}
+						</span>
 						{col.contentCount > 0 && (
 							<span className="text-[10px] text-text-muted shrink-0 ml-2">{col.contentCount}</span>
 						)}

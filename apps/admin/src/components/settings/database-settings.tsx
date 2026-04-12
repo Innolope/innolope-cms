@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { useAuth } from '../../lib/auth'
+import { useCollections } from '../../lib/collections'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
+import { useLicense } from '../license-gate'
 import { SaveBar } from '../save-bar'
 
 
 interface DetectedTable {
 	name: string
 	columns: { name: string; type: string }[]
+	count?: number
 }
 
 const DB_OPTIONS = [
@@ -193,6 +197,9 @@ interface DatabaseSettingsProps {
 
 export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {}) {
 	const { currentProject, refreshProjects } = useAuth()
+	const { refreshCollections } = useCollections()
+	const navigate = useNavigate()
+	const license = useLicense()
 	const toast = useToast()
 
 	const needsDbSelectFor = (type: string) => type === 'mongodb' || type === 'firebase'
@@ -230,6 +237,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
+	const [hideEmpty, setHideEmpty] = useState(false)
+	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
+	const [estimatedSizeBytes, setEstimatedSizeBytes] = useState<number | null>(null)
 	const initialDbType = useRef('built-in')
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 	const abortRef = useRef<AbortController>(undefined)
@@ -321,11 +332,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							setStep(3)
 							setScanning(true)
 							try {
-								const tableResult = await api.post<{ tables: DetectedTable[] }>(
+								const tableResult = await api.post<{ tables: DetectedTable[]; estimatedSizeBytes?: number }>(
 									`/api/v1/projects/${currentProject.id}/database/scan`,
 									{ type: dbType, connectionString: connStr, database: dbResult.databases[0] },
 								)
 								setTables(tableResult.tables)
+								if (tableResult.estimatedSizeBytes != null) setEstimatedSizeBytes(tableResult.estimatedSizeBytes)
 							} catch (err) {
 								toast(err instanceof Error ? err.message : 'Scan failed', 'error')
 							} finally {
@@ -343,11 +355,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					setStep(2)
 					setScanning(true)
 					try {
-						const tableResult = await api.post<{ tables: DetectedTable[] }>(
+						const tableResult = await api.post<{ tables: DetectedTable[]; estimatedSizeBytes?: number }>(
 							`/api/v1/projects/${currentProject.id}/database/scan`,
 							{ type: dbType, connectionString: connStr },
 						)
 						setTables(tableResult.tables)
+								if (tableResult.estimatedSizeBytes != null) setEstimatedSizeBytes(tableResult.estimatedSizeBytes)
 					} catch (err) {
 						toast(err instanceof Error ? err.message : 'Scan failed', 'error')
 					} finally {
@@ -406,16 +419,35 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		if (!currentProject) return
 		setSaving(true)
 		try {
-			await api.put(`/api/v1/projects/${currentProject.id}/database`, {
+			const selectedTableData = tables.filter(t => selectedTables.has(t.name))
+			const result = await api.put<{
+				project: unknown
+				collections: Array<{ name: string }>
+				warnings?: string[]
+			}>(`/api/v1/projects/${currentProject.id}/database`, {
 				type: dbType === 'built-in' ? null : dbType,
 				connectionString: dbType === 'built-in' ? null : connectionString,
 				database: selectedDb || null,
-				tables: Array.from(selectedTables),
+				tables: selectedTableData,
+				accessMode,
 			})
-			setSaved(true)
+
 			clearWizardState()
-			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
+			await refreshCollections()
+
+			if (result.warnings?.length) {
+				for (const w of result.warnings) toast(w, 'error')
+			}
+
+			// Redirect to first created collection
+			if (result.collections?.length > 0) {
+				const sorted = [...result.collections].sort((a, b) => a.name.localeCompare(b.name))
+				navigate({ to: `/collections/${sorted[0].name}` })
+			} else {
+				setSaved(true)
+				setTimeout(() => setSaved(false), 2000)
+			}
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
@@ -658,28 +690,50 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					</div>
 				) : tables.length > 0 ? (
 					<div>
-						<label className="block text-xs text-text-secondary mb-2">
-							{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to manage as CMS collections
-						</label>
-						<div className="space-y-1 max-h-60 overflow-auto border border-border rounded p-2">
-							{tables.map((t) => (
-								<label
-									key={t.name}
-									className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-alt cursor-pointer"
-								>
-									<input
-										type="checkbox"
-										checked={selectedTables.has(t.name)}
-										onChange={() => toggleTable(t.name)}
-										className="rounded"
-									/>
-									<span className="text-sm font-mono">{t.name}</span>
-									<span className="text-[11px] text-text-muted">
-										{t.columns.length} {isNoSql ? 'fields' : 'columns'}
-									</span>
-								</label>
-							))}
+						<div className="flex items-center justify-between mb-3">
+							<label className="text-xs text-text-secondary">
+								{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to manage as CMS collections
+							</label>
 						</div>
+						<div className="flex items-center gap-4 mb-3">
+							<div className="flex items-center gap-2 text-xs text-text-secondary">
+								<span>Sort:</span>
+								<button type="button" onClick={() => setTableSort('name')} className={`px-2 py-0.5 rounded ${tableSort === 'name' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}>A-Z</button>
+								<button type="button" onClick={() => setTableSort('records')} className={`px-2 py-0.5 rounded ${tableSort === 'records' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}>Records</button>
+							</div>
+							<label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+								<input type="checkbox" checked={hideEmpty} onChange={e => setHideEmpty(e.target.checked)} className="rounded" />
+								Hide empty
+							</label>
+						</div>
+						<table className="w-full text-sm">
+							<thead>
+								<tr className="text-left text-xs text-text-muted border-b border-border">
+									<th className="pb-2 pl-1 w-8" />
+									<th className="pb-2">Name</th>
+									<th className="pb-2 text-right">{isNoSql ? 'Fields' : 'Columns'}</th>
+									<th className="pb-2 text-right pr-1">Records</th>
+								</tr>
+							</thead>
+							<tbody>
+								{tables
+									.filter(t => !hideEmpty || (t.count ?? 0) > 0)
+									.sort((a, b) => tableSort === 'name' ? a.name.localeCompare(b.name) : (b.count ?? 0) - (a.count ?? 0))
+									.map(t => (
+									<tr key={t.name} className="border-b border-border hover:bg-surface-alt transition-colors cursor-pointer" onClick={() => toggleTable(t.name)}>
+										<td className="py-2 pl-1">
+											<input type="checkbox" checked={selectedTables.has(t.name)} onChange={() => toggleTable(t.name)} className="rounded" />
+										</td>
+										<td className="py-2 font-medium">{t.name}</td>
+										<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
+										<td className="py-2 text-right text-text-muted pr-1">{t.count ?? '—'}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+						{hideEmpty && tables.some(t => (t.count ?? 0) === 0) && (
+							<p className="text-xs text-text-muted mt-2">{tables.filter(t => (t.count ?? 0) === 0).length} empty {isNoSql ? 'collections' : 'tables'} hidden</p>
+						)}
 					</div>
 				) : (
 					<p className="text-sm text-text-muted py-4 text-center">
@@ -687,12 +741,36 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					</p>
 				)}
 
+				{/* Size estimate */}
+				{estimatedSizeBytes != null && (
+					<p className="text-xs text-text-muted">
+						Estimated database size: {estimatedSizeBytes < 1024 * 1024 ? `${Math.round(estimatedSizeBytes / 1024)} KB` : `${Math.round(estimatedSizeBytes / 1024 / 1024)} MB`}
+						{estimatedSizeBytes > 100 * 1024 * 1024 && (
+							<span className="text-text-secondary"> — Content will be cached on demand</span>
+						)}
+					</p>
+				)}
+
+				{/* Access mode */}
+				{tables.length > 0 && (
+					<div className="flex items-center gap-4 text-xs text-text-secondary">
+						<span>Access mode:</span>
+						<label className="flex items-center gap-1.5 cursor-pointer">
+							<input type="radio" name="accessMode" checked={accessMode === 'read-write'} onChange={() => setAccessMode('read-write')} />
+							Read & Write
+						</label>
+						<label className="flex items-center gap-1.5 cursor-pointer">
+							<input type="radio" name="accessMode" checked={accessMode === 'read-only'} onChange={() => setAccessMode('read-only')} />
+							Read Only
+						</label>
+					</div>
+				)}
+
 				<SaveBar
 					dirty={selectedTables.size > 0 || dirty}
 					saving={saving}
 					saved={saved}
 					onSave={save}
-					onReset={() => { setDbType(initialDbType.current); setStep(0); setConnectionString(''); setTestResult(null); setDatabases([]); setSelectedDb(''); setTables([]); setSelectedTables(new Set()); clearWizardState() }}
 					saveLabel="Save"
 				/>
 				</div>
