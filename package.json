@@ -22,7 +22,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "drizzle-orm": "^0.45.2"
+    }
   },
   "devDependencies": {
     "turbo": "^2.9.5",

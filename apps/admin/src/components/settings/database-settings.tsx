@@ -128,15 +128,15 @@ export function DatabaseSettings() {
 				<label className="block text-xs text-text-secondary mb-2">Database source</label>
 				<div className="grid grid-cols-3 gap-3">
 					{[
-						{ value: 'built-in', label: 'Built-in', desc: 'Innolope CMS database' },
-						{ value: 'mongodb', label: 'MongoDB', desc: 'Atlas or self-hosted' },
-						{ value: 'postgresql', label: 'PostgreSQL', desc: 'Direct connection' },
-						{ value: 'mysql', label: 'MySQL', desc: 'Direct connection' },
-						{ value: 'supabase', label: 'Supabase', desc: 'Managed Postgres' },
-						{ value: 'cockroachdb', label: 'CockroachDB', desc: 'Distributed SQL' },
-						{ value: 'firebase', label: 'Firebase', desc: 'Firestore connection' },
-						{ value: 'neon', label: 'Neon', desc: 'Serverless Postgres' },
-						{ value: 'vercel-postgres', label: 'Vercel Postgres', desc: 'Serverless SQL' },
+						{ value: 'built-in', label: 'Built-in', desc: 'Innolope CMS database', logo: '/logo.svg' },
+						{ value: 'mongodb', label: 'MongoDB', desc: 'Atlas or self-hosted', logo: '/db-logos/mongodb.svg' },
+						{ value: 'postgresql', label: 'PostgreSQL', desc: 'Direct connection', logo: '/db-logos/postgresql.svg' },
+						{ value: 'mysql', label: 'MySQL', desc: 'Direct connection', logo: '/db-logos/mysql.svg' },
+						{ value: 'supabase', label: 'Supabase', desc: 'Managed Postgres', logo: '/db-logos/supabase.svg' },
+						{ value: 'cockroachdb', label: 'CockroachDB', desc: 'Distributed SQL', logo: '/db-logos/cockroachdb.svg' },
+						{ value: 'firebase', label: 'Firebase', desc: 'Firestore connection', logo: '/db-logos/firebase.svg' },
+						{ value: 'neon', label: 'Neon', desc: 'Serverless Postgres', logo: '/db-logos/neon.svg' },
+						{ value: 'vercel-postgres', label: 'Vercel Postgres', desc: 'Serverless SQL', logo: '/db-logos/vercel.svg' },
 					].map((opt) => (
 						<button
 							key={opt.value}
@@ -153,6 +153,7 @@ export function DatabaseSettings() {
 							}`}>
 								{dbType === opt.value && <div className="w-2.5 h-2.5 rounded-full bg-accent" />}
 							</div>
+							<img src={opt.logo} alt="" className="w-6 h-6 mb-2" />
 							<p className={`font-medium ${dbType === opt.value ? 'text-accent' : 'text-text'}`}>{opt.label}</p>
 							<p className="text-xs text-text-muted mt-1">{opt.desc}</p>
 						</button>
@@ -166,8 +167,30 @@ export function DatabaseSettings() {
 						<label className="block text-xs text-text-secondary mb-1.5">
 							{dbType === 'supabase' ? 'Supabase connection string' :
 							 dbType === 'vercel-postgres' ? 'POSTGRES_URL from Vercel dashboard' :
+							 dbType === 'neon' ? 'Neon connection string' :
+							 dbType === 'cockroachdb' ? 'CockroachDB connection string' :
+							 dbType === 'firebase' ? 'Firebase service account JSON' :
 							 'Connection string'}
 						</label>
+						{dbType === 'firebase' ? (
+							<div className="space-y-2">
+								<textarea
+									value={connectionString}
+									onChange={(e) => setConnectionString(e.target.value)}
+									placeholder={'{\n  "type": "service_account",\n  "project_id": "your-project",\n  ...\n}'}
+									rows={6}
+									className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong resize-y"
+								/>
+								<button
+									type="button"
+									onClick={testConnection}
+									disabled={testing || !connectionString.trim()}
+									className="px-4 py-2 bg-btn-secondary border border-border rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50 transition-colors"
+								>
+									{testing ? 'Testing...' : 'Test Connection'}
+								</button>
+							</div>
+						) : (
 						<div className="flex gap-2">
 							<input
 								type="password"
@@ -176,6 +199,9 @@ export function DatabaseSettings() {
 								placeholder={
 									dbType === 'mongodb' ? 'mongodb+srv://...' :
 									dbType === 'mysql' ? 'mysql://user:pass@host:3306/db' :
+									dbType === 'neon' ? 'postgresql://user:pass@ep-xyz.us-east-2.aws.neon.tech/db?sslmode=require' :
+									dbType === 'cockroachdb' ? 'postgresql://user:pass@cluster.cockroachlabs.cloud:26257/db?sslmode=verify-full' :
+									dbType === 'vercel-postgres' ? 'postgres://default:...@...-pooler.us-east-1.aws.neon.tech/verceldb?sslmode=require' :
 									'postgresql://user:pass@host:5432/db'
 								}
 								className="flex-1 px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
@@ -189,6 +215,7 @@ export function DatabaseSettings() {
 								{testing ? 'Testing...' : 'Test Connection'}
 							</button>
 						</div>
+						)}
 					</div>
 
 					{testResult?.ok && needsDbSelect && databases.length === 0 && (

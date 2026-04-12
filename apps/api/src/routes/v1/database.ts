@@ -22,7 +22,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 				switch (type) {
 					case 'postgresql':
 					case 'supabase':
-					case 'vercel-postgres': {
+					case 'vercel-postgres':
+					case 'neon':
+					case 'cockroachdb': {
 						const client = postgres(connectionString, {
 							ssl: connectionString.includes('sslmode=') ? 'require' : false,
 							connect_timeout: 10,
@@ -32,7 +34,6 @@ export async function databaseRoutes(app: FastifyInstance) {
 						return { ok: true, message: 'Connected successfully.' }
 					}
 					case 'mongodb': {
-						// Dynamic import to avoid bundling mongodb driver if not used
 						const { MongoClient } = await import('mongodb')
 						const client = new MongoClient(connectionString, {
 							serverSelectionTimeoutMS: 10000,
@@ -43,7 +44,22 @@ export async function databaseRoutes(app: FastifyInstance) {
 						return { ok: true, message: 'Connected successfully.' }
 					}
 					case 'mysql': {
-						return { ok: false, message: 'MySQL support coming soon.' }
+						const mysql = await import('mysql2/promise')
+						const conn = await mysql.createConnection(connectionString)
+						await conn.execute('SELECT 1')
+						await conn.end()
+						return { ok: true, message: 'Connected successfully.' }
+					}
+					case 'firebase': {
+						const admin = await import('firebase-admin')
+						const credentials = JSON.parse(connectionString)
+						const app = admin.initializeApp({
+							credential: admin.credential.cert(credentials),
+						}, `test-${Date.now()}`)
+						const firestore = app.firestore()
+						await firestore.listCollections()
+						await app.delete()
+						return { ok: true, message: 'Connected successfully.' }
 					}
 					default:
 						return reply.status(400).send({ ok: false, message: `Unsupported database type: ${type}` })
@@ -68,7 +84,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 				switch (type) {
 					case 'postgresql':
 					case 'supabase':
-					case 'vercel-postgres': {
+					case 'vercel-postgres':
+					case 'neon':
+					case 'cockroachdb': {
 						const client = postgres(connectionString, {
 							ssl: connectionString.includes('sslmode=') ? 'require' : false,
 							connect_timeout: 10,
@@ -110,7 +128,6 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 						const result = []
 						for (const col of collections) {
-							// Sample one document to detect fields
 							const sample = await db.collection(col.name).findOne()
 							const columns = sample
 								? Object.entries(sample).map(([name, value]) => ({
@@ -124,8 +141,110 @@ export async function databaseRoutes(app: FastifyInstance) {
 						await client.close()
 						return { tables: result }
 					}
+					case 'mysql': {
+						const mysql = await import('mysql2/promise')
+						const conn = await mysql.createConnection(connectionString)
+
+						const [tableRows] = await conn.execute(
+							`SELECT table_name FROM information_schema.tables
+							 WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
+							 ORDER BY table_name`,
+						)
+
+						const result = []
+						for (const t of tableRows as Array<{ table_name: string }>) {
+							const [colRows] = await conn.execute(
+								`SELECT column_name, data_type FROM information_schema.columns
+								 WHERE table_schema = DATABASE() AND table_name = ?
+								 ORDER BY ordinal_position`,
+								[t.table_name],
+							)
+							result.push({
+								name: t.table_name,
+								columns: (colRows as Array<{ column_name: string; data_type: string }>).map((c) => ({
+									name: c.column_name,
+									type: c.data_type,
+								})),
+							})
+						}
+
+						await conn.end()
+						return { tables: result }
+					}
+					case 'firebase': {
+						const admin = await import('firebase-admin')
+						const credentials = JSON.parse(connectionString)
+						const app = admin.initializeApp({
+							credential: admin.credential.cert(credentials),
+						}, `scan-${Date.now()}`)
+						const firestore = app.firestore()
+						const collections = await firestore.listCollections()
+
+						const result = []
+						for (const col of collections) {
+							const snapshot = await col.limit(1).get()
+							const columns = snapshot.empty
+								? []
+								: Object.entries(snapshot.docs[0].data()).map(([name, value]) => ({
+										name,
+										type: typeof value,
+									}))
+							result.push({ name: col.id, columns })
+						}
+
+						await app.delete()
+						return { tables: result }
+					}
 					default:
 						return reply.status(400).send({ error: 'Unsupported database type.' })
+				}
+			} catch (err) {
+				return reply.status(500).send({
+					error: err instanceof Error ? err.message : 'Scan failed.',
+				})
+			}
+		},
+	)
+
+	// Scan available databases (for MongoDB/Firebase where you pick a database first)
+	app.post<{ Params: { id: string } }>(
+		'/:id/database/scan-databases',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { type, connectionString } = request.body as {
+				type: string
+				connectionString: string
+			}
+
+			try {
+				switch (type) {
+					case 'mongodb': {
+						const { MongoClient } = await import('mongodb')
+						const client = new MongoClient(connectionString, {
+							serverSelectionTimeoutMS: 10000,
+						})
+						await client.connect()
+						const adminDb = client.db().admin()
+						const { databases: dbList } = await adminDb.listDatabases()
+						await client.close()
+						return {
+							databases: dbList
+								.map((d: { name: string }) => d.name)
+								.filter((n: string) => !['admin', 'local', 'config'].includes(n)),
+						}
+					}
+					case 'firebase': {
+						const admin = await import('firebase-admin')
+						const credentials = JSON.parse(connectionString)
+						const app = admin.initializeApp({
+							credential: admin.credential.cert(credentials),
+						}, `scan-dbs-${Date.now()}`)
+						// Firestore has a single default database per project
+						await app.delete()
+						return { databases: ['(default)'] }
+					}
+					default:
+						return reply.status(400).send({ error: 'This database type does not support database scanning.' })
 				}
 			} catch (err) {
 				return reply.status(500).send({
