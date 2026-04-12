@@ -123,8 +123,8 @@ function maskConnectionString(str: string): string {
 
 function updateUrlStep(stepName: string | null) {
 	const url = new URL(window.location.href)
-	if (stepName) url.searchParams.set('step', stepName)
-	else url.searchParams.delete('step')
+	if (stepName) url.searchParams.set('db-step', stepName)
+	else url.searchParams.delete('db-step')
 	window.history.replaceState({}, '', url.toString())
 }
 
@@ -213,7 +213,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	})
 	const [step, setStepLocal] = useState(() => {
 		const params = new URLSearchParams(window.location.search)
-		const s = params.get('step')
+		const s = params.get('db-step')
 		const saved = loadWizardState()
 		const type = saved?.dbType || 'built-in'
 		if (s === 'tables') return needsDbSelectFor(type) ? 3 : 2
@@ -440,7 +440,15 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				setTables([])
 			}
 		} else if (step === 3) {
-			setStep(2)
+			// If only 1 database was found, skip back to connection (step 1) since step 2 was auto-skipped
+			if (databases.length <= 1) {
+				setStep(1)
+				setTestResult(null)
+				setDatabases([])
+				setSelectedDb('')
+			} else {
+				setStep(2)
+			}
 			setTables([])
 		}
 	}
@@ -583,9 +591,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	if (step === 2 && needsDbSelect) {
 		return (
 			<div>
-				<div className="-mt-2 -ml-1 mb-6">
-					<BackLink onClick={goBack}>Edit connection string</BackLink>
-				</div>
+				{!onChangeDatabase && (
+					<div className="-mt-2 -ml-1 mb-6">
+						<BackLink onClick={goBack}>Edit connection string</BackLink>
+					</div>
+				)}
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={2} />
 
@@ -619,20 +629,24 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	if (step === tableStepIndex) {
 		return (
 			<div>
-				<div className="-mt-2 -ml-1 mb-6">
-					<BackLink onClick={goBack}>
-						{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
-					</BackLink>
-				</div>
+				{!onChangeDatabase && (
+					<div className="-mt-2 -ml-1 mb-6">
+						<BackLink onClick={goBack}>
+							{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
+						</BackLink>
+					</div>
+				)}
 				<div className="space-y-5">
 				<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
 
-				<div className="flex items-center gap-2">
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
-					<span className="text-sm text-text-secondary">
-						Connected to <span className="font-medium text-text">{selectedOption.label}</span>
-						{selectedDb && <> &middot; <span className="font-mono">{selectedDb}</span></>}
-					</span>
+				<div className="text-center space-y-1">
+					<div className="flex items-center justify-center gap-2">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
+						<span className="text-sm text-text-secondary">Connected to <span className="font-medium text-text">{selectedOption.label}</span></span>
+					</div>
+					{selectedDb && (
+						<p className="text-sm text-text-muted">Database found: <span className="font-medium text-text">{selectedDb}</span></p>
+					)}
 				</div>
 
 				{scanning ? (
@@ -679,7 +693,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					saved={saved}
 					onSave={save}
 					onReset={() => { setDbType(initialDbType.current); setStep(0); setConnectionString(''); setTestResult(null); setDatabases([]); setSelectedDb(''); setTables([]); setSelectedTables(new Set()); clearWizardState() }}
-					saveLabel="Save & Connect"
+					saveLabel="Save"
 				/>
 				</div>
 			</div>

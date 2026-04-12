@@ -65,7 +65,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 						return reply.status(400).send({ ok: false, message: `Unsupported database type: ${type}` })
 				}
 			} catch (err) {
-				return { ok: false, message: err instanceof Error ? err.message : 'Connection failed.' }
+				const msg = err instanceof Error ? err.message : 'Connection failed.'
+				// Detect IP whitelisting / network access errors
+				const ipKeywords = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'getaddrinfo', 'connect EHOSTUNREACH', 'Server selection timed out', 'authentication failed', 'not whitelisted', 'IP address']
+				const isNetworkError = ipKeywords.some(kw => msg.includes(kw))
+				if (isNetworkError) {
+					const sshHost = process.env.SSH_HOST
+					const hint = sshHost
+						? ` If your database requires IP whitelisting, add ${sshHost} to your allow list.`
+						: ' If your database requires IP whitelisting, add this server\'s IP to your allow list.'
+					return { ok: false, message: msg + hint }
+				}
+				return { ok: false, message: msg }
 			}
 		},
 	)
@@ -75,9 +86,10 @@ export async function databaseRoutes(app: FastifyInstance) {
 		'/:id/database/scan',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const { type, connectionString } = request.body as {
+			const { type, connectionString, database } = request.body as {
 				type: string
 				connectionString: string
+				database?: string
 			}
 
 			try {
@@ -123,7 +135,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 							serverSelectionTimeoutMS: 10000,
 						})
 						await client.connect()
-						const db = client.db()
+						const db = database ? client.db(database) : client.db()
 						const collections = await db.listCollections().toArray()
 
 						const result = []
