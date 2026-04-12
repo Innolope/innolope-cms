@@ -295,6 +295,16 @@ function NewCollectionPage() {
 
 	return (
 		<div className="p-8 max-w-3xl">
+			{isNew && (
+				<button
+					type="button"
+					onClick={() => navigate({ to: '/dashboard' })}
+					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-4"
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					Back to collections
+				</button>
+			)}
 			<h2 className="text-2xl font-bold mb-6">
 				{isNew ? 'New Collection' : `Edit: ${name}`}
 			</h2>
@@ -415,7 +425,7 @@ function NewCollectionPage() {
 					)}
 				</div>
 
-				<div className="flex gap-3 pt-4">
+				<div className="flex justify-end pt-4">
 					<button
 						type='button'
 						onClick={save}
@@ -423,13 +433,6 @@ function NewCollectionPage() {
 						className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
 						{saving ? 'Saving...' : isNew ? 'Create Collection' : 'Save Changes'}
-					</button>
-					<button
-						type='button'
-						onClick={() => navigate({ to: '/dashboard' })}
-						className="px-6 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
-					>
-						Cancel
 					</button>
 				</div>
 			</div>

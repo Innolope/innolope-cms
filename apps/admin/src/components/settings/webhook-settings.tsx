@@ -270,14 +270,14 @@ export function WebhookSettings() {
 							onClick={create}
 							className="px-4 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover"
 						>
-							Create
+							Create Webhook
 						</button>
 						<button
 							type="button"
 							onClick={() => setShowCreate(false)}
 							className="px-4 py-1.5 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
-							Cancel
+							Dismiss
 						</button>
 					</div>
 				</div>

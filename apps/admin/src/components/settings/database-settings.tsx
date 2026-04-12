@@ -512,7 +512,7 @@ export function DatabaseSettings() {
 					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					Back to connection
+					Edit connection string
 				</button>
 
 				<div>
@@ -552,7 +552,7 @@ export function DatabaseSettings() {
 					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-					Back
+					{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
 				</button>
 
 				<div className="flex items-center gap-2">
