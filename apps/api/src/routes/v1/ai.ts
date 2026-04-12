@@ -159,6 +159,72 @@ export async function aiRoutes(app: FastifyInstance) {
 		}
 	})
 
+	// Generate collection schema from description (admin+, project-scoped)
+	app.post('/generate-schema', { preHandler: [app.requireProject('admin'), app.requireLicense('ai-assistant')] }, async (request, reply) => {
+		const { description } = request.body as { description: string }
+		if (!description?.trim()) return reply.status(400).send({ error: 'Description is required' })
+
+		const [settings] = await app.db
+			.select()
+			.from(aiSettings)
+			.where(eq(aiSettings.projectId, request.project!.id))
+			.limit(1)
+
+		const modelKey = settings?.defaultModel || 'gemini-3.1-flash-lite'
+		const providers = (settings?.providers || []) as AiProviderConfig[]
+
+		const systemPrompt = `You are a CMS schema generator. Given a description of a content collection, output a JSON array of field definitions.
+
+Each field object must have:
+- "name": camelCase string (e.g. "publishDate", "metaTitle")
+- "type": one of "text", "number", "boolean", "date", "enum", "relation", "object", "array"
+- "required": boolean
+- "localized": boolean (true for user-facing text that may need translation)
+- "options": string array (ONLY for "enum" type)
+
+Rules:
+- Use "enum" when there's a known set of options, and include the "options" array
+- Use "date" for timestamps and dates
+- Use "array" for lists of values
+- Use "relation" for references to media/other collections
+- Use "object" for nested structured data
+- Keep field count reasonable (5-15 fields typically)
+- Output ONLY the JSON array, no explanation or markdown fences`
+
+		try {
+			const result = await complete(
+				{ model: modelKey, prompt: description, systemPrompt, maxTokens: 2048 },
+				providers,
+				CLOUD_MODE,
+			)
+
+			// Extract JSON from response (handle potential markdown fences)
+			let jsonStr = result.text.trim()
+			const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+			if (fenceMatch) jsonStr = fenceMatch[1].trim()
+
+			const fields = JSON.parse(jsonStr)
+			if (!Array.isArray(fields)) throw new Error('Expected array')
+
+			const validTypes = new Set(['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array'])
+			const cleaned = fields
+				.filter((f: Record<string, unknown>) => typeof f.name === 'string' && f.name.trim())
+				.map((f: Record<string, unknown>) => ({
+					name: String(f.name).trim(),
+					type: validTypes.has(String(f.type)) ? String(f.type) : 'text',
+					required: !!f.required,
+					localized: !!f.localized,
+					...(f.type === 'enum' && Array.isArray(f.options) ? { options: f.options.map(String) } : {}),
+				}))
+
+			return { fields: cleaned }
+		} catch (err) {
+			return reply.status(502).send({
+				error: err instanceof Error ? err.message : 'Failed to generate schema',
+			})
+		}
+	})
+
 	// List available models (built-in + OpenRouter dynamic)
 	app.get('/models', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		const builtIn = Object.entries(AI_MODELS).map(([key, m]) => ({

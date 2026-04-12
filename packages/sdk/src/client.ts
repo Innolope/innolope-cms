@@ -82,7 +82,7 @@ export class InnolopeCMS {
 		params?: Omit<ContentListParams, 'collectionId'>,
 	): Promise<ContentListResponse> {
 		const collections = await this.getCollections()
-		const collection = collections.find((c) => c.slug === collectionSlug)
+		const collection = collections.find((c) => c.name === collectionSlug)
 		if (!collection) throw new Error(`Collection "${collectionSlug}" not found`)
 		return this.getContent({ ...params, collectionId: collection.id })
 	}

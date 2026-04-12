@@ -182,8 +182,8 @@ interface ContentItem {
 
 interface CollectionItem {
 	id: string
+	label: string
 	name: string
-	slug: string
 	description: string | null
 	fields: Array<{ name: string; type: string; required?: boolean; localized?: boolean; options?: string[] }>
 }

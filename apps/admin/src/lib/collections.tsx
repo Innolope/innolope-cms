@@ -13,7 +13,7 @@ interface CollectionField {
 export interface CollectionWithCount {
 	id: string
 	name: string
-	slug: string
+	label: string
 	description: string | null
 	fields: CollectionField[]
 	createdAt: string
@@ -24,7 +24,7 @@ interface CollectionsContextValue {
 	collections: CollectionWithCount[]
 	loading: boolean
 	refreshCollections: () => Promise<void>
-	getCollectionBySlug: (slug: string) => CollectionWithCount | undefined
+	getCollectionByName: (name: string) => CollectionWithCount | undefined
 	getCollectionById: (id: string) => CollectionWithCount | undefined
 }
 
@@ -32,7 +32,7 @@ const CollectionsContext = createContext<CollectionsContextValue>({
 	collections: [],
 	loading: true,
 	refreshCollections: async () => {},
-	getCollectionBySlug: () => undefined,
+	getCollectionByName: () => undefined,
 	getCollectionById: () => undefined,
 })
 
@@ -70,8 +70,8 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 		return () => document.removeEventListener('visibilitychange', handler)
 	}, [fetchCollections])
 
-	const getCollectionBySlug = useCallback(
-		(slug: string) => collections.find((c) => c.slug === slug),
+	const getCollectionByName = useCallback(
+		(name: string) => collections.find((c) => c.name === name),
 		[collections],
 	)
 
@@ -82,7 +82,7 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 
 	return (
 		<CollectionsContext.Provider
-			value={{ collections, loading, refreshCollections: fetchCollections, getCollectionBySlug, getCollectionById }}
+			value={{ collections, loading, refreshCollections: fetchCollections, getCollectionByName, getCollectionById }}
 		>
 			{children}
 		</CollectionsContext.Provider>

@@ -8,16 +8,16 @@ export interface CollectionField {
 }
 
 export interface CollectionTemplate {
+	label: string
 	name: string
-	slug: string
 	description: string
 	fields: CollectionField[]
 }
 
 export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 	{
-		name: 'Knowledge Base',
-		slug: 'knowledge-base',
+		label: 'Knowledge Base',
+		name: 'knowledge-base',
 		description: 'Structured articles for AI agent retrieval and customer self-service',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
@@ -29,8 +29,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'FAQ',
-		slug: 'faq',
+		label: 'FAQ',
+		name: 'faq',
 		description: 'Question-answer pairs optimized for AI-powered support agents',
 		fields: [
 			{ name: 'question', type: 'text', required: true, localized: true },
@@ -41,8 +41,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Product Catalog',
-		slug: 'product-catalog',
+		label: 'Product Catalog',
+		name: 'product-catalog',
 		description: 'Structured product data for AI-driven recommendations and search',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
@@ -56,8 +56,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Documentation',
-		slug: 'documentation',
+		label: 'Documentation',
+		name: 'documentation',
 		description: 'Technical docs with section ordering for developer-facing AI assistants',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
@@ -70,8 +70,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Changelog',
-		slug: 'changelog',
+		label: 'Changelog',
+		name: 'changelog',
 		description: 'Version history and release notes for product updates',
 		fields: [
 			{ name: 'title', type: 'text', required: true },
@@ -82,8 +82,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'API Reference',
-		slug: 'api-reference',
+		label: 'API Reference',
+		name: 'api-reference',
 		description: 'Endpoint documentation for API-aware AI agents and developer tools',
 		fields: [
 			{ name: 'title', type: 'text', required: true },
@@ -97,8 +97,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'CRM',
-		slug: 'crm',
+		label: 'CRM',
+		name: 'crm',
 		description: 'Customer contacts and deals for AI-assisted sales workflows',
 		fields: [
 			{ name: 'name', type: 'text', required: true },
@@ -111,8 +111,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Blog',
-		slug: 'blog',
+		label: 'Blog',
+		name: 'blog',
 		description: 'Articles and posts with SEO metadata for content marketing',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
@@ -126,8 +126,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Job Board',
-		slug: 'job-board',
+		label: 'Job Board',
+		name: 'job-board',
 		description: 'Open positions with structured requirements for recruiting agents',
 		fields: [
 			{ name: 'title', type: 'text', required: true },
@@ -140,8 +140,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'SEO Article',
-		slug: 'seo-article',
+		label: 'SEO Article',
+		name: 'seo-article',
 		description: 'Content optimized for search engines with full SEO and Open Graph metadata',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },
@@ -160,8 +160,8 @@ export const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
-		name: 'Events',
-		slug: 'events',
+		label: 'Events',
+		name: 'events',
 		description: 'Webinars, meetups, and conferences with scheduling and registration data',
 		fields: [
 			{ name: 'title', type: 'text', required: true, localized: true },

@@ -6,14 +6,14 @@ export const collections = pgTable('collections', {
 	projectId: uuid()
 		.notNull()
 		.references(() => projects.id, { onDelete: 'cascade' }),
+	label: text().notNull(),
 	name: text().notNull(),
-	slug: text().notNull(),
 	description: text(),
 	fields: jsonb().$type<CollectionField[]>().notNull().default([]),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex('collections_slug_project_idx').on(table.slug, table.projectId),
+	uniqueIndex('collections_name_project_idx').on(table.name, table.projectId),
 ])
 
 export interface CollectionField {

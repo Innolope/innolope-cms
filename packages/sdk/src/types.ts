@@ -47,8 +47,8 @@ export interface MediaItem {
 
 export interface Collection {
 	id: string
+	label: string
 	name: string
-	slug: string
 	description: string | null
 	fields: { name: string; type: string; required?: boolean; localized?: boolean }[]
 }

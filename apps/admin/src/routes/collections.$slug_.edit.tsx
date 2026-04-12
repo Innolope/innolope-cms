@@ -23,11 +23,11 @@ function CollectionSchemaEditor() {
 	const { slug } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
-	const { getCollectionBySlug, refreshCollections } = useCollections()
-	const collection = getCollectionBySlug(slug)
+	const { getCollectionByName, refreshCollections } = useCollections()
+	const collection = getCollectionByName(slug)
 
-	const [name, setName] = useState('')
-	const [collectionSlug, setCollectionSlug] = useState('')
+	const [label, setLabel] = useState('')
+	const [collectionName, setCollectionName] = useState('')
 	const [description, setDescription] = useState('')
 	const [fields, setFields] = useState<CollectionField[]>([])
 	const [saving, setSaving] = useState(false)
@@ -35,10 +35,10 @@ function CollectionSchemaEditor() {
 
 	useEffect(() => {
 		if (collection) {
-			api.get<{ name: string; slug: string; description: string | null; fields: CollectionField[] }>(`/api/v1/collections/${collection.id}`)
+			api.get<{ name: string; label: string; description: string | null; fields: CollectionField[] }>(`/api/v1/collections/${collection.id}`)
 				.then((col) => {
-					setName(col.name)
-					setCollectionSlug(col.slug)
+					setLabel(col.label)
+					setCollectionName(col.name)
 					setDescription(col.description || '')
 					setFields(col.fields)
 				})
@@ -70,18 +70,18 @@ function CollectionSchemaEditor() {
 	}
 
 	const save = async () => {
-		if (!collection || !name.trim()) { toast('Name is required', 'error'); return }
+		if (!collection || !label.trim()) { toast('Label is required', 'error'); return }
 		const validFields = fields.filter((f) => f.name.trim())
 		setSaving(true)
 		try {
 			await api.put(`/api/v1/collections/${collection.id}`, {
-				name,
-				slug: collectionSlug,
+				label,
+				name: collectionName,
 				description: description || undefined,
 				fields: validFields,
 			})
 			await refreshCollections()
-			navigate({ to: `/collections/${collectionSlug}` })
+			navigate({ to: `/collections/${collectionName}` })
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
@@ -108,29 +108,29 @@ function CollectionSchemaEditor() {
 		<div className="p-8 pt-5 max-w-3xl">
 			<div className="flex items-center gap-2 text-sm text-text-muted mb-6">
 				<button type="button" onClick={() => navigate({ to: `/collections/${slug}` })} className="hover:text-text transition-colors">
-					{collection.name}
+					{collection.label}
 				</button>
 				<span>/</span>
 				<span className="text-text">Edit Schema</span>
 			</div>
 
-			<h2 className="text-2xl font-bold mb-6">Edit: {name}</h2>
+			<h2 className="text-2xl font-bold mb-6">Edit: {label}</h2>
 
 			<div className="space-y-5">
-				<Field label="Name">
+				<Field label="Label">
 					<input
 						type='text'
-						value={name}
-						onChange={(e) => setName(e.target.value)}
+						value={label}
+						onChange={(e) => setLabel(e.target.value)}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
-				<Field label="Slug">
+				<Field label="Name">
 					<input
 						type='text'
-						value={collectionSlug}
-						onChange={(e) => setCollectionSlug(e.target.value)}
+						value={collectionName}
+						onChange={(e) => setCollectionName(e.target.value)}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 					/>
 				</Field>

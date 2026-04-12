@@ -29,8 +29,8 @@ function CollectionContentEditor() {
 	const { slug, contentId } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
-	const { getCollectionBySlug, refreshCollections } = useCollections()
-	const collection = getCollectionBySlug(slug)
+	const { getCollectionByName, refreshCollections } = useCollections()
+	const collection = getCollectionByName(slug)
 	const isNew = contentId === 'new'
 
 	const [markdown, setMarkdown] = useState('')
@@ -158,7 +158,7 @@ function CollectionContentEditor() {
 				{/* Breadcrumb */}
 				<div className="flex items-center gap-2 text-sm text-text-muted mb-4">
 					<button type="button" onClick={() => navigate({ to: `/collections/${slug}` })} className="hover:text-text transition-colors">
-						{collection?.name || slug}
+						{collection?.label || slug}
 					</button>
 					<span>/</span>
 					<span className="text-text">{isNew ? 'New' : title || contentSlug}</span>
@@ -247,7 +247,7 @@ function CollectionContentEditor() {
 				</Field>
 
 				<Field label="Collection">
-					<p className="text-sm text-text-secondary">{collection?.name}</p>
+					<p className="text-sm text-text-secondary">{collection?.label}</p>
 				</Field>
 
 				{!isNew && (

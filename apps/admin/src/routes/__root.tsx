@@ -266,19 +266,19 @@ function CollectionNavExpanded() {
 	return (
 		<div className="space-y-0.5">
 			{collections.map((col) => {
-				const isActive = location.pathname.startsWith(`/collections/${col.slug}`)
+				const isActive = location.pathname.startsWith(`/collections/${col.name}`)
 				return (
 					<Link
 						key={col.id}
 						to="/collections/$slug"
-						params={{ slug: col.slug }}
+						params={{ slug: col.name }}
 						className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
 							isActive
 								? 'bg-surface-alt text-text font-medium'
 								: 'text-text-secondary hover:bg-surface-alt hover:text-text'
 						}`}
 					>
-						<span className="truncate">{col.name}</span>
+						<span className="truncate">{col.label}</span>
 						{col.contentCount > 0 && (
 							<span className="text-[10px] text-text-muted shrink-0 ml-2">{col.contentCount}</span>
 						)}
@@ -305,12 +305,12 @@ function CollectionNavCollapsed() {
 				<Link
 					key={col.id}
 					to="/collections/$slug"
-					params={{ slug: col.slug }}
+					params={{ slug: col.name }}
 					className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
-					title={`${col.name} (${col.contentCount})`}
+					title={`${col.label} (${col.contentCount})`}
 				>
 					<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
-						{col.name.charAt(0)}
+						{col.label.charAt(0)}
 					</span>
 				</Link>
 			))}

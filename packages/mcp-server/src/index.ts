@@ -193,7 +193,7 @@ server.tool(
 		const collections = await client.listCollections()
 		const summary = collections.map((c) => {
 			const fields = c.fields.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`).join(', ')
-			return `**${c.name}** (slug: ${c.slug}, id: ${c.id})\n  ${c.description || 'No description'}\n  Fields: ${fields || 'None'}`
+			return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Fields: ${fields || 'None'}`
 		}).join('\n\n')
 		return { content: [{ type: 'text', text: `${collections.length} collections:\n\n${summary}` }] }
 	},

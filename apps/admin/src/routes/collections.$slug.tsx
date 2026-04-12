@@ -51,8 +51,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 function CollectionContentList() {
 	const { slug } = Route.useParams()
-	const { getCollectionBySlug } = useCollections()
-	const collection = getCollectionBySlug(slug)
+	const { getCollectionByName } = useCollections()
+	const collection = getCollectionByName(slug)
 	const license = useLicense()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
 
@@ -136,7 +136,7 @@ function CollectionContentList() {
 		<div className="p-8 pt-5 flex flex-col h-full">
 			<div className="flex items-center justify-between mb-6">
 				<div className="flex items-center gap-4">
-					<h2 className="text-2xl font-bold">{collection.name}</h2>
+					<h2 className="text-2xl font-bold">{collection.label}</h2>
 					<div className="flex bg-surface rounded-lg p-0.5 border border-border">
 						<button
 							type="button"
@@ -167,7 +167,7 @@ function CollectionContentList() {
 						to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 					>
-						New {collection.name.replace(/s$/, '')}
+						New {collection.label.replace(/s$/, '')}
 					</Link>
 				)}
 			</div>
@@ -216,13 +216,13 @@ function CollectionContentList() {
 									</div>
 									<h3 className="font-semibold text-text mb-1">No content yet</h3>
 									<p className="text-sm text-text-secondary max-w-xs mb-5">
-										Create your first {collection.name.toLowerCase()} entry.
+										Create your first {collection.label.toLowerCase()} entry.
 									</p>
 									<Link
 										to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
-										Create {collection.name.replace(/s$/, '')}
+										Create {collection.label.replace(/s$/, '')}
 									</Link>
 								</div>
 							)

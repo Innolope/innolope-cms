@@ -15,7 +15,7 @@ function CollectionsLayout() {
 	useEffect(() => {
 		if (location.pathname === '/collections' && !loading) {
 			if (collections.length > 0) {
-				navigate({ to: `/collections/${collections[0].slug}` })
+				navigate({ to: `/collections/${collections[0].name}` })
 			} else {
 				navigate({ to: '/collections/new' })
 			}

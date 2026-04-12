@@ -15,7 +15,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.select({
 				id: collections.id,
 				name: collections.name,
-				slug: collections.slug,
+				label: collections.label,
 				description: collections.description,
 				fields: collections.fields,
 				createdAt: collections.createdAt,
@@ -25,7 +25,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.leftJoin(content, and(eq(content.collectionId, collections.id), eq(content.projectId, pid)))
 			.where(eq(collections.projectId, pid))
 			.groupBy(collections.id)
-			.orderBy(asc(collections.name))
+			.orderBy(asc(collections.label))
 		return results
 	})
 
@@ -52,9 +52,9 @@ export async function collectionRoutes(app: FastifyInstance) {
 
 	// Create collection (admin+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
-		const { name, slug, description, fields } = request.body as {
+		const { name, label, description, fields } = request.body as {
 			name: string
-			slug: string
+			label: string
 			description?: string
 			fields?: unknown[]
 		}
@@ -64,7 +64,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.values({
 				projectId: request.project!.id,
 				name,
-				slug,
+				label,
 				description,
 				fields: (fields || []) as any,
 			})
@@ -78,16 +78,16 @@ export async function collectionRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const { name, slug, description, fields } = request.body as {
+			const { name, label, description, fields } = request.body as {
 				name?: string
-				slug?: string
+				label?: string
 				description?: string
 				fields?: unknown[]
 			}
 
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (name !== undefined) updates.name = name
-			if (slug !== undefined) updates.slug = slug
+			if (label !== undefined) updates.label = label
 			if (description !== undefined) updates.description = description
 			if (fields !== undefined) updates.fields = fields
 

@@ -57,8 +57,8 @@ export async function seed(databaseUrl: string) {
 		.insert(collections)
 		.values({
 			projectId: project.id,
-			name: 'Articles',
-			slug: 'articles',
+			name: 'articles',
+			label: 'Articles',
 			description: 'Blog posts and articles',
 			fields: [
 				{ name: 'title', type: 'text', required: true, localized: true },
@@ -70,15 +70,15 @@ export async function seed(databaseUrl: string) {
 		})
 		.returning()
 
-	console.log(`Created collection: ${articles.name}`)
+	console.log(`Created collection: ${articles.label}`)
 
 	// Create default "Pages" collection
 	const [pages] = await db
 		.insert(collections)
 		.values({
 			projectId: project.id,
-			name: 'Pages',
-			slug: 'pages',
+			name: 'pages',
+			label: 'Pages',
 			description: 'Static pages',
 			fields: [
 				{ name: 'title', type: 'text', required: true, localized: true },
@@ -87,7 +87,7 @@ export async function seed(databaseUrl: string) {
 		})
 		.returning()
 
-	console.log(`Created collection: ${pages.name}`)
+	console.log(`Created collection: ${pages.label}`)
 	console.log('Seed complete.')
 }
 
