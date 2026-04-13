@@ -64,15 +64,30 @@ async function ensureTables(connectionUrl: string) {
 		CREATE TABLE IF NOT EXISTS collections (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			label TEXT NOT NULL,
 			name TEXT NOT NULL,
-			slug TEXT NOT NULL,
 			description TEXT,
 			fields JSONB NOT NULL DEFAULT '[]',
+			source TEXT NOT NULL DEFAULT 'internal',
+			"externalTable" TEXT,
+			"accessMode" TEXT DEFAULT 'read-write',
 			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
 			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-			UNIQUE(slug, "projectId")
+			UNIQUE(name, "projectId")
 		)
 	`
+
+	// Migrate existing databases: rename slug→name, name→label
+	await sql`
+		DO $$ BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='collections' AND column_name='slug') THEN
+				ALTER TABLE collections RENAME COLUMN name TO label;
+				ALTER TABLE collections RENAME COLUMN slug TO name;
+			END IF;
+		END $$
+	`
+	await sql`DROP INDEX IF EXISTS collections_slug_project_idx`
+	await sql`CREATE UNIQUE INDEX IF NOT EXISTS collections_name_project_idx ON collections(name, "projectId")`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS content (
@@ -239,8 +254,7 @@ async function ensureTables(connectionUrl: string) {
 		)
 	`
 
-	// Add columns for external DB integration
-	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT ''`
+	// Add columns for external DB integration (for databases created before these columns existed)
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'internal'`
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "externalTable" TEXT`
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "accessMode" TEXT DEFAULT 'read-write'`
