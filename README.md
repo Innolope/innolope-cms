@@ -18,6 +18,24 @@ Agentic-native, markdown-first headless CMS. AI agents write content directly vi
 - **Self-hostable** — Docker Compose with PostgreSQL, deploy anywhere
 - **TypeScript SDK** — `@innolope/sdk` for consuming content in your app
 
+## Supported Databases
+
+Innolope CMS uses a built-in PostgreSQL database by default. You can also connect an external database to import and manage existing content:
+
+| Provider | Type | Connection |
+|----------|------|------------|
+| **Built-in** | PostgreSQL | Managed by Innolope CMS |
+| **MongoDB** | NoSQL | Atlas or self-hosted |
+| **PostgreSQL** | SQL | Direct connection |
+| **MySQL** | SQL | Direct connection |
+| **Supabase** | SQL | Managed Postgres |
+| **CockroachDB** | SQL | Distributed SQL |
+| **Firebase** | NoSQL | Firestore via service account |
+| **Neon** | SQL | Serverless Postgres |
+| **Vercel Postgres** | SQL | Serverless SQL |
+
+External databases support full CRUD or read-only mode. Content is cached as markdown for AI agent retrieval.
+
 ## Quick Start
 
 ```bash
