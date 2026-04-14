@@ -163,6 +163,14 @@ export class InnolopeClient {
 			body: JSON.stringify(data),
 		}).catch(() => {}) // fire-and-forget
 	}
+
+	/** Report MCP tool invocation to the API for PostHog tracking */
+	trackToolCall(data: { tool: string; durationMs: number; success: boolean; error?: string; params?: Record<string, unknown> }) {
+		this.request<void>('/api/v1/stats/mcp-usage', {
+			method: 'POST',
+			body: JSON.stringify(data),
+		}).catch(() => {}) // fire-and-forget, never block MCP response
+	}
 }
 
 interface ContentItem {

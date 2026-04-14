@@ -31,6 +31,7 @@ import { passwordResetRoutes } from './routes/v1/password-reset.js'
 import { inviteRoutes } from './routes/v1/invites.js'
 import { exportRoutes } from './routes/v1/export.js'
 import { semanticSearchRoutes } from './routes/v1/semantic-search.js'
+import { posthogPlugin } from './plugins/posthog.js'
 import { initWebhookDispatcher } from './services/webhook-dispatch.js'
 import { initAutoEmbedding } from './services/embedding.js'
 
@@ -92,6 +93,7 @@ export async function buildApp() {
 	await app.register(authPlugin)
 	await app.register(projectPlugin)
 	await app.register(eventsPlugin)
+	await app.register(posthogPlugin)
 	initWebhookDispatcher(app)
 	initAutoEmbedding(app)
 	await app.register(emailPlugin)

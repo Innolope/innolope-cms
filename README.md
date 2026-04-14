@@ -111,7 +111,7 @@ innolope-cms/
 | `/api/v1/media` | Media upload, list, delete | Project-scoped |
 | `/api/v1/ai` | AI completion, settings, models | Project-scoped |
 | `/api/v1/locales` | Locale info, translations, coverage | Project-scoped |
-| `/api/v1/stats` | Dashboard stats, recent activity | Project-scoped |
+| `/api/v1/stats` | Dashboard stats, analytics, MCP usage tracking | Project-scoped |
 | `/api/v1/stream` | SSE real-time events | Project-scoped |
 | `/api/v1/license` | License info + feature flags | Public |
 
@@ -138,7 +138,78 @@ docker-compose up
 | `CLOUDFLARE_API_TOKEN` | No | For Cloudflare media |
 | `CLOUDFLARE_IMAGES_ACCOUNT_HASH` | No | For image delivery |
 | `CLOUDFLARE_R2_BUCKET` | No | R2 bucket name |
+| `POSTHOG_API_KEY` | No | PostHog project API key (enables analytics) |
+| `POSTHOG_HOST` | No | PostHog instance URL (default: `https://us.i.posthog.com`) |
+| `POSTHOG_DISABLED` | No | Set to `true` to force-disable PostHog |
 | `INNOLOPE_LICENSE_KEY` | No | Enterprise license key (enables AI, multi-project, etc.) |
+
+## Analytics (PostHog)
+
+Innolope CMS ships with optional PostHog integration for tracking content lifecycle events and MCP server usage. Set two environment variables and every CMS event flows into your PostHog instance — no code changes required.
+
+### Setup
+
+```bash
+POSTHOG_API_KEY=phc_your_key_here
+POSTHOG_HOST=https://us.i.posthog.com   # or your self-hosted PostHog URL
+```
+
+When `POSTHOG_API_KEY` is not set, analytics are completely disabled — no dependencies loaded, no network calls, no performance impact.
+
+To force-disable even when the key is present:
+
+```bash
+POSTHOG_DISABLED=true
+```
+
+### Events Tracked
+
+**Content lifecycle** (automatic via event bus — no per-route instrumentation):
+
+| Event | Fired when |
+|-------|-----------|
+| `cms_content_created` | Content item created |
+| `cms_content_updated` | Content item updated |
+| `cms_content_published` | Content item published |
+| `cms_content_deleted` | Content item deleted |
+| `cms_content_submitted` | Content submitted for review |
+| `cms_content_approved` | Content approved |
+| `cms_content_rejected` | Content rejected |
+| `cms_media_uploaded` | Media file uploaded |
+| `cms_media_deleted` | Media file deleted |
+
+**Auth events:**
+
+| Event | Fired when |
+|-------|-----------|
+| `cms_user_login` | User logs in |
+| `cms_user_registered` | New user registered |
+| `cms_user_logout` | User logs out |
+| `cms_user_password_changed` | Password changed |
+
+**MCP server usage** (automatic — every tool call is instrumented):
+
+| Event | Properties |
+|-------|-----------|
+| `cms_mcp_tool_called` | `tool`, `duration_ms`, `success`, `error`, `project_id`, `params` |
+| `cms_mcp_content_read` | `content_id`, `project_id` |
+| `cms_mcp_search_hit` | `query`, `project_id` |
+| `cms_mcp_search_miss` | `query`, `project_id` |
+
+MCP tool call parameters are sanitized before sending — large fields like `markdown` are replaced with character counts, and bulk `items` arrays are replaced with item counts. No content body data is sent to PostHog.
+
+### Architecture
+
+The integration works as a Fastify plugin that subscribes to the existing event bus (the same mechanism webhooks use). The MCP server reports tool usage back to the API via `POST /api/v1/stats/mcp-usage`, which forwards to PostHog server-side using `posthog-node`. All PostHog calls are fire-and-forget — they never block API responses or MCP tool execution.
+
+### Example PostHog Dashboards
+
+With this data you can build:
+
+- **MCP adoption** — which tools are used most, average response times, error rates
+- **Content funnel** — created → submitted → approved → published conversion
+- **Search quality** — hit/miss ratio, most common queries with no results
+- **User engagement** — login frequency, active projects, content velocity
 
 ## Enterprise Features
 

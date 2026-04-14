@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import fp from 'fastify-plugin'
 
 export interface CmsEvent {
-	type: 'content:created' | 'content:updated' | 'content:published' | 'content:deleted' | 'content:submitted' | 'content:approved' | 'content:rejected' | 'media:uploaded' | 'media:deleted'
+	type: 'content:created' | 'content:updated' | 'content:published' | 'content:deleted' | 'content:submitted' | 'content:approved' | 'content:rejected' | 'media:uploaded' | 'media:deleted' | 'auth:login' | 'auth:logout' | 'auth:registered' | 'auth:password_changed'
 	data: Record<string, unknown>
 	timestamp: string
 }

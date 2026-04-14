@@ -79,6 +79,8 @@ export async function authRoutes(app: FastifyInstance) {
 
 		await setAuthCookies(reply, app.db, user)
 
+		app.events.emit({ type: 'auth:registered', data: { userId: user.id, email: user.email }, timestamp: new Date().toISOString() })
+
 		return reply.status(201).send({
 			user: { id: user.id, email: user.email, name: user.name, role: user.role },
 		})
@@ -96,6 +98,8 @@ export async function authRoutes(app: FastifyInstance) {
 		}
 
 		await setAuthCookies(reply, app.db, user)
+
+		app.events.emit({ type: 'auth:login', data: { userId: user.id, email: user.email }, timestamp: new Date().toISOString() })
 
 		return { user: { id: user.id, email: user.email, name: user.name, role: user.role } }
 	})
@@ -167,6 +171,17 @@ export async function authRoutes(app: FastifyInstance) {
 		reply.clearCookie('innolope_token', { path: '/' })
 		reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
 		reply.clearCookie('innolope_csrf', { path: '/' })
+
+		// Best-effort: try to identify user from the access token cookie
+		const cookieToken = request.cookies?.innolope_token
+		if (cookieToken) {
+			const { verifyJwt } = await import('../../plugins/auth.js')
+			const user = await verifyJwt(cookieToken).catch(() => null)
+			if (user) {
+				app.events.emit({ type: 'auth:logout', data: { userId: user.id }, timestamp: new Date().toISOString() })
+			}
+		}
+
 		return { message: 'Logged out' }
 	})
 
@@ -188,6 +203,8 @@ export async function authRoutes(app: FastifyInstance) {
 
 		// Revoke all refresh tokens — forces re-login on all devices
 		await revokeAllUserRefreshTokens(app.db, request.user!.id)
+
+		app.events.emit({ type: 'auth:password_changed', data: { userId: request.user!.id }, timestamp: new Date().toISOString() })
 
 		return { message: 'Password updated. All sessions have been signed out.' }
 	})

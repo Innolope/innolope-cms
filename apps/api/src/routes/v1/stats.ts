@@ -157,6 +157,65 @@ export async function statsRoutes(app: FastifyInstance) {
 			source: source as typeof validSources[number],
 		})
 
+		// Forward to PostHog if configured
+		app.posthog?.capture({
+			distinctId: `project_${request.project!.id}`,
+			event: event === 'mcp_read' ? 'cms_mcp_content_read' : event === 'search_hit' ? 'cms_mcp_search_hit' : event === 'search_miss' ? 'cms_mcp_search_miss' : `cms_${event}`,
+			properties: {
+				projectId: request.project!.id,
+				contentId,
+				query,
+				source,
+			},
+		})
+
 		return reply.status(204).send()
 	})
+
+	// Track MCP tool invocations — called by the MCP server after each tool call
+	app.post('/mcp-usage', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
+		const body = request.body as {
+			tool: string
+			durationMs: number
+			success: boolean
+			error?: string
+			params?: Record<string, unknown>
+		}
+
+		if (!body.tool) return reply.status(400).send({ error: 'tool is required' })
+
+		// Forward to PostHog
+		app.posthog?.capture({
+			distinctId: `project_${request.project!.id}`,
+			event: 'cms_mcp_tool_called',
+			properties: {
+				tool: body.tool,
+				duration_ms: body.durationMs || 0,
+				success: body.success !== false,
+				error: body.error || undefined,
+				project_id: request.project!.id,
+				// Include safe param summaries (no full content/markdown)
+				params: sanitizeMcpParams(body.params),
+				api_key_id: request.apiKeyAuth?.keyId,
+			},
+		})
+
+		return reply.status(204).send()
+	})
+}
+
+/** Strip large content fields from MCP tool params before sending to PostHog */
+function sanitizeMcpParams(params?: Record<string, unknown>): Record<string, unknown> | undefined {
+	if (!params) return undefined
+	const safe: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(params)) {
+		if (key === 'markdown' || key === 'content') {
+			safe[key] = typeof value === 'string' ? `[${value.length} chars]` : undefined
+		} else if (key === 'items' && Array.isArray(value)) {
+			safe[key] = `[${value.length} items]`
+		} else {
+			safe[key] = value
+		}
+	}
+	return safe
 }

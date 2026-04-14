@@ -33,6 +33,7 @@
     "nodemailer": "^8.0.5",
     "oslo": "^1.2.1",
     "postgres": "^3.4.7",
+    "posthog-node": "^5.29.2",
     "zod": "^3.25.17"
   },
   "devDependencies": {
