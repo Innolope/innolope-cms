@@ -79,6 +79,8 @@ function CollectionContentEditor() {
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
 	const [externalId, setExternalId] = useState<string | null>(null)
+	const [extraFields, setExtraFields] = useState<Record<string, unknown>>({})
+	const [showExtraFields, setShowExtraFields] = useState(false)
 	const license = useLicense()
 	const aiLicensed = hasFeature(license, 'ai-assistant')
 	const [showAi, setShowAi] = useState(false)
@@ -105,6 +107,18 @@ function CollectionContentEditor() {
 					setTags(((mergedMeta.tags as string[]) || []).join(', '))
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
+
+					// Detect extra fields not in the collection schema
+					if (collection) {
+						const schemaNames = new Set(collection.fields.map(f => f.name))
+						schemaNames.add('title')
+						schemaNames.add('tags')
+						const extras: Record<string, unknown> = {}
+						for (const [key, val] of Object.entries(mergedMeta)) {
+							if (!schemaNames.has(key)) extras[key] = val
+						}
+						setExtraFields(extras)
+					}
 
 					// Check for unsaved local draft
 					try {
@@ -164,6 +178,7 @@ function CollectionContentEditor() {
 		setSaving(true)
 		try {
 			const metadata = {
+				...extraFields,
 				title,
 				tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
 			}
@@ -362,6 +377,75 @@ function CollectionContentEditor() {
 						placeholder="tag1, tag2"
 					/>
 				</Field>
+
+				{/* Additional fields — fields in metadata not in the schema */}
+				{Object.keys(extraFields).length > 0 && (
+					<div>
+						<button
+							type="button"
+							onClick={() => setShowExtraFields(!showExtraFields)}
+							className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text transition-colors w-full"
+						>
+							<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+								className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
+							><polyline points="9 18 15 12 9 6" /></svg>
+							Additional fields ({Object.keys(extraFields).length})
+						</button>
+						{showExtraFields && (
+							<div className="mt-2 space-y-2">
+								{Object.entries(extraFields).map(([key, val]) => (
+									<div key={key}>
+										<label className="block text-[10px] text-text-muted mb-0.5 font-mono">{key}</label>
+										<input
+											type="text"
+											value={String(val ?? '')}
+											onChange={(e) => {
+												setExtraFields(prev => ({ ...prev, [key]: e.target.value }))
+												setDirty(true)
+											}}
+											disabled={isReadOnly}
+											className="w-full px-2 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60"
+										/>
+									</div>
+								))}
+								{!isReadOnly && (
+									<button
+										type="button"
+										onClick={() => {
+											const key = prompt('Field name:')
+											if (key?.trim()) {
+												setExtraFields(prev => ({ ...prev, [key.trim()]: '' }))
+												setDirty(true)
+												setShowExtraFields(true)
+											}
+										}}
+										className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+									>
+										+ Add field
+									</button>
+								)}
+							</div>
+						)}
+					</div>
+				)}
+
+				{/* Add field button when no extra fields exist yet */}
+				{Object.keys(extraFields).length === 0 && !isReadOnly && !isNew && (
+					<button
+						type="button"
+						onClick={() => {
+							const key = prompt('Field name:')
+							if (key?.trim()) {
+								setExtraFields(prev => ({ ...prev, [key.trim()]: '' }))
+								setDirty(true)
+								setShowExtraFields(true)
+							}
+						}}
+						className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+					>
+						+ Add custom field
+					</button>
+				)}
 
 				<Field label="Collection">
 					<p className="text-sm text-text-secondary">{collection?.label}</p>

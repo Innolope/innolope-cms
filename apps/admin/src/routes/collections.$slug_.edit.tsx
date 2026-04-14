@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 import { useCollections } from '../lib/collections'
 import { Dropdown } from '../components/dropdown'
@@ -23,6 +24,7 @@ function CollectionSchemaEditor() {
 	const { slug } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
+	const { currentProject } = useAuth()
 	const { getCollectionByName, refreshCollections } = useCollections()
 	const collection = getCollectionByName(slug)
 
@@ -32,6 +34,7 @@ function CollectionSchemaEditor() {
 	const [fields, setFields] = useState<CollectionField[]>([])
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(true)
+	const [scanning, setScanning] = useState(false)
 
 	useEffect(() => {
 		if (collection) {
@@ -148,7 +151,49 @@ function CollectionSchemaEditor() {
 				<div>
 					<div className="flex items-center justify-between mb-3">
 						<label className="text-sm font-medium">Fields</label>
-						<button type="button" onClick={addField} className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover">+ Add Field</button>
+						<div className="flex gap-2">
+							{collection?.source === 'external' && currentProject && (
+								<button
+									type="button"
+									disabled={scanning}
+									onClick={async () => {
+										if (!currentProject || !collection) return
+										setScanning(true)
+										try {
+											const settings = currentProject.settings as unknown as Record<string, unknown>
+											const extDb = settings?.externalDb as Record<string, unknown> | undefined
+											if (!extDb?.type || !extDb?.connectionString) throw new Error('No external DB config')
+											const result = await api.post<{ tables: Array<{ name: string; columns: { name: string; type: string }[] }> }>(
+												`/api/v1/projects/${currentProject.id}/database/scan`,
+												{ type: extDb.type, connectionString: extDb.connectionString, database: extDb.database || undefined },
+											)
+											const match = result.tables.find(t => t.name === collection.name)
+											if (match) {
+												const existingNames = new Set(fields.map(f => f.name))
+												const newFields = match.columns
+													.filter(c => c.name !== '_id' && c.name !== 'id' && !existingNames.has(c.name))
+													.map(c => ({ name: c.name, type: c.type === 'string' ? 'text' : c.type === 'number' ? 'number' : c.type === 'boolean' ? 'boolean' : 'text', required: false, localized: false }))
+												if (newFields.length > 0) {
+													setFields([...fields, ...newFields])
+													toast(`Found ${newFields.length} new field${newFields.length !== 1 ? 's' : ''}`, 'success')
+												} else {
+													toast('No new fields found', 'success')
+												}
+											}
+										} catch (err) {
+											toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+										} finally {
+											setScanning(false)
+										}
+									}}
+									className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover disabled:opacity-40 inline-flex items-center gap-1.5"
+								>
+									{scanning && <div className="w-3 h-3 border-2 border-text-muted border-t-transparent rounded-full animate-spin" />}
+									{scanning ? 'Scanning...' : 'Re-scan from DB'}
+								</button>
+							)}
+							<button type="button" onClick={addField} className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover">+ Add Field</button>
+						</div>
 					</div>
 
 					{fields.length === 0 ? (
