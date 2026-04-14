@@ -193,7 +193,7 @@ function CollectionContentList() {
 									{ value: 'published', label: 'Published' },
 									{ value: 'archived', label: 'Archived' },
 								]}
-								className="px-3 py-2 bg-input border border-border rounded text-sm"
+								className="w-40 shrink-0"
 							/>
 						</div>
 					)}

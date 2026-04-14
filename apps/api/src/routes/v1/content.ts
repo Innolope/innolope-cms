@@ -1,8 +1,9 @@
-import { content, contentVersions, contentAnalytics } from '@innolope/db'
+import { content, contentVersions, contentAnalytics, collections, projects } from '@innolope/db'
 import { contentInputSchema, contentListSchema } from '@innolope/config'
 import type { FastifyInstance } from 'fastify'
 import { eq, desc, asc, and, sql } from 'drizzle-orm'
 import { marked } from 'marked'
+import { createExternalDbAdapter } from '../../adapters/external-db.js'
 
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
@@ -246,6 +247,38 @@ export async function contentRoutes(app: FastifyInstance) {
 			.limit(1)
 
 		if (!current) return reply.status(404).send({ error: 'Content not found' })
+
+		// If this content belongs to an external collection with write access, sync to external DB
+		if (current.externalId) {
+			const [col] = await app.db.select().from(collections)
+				.where(and(eq(collections.id, current.collectionId), eq(collections.projectId, request.project!.id)))
+				.limit(1)
+
+			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+				const [project] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
+				const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as Record<string, unknown> | undefined
+
+				if (extDb?.type && extDb?.connectionString) {
+					try {
+						const adapter = createExternalDbAdapter({
+							type: extDb.type as string,
+							connectionString: extDb.connectionString as string,
+							database: extDb.database as string | undefined,
+						})
+						await adapter.connect()
+						// Build update data from metadata + title
+						const updateData: Record<string, unknown> = { ...input.metadata }
+						if (input.markdown) updateData.content = input.markdown
+						await adapter.update(col.externalTable, current.externalId, updateData)
+						await adapter.disconnect()
+					} catch (err) {
+						app.log.warn(err, 'Failed to sync to external DB — cache will be updated')
+					}
+				}
+			} else if (col?.source === 'external' && col.accessMode === 'read-only') {
+				return reply.status(403).send({ error: 'This collection is read-only' })
+			}
+		}
 
 		await app.db.insert(contentVersions).values({
 			contentId: current.id,

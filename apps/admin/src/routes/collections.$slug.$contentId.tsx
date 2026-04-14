@@ -23,6 +23,40 @@ interface ContentItem {
 	locale: string
 	version: number
 	collectionId: string
+	externalId?: string
+}
+
+/** Parse YAML frontmatter from markdown, return body + metadata */
+function parseFrontmatter(md: string): { body: string; meta: Record<string, unknown> } {
+	const match = md.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/)
+	if (!match) return { body: md, meta: {} }
+
+	const yamlBlock = match[1]
+	const body = match[2]
+	const meta: Record<string, unknown> = {}
+
+	for (const line of yamlBlock.split('\n')) {
+		const m = line.match(/^(\w[\w-]*):\s*(.*)$/)
+		if (!m) continue
+		const [, key, rawVal] = m
+		let val: unknown = rawVal.trim()
+		// Unquote strings
+		if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+			val = val.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n')
+		}
+		// Parse booleans
+		if (val === 'true') val = true
+		else if (val === 'false') val = false
+		// Parse numbers
+		else if (typeof val === 'string' && val && !Number.isNaN(Number(val))) val = Number(val)
+		// Parse arrays
+		else if (typeof val === 'string' && val.startsWith('[') && val.endsWith(']')) {
+			try { val = JSON.parse(val) } catch { /* keep as string */ }
+		}
+		meta[key] = val
+	}
+
+	return { body, meta }
 }
 
 function CollectionContentEditor() {
@@ -32,6 +66,8 @@ function CollectionContentEditor() {
 	const { getCollectionByName, refreshCollections } = useCollections()
 	const collection = getCollectionByName(slug)
 	const isNew = contentId === 'new'
+	const isExternal = collection?.source === 'external'
+	const isReadOnly = isExternal && collection?.accessMode === 'read-only'
 
 	const [markdown, setMarkdown] = useState('')
 	const [title, setTitle] = useState('')
@@ -42,6 +78,7 @@ function CollectionContentEditor() {
 	const [dirty, setDirty] = useState(false)
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
+	const [externalId, setExternalId] = useState<string | null>(null)
 	const license = useLicense()
 	const aiLicensed = hasFeature(license, 'ai-assistant')
 	const [showAi, setShowAi] = useState(false)
@@ -50,28 +87,80 @@ function CollectionContentEditor() {
 	const editorContainerRef = useRef<HTMLDivElement>(null)
 
 	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
+	const [showDraftRestore, setShowDraftRestore] = useState(false)
+	const draftKey = `innolope:draft:${contentId}`
 
+	// Load content
 	useEffect(() => {
 		if (!isNew && contentId) {
 			api.get<ContentItem>(`/api/v1/content/${contentId}`)
 				.then((item) => {
-					setMarkdown(item.markdown)
-					setTitle((item.metadata?.title as string) || '')
+					const { body, meta } = parseFrontmatter(item.markdown)
+					const mergedMeta = { ...meta, ...item.metadata }
+
+					setMarkdown(body.trim())
+					setTitle((mergedMeta.title as string) || '')
 					setContentSlug(item.slug)
 					setStatus(item.status)
-					setTags(((item.metadata?.tags as string[]) || []).join(', '))
+					setTags(((mergedMeta.tags as string[]) || []).join(', '))
 					setVersion(item.version)
+					setExternalId(item.externalId || null)
+
+					// Check for unsaved local draft
+					try {
+						const raw = localStorage.getItem(draftKey)
+						if (raw) {
+							const draft = JSON.parse(raw) as { markdown: string; title: string; savedAt: number }
+							// Show restore prompt if draft is newer than content (within 24 hours)
+							const ageMs = Date.now() - draft.savedAt
+							if (ageMs < 24 * 60 * 60 * 1000 && (draft.markdown !== body.trim() || draft.title !== ((mergedMeta.title as string) || ''))) {
+								setShowDraftRestore(true)
+							} else {
+								localStorage.removeItem(draftKey)
+							}
+						}
+					} catch {}
 				})
 				.catch(() => navigate({ to: `/collections/${slug}` }))
 				.finally(() => setLoading(false))
 		}
-	}, [contentId, isNew, navigate, slug])
+	}, [contentId, isNew, navigate, slug, draftKey])
+
+	// Auto-save draft to localStorage every 5 seconds when dirty
+	useEffect(() => {
+		if (!dirty || isNew) return
+		const timer = setTimeout(() => {
+			try {
+				localStorage.setItem(draftKey, JSON.stringify({ markdown, title, savedAt: Date.now() }))
+			} catch {}
+		}, 5000)
+		return () => clearTimeout(timer)
+	}, [dirty, markdown, title, draftKey, isNew])
+
+	const restoreDraft = () => {
+		try {
+			const raw = localStorage.getItem(draftKey)
+			if (raw) {
+				const draft = JSON.parse(raw) as { markdown: string; title: string }
+				setMarkdown(draft.markdown)
+				setTitle(draft.title)
+				setDirty(true)
+			}
+		} catch {}
+		setShowDraftRestore(false)
+	}
+
+	const dismissDraft = () => {
+		localStorage.removeItem(draftKey)
+		setShowDraftRestore(false)
+	}
 
 	const generateSlug = (text: string) =>
 		text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 	const save = async () => {
 		if (!collection) return
+		if (isReadOnly) { toast('This collection is read-only', 'error'); return }
 		setSaving(true)
 		try {
 			const metadata = {
@@ -92,6 +181,7 @@ function CollectionContentEditor() {
 				await api.put(`/api/v1/content/${contentId}`, { slug: contentSlug, markdown, metadata, status })
 			}
 			setDirty(false)
+			try { localStorage.removeItem(draftKey) } catch {}
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
@@ -162,11 +252,44 @@ function CollectionContentEditor() {
 					</button>
 					<span>/</span>
 					<span className="text-text">{isNew ? 'New' : title || contentSlug}</span>
+					{isExternal && (
+						<span className={`ml-2 px-1.5 py-0.5 text-[10px] font-medium uppercase rounded ${isReadOnly ? 'bg-surface-alt text-text-muted' : 'bg-accent-soft text-accent'}`}>
+							{isReadOnly ? 'Read Only' : 'External'}
+						</span>
+					)}
 				</div>
+
+				{/* Draft restore banner */}
+				{showDraftRestore && (
+					<div className="flex items-center justify-between px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border">
+						<span className="text-sm text-text-secondary">You have unsaved changes from a previous session.</span>
+						<div className="flex gap-2">
+							<button type="button" onClick={restoreDraft} className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover">Restore</button>
+							<button type="button" onClick={dismissDraft} className="px-3 py-1 text-text-muted hover:text-text text-xs">Dismiss</button>
+						</div>
+					</div>
+				)}
+
+				{/* Title — above editor */}
+				<input
+					type="text"
+					value={title}
+					onChange={(e) => { setTitle(e.target.value); setDirty(true); if (isNew) setContentSlug(generateSlug(e.target.value)) }}
+					placeholder="Enter title"
+					disabled={isReadOnly}
+					className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
+				/>
+
+				{isReadOnly && (
+					<div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-surface-alt text-xs text-text-muted">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+						This content is read-only. The external database connection is configured as read-only.
+					</div>
+				)}
 
 				<MarkdownEditor
 					content={markdown}
-					onChange={(v) => { setMarkdown(v); setDirty(true) }}
+					onChange={(v) => { if (!isReadOnly) { setMarkdown(v); setDirty(true) } }}
 				/>
 
 				{editorContainerRef.current && aiSelectedText && (
@@ -181,51 +304,44 @@ function CollectionContentEditor() {
 			{/* Sidebar */}
 			<div className="w-72 border-l border-border p-6 space-y-4 overflow-auto shrink-0">
 				<div className="flex gap-2">
-					<button
-						type="button"
-						onClick={save}
-						disabled={saving}
-						className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-					>
-						{saving ? 'Saving...' : 'Save'}
-					</button>
-					{!isNew && status === 'draft' && reviewWorkflowsLicensed && (
+					{!isReadOnly && (
+						<button
+							type="button"
+							onClick={save}
+							disabled={saving}
+							className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+						>
+							{saving ? 'Saving...' : 'Save'}
+						</button>
+					)}
+					{!isNew && !isReadOnly && status === 'draft' && reviewWorkflowsLicensed && (
 						<button type="button" onClick={submitForReview} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Submit</button>
 					)}
-					{!isNew && status === 'pending_review' && reviewWorkflowsLicensed && (
+					{!isNew && !isReadOnly && status === 'pending_review' && reviewWorkflowsLicensed && (
 						<>
 							<button type="button" onClick={approveContent} disabled={saving} className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">Approve</button>
 							<button type="button" onClick={rejectContent} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Reject</button>
 						</>
 					)}
-					{!isNew && status !== 'published' && !reviewWorkflowsLicensed && (
+					{!isNew && !isReadOnly && status !== 'published' && !reviewWorkflowsLicensed && (
 						<button type="button" onClick={publish} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Publish</button>
 					)}
 				</div>
-
-				<Field label="Title">
-					<input
-						type="text"
-						value={title}
-						onChange={(e) => { setTitle(e.target.value); setDirty(true); if (isNew) setContentSlug(generateSlug(e.target.value)) }}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-						placeholder="Enter title"
-					/>
-				</Field>
 
 				<Field label="Slug">
 					<input
 						type="text"
 						value={contentSlug}
 						onChange={(e) => { setContentSlug(e.target.value); setDirty(true) }}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
+						disabled={isReadOnly}
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono disabled:opacity-60"
 					/>
 				</Field>
 
 				<Field label="Status">
 					<Dropdown
 						value={status}
-						onChange={(v) => { setStatus(v); setDirty(true) }}
+						onChange={(v) => { if (!isReadOnly) { setStatus(v); setDirty(true) } }}
 						options={[
 							{ value: 'draft', label: 'Draft' },
 							{ value: 'pending_review', label: 'Pending Review' },
@@ -241,7 +357,8 @@ function CollectionContentEditor() {
 						type="text"
 						value={tags}
 						onChange={(e) => { setTags(e.target.value); setDirty(true) }}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
+						disabled={isReadOnly}
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 						placeholder="tag1, tag2"
 					/>
 				</Field>
@@ -256,15 +373,22 @@ function CollectionContentEditor() {
 					</Field>
 				)}
 
-				{!isNew && (
+				{externalId && (
+					<Field label="External ID">
+						<p className="text-xs text-text-muted font-mono break-all">{externalId}</p>
+					</Field>
+				)}
+
+				{!isNew && !isExternal && (
 					<VersionPanel
 						contentId={contentId}
 						currentVersion={version}
 						onRevert={() => {
 							api.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(`/api/v1/content/${contentId}`)
 								.then((item) => {
-									setMarkdown(item.markdown)
-									setTitle((item.metadata?.title as string) || '')
+									const { body, meta } = parseFrontmatter(item.markdown)
+									setMarkdown(body.trim())
+									setTitle((meta.title as string) || (item.metadata?.title as string) || '')
 									setVersion(item.version)
 									setDirty(false)
 								})

@@ -11,6 +11,7 @@ Agentic-native, markdown-first headless CMS. AI agents write content directly vi
 - **Cloudflare media** — Images, Stream (video), and R2 (files) out of the box
 - **Role-based auth** — per-project roles (owner / admin / editor / viewer) + granular API key permissions
 - **Visual editor** — TipTap WYSIWYG that imports/exports markdown
+- **Auto-save drafts** — edits are saved locally every 5 seconds and can be restored after page reload or browser crash
 - **Content versioning** — full history with diff view and one-click revert
 - **Localization** — multi-locale content with translation coverage tracking
 - **REST API** — versioned API at `/api/v1/*` for any frontend framework
@@ -34,7 +35,7 @@ Innolope CMS uses a built-in PostgreSQL database by default. You can also connec
 | **Neon** | SQL | Serverless Postgres |
 | **Vercel Postgres** | SQL | Serverless SQL |
 
-External databases support full CRUD or read-only mode. Content is cached as markdown for AI agent retrieval.
+External databases support full CRUD or read-only mode. Content is cached as markdown for AI agent retrieval. Edits are synced to the external database on save, with local auto-save drafts for recovery.
 
 ## Quick Start
 
