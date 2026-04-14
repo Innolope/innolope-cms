@@ -176,10 +176,14 @@ export async function buildApp() {
 		const statusCode = error.statusCode || 500
 		// Report 5xx errors to Sentry
 		if (statusCode >= 500 && process.env.SENTRY_DSN) {
-			const Sentry = await import('@sentry/node')
-			Sentry.captureException(error, {
-				extra: { url: request.url, method: request.method },
-			})
+			try {
+				const Sentry = await import('@sentry/node')
+				Sentry.captureException(error, {
+					extra: { url: request.url, method: request.method },
+				})
+			} catch (e) {
+				app.log.error(e)
+			}
 		}
 		reply.status(statusCode).send({
 			error: statusCode >= 500 ? 'Internal server error' : error.message,

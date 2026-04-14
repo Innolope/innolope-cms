@@ -35,9 +35,8 @@ COPY --from=build /app/packages/config/dist ./packages/config/dist
 COPY --from=build /app/packages/config/package.json ./packages/config/
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/
-COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./
+COPY --from=build /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
 
 ENV NODE_ENV=production
 EXPOSE 3001
