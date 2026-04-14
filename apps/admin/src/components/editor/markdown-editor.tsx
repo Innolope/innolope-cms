@@ -41,7 +41,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		editorProps: {
 			attributes: {
 				class:
-					'prose prose-zinc dark:prose-invert max-w-none min-h-[400px] focus:outline-none px-4 py-3',
+					'max-w-none min-h-[400px] focus:outline-none px-4 py-3 text-text',
 			},
 		},
 		onUpdate: ({ editor }) => {
