@@ -623,11 +623,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	if (step === 2 && needsDbSelect) {
 		return (
 			<div>
-				{!onChangeDatabase && (
-					<div className="-mt-2 -ml-1 mb-6">
-						<BackLink onClick={goBack}>Edit connection string</BackLink>
-					</div>
-				)}
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>Edit connection string</BackLink>
+				</div>
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={2} />
 
@@ -638,15 +636,19 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						<p className="text-sm text-text-muted mb-3">
 							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this server. Choose which one to connect.
 						</p>
-						<div className="grid grid-cols-2 gap-2">
+						<div className="grid grid-cols-3 gap-3">
 							{databases.map((db) => (
 								<button
 									key={db}
 									type="button"
 									onClick={() => selectDatabase(db)}
-									className="px-4 py-3 rounded-lg border border-border hover:border-border-strong text-left transition-colors group"
+									className="p-5 rounded-lg border border-border hover:border-border-strong text-left transition-colors relative"
 								>
-									<span className="text-sm font-mono text-text group-hover:text-accent transition-colors">{db}</span>
+									<div className="absolute top-4 right-4 w-[18px] h-[18px] rounded-full border-2 border-border-strong flex items-center justify-center" />
+									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
+										<ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+									</svg>
+									<p className="font-medium text-text">{db}</p>
 								</button>
 							))}
 						</div>
@@ -661,13 +663,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	if (step === tableStepIndex) {
 		return (
 			<div>
-				{!onChangeDatabase && (
-					<div className="-mt-2 -ml-1 mb-6">
-						<BackLink onClick={goBack}>
-							{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
-						</BackLink>
-					</div>
-				)}
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>
+						{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
+					</BackLink>
+				</div>
 				<div className="space-y-5">
 				<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
 
@@ -675,6 +675,15 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					<div className="flex items-center justify-center gap-2">
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
 						<span className="text-sm text-text-secondary">Connected to <span className="font-medium text-text">{selectedOption.label}</span></span>
+						<button
+							type="button"
+							onClick={() => scanTablesFor(selectedDb || '')}
+							disabled={scanning}
+							title="Refresh collections"
+							className="text-text-muted hover:text-text transition-colors disabled:opacity-40"
+						>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={scanning ? 'animate-spin' : ''}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
+						</button>
 					</div>
 					{selectedDb && (
 						<p className="text-sm text-text-muted">Database found: <span className="font-medium text-text">{selectedDb}</span></p>

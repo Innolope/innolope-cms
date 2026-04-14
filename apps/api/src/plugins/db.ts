@@ -77,15 +77,8 @@ async function ensureTables(connectionUrl: string) {
 		)
 	`
 
-	// Migrate existing databases: rename slug→name, name→label
-	await sql`
-		DO $$ BEGIN
-			IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='collections' AND column_name='slug') THEN
-				ALTER TABLE collections RENAME COLUMN name TO label;
-				ALTER TABLE collections RENAME COLUMN slug TO name;
-			END IF;
-		END $$
-	`
+	// Remove legacy slug column if it exists
+	await sql`ALTER TABLE collections DROP COLUMN IF EXISTS slug`
 	await sql`DROP INDEX IF EXISTS collections_slug_project_idx`
 	await sql`CREATE UNIQUE INDEX IF NOT EXISTS collections_name_project_idx ON collections(name, "projectId")`
 
