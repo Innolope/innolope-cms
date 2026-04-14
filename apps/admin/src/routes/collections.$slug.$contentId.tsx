@@ -108,14 +108,11 @@ function CollectionContentEditor() {
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
 
-					// Detect extra fields not in the collection schema
+					// All metadata except title goes into extraFields (schema fields rendered dynamically for both internal and external)
 					if (collection) {
-						const schemaNames = new Set(collection.fields.map(f => f.name))
-						schemaNames.add('title')
-						schemaNames.add('tags')
 						const extras: Record<string, unknown> = {}
 						for (const [key, val] of Object.entries(mergedMeta)) {
-							if (!schemaNames.has(key)) extras[key] = val
+							if (key !== 'title') extras[key] = val
 						}
 						setExtraFields(extras)
 					}
@@ -343,43 +340,79 @@ function CollectionContentEditor() {
 					)}
 				</div>
 
-				<Field label="Slug">
-					<input
-						type="text"
-						value={contentSlug}
-						onChange={(e) => { setContentSlug(e.target.value); setDirty(true) }}
-						disabled={isReadOnly}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono disabled:opacity-60"
-					/>
-				</Field>
+				{/* For internal collections: slug + status */}
+				{!isExternal && (
+					<>
+						<Field label="Slug">
+							<input
+								type="text"
+								value={contentSlug}
+								onChange={(e) => { setContentSlug(e.target.value); setDirty(true) }}
+								className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
+							/>
+						</Field>
 
-				<Field label="Status">
-					<Dropdown
-						value={status}
-						onChange={(v) => { if (!isReadOnly) { setStatus(v); setDirty(true) } }}
-						options={[
-							{ value: 'draft', label: 'Draft' },
-							{ value: 'pending_review', label: 'Pending Review' },
-							{ value: 'published', label: 'Published' },
-							{ value: 'archived', label: 'Archived' },
-						]}
-						className="w-full"
-					/>
-				</Field>
+						<Field label="Status">
+							<Dropdown
+								value={status}
+								onChange={(v) => { setStatus(v); setDirty(true) }}
+								options={[
+									{ value: 'draft', label: 'Draft' },
+									{ value: 'pending_review', label: 'Pending Review' },
+									{ value: 'published', label: 'Published' },
+									{ value: 'archived', label: 'Archived' },
+								]}
+								className="w-full"
+							/>
+						</Field>
+					</>
+				)}
 
-				<Field label="Tags">
-					<input
-						type="text"
-						value={tags}
-						onChange={(e) => { setTags(e.target.value); setDirty(true) }}
-						disabled={isReadOnly}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
-						placeholder="tag1, tag2"
-					/>
-				</Field>
+				{/* Dynamic schema fields (both internal and external) */}
+				{collection?.fields
+					?.filter(f => f.name !== 'title' && f.name !== 'content' && f.name !== 'body')
+					.map(f => (
+						<Field key={f.name} label={f.name}>
+							{f.type === 'boolean' ? (
+								<label className="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										checked={!!(extraFields[f.name] ?? false)}
+										onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.checked })); setDirty(true) }}
+										disabled={isReadOnly}
+										className="rounded"
+									/>
+									<span className="text-text-secondary">{extraFields[f.name] ? 'Yes' : 'No'}</span>
+								</label>
+							) : f.type === 'number' ? (
+								<input
+									type="number"
+									value={String(extraFields[f.name] ?? '')}
+									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value ? Number(e.target.value) : '' })); setDirty(true) }}
+									disabled={isReadOnly}
+									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+								/>
+							) : (
+								<input
+									type="text"
+									value={String(extraFields[f.name] ?? '')}
+									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value })); setDirty(true) }}
+									disabled={isReadOnly}
+									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+								/>
+							)}
+						</Field>
+					))
+				}
 
 				{/* Additional fields — fields in metadata not in the schema */}
-				{Object.keys(extraFields).length > 0 && (
+				{(() => {
+					const schemaNames = new Set(collection?.fields.map(f => f.name) ?? [])
+					schemaNames.add('title')
+					if (!isExternal) { schemaNames.add('tags') }
+					const additionalEntries = Object.entries(extraFields).filter(([key]) => !schemaNames.has(key))
+					if (additionalEntries.length === 0) return null
+					return (
 					<div>
 						<button
 							type="button"
@@ -389,11 +422,11 @@ function CollectionContentEditor() {
 							<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
 								className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
 							><polyline points="9 18 15 12 9 6" /></svg>
-							Additional fields ({Object.keys(extraFields).length})
+							Additional fields ({additionalEntries.length})
 						</button>
 						{showExtraFields && (
 							<div className="mt-2 space-y-2">
-								{Object.entries(extraFields).map(([key, val]) => (
+								{additionalEntries.map(([key, val]) => (
 									<div key={key}>
 										<label className="block text-[10px] text-text-muted mb-0.5 font-mono">{key}</label>
 										<input
@@ -427,7 +460,8 @@ function CollectionContentEditor() {
 							</div>
 						)}
 					</div>
-				)}
+				)
+				})()}
 
 				{/* Add field button when no extra fields exist yet */}
 				{Object.keys(extraFields).length === 0 && !isReadOnly && !isNew && (
