@@ -3,7 +3,7 @@ import type { CmsEvent } from '../../plugins/events.js'
 
 export async function streamRoutes(app: FastifyInstance) {
 	// SSE endpoint for real-time updates
-	app.get('/', { preHandler: [app.requireRole('viewer')] }, async (request, reply) => {
+	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
 		reply.raw.writeHead(200, {
 			'Content-Type': 'text/event-stream',
 			'Cache-Control': 'no-cache',
@@ -14,9 +14,13 @@ export async function streamRoutes(app: FastifyInstance) {
 		// Send initial ping
 		reply.raw.write(`event: ping\ndata: ${JSON.stringify({ connected: true })}\n\n`)
 
-		// Subscribe to events
+		const projectId = request.project!.id
+
+		// Subscribe to events — only forward events for this project
 		const unsubscribe = app.events.subscribe((event: CmsEvent) => {
-			reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+			if (event.data.projectId === projectId) {
+				reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+			}
 		})
 
 		// Heartbeat every 30s to keep connection alive

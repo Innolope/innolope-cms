@@ -2,14 +2,14 @@ import { users } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 import { createHash, randomUUID } from 'node:crypto'
-import { hashPassword } from '../../plugins/auth.js'
+import { hashPassword, validatePasswordComplexity } from '../../plugins/auth.js'
 import { passwordResetEmail } from '../../services/email.js'
 
 export async function passwordResetRoutes(app: FastifyInstance) {
 	const FRONTEND_URL = process.env.ADMIN_URL || 'https://cms.innolope.com'
 
 	// Request password reset (public — no auth needed)
-	app.post('/forgot-password', async (request, reply) => {
+	app.post('/forgot-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
 		const { email } = request.body as { email: string }
 
 		// Always return success (don't leak whether email exists)
@@ -48,11 +48,15 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 	})
 
 	// Reset password with token (public)
-	app.post('/reset-password', async (request, reply) => {
+	app.post('/reset-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
 		const { token, password } = request.body as { token: string; password: string }
 
-		if (!token || !password || password.length < 8) {
-			return reply.status(400).send({ error: 'Token and password (min 8 chars) required.' })
+		if (!token || !password) {
+			return reply.status(400).send({ error: 'Token and password are required.' })
+		}
+		const pwError = validatePasswordComplexity(password)
+		if (pwError) {
+			return reply.status(400).send({ error: pwError })
 		}
 
 		const tokenHash = createHash('sha256').update(token).digest('hex')

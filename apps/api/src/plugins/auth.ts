@@ -1,10 +1,10 @@
-import { apiKeys, users } from '@innolope/db'
+import { apiKeys, users, refreshTokens } from '@innolope/db'
 import type { UserRole } from '@innolope/types'
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 import bcrypt from 'bcrypt'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { SignJWT, jwtVerify } from 'jose'
 
 interface AuthUser {
@@ -46,6 +46,15 @@ export function hashApiKey(key: string): string {
 	return createHash('sha256').update(key).digest('hex')
 }
 
+/** Validate password complexity: 8+ chars, uppercase, lowercase, digit. */
+export function validatePasswordComplexity(password: string): string | null {
+	if (!password || password.length < 8) return 'Password must be at least 8 characters.'
+	if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter.'
+	if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter.'
+	if (!/[0-9]/.test(password)) return 'Password must contain at least one number.'
+	return null
+}
+
 const BCRYPT_ROUNDS = 12
 
 export async function hashPassword(password: string): Promise<string> {
@@ -68,8 +77,125 @@ export async function createJwt(user: AuthUser): Promise<string> {
 	return new SignJWT({ sub: user.id, email: user.email, role: user.role, name: user.name })
 		.setProtectedHeader({ alg: 'HS256' })
 		.setIssuedAt()
-		.setExpirationTime('7d')
+		.setExpirationTime('1h')
 		.sign(getJwtSecret())
+}
+
+const REFRESH_TOKEN_EXPIRY_DAYS = 30
+
+export function hashToken(token: string): string {
+	return createHash('sha256').update(token).digest('hex')
+}
+
+export async function createRefreshToken(
+	db: FastifyInstance['db'],
+	userId: string,
+	family?: string,
+): Promise<{ rawToken: string; expiresAt: Date }> {
+	const rawToken = randomUUID()
+	const tokenHash = hashToken(rawToken)
+	const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
+	const tokenFamily = family || randomUUID()
+
+	await db.insert(refreshTokens).values({
+		userId,
+		tokenHash,
+		family: tokenFamily,
+		expiresAt,
+	})
+
+	return { rawToken, expiresAt }
+}
+
+export async function rotateRefreshToken(
+	db: FastifyInstance['db'],
+	rawToken: string,
+): Promise<{ user: AuthUser; newRawToken: string; expiresAt: Date } | null> {
+	const tokenHash = hashToken(rawToken)
+
+	const [existing] = await db
+		.select()
+		.from(refreshTokens)
+		.where(eq(refreshTokens.tokenHash, tokenHash))
+		.limit(1)
+
+	if (!existing) return null
+
+	// If already revoked, this is a replay attack — revoke entire family
+	if (existing.revoked) {
+		await db
+			.update(refreshTokens)
+			.set({ revoked: true })
+			.where(eq(refreshTokens.family, existing.family))
+		return null
+	}
+
+	// Check expiry
+	if (new Date(existing.expiresAt) < new Date()) {
+		return null
+	}
+
+	// Revoke the used token
+	await db
+		.update(refreshTokens)
+		.set({ revoked: true })
+		.where(eq(refreshTokens.id, existing.id))
+
+	// Get user
+	const [user] = await db
+		.select()
+		.from(users)
+		.where(eq(users.id, existing.userId))
+		.limit(1)
+
+	if (!user) return null
+
+	// Issue new refresh token in the same family
+	const { rawToken: newRawToken, expiresAt } = await createRefreshToken(
+		db,
+		user.id,
+		existing.family,
+	)
+
+	return {
+		user: {
+			id: user.id,
+			email: user.email,
+			name: user.name,
+			role: user.role as UserRole,
+		},
+		newRawToken,
+		expiresAt,
+	}
+}
+
+export async function revokeRefreshTokenFamily(
+	db: FastifyInstance['db'],
+	rawToken: string,
+): Promise<void> {
+	const tokenHash = hashToken(rawToken)
+	const [existing] = await db
+		.select({ family: refreshTokens.family })
+		.from(refreshTokens)
+		.where(eq(refreshTokens.tokenHash, tokenHash))
+		.limit(1)
+
+	if (existing) {
+		await db
+			.update(refreshTokens)
+			.set({ revoked: true })
+			.where(eq(refreshTokens.family, existing.family))
+	}
+}
+
+export async function revokeAllUserRefreshTokens(
+	db: FastifyInstance['db'],
+	userId: string,
+): Promise<void> {
+	await db
+		.update(refreshTokens)
+		.set({ revoked: true })
+		.where(eq(refreshTokens.userId, userId))
 }
 
 export async function verifyJwt(token: string): Promise<AuthUser | null> {
@@ -141,9 +267,20 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 		}
 
 		if (authHeader?.startsWith('Bearer ')) {
-			// JWT auth
+			// JWT auth via header
 			const token = authHeader.slice(7)
 			const user = await verifyJwt(token)
+			if (!user) {
+				return reply.status(401).send({ error: 'Invalid or expired token' })
+			}
+			request.user = user
+			return
+		}
+
+		// JWT auth via HttpOnly cookie
+		const cookieToken = request.cookies?.innolope_token
+		if (cookieToken) {
+			const user = await verifyJwt(cookieToken)
 			if (!user) {
 				return reply.status(401).send({ error: 'Invalid or expired token' })
 			}

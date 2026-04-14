@@ -28,7 +28,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			const [project] = await app.db
 				.select()
 				.from(projects)
-				.where(eq(projects.id, request.params.id))
+				.where(eq(projects.id, request.project!.id))
 				.limit(1)
 
 			return { ...project, role: request.projectRole }
@@ -92,7 +92,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			const [updated] = await app.db
 				.update(projects)
 				.set(updates)
-				.where(eq(projects.id, request.params.id))
+				.where(eq(projects.id, request.project!.id))
 				.returning()
 
 			return updated
@@ -104,7 +104,7 @@ export async function projectRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('owner')] },
 		async (request, reply) => {
-			await app.db.delete(projects).where(eq(projects.id, request.params.id))
+			await app.db.delete(projects).where(eq(projects.id, request.project!.id))
 			return reply.status(204).send()
 		},
 	)

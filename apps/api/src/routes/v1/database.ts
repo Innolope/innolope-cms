@@ -6,6 +6,26 @@ import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
+/** Block connection strings targeting private/internal networks (SSRF protection). */
+function validateConnectionString(connStr: string): string | null {
+	const lc = connStr.toLowerCase()
+	const blockedPatterns = [
+		'localhost', '127.0.0.1', '::1', '0.0.0.0',
+		'10.', '172.16.', '172.17.', '172.18.', '172.19.',
+		'172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
+		'172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
+		'172.30.', '172.31.',
+		'192.168.', '169.254.',
+		'.internal', '.local', 'metadata.google',
+	]
+	for (const pattern of blockedPatterns) {
+		if (lc.includes(pattern)) {
+			return `Connection to private/internal addresses is not allowed (matched: ${pattern}).`
+		}
+	}
+	return null
+}
+
 export async function databaseRoutes(app: FastifyInstance) {
 	// Test external database connection
 	app.post<{ Params: { id: string } }>(
@@ -19,6 +39,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 			if (!connectionString?.trim()) {
 				return reply.status(400).send({ ok: false, message: 'Connection string is required.' })
+			}
+
+			const ssrfError = validateConnectionString(connectionString)
+			if (ssrfError) {
+				return reply.status(400).send({ ok: false, message: ssrfError })
 			}
 
 			try {
@@ -93,6 +118,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 				type: string
 				connectionString: string
 				database?: string
+			}
+
+			const ssrfErr = validateConnectionString(connectionString)
+			if (ssrfErr) {
+				return reply.status(400).send({ error: ssrfErr })
 			}
 
 			try {
@@ -242,6 +272,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 				connectionString: string
 			}
 
+			const ssrfErr2 = validateConnectionString(connectionString)
+			if (ssrfErr2) {
+				return reply.status(400).send({ error: ssrfErr2 })
+			}
+
 			try {
 				switch (type) {
 					case 'mongodb': {
@@ -293,10 +328,17 @@ export async function databaseRoutes(app: FastifyInstance) {
 				accessMode?: 'read-write' | 'read-only'
 			}
 
+			if (connectionString) {
+				const ssrfErr3 = validateConnectionString(connectionString)
+				if (ssrfErr3) {
+					return reply.status(400).send({ error: ssrfErr3 })
+				}
+			}
+
 			const [project] = await app.db
 				.select()
 				.from(projects)
-				.where(eq(projects.id, request.params.id))
+				.where(eq(projects.id, request.project!.id))
 				.limit(1)
 
 			if (!project) return reply.status(404).send({ error: 'Project not found' })
@@ -320,7 +362,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			const [updated] = await app.db
 				.update(projects)
 				.set({ settings: settings as any, updatedAt: new Date() })
-				.where(eq(projects.id, request.params.id))
+				.where(eq(projects.id, request.project!.id))
 				.returning()
 
 			// Create collection records for selected tables
@@ -352,7 +394,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					const [existing] = await app.db
 						.select({ id: collections.id })
 						.from(collections)
-						.where(and(eq(collections.name, table.name), eq(collections.projectId, request.params.id)))
+						.where(and(eq(collections.name, table.name), eq(collections.projectId, request.project!.id)))
 						.limit(1)
 
 					if (existing) continue
@@ -370,7 +412,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					const [created] = await app.db
 						.insert(collections)
 						.values({
-							projectId: request.params.id,
+							projectId: request.project!.id,
 							name: table.name,
 							label: tableNameToLabel(table.name),
 							description: `Imported from ${type}`,

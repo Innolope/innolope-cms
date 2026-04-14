@@ -3,6 +3,11 @@ import { contentInputSchema, contentListSchema } from '@innolope/config'
 import type { FastifyInstance } from 'fastify'
 import { eq, desc, asc, and, sql } from 'drizzle-orm'
 import { marked } from 'marked'
+import DOMPurify from 'isomorphic-dompurify'
+
+function sanitizeHtml(html: string): string {
+	return DOMPurify.sanitize(html)
+}
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 
 export async function contentRoutes(app: FastifyInstance) {
@@ -100,7 +105,7 @@ export async function contentRoutes(app: FastifyInstance) {
 	// Create content (editor+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
 		const input = contentInputSchema.parse(request.body)
-		const html = await marked(input.markdown)
+		const html = sanitizeHtml(await marked(input.markdown))
 
 		const [created] = await app.db
 			.insert(content)
@@ -136,7 +141,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		const created = await app.db.transaction(async (tx) => {
 			const results = []
 			for (const item of items) {
-				const html = await marked(item.markdown)
+				const html = sanitizeHtml(await marked(item.markdown))
 				const [result] = await tx.insert(content).values({
 					projectId: request.project!.id,
 					slug: item.slug,
@@ -174,7 +179,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		const updated = await app.db.transaction(async (tx) => {
 			const results = []
 			for (const item of items) {
-				const html = item.markdown ? await marked(item.markdown) : undefined
+				const html = item.markdown ? sanitizeHtml(await marked(item.markdown)) : undefined
 				const [result] = await tx
 					.update(content)
 					.set({
@@ -288,7 +293,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			createdBy: request.user!.id,
 		})
 
-		const html = input.markdown ? await marked(input.markdown) : undefined
+		const html = input.markdown ? sanitizeHtml(await marked(input.markdown)) : undefined
 		const newVersion = current.version + 1
 
 		const [updated] = await app.db
@@ -360,7 +365,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				metadata: current.metadata,
 			})
 
-			const html = await marked(version.markdown)
+			const html = sanitizeHtml(await marked(version.markdown))
 			const [reverted] = await app.db
 				.update(content)
 				.set({ markdown: version.markdown, metadata: version.metadata, html, version: current.version + 1, updatedAt: new Date() })

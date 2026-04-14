@@ -17,7 +17,6 @@ interface Project {
 
 interface AuthState {
 	user: User | null
-	token: string | null
 	loading: boolean
 	projects: Project[]
 	currentProject: Project | null
@@ -33,7 +32,7 @@ const AuthContext = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null)
-	const [token, setToken] = useState<string | null>(() => localStorage.getItem('innolope_token'))
+	const [authenticated, setAuthenticated] = useState(true) // Assume authenticated, /me will confirm
 	const [loading, setLoading] = useState(true)
 	const [projects, setProjects] = useState<Project[]>([])
 	const [currentProject, setCurrentProject] = useState<Project | null>(null)
@@ -41,30 +40,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const apiRequest = useCallback(
 		async (path: string, options?: RequestInit) => {
 			const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-			if (token) headers.Authorization = `Bearer ${token}`
 			const projectId = localStorage.getItem('innolope_project')
 			if (projectId) headers['X-Project-Id'] = projectId
 
-			const res = await fetch(path, { headers, ...options })
+			const method = options?.method?.toUpperCase() || 'GET'
+			if (method !== 'GET' && method !== 'HEAD') {
+				const csrfMatch = document.cookie.match(/(?:^|;\s*)innolope_csrf=([^;]+)/)
+				if (csrfMatch) headers['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1])
+			}
+
+			let res = await fetch(path, { headers, credentials: 'include', ...options })
+
+			// On 401, try refreshing the access token, then retry
+			if (res.status === 401 && !path.includes('/auth/refresh')) {
+				const refreshRes = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' })
+				if (refreshRes.ok) {
+					// Re-read CSRF token after refresh (cookie was updated)
+					const retryHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+					if (projectId) retryHeaders['X-Project-Id'] = projectId
+					if (method !== 'GET' && method !== 'HEAD') {
+						const csrfMatch = document.cookie.match(/(?:^|;\s*)innolope_csrf=([^;]+)/)
+						if (csrfMatch) retryHeaders['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1])
+					}
+					res = await fetch(path, { headers: retryHeaders, credentials: 'include', ...options })
+				}
+			}
+
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({ error: res.statusText }))
 				throw new Error((err as { error: string }).error)
 			}
 			return res.json()
 		},
-		[token],
+		[],
 	)
 
 	const refreshUser = useCallback(async () => {
-		if (!token) return
+		if (!authenticated) return
 		try {
 			const u = (await apiRequest('/api/v1/auth/me')) as User
 			setUser(u)
 		} catch { /* ignore */ }
-	}, [token, apiRequest])
+	}, [authenticated, apiRequest])
 
 	const refreshProjects = useCallback(async () => {
-		if (!token) return
+		if (!authenticated) return
 		try {
 			const data = (await apiRequest('/api/v1/projects')) as Project[]
 			setProjects(data)
@@ -84,31 +104,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		} catch {
 			setProjects([])
 		}
-	}, [token, apiRequest])
+	}, [authenticated, apiRequest])
 
 	useEffect(() => {
-		if (!token) {
-			setLoading(false)
-			return
-		}
+		// Check if we have a valid session by calling /me
 		Promise.all([
 			apiRequest('/api/v1/auth/me').then((u) => setUser(u as User)),
 			refreshProjects(),
 		])
 			.catch(() => {
-				localStorage.removeItem('innolope_token')
-				setToken(null)
+				setAuthenticated(false)
+				setUser(null)
 			})
 			.finally(() => setLoading(false))
-	}, [token, apiRequest, refreshProjects])
+	}, [apiRequest, refreshProjects])
 
 	const login = async (email: string, password: string) => {
 		const res = (await apiRequest('/api/v1/auth/login', {
 			method: 'POST',
 			body: JSON.stringify({ email, password }),
-		})) as { user: User; token: string }
-		localStorage.setItem('innolope_token', res.token)
-		setToken(res.token)
+		})) as { user: User }
+		setAuthenticated(true)
 		setUser(res.user)
 	}
 
@@ -116,16 +132,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		const res = (await apiRequest('/api/v1/auth/register', {
 			method: 'POST',
 			body: JSON.stringify({ email, password, name }),
-		})) as { user: User; token: string }
-		localStorage.setItem('innolope_token', res.token)
-		setToken(res.token)
+		})) as { user: User }
+		setAuthenticated(true)
 		setUser(res.user)
 	}
 
-	const logout = () => {
-		localStorage.removeItem('innolope_token')
+	const logout = async () => {
+		try {
+			await apiRequest('/api/v1/auth/logout', { method: 'POST' })
+		} catch { /* best effort */ }
 		localStorage.removeItem('innolope_project')
-		setToken(null)
+		setAuthenticated(false)
 		setUser(null)
 		setProjects([])
 		setCurrentProject(null)
@@ -142,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	return (
 		<AuthContext.Provider
-			value={{ user, token, loading, projects, currentProject, login, register, logout, switchProject, refreshProjects, refreshUser }}
+			value={{ user, loading, projects, currentProject, login, register, logout, switchProject, refreshProjects, refreshUser }}
 		>
 			{children}
 		</AuthContext.Provider>

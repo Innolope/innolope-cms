@@ -13,5 +13,15 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": true
-  }
+  },
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/db" },
+    { "path": "packages/config" },
+    { "path": "packages/sdk" },
+    { "path": "packages/mcp-server" },
+    { "path": "apps/api" },
+    { "path": "apps/admin" }
+  ],
+  "include": []
 }

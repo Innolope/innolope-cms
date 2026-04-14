@@ -2,7 +2,55 @@ import { apiKeys, users } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { hashApiKey, hashPassword, verifyPassword, createJwt } from '../../plugins/auth.js'
+import { hashApiKey, hashPassword, verifyPassword, createJwt, validatePasswordComplexity, createRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
+
+const IS_PROD = process.env.NODE_ENV === 'production'
+
+const ACCESS_COOKIE_OPTIONS = {
+	httpOnly: true,
+	secure: IS_PROD,
+	sameSite: 'lax' as const,
+	path: '/',
+	maxAge: 60 * 60, // 1 hour — matches JWT expiry
+}
+
+const REFRESH_COOKIE_OPTIONS = {
+	httpOnly: true,
+	secure: IS_PROD,
+	sameSite: 'lax' as const,
+	path: '/api/v1/auth/refresh', // Only sent to the refresh endpoint
+	maxAge: 30 * 24 * 60 * 60, // 30 days
+}
+
+function setCsrfCookie(reply: import('fastify').FastifyReply, token: string) {
+	reply.setCookie('innolope_csrf', token, {
+		httpOnly: false, // JS must read this
+		secure: IS_PROD,
+		sameSite: 'lax',
+		path: '/',
+		maxAge: 30 * 24 * 60 * 60, // 30 days — matches refresh token
+	})
+}
+
+/** Set all auth cookies (access + refresh + CSRF) */
+async function setAuthCookies(
+	reply: import('fastify').FastifyReply,
+	db: import('fastify').FastifyInstance['db'],
+	user: { id: string; email: string; name: string; role: string },
+) {
+	const accessToken = await createJwt({
+		id: user.id,
+		email: user.email,
+		name: user.name,
+		role: user.role as 'admin' | 'editor' | 'viewer',
+	})
+	const { rawToken: refreshToken } = await createRefreshToken(db, user.id)
+	const csrfToken = randomUUID()
+
+	reply.setCookie('innolope_token', accessToken, ACCESS_COOKIE_OPTIONS)
+	reply.setCookie('innolope_refresh', refreshToken, REFRESH_COOKIE_OPTIONS)
+	setCsrfCookie(reply, csrfToken)
+}
 
 export async function authRoutes(app: FastifyInstance) {
 	// Check if setup is needed (public)
@@ -17,7 +65,8 @@ export async function authRoutes(app: FastifyInstance) {
 
 		if (!email?.trim()) return reply.status(400).send({ error: 'Email is required.' })
 		if (!name?.trim()) return reply.status(400).send({ error: 'Name is required.' })
-		if (!password || password.length < 8) return reply.status(400).send({ error: 'Password must be at least 8 characters.' })
+		const pwError = validatePasswordComplexity(password)
+		if (pwError) return reply.status(400).send({ error: pwError })
 
 		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
 
@@ -28,16 +77,15 @@ export async function authRoutes(app: FastifyInstance) {
 		const passwordHash = await hashPassword(password)
 		const [user] = await app.db.insert(users).values({ email, name, passwordHash, role: 'admin' }).returning()
 
-		const token = await createJwt({ id: user.id, email: user.email, name: user.name, role: 'admin' })
+		await setAuthCookies(reply, app.db, user)
 
 		return reply.status(201).send({
 			user: { id: user.id, email: user.email, name: user.name, role: user.role },
-			token,
 		})
 	})
 
 	// Login
-	app.post('/login', async (request, reply) => {
+	app.post('/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
 		const { email, password } = request.body as { email: string; password: string }
 
 		if (!email?.trim() || !password) return reply.status(400).send({ error: 'Email and password are required.' })
@@ -47,14 +95,9 @@ export async function authRoutes(app: FastifyInstance) {
 			return reply.status(401).send({ error: 'Invalid credentials' })
 		}
 
-		const token = await createJwt({
-			id: user.id,
-			email: user.email,
-			name: user.name,
-			role: user.role as 'admin' | 'editor' | 'viewer',
-		})
+		await setAuthCookies(reply, app.db, user)
 
-		return { user: { id: user.id, email: user.email, name: user.name, role: user.role }, token }
+		return { user: { id: user.id, email: user.email, name: user.name, role: user.role } }
 	})
 
 	// Get current user
@@ -89,12 +132,51 @@ export async function authRoutes(app: FastifyInstance) {
 		return updated
 	})
 
+	// Refresh — exchange refresh token for new access + refresh tokens
+	app.post('/refresh', async (request, reply) => {
+		const rawRefreshToken = request.cookies?.innolope_refresh
+		if (!rawRefreshToken) {
+			return reply.status(401).send({ error: 'No refresh token' })
+		}
+
+		const result = await rotateRefreshToken(app.db, rawRefreshToken)
+		if (!result) {
+			// Token invalid/expired/reused — clear everything
+			reply.clearCookie('innolope_token', { path: '/' })
+			reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
+			reply.clearCookie('innolope_csrf', { path: '/' })
+			return reply.status(401).send({ error: 'Invalid refresh token. Please log in again.' })
+		}
+
+		const accessToken = await createJwt(result.user)
+		const csrfToken = randomUUID()
+
+		reply.setCookie('innolope_token', accessToken, ACCESS_COOKIE_OPTIONS)
+		reply.setCookie('innolope_refresh', result.newRawToken, REFRESH_COOKIE_OPTIONS)
+		setCsrfCookie(reply, csrfToken)
+
+		return { user: result.user }
+	})
+
+	// Logout — revoke refresh token family and clear cookies
+	app.post('/logout', async (request, reply) => {
+		const rawRefreshToken = request.cookies?.innolope_refresh
+		if (rawRefreshToken) {
+			await revokeRefreshTokenFamily(app.db, rawRefreshToken)
+		}
+		reply.clearCookie('innolope_token', { path: '/' })
+		reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
+		reply.clearCookie('innolope_csrf', { path: '/' })
+		return { message: 'Logged out' }
+	})
+
 	// Change password
 	app.post('/change-password', { preHandler: [app.authenticate] }, async (request, reply) => {
 		const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string }
 
 		if (!currentPassword || !newPassword) return reply.status(400).send({ error: 'Current password and new password are required' })
-		if (newPassword.length < 8) return reply.status(400).send({ error: 'New password must be at least 8 characters' })
+		const pwError = validatePasswordComplexity(newPassword)
+		if (pwError) return reply.status(400).send({ error: pwError })
 
 		const [user] = await app.db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, request.user!.id)).limit(1)
 		if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
@@ -104,7 +186,10 @@ export async function authRoutes(app: FastifyInstance) {
 		const passwordHash = await hashPassword(newPassword)
 		await app.db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, request.user!.id))
 
-		return { message: 'Password updated' }
+		// Revoke all refresh tokens — forces re-login on all devices
+		await revokeAllUserRefreshTokens(app.db, request.user!.id)
+
+		return { message: 'Password updated. All sessions have been signed out.' }
 	})
 
 	// Create API key (admin+, project-scoped)

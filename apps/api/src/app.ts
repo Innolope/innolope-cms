@@ -1,3 +1,4 @@
+import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -41,7 +42,24 @@ export async function buildApp() {
 		bodyLimit: 10 * 1024 * 1024, // 10MB
 	})
 
-	await app.register(helmet, { contentSecurityPolicy: false })
+	await app.register(helmet, {
+		contentSecurityPolicy: {
+			directives: {
+				defaultSrc: ["'self'"],
+				scriptSrc: ["'self'"],
+				styleSrc: ["'self'", "'unsafe-inline'"],
+				imgSrc: ["'self'", 'data:', 'https:'],
+				connectSrc: ["'self'"],
+				fontSrc: ["'self'"],
+				objectSrc: ["'none'"],
+				frameAncestors: ["'none'"],
+			},
+		},
+	})
+
+	await app.register(cookie, {
+		secret: process.env.AUTH_SECRET,
+	})
 
 	await app.register(cors, {
 		origin: process.env.ADMIN_URL || 'http://localhost:5173',
@@ -49,6 +67,24 @@ export async function buildApp() {
 	})
 
 	await app.register(rateLimit, { max: 200, timeWindow: '1 minute' })
+
+	// CSRF protection: validate double-submit cookie on state-changing requests
+	app.addHook('onRequest', async (request, reply) => {
+		if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return
+		// Skip CSRF for API key auth (machine-to-machine)
+		const authHeader = request.headers.authorization
+		if (authHeader?.startsWith('Bearer ink_')) return
+		// Skip for public auth endpoints that don't have a session yet
+		const path = request.url.split('?')[0]
+		const csrfExemptPaths = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/logout', '/api/v1/auth/refresh', '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password', '/api/v1/invites/accept']
+		if (csrfExemptPaths.some(p => path.startsWith(p))) return
+
+		const cookieToken = request.cookies['innolope_csrf']
+		const headerToken = request.headers['x-csrf-token'] as string | undefined
+		if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+			return reply.status(403).send({ error: 'CSRF token missing or invalid' })
+		}
+	})
 
 	// Plugins
 	await app.register(dbPlugin)
