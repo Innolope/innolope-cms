@@ -267,9 +267,9 @@ function CollectionContentEditor() {
 					</button>
 					<span>/</span>
 					<span className="text-text">{isNew ? 'New' : title || contentSlug}</span>
-					{isExternal && (
-						<span className={`ml-2 px-1.5 py-0.5 text-[10px] font-medium uppercase rounded ${isReadOnly ? 'bg-surface-alt text-text-muted' : 'bg-accent-soft text-accent'}`}>
-							{isReadOnly ? 'Read Only' : 'External'}
+					{isReadOnly && (
+						<span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium uppercase rounded bg-surface-alt text-text-muted">
+							Read Only
 						</span>
 					)}
 				</div>
