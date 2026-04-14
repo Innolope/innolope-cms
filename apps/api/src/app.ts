@@ -39,7 +39,16 @@ export async function buildApp() {
 	const app = Fastify({
 		logger: {
 			level: process.env.LOG_LEVEL || 'info',
+			transport: {
+				target: 'pino-pretty',
+				options: {
+					colorize: true,
+					translateTime: 'HH:MM:ss Z',
+					ignore: 'pid,hostname',
+				},
+			},
 		},
+		disableRequestLogging: true,
 		bodyLimit: 10 * 1024 * 1024, // 10MB
 	})
 
