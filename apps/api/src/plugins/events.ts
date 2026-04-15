@@ -26,8 +26,9 @@ export const eventsPlugin = fp(async (app: FastifyInstance) => {
 			for (const listener of listeners) {
 				try {
 					listener(event)
-				} catch {
-					// Ignore listener errors
+				} catch (err) {
+					// Listeners must never break event emitters, but we should still see them
+					console.error('[events] listener threw:', err)
 				}
 			}
 		},

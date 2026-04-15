@@ -184,6 +184,20 @@ async function ensureTables(connectionUrl: string) {
 	`
 
 	await sql`
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			"tokenHash" TEXT NOT NULL UNIQUE,
+			family TEXT NOT NULL,
+			"expiresAt" TIMESTAMPTZ NOT NULL,
+			revoked BOOLEAN NOT NULL DEFAULT false,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE INDEX IF NOT EXISTS refresh_tokens_user_idx ON refresh_tokens("userId")`
+	await sql`CREATE INDEX IF NOT EXISTS refresh_tokens_family_idx ON refresh_tokens(family)`
+
+	await sql`
 		CREATE TABLE IF NOT EXISTS webhooks (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
