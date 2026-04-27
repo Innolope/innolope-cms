@@ -107,11 +107,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, [authenticated, apiRequest])
 
 	useEffect(() => {
-		// Check if we have a valid session by calling /me
-		Promise.all([
-			apiRequest('/api/v1/auth/me').then((u) => setUser(u as User)),
-			refreshProjects(),
-		])
+		// Probe for an existing session; /me returns null (not 401) when logged out,
+		// so we don't fan out to /projects until we know the user is authenticated.
+		apiRequest('/api/v1/auth/me')
+			.then(async (u) => {
+				if (u) {
+					setUser(u as User)
+					await refreshProjects()
+				} else {
+					setAuthenticated(false)
+					setUser(null)
+				}
+			})
 			.catch(() => {
 				setAuthenticated(false)
 				setUser(null)

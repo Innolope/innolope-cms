@@ -2,7 +2,7 @@ import { apiKeys, users } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { hashApiKey, hashPassword, verifyPassword, createJwt, validatePasswordComplexity, createRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
+import { hashApiKey, hashPassword, verifyPassword, createJwt, verifyJwt, validatePasswordComplexity, createRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
 
 const IS_PROD = process.env.NODE_ENV === 'production'
 
@@ -104,9 +104,19 @@ export async function authRoutes(app: FastifyInstance) {
 		return { user: { id: user.id, email: user.email, name: user.name, role: user.role } }
 	})
 
-	// Get current user
-	app.get('/me', { preHandler: [app.authenticate] }, async (request) => {
-		return request.user
+	// Session probe — public; returns the user or null. Not 401, because the
+	// frontend uses this to *check* whether a session exists, and "no session"
+	// is a valid answer rather than an error.
+	app.get('/me', async (request) => {
+		const authHeader = request.headers.authorization
+		if (authHeader?.startsWith('Bearer ')) {
+			return (await verifyJwt(authHeader.slice(7))) ?? null
+		}
+		const cookieToken = request.cookies?.innolope_token
+		if (cookieToken) {
+			return (await verifyJwt(cookieToken)) ?? null
+		}
+		return null
 	})
 
 	// Update profile

@@ -4,6 +4,11 @@ import type { CmsEvent } from '../../plugins/events.js'
 export async function streamRoutes(app: FastifyInstance) {
 	// SSE endpoint for real-time updates
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
+		// Take over the response — Fastify won't run onSend/onResponse hooks for
+		// this request, which prevents close listeners from accumulating on the
+		// long-lived SSE response (MaxListenersExceededWarning).
+		reply.hijack()
+
 		reply.raw.writeHead(200, {
 			'Content-Type': 'text/event-stream',
 			'Cache-Control': 'no-cache',
