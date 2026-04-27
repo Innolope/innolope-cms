@@ -31,6 +31,17 @@ const EVENT_MAP: Record<CmsEvent['type'], string> = {
 	'auth:logout': 'cms_user_logout',
 	'auth:registered': 'cms_user_registered',
 	'auth:password_changed': 'cms_user_password_changed',
+	'auth:sso_initiated': 'cms_sso_initiated',
+	'auth:sso_login': 'cms_sso_login',
+	'auth:sso_failed': 'cms_sso_failed',
+	'auth:sso_linked': 'cms_sso_linked',
+	'auth:sso_unlinked': 'cms_sso_unlinked',
+	'sso:connection_created': 'cms_sso_connection_created',
+	'sso:connection_updated': 'cms_sso_connection_updated',
+	'sso:connection_deleted': 'cms_sso_connection_deleted',
+	'scim:user_created': 'cms_scim_user_created',
+	'scim:user_updated': 'cms_scim_user_updated',
+	'scim:user_deactivated': 'cms_scim_user_deactivated',
 }
 
 export const posthogPlugin = fp(async (app: FastifyInstance) => {

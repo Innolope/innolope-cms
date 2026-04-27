@@ -267,6 +267,98 @@ async function ensureTables(connectionUrl: string) {
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "accessMode" TEXT DEFAULT 'read-write'`
 	await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
 
+	// SSO: allow SSO-only users to have no password
+	await sql`ALTER TABLE users ALTER COLUMN "passwordHash" DROP NOT NULL`
+	await sql`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS "authMethod" TEXT NOT NULL DEFAULT 'password'`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS sso_connections (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			protocol TEXT NOT NULL,
+			name TEXT NOT NULL,
+			slug TEXT NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT false,
+			"enforceSso" BOOLEAN NOT NULL DEFAULT false,
+			"allowIdpInitiated" BOOLEAN NOT NULL DEFAULT false,
+			domains TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+			"oidcIssuer" TEXT,
+			"oidcClientId" TEXT,
+			"oidcClientSecretEnc" TEXT,
+			"oidcScopes" TEXT[] NOT NULL DEFAULT '{openid,email,profile}'::TEXT[],
+			"samlEntityId" TEXT,
+			"samlSsoUrl" TEXT,
+			"samlIdpCertPems" TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+			"samlWantAssertionsSigned" BOOLEAN NOT NULL DEFAULT true,
+			"samlWantAssertionsEncrypted" BOOLEAN NOT NULL DEFAULT false,
+			"attrEmail" TEXT NOT NULL DEFAULT 'email',
+			"attrName" TEXT NOT NULL DEFAULT 'name',
+			"attrGroups" TEXT NOT NULL DEFAULT 'groups',
+			"defaultRole" TEXT NOT NULL DEFAULT 'viewer',
+			"groupRoleMap" JSONB NOT NULL DEFAULT '{}',
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+			"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE UNIQUE INDEX IF NOT EXISTS sso_connections_project_slug_idx ON sso_connections("projectId", slug)`
+	await sql`CREATE INDEX IF NOT EXISTS sso_connections_project_idx ON sso_connections("projectId")`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS user_identities (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			"connectionId" UUID NOT NULL REFERENCES sso_connections(id) ON DELETE CASCADE,
+			provider TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			email TEXT,
+			"rawProfile" JSONB NOT NULL DEFAULT '{}',
+			"lastLoginAt" TIMESTAMPTZ,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_identities_conn_subject_idx ON user_identities("connectionId", subject)`
+	await sql`CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities("userId")`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS sso_auth_states (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			state TEXT NOT NULL UNIQUE,
+			"connectionId" UUID NOT NULL REFERENCES sso_connections(id) ON DELETE CASCADE,
+			verifier TEXT NOT NULL,
+			nonce TEXT,
+			next TEXT,
+			intent TEXT NOT NULL DEFAULT 'login',
+			"linkUserId" UUID,
+			"expiresAt" TIMESTAMPTZ NOT NULL,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE INDEX IF NOT EXISTS sso_auth_states_expires_idx ON sso_auth_states("expiresAt")`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS sso_replay_cache (
+			"responseId" TEXT PRIMARY KEY,
+			"expiresAt" TIMESTAMPTZ NOT NULL,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE INDEX IF NOT EXISTS sso_replay_cache_expires_idx ON sso_replay_cache("expiresAt")`
+
+	await sql`
+		CREATE TABLE IF NOT EXISTS scim_tokens (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"connectionId" UUID NOT NULL REFERENCES sso_connections(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			"tokenHash" TEXT NOT NULL UNIQUE,
+			"tokenPrefix" TEXT NOT NULL,
+			"createdBy" UUID REFERENCES users(id) ON DELETE SET NULL,
+			"revokedAt" TIMESTAMPTZ,
+			"lastUsedAt" TIMESTAMPTZ,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE INDEX IF NOT EXISTS scim_tokens_conn_idx ON scim_tokens("connectionId")`
+
 	await sql.end()
 }
 

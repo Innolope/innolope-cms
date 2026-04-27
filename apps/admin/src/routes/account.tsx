@@ -1,23 +1,26 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
 import { SaveBar } from '../components/save-bar'
+import { hasFeature, useLicense } from '../components/license-gate'
 
 export const Route = createFileRoute('/account')({
 	component: AccountSettings,
 })
 
-type AccountTab = 'profile' | 'password' | 'appearance'
+type AccountTab = 'profile' | 'password' | 'sso' | 'appearance'
 
-const TABS: { id: AccountTab; label: string }[] = [
+const TABS: { id: AccountTab; label: string; pro?: string }[] = [
 	{ id: 'profile', label: 'Profile' },
 	{ id: 'password', label: 'Password' },
+	{ id: 'sso', label: 'Linked Accounts', pro: 'sso' },
 	{ id: 'appearance', label: 'Appearance' },
 ]
 
 function AccountSettings() {
+	const license = useLicense()
 	const [tab, setTabState] = useState<AccountTab>(() => {
 		const params = new URLSearchParams(window.location.search)
 		return (params.get('tab') as AccountTab) || 'profile'
@@ -30,12 +33,14 @@ function AccountSettings() {
 		window.history.replaceState({}, '', url.toString())
 	}
 
+	const visibleTabs = TABS.filter((t) => !t.pro || hasFeature(license, t.pro))
+
 	return (
 		<div className="p-8 pt-5">
 			<h2 className="text-2xl font-bold mb-6">Account</h2>
 
 			<div className="flex border-b border-border mb-8">
-				{TABS.map((t) => (
+				{visibleTabs.map((t) => (
 					<button
 						key={t.id}
 						type="button"
@@ -54,8 +59,120 @@ function AccountSettings() {
 			<div className="max-w-xl">
 				<div className={tab === 'profile' ? '' : 'hidden'}><ProfileSettings /></div>
 				<div className={tab === 'password' ? '' : 'hidden'}><PasswordSettings /></div>
+				<div className={tab === 'sso' ? '' : 'hidden'}><SsoIdentitiesSettings /></div>
 				<div className={tab === 'appearance' ? '' : 'hidden'}><AppearanceSettings /></div>
 			</div>
+		</div>
+	)
+}
+
+interface LinkedIdentity {
+	id: string
+	connectionId: string
+	provider: 'saml' | 'oidc'
+	email: string | null
+	lastLoginAt: string | null
+	createdAt: string
+	connectionName: string | null
+	connectionSlug: string | null
+	projectId: string | null
+}
+
+function SsoIdentitiesSettings() {
+	const [items, setItems] = useState<LinkedIdentity[]>([])
+	const [loading, setLoading] = useState(true)
+	const [availableConnections, setAvailableConnections] = useState<Array<{ id: string; slug: string; name: string; protocol: string }>>([])
+
+	const refresh = useCallback(async () => {
+		try {
+			const data = await api.get<LinkedIdentity[]>('/api/v1/auth/me/identities')
+			setItems(data)
+		} catch {
+			// license disabled → ignore
+		}
+		try {
+			const conns = await api.get<Array<{ id: string; slug: string; name: string; protocol: string }>>('/api/v1/ee/sso/connections')
+			setAvailableConnections(conns)
+		} catch {
+			setAvailableConnections([])
+		}
+		setLoading(false)
+	}, [])
+
+	useEffect(() => {
+		refresh()
+	}, [refresh])
+
+	const unlink = async (id: string) => {
+		if (!confirm('Unlink this SSO identity?')) return
+		try {
+			await api.delete(`/api/v1/auth/me/identities/${id}`)
+			await refresh()
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Failed to unlink')
+		}
+	}
+
+	const link = (slug: string) => {
+		const next = `${window.location.pathname}?tab=sso`
+		window.location.href = `/api/v1/auth/sso/${encodeURIComponent(slug)}/initiate?intent=link&next=${encodeURIComponent(next)}`
+	}
+
+	if (loading) return <p className="text-text-secondary text-sm">Loading...</p>
+
+	const linkedConnIds = new Set(items.map((i) => i.connectionId))
+	const linkable = availableConnections.filter((c) => !linkedConnIds.has(c.id))
+
+	return (
+		<div className="space-y-5">
+			<p className="text-sm text-text-secondary">
+				Identities from your identity provider that are linked to this account. Linking an SSO
+				identity lets you sign in without a password.
+			</p>
+
+			{items.length === 0 ? (
+				<div className="text-sm text-text-secondary py-3">No SSO identities linked yet.</div>
+			) : (
+				<div className="space-y-2">
+					{items.map((i) => (
+						<div key={i.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt">
+							<div className="min-w-0">
+								<p className="text-sm">{i.connectionName ?? 'Unknown'} <span className="text-xs uppercase text-text-muted ml-2">{i.provider}</span></p>
+								<p className="text-xs text-text-muted truncate">{i.email ?? '(no email in profile)'}</p>
+								{i.lastLoginAt && (
+									<p className="text-xs text-text-muted">Last sign-in: {new Date(i.lastLoginAt).toLocaleString()}</p>
+								)}
+							</div>
+							<button
+								type="button"
+								onClick={() => unlink(i.id)}
+								className="px-2 py-1 text-xs text-danger hover:opacity-80 shrink-0"
+							>
+								Unlink
+							</button>
+						</div>
+					))}
+				</div>
+			)}
+
+			{linkable.length > 0 && (
+				<div className="pt-4 border-t border-border">
+					<h4 className="text-sm font-medium mb-3">Link a new identity</h4>
+					<div className="space-y-2">
+						{linkable.map((c) => (
+							<button
+								key={c.id}
+								type="button"
+								onClick={() => link(c.slug)}
+								className="w-full flex items-center justify-between px-3 py-2 border border-border rounded-lg hover:bg-surface-alt text-sm"
+							>
+								<span>{c.name} <span className="text-xs uppercase text-text-muted ml-2">{c.protocol}</span></span>
+								<span className="text-xs text-text-muted">Link →</span>
+							</button>
+						))}
+					</div>
+				</div>
+			)}
 		</div>
 	)
 }

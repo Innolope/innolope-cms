@@ -91,6 +91,7 @@ export async function createRefreshToken(
 	db: FastifyInstance['db'],
 	userId: string,
 	family?: string,
+	authMethod: 'password' | 'sso' = 'password',
 ): Promise<{ rawToken: string; expiresAt: Date }> {
 	const rawToken = randomUUID()
 	const tokenHash = hashToken(rawToken)
@@ -102,6 +103,7 @@ export async function createRefreshToken(
 		tokenHash,
 		family: tokenFamily,
 		expiresAt,
+		authMethod,
 	})
 
 	return { rawToken, expiresAt }

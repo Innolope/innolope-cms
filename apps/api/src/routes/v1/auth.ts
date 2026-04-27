@@ -2,55 +2,8 @@ import { apiKeys, users } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { hashApiKey, hashPassword, verifyPassword, createJwt, validatePasswordComplexity, createRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
-
-const IS_PROD = process.env.NODE_ENV === 'production'
-
-const ACCESS_COOKIE_OPTIONS = {
-	httpOnly: true,
-	secure: IS_PROD,
-	sameSite: 'lax' as const,
-	path: '/',
-	maxAge: 60 * 60, // 1 hour — matches JWT expiry
-}
-
-const REFRESH_COOKIE_OPTIONS = {
-	httpOnly: true,
-	secure: IS_PROD,
-	sameSite: 'lax' as const,
-	path: '/api/v1/auth/refresh', // Only sent to the refresh endpoint
-	maxAge: 30 * 24 * 60 * 60, // 30 days
-}
-
-function setCsrfCookie(reply: import('fastify').FastifyReply, token: string) {
-	reply.setCookie('innolope_csrf', token, {
-		httpOnly: false, // JS must read this
-		secure: IS_PROD,
-		sameSite: 'lax',
-		path: '/',
-		maxAge: 30 * 24 * 60 * 60, // 30 days — matches refresh token
-	})
-}
-
-/** Set all auth cookies (access + refresh + CSRF) */
-async function setAuthCookies(
-	reply: import('fastify').FastifyReply,
-	db: import('fastify').FastifyInstance['db'],
-	user: { id: string; email: string; name: string; role: string },
-) {
-	const accessToken = await createJwt({
-		id: user.id,
-		email: user.email,
-		name: user.name,
-		role: user.role as 'admin' | 'editor' | 'viewer',
-	})
-	const { rawToken: refreshToken } = await createRefreshToken(db, user.id)
-	const csrfToken = randomUUID()
-
-	reply.setCookie('innolope_token', accessToken, ACCESS_COOKIE_OPTIONS)
-	reply.setCookie('innolope_refresh', refreshToken, REFRESH_COOKIE_OPTIONS)
-	setCsrfCookie(reply, csrfToken)
-}
+import { hashApiKey, hashPassword, verifyPassword, createJwt, validatePasswordComplexity, rotateRefreshToken, revokeRefreshTokenFamily, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
+import { setAuthCookies, clearAuthCookies, ACCESS_COOKIE_OPTIONS, CSRF_COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS } from '../../services/auth-cookies.js'
 
 export async function authRoutes(app: FastifyInstance) {
 	// Check if setup is needed (public)
@@ -93,7 +46,7 @@ export async function authRoutes(app: FastifyInstance) {
 		if (!email?.trim() || !password) return reply.status(400).send({ error: 'Email and password are required.' })
 
 		const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
-		if (!user || !(await verifyPassword(password, user.passwordHash))) {
+		if (!user || !user.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
 			return reply.status(401).send({ error: 'Invalid credentials' })
 		}
 
@@ -146,9 +99,7 @@ export async function authRoutes(app: FastifyInstance) {
 		const result = await rotateRefreshToken(app.db, rawRefreshToken)
 		if (!result) {
 			// Token invalid/expired/reused — clear everything
-			reply.clearCookie('innolope_token', { path: '/' })
-			reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
-			reply.clearCookie('innolope_csrf', { path: '/' })
+			clearAuthCookies(reply)
 			return reply.status(401).send({ error: 'Invalid refresh token. Please log in again.' })
 		}
 
@@ -157,7 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
 
 		reply.setCookie('innolope_token', accessToken, ACCESS_COOKIE_OPTIONS)
 		reply.setCookie('innolope_refresh', result.newRawToken, REFRESH_COOKIE_OPTIONS)
-		setCsrfCookie(reply, csrfToken)
+		reply.setCookie('innolope_csrf', csrfToken, CSRF_COOKIE_OPTIONS)
 
 		return { user: result.user }
 	})
@@ -168,9 +119,7 @@ export async function authRoutes(app: FastifyInstance) {
 		if (rawRefreshToken) {
 			await revokeRefreshTokenFamily(app.db, rawRefreshToken)
 		}
-		reply.clearCookie('innolope_token', { path: '/' })
-		reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
-		reply.clearCookie('innolope_csrf', { path: '/' })
+		clearAuthCookies(reply)
 
 		// Best-effort: try to identify user from the access token cookie
 		const cookieToken = request.cookies?.innolope_token
@@ -194,7 +143,10 @@ export async function authRoutes(app: FastifyInstance) {
 		if (pwError) return reply.status(400).send({ error: pwError })
 
 		const [user] = await app.db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, request.user!.id)).limit(1)
-		if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
+		if (!user || !user.passwordHash) {
+			return reply.status(400).send({ error: 'No password set for this account. Use SSO to sign in.' })
+		}
+		if (!(await verifyPassword(currentPassword, user.passwordHash))) {
 			return reply.status(401).send({ error: 'Current password is incorrect' })
 		}
 

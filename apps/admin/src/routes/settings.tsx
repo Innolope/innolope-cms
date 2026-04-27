@@ -9,6 +9,7 @@ import { MediaSettings } from '../components/settings/media-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { TeamSettings } from '../components/settings/team-settings'
 import { WebhookSettings } from '../components/settings/webhook-settings'
+import { SsoSettings } from '../components/settings/sso-settings'
 import { LicenseGate, ProBadge, useLicense, hasFeature } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
 
@@ -30,11 +31,12 @@ interface NewKeyResponse extends ApiKeyItem {
 	warning: string
 }
 
-type SettingsTab = 'general' | 'team' | 'api-keys' | 'ai-models' | 'search' | 'webhooks' | 'media' | 'database'
+type SettingsTab = 'general' | 'team' | 'sso' | 'api-keys' | 'ai-models' | 'search' | 'webhooks' | 'media' | 'database'
 
 const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'team', label: 'Team' },
+	{ id: 'sso', label: 'SSO', pro: 'sso' },
 	{ id: 'database', label: 'Database' },
 	{ id: 'api-keys', label: 'API Keys' },
 	{ id: 'ai-models', label: 'AI Models' },
@@ -85,6 +87,11 @@ function Settings() {
 			{/* Tab content — all mounted, inactive hidden to avoid reload flicker */}
 			<div className={tab === 'general' ? '' : 'hidden'}><GeneralSettings /></div>
 			<div className={tab === 'team' ? '' : 'hidden'}><TeamSettings /></div>
+			<div className={tab === 'sso' ? '' : 'hidden'}>
+				<LicenseGate feature="sso" featureLabel="Single Sign-On (SAML &amp; OIDC)">
+					<SsoSettings />
+				</LicenseGate>
+			</div>
 			<div className={tab === 'api-keys' ? '' : 'hidden'}><ApiKeysContent /></div>
 			<div className={tab === 'ai-models' ? '' : 'hidden'}><AiSettingsPanel /></div>
 			<div className={tab === 'search' ? '' : 'hidden'}>

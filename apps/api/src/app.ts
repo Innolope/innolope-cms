@@ -1,5 +1,6 @@
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
+import formbody from '@fastify/formbody'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
@@ -16,6 +17,8 @@ import { mediaPlugin } from './plugins/media.js'
 import { auditLogRoutes } from './ee/audit-log.js'
 import { webhookRoutes } from './ee/webhooks.js'
 import { schedulingRoutes } from './ee/scheduling.js'
+import { ssoRoutes, ssoAdminRoutes, meIdentitiesRoutes } from './ee/sso/index.js'
+import { scimRoutes, scimTokenAdminRoutes } from './ee/sso/scim.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
@@ -71,6 +74,9 @@ export async function buildApp() {
 		secret: process.env.AUTH_SECRET,
 	})
 
+	// SAML ACS and SCIM clients post application/x-www-form-urlencoded bodies.
+	await app.register(formbody)
+
 	await app.register(cors, {
 		origin: process.env.ADMIN_URL || 'http://localhost:5173',
 		credentials: true,
@@ -88,6 +94,9 @@ export async function buildApp() {
 		const path = request.url.split('?')[0]
 		const csrfExemptPaths = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/logout', '/api/v1/auth/refresh', '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password', '/api/v1/invites/accept']
 		if (csrfExemptPaths.some(p => path.startsWith(p))) return
+		// SAML ACS is a POST from the IdP — no way for it to carry our CSRF cookie; SCIM is bearer-auth machine-to-machine
+		if (/^\/api\/v1\/auth\/sso\/[^/]+\/saml\/acs$/.test(path)) return
+		if (path.startsWith('/api/v1/scim/')) return
 
 		const cookieToken = request.cookies['innolope_csrf']
 		const headerToken = request.headers['x-csrf-token'] as string | undefined
@@ -159,6 +168,11 @@ export async function buildApp() {
 	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })
 	await app.register(webhookRoutes, { prefix: '/api/v1/ee/webhooks' })
 	await app.register(schedulingRoutes, { prefix: '/api/v1/ee/scheduling' })
+	await app.register(ssoRoutes, { prefix: '/api/v1/auth/sso' })
+	await app.register(ssoAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
+	await app.register(scimTokenAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
+	await app.register(meIdentitiesRoutes, { prefix: '/api/v1/auth/me/identities' })
+	await app.register(scimRoutes, { prefix: '/api/v1/scim' })
 
 	// Serve admin UI static files in production (cloud deployment)
 	const adminDistPath = resolve(process.cwd(), 'apps/admin/dist')

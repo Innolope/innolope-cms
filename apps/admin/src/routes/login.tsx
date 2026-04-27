@@ -6,6 +6,15 @@ export const Route = createFileRoute('/login')({
 	component: LoginPage,
 })
 
+interface SsoDiscovery {
+	id: string
+	slug: string
+	projectId: string
+	protocol: 'saml' | 'oidc'
+	enforceSso: boolean
+	name: string
+}
+
 function LoginPage() {
 	const { user, login, register, loading } = useAuth()
 	const navigate = useNavigate()
@@ -16,6 +25,7 @@ function LoginPage() {
 	const [error, setError] = useState('')
 	const [submitting, setSubmitting] = useState(false)
 	const [checkingSetup, setCheckingSetup] = useState(true)
+	const [ssoDiscovery, setSsoDiscovery] = useState<SsoDiscovery | null>(null)
 
 	// Redirect if already logged in
 	useEffect(() => {
@@ -49,6 +59,29 @@ function LoginPage() {
 		} finally {
 			setSubmitting(false)
 		}
+	}
+
+	// Email-domain discovery: when the user blurs the email field, check for a matching SSO connection
+	const onEmailBlur = async () => {
+		if (!email.includes('@') || mode === 'setup') return
+		try {
+			const res = await fetch(`/api/v1/auth/sso/discover?email=${encodeURIComponent(email)}`, { credentials: 'include' })
+			if (res.ok) {
+				const data = (await res.json()) as SsoDiscovery
+				setSsoDiscovery(data)
+			} else {
+				setSsoDiscovery(null)
+			}
+		} catch {
+			setSsoDiscovery(null)
+		}
+	}
+
+	const startSso = () => {
+		if (!ssoDiscovery) return
+		const next = new URLSearchParams(window.location.search).get('next') || '/'
+		const initiateUrl = `/api/v1/auth/sso/${encodeURIComponent(ssoDiscovery.slug)}/initiate?next=${encodeURIComponent(next)}`
+		window.location.href = initiateUrl
 	}
 
 	if (loading || checkingSetup) {
@@ -94,41 +127,60 @@ function LoginPage() {
 						<input
 							type="email"
 							value={email}
-							onChange={(e) => setEmail(e.target.value)}
+							onChange={(e) => {
+								setEmail(e.target.value)
+								setSsoDiscovery(null)
+							}}
+							onBlur={onEmailBlur}
 							required
 							className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 							placeholder="admin@example.com"
 							autoFocus={mode === 'login'}
 						/>
 					</div>
-					<div>
-						<label className="block text-xs text-text-secondary mb-1.5">Password</label>
-						<input
-							type="password"
-							value={password}
-							onChange={(e) => setPassword(e.target.value)}
-							required
-							minLength={8}
-							className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-							placeholder="Min 8 characters"
-						/>
-					</div>
+					{!(ssoDiscovery?.enforceSso && mode === 'login') && (
+						<div>
+							<label className="block text-xs text-text-secondary mb-1.5">Password</label>
+							<input
+								type="password"
+								value={password}
+								onChange={(e) => setPassword(e.target.value)}
+								required={!ssoDiscovery?.enforceSso}
+								minLength={8}
+								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
+								placeholder="Min 8 characters"
+							/>
+						</div>
+					)}
 
 					{error && (
 						<p className="text-sm text-danger bg-danger-surface px-3 py-2 rounded">{error}</p>
 					)}
 
-					<button
-						type="submit"
-						disabled={submitting}
-						className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
-					>
-						{submitting
-							? 'Please wait...'
-							: mode === 'setup'
-								? 'Create Admin Account'
-								: 'Sign In'}
-					</button>
+					{ssoDiscovery && mode === 'login' ? (
+						<button
+							type="button"
+							onClick={startSso}
+							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
+						>
+							Continue with {ssoDiscovery.name}
+						</button>
+					) : (
+						<button
+							type="submit"
+							disabled={submitting}
+							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
+						>
+							{submitting
+								? 'Please wait...'
+								: mode === 'setup'
+									? 'Create Admin Account'
+									: 'Sign In'}
+						</button>
+					)}
+					{ssoDiscovery && !ssoDiscovery.enforceSso && mode === 'login' && (
+						<p className="text-xs text-center text-text-muted">or use your password below</p>
+					)}
 				</form>
 				{mode === 'login' && (
 					<Link
