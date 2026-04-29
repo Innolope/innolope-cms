@@ -207,7 +207,7 @@ function CollectionSchemaEditor() {
 										<button type="button" onClick={() => moveField(i, 1)} className="text-text-secondary hover:text-text text-xs leading-none">&#x25BC;</button>
 									</div>
 									<input type="text" value={field.name} onChange={(e) => updateField(i, { name: e.target.value })} placeholder="Field name" className="flex-1 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none" />
-									<Dropdown value={field.type} onChange={(v) => updateField(i, { type: v })} options={FIELD_TYPES.map((t) => ({ value: t, label: t }))} className="px-2 py-1.5 bg-input border border-border-strong rounded text-sm focus:outline-none" />
+									<Dropdown value={field.type} onChange={(v) => updateField(i, { type: v })} options={FIELD_TYPES.map((t) => ({ value: t, label: t }))} className="w-32 shrink-0" />
 									<label className="flex items-center gap-1 text-xs text-text-secondary"><input type="checkbox" checked={field.required || false} onChange={(e) => updateField(i, { required: e.target.checked })} /> Required</label>
 									<label className="flex items-center gap-1 text-xs text-text-secondary"><input type="checkbox" checked={field.localized || false} onChange={(e) => updateField(i, { localized: e.target.checked })} /> i18n</label>
 									<button type="button" onClick={() => removeField(i)} className="text-danger hover:opacity-80 text-xs px-2">Remove</button>

@@ -89,7 +89,7 @@ server.tool(
 // Create content
 server.tool(
 	'create_content',
-	'Create new content from markdown. Created as draft by default. Use metadata to set structured fields like title, tags, category. Example: create_content({ slug: "my-article", collectionId: "...", markdown: "# Hello", metadata: { title: "My Article" } })',
+	'Create new content from markdown. Created as draft by default. Use metadata to set structured fields like title, tags, category. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ slug: "my-article", collectionId: "...", markdown: "# Hello", metadata: { title: "My Article" } })',
 	{
 		slug: z.string().describe('URL-friendly slug'),
 		collectionId: z.string().describe('Collection UUID'),
@@ -97,6 +97,9 @@ server.tool(
 		metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
 		locale: z.string().optional().describe('Content locale (default: en)'),
 		status: z.enum(['draft', 'published']).optional().describe('Initial status'),
+		createdAt: z.string().datetime().optional().describe('Original creation timestamp (ISO 8601). Defaults to now.'),
+		updatedAt: z.string().datetime().optional().describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
+		publishedAt: z.string().datetime().optional().describe('Original publish timestamp (ISO 8601).'),
 	},
 	async (args) => {
 		const created = await client.createContent(args)
@@ -254,7 +257,7 @@ server.tool(
 // Bulk create content
 server.tool(
 	'bulk_create',
-	'Create multiple content items in one call. Maximum 50 items. Each item requires slug, collectionId, and markdown.',
+	'Create multiple content items in one call. Maximum 50 items. Each item requires slug, collectionId, and markdown. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
 	{
 		items: z.array(z.object({
 			slug: z.string().describe('URL-friendly slug'),
@@ -263,6 +266,9 @@ server.tool(
 			metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
 			locale: z.string().optional().describe('Locale (default: en)'),
 			status: z.enum(['draft', 'published']).optional().describe('Status (default: draft)'),
+			createdAt: z.string().datetime().optional().describe('Original creation timestamp (ISO 8601). Defaults to now.'),
+			updatedAt: z.string().datetime().optional().describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
+			publishedAt: z.string().datetime().optional().describe('Original publish timestamp (ISO 8601).'),
 		})).describe('Array of content items to create'),
 	},
 	async ({ items }) => {

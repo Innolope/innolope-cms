@@ -14,7 +14,10 @@ export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		const params = contentListSchema.parse(request.query)
-		const { page, limit, sortBy, sortOrder, status, collectionId, locale, search } = params
+		const {
+			page, limit, sortBy, sortOrder, status, collectionId, locale, search,
+			updatedFrom, updatedTo, createdFrom, createdTo, publishedFrom, publishedTo, metadata,
+		} = params
 		const offset = (page - 1) * limit
 		const pid = request.project!.id
 
@@ -26,6 +29,30 @@ export async function contentRoutes(app: FastifyInstance) {
 			conditions.push(
 				sql`(${content.markdown} ILIKE ${'%' + search + '%'} OR ${content.metadata}::text ILIKE ${'%' + search + '%'})`,
 			)
+		}
+
+		// Date range filters — strings are passed through to Postgres which parses them
+		if (updatedFrom) conditions.push(sql`${content.updatedAt} >= ${updatedFrom}`)
+		if (updatedTo) conditions.push(sql`${content.updatedAt} <= ${updatedTo}`)
+		if (createdFrom) conditions.push(sql`${content.createdAt} >= ${createdFrom}`)
+		if (createdTo) conditions.push(sql`${content.createdAt} <= ${createdTo}`)
+		if (publishedFrom) conditions.push(sql`${content.publishedAt} >= ${publishedFrom}`)
+		if (publishedTo) conditions.push(sql`${content.publishedAt} <= ${publishedTo}`)
+
+		// Metadata equality filters: keys validated against identifier regex to keep injection out of sql.raw
+		if (metadata) {
+			try {
+				const parsed = JSON.parse(metadata) as Record<string, unknown>
+				if (parsed && typeof parsed === 'object') {
+					for (const [field, value] of Object.entries(parsed)) {
+						if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) continue
+						if (value === null || value === undefined || value === '') continue
+						conditions.push(sql`${content.metadata}->>${sql.raw(`'${field}'`)} = ${String(value)}`)
+					}
+				}
+			} catch {
+				// Ignore malformed metadata param rather than 500ing
+			}
 		}
 
 		const where = and(...conditions)
@@ -119,6 +146,9 @@ export async function contentRoutes(app: FastifyInstance) {
 				locale: input.locale || 'en',
 				status: input.status || 'draft',
 				createdBy: request.user!.id,
+				...(input.createdAt && { createdAt: new Date(input.createdAt) }),
+				...(input.updatedAt && { updatedAt: new Date(input.updatedAt) }),
+				...(input.publishedAt && { publishedAt: new Date(input.publishedAt) }),
 			})
 			.returning()
 
@@ -133,7 +163,7 @@ export async function contentRoutes(app: FastifyInstance) {
 
 	// Bulk create content (editor+, project-scoped)
 	app.post('/bulk', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const { items } = request.body as { items: Array<{ slug: string; collectionId: string; markdown: string; metadata?: Record<string, unknown>; locale?: string; status?: string }> }
+		const { items } = request.body as { items: Array<{ slug: string; collectionId: string; markdown: string; metadata?: Record<string, unknown>; locale?: string; status?: string; createdAt?: string; updatedAt?: string; publishedAt?: string }> }
 
 		if (!Array.isArray(items) || items.length === 0) return reply.status(400).send({ error: 'items array is required' })
 		if (items.length > 50) return reply.status(400).send({ error: 'Maximum 50 items per bulk create' })
@@ -152,6 +182,9 @@ export async function contentRoutes(app: FastifyInstance) {
 					locale: item.locale || 'en',
 					status: (item.status || 'draft') as 'draft' | 'published',
 					createdBy: request.user!.id,
+					...(item.createdAt && { createdAt: new Date(item.createdAt) }),
+					...(item.updatedAt && { updatedAt: new Date(item.updatedAt) }),
+					...(item.publishedAt && { publishedAt: new Date(item.publishedAt) }),
 				}).returning()
 				results.push(result)
 			}
@@ -243,7 +276,8 @@ export async function contentRoutes(app: FastifyInstance) {
 
 	// Update content (editor+, project-scoped)
 	app.put<{ Params: { id: string } }>('/:id', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const input = contentInputSchema.partial().parse(request.body)
+		// Strip create-only timestamp fields — updates must not backdate createdAt or rewrite history.
+		const { createdAt: _ca, updatedAt: _ua, publishedAt: _pa, ...input } = contentInputSchema.partial().parse(request.body)
 
 		const [current] = await app.db
 			.select()

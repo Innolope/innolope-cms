@@ -11,6 +11,11 @@ export const contentInputSchema = z.object({
 	markdown: z.string(),
 	locale: z.string().min(2).max(10).optional(),
 	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
+	// Optional source timestamps — set by importers preserving original article history.
+	// Accepted on create only; ignored on update (would clobber edit history).
+	createdAt: z.string().datetime().optional(),
+	updatedAt: z.string().datetime().optional(),
+	publishedAt: z.string().datetime().optional(),
 })
 
 export const contentListSchema = z.object({
@@ -22,6 +27,14 @@ export const contentListSchema = z.object({
 	limit: z.coerce.number().int().min(1).max(100).default(25),
 	sortBy: z.enum(['createdAt', 'updatedAt', 'publishedAt']).default('createdAt'),
 	sortOrder: z.enum(['asc', 'desc']).default('desc'),
+	updatedFrom: z.string().optional(),
+	updatedTo: z.string().optional(),
+	createdFrom: z.string().optional(),
+	createdTo: z.string().optional(),
+	publishedFrom: z.string().optional(),
+	publishedTo: z.string().optional(),
+	// JSON-encoded object of metadata field equality filters: {"author":"x","category":"y"}
+	metadata: z.string().optional(),
 })
 
 export const envSchema = z.object({

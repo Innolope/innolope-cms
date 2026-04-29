@@ -1,9 +1,13 @@
 import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { api } from '../lib/api-client'
-import { useCollections } from '../lib/collections'
+import { useCollections, type CollectionWithCount } from '../lib/collections'
 import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
-import { Dropdown } from '../components/dropdown'
+import { ColumnConfig, type ColumnOption } from '../components/column-config'
+import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
+import { useUrlFilters, type FilterMap } from '../lib/use-url-filters'
+import { useColumnConfig } from '../lib/use-column-config'
+import { relativeTime, absoluteDate } from '../lib/relative-time'
 
 export const Route = createFileRoute('/collections/$slug')({
 	component: CollectionLayout,
@@ -12,7 +16,6 @@ export const Route = createFileRoute('/collections/$slug')({
 function CollectionLayout() {
 	const { slug } = Route.useParams()
 	const location = useLocation()
-	// If path is deeper than /collections/slug (e.g. /collections/slug/new or /collections/slug/someId)
 	const isChildRoute = location.pathname !== `/collections/${slug}`
 
 	if (isChildRoute) return <Outlet />
@@ -28,6 +31,7 @@ interface ContentItem {
 	version: number
 	createdAt: string
 	updatedAt: string
+	publishedAt?: string | null
 }
 
 interface ContentResponse {
@@ -48,6 +52,173 @@ const STATUS_LABELS: Record<string, string> = {
 	published: 'published',
 	archived: 'archived',
 }
+
+const STATUS_OPTIONS = [
+	{ value: 'draft', label: 'Draft' },
+	{ value: 'pending_review', label: 'Pending Review' },
+	{ value: 'published', label: 'Published' },
+	{ value: 'archived', label: 'Archived' },
+]
+
+interface ColumnDescriptor {
+	id: string
+	label: string
+	render: (item: ContentItem, ctx: { slug: string }) => ReactNode
+}
+
+function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
+	const builtins: ColumnDescriptor[] = [
+		{
+			id: 'title',
+			label: 'Title',
+			render: (item, ctx) => (
+				<Link
+					to="/collections/$slug/$contentId"
+					params={{ slug: ctx.slug, contentId: item.id }}
+					className="hover:text-text transition-colors"
+				>
+					{(item.metadata?.title as string) || item.slug}
+				</Link>
+			),
+		},
+		{
+			id: 'slug',
+			label: 'Slug',
+			render: (item) => <span className="text-text-secondary font-mono text-xs">{item.slug}</span>,
+		},
+		{
+			id: 'status',
+			label: 'Status',
+			render: (item) => (
+				<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
+					{STATUS_LABELS[item.status] || item.status}
+				</span>
+			),
+		},
+		{
+			id: 'locale',
+			label: 'Locale',
+			render: (item) => <span className="text-text-secondary text-xs">{item.locale}</span>,
+		},
+		{
+			id: 'updatedAt',
+			label: 'Last edited',
+			render: (item) => {
+				const created = new Date(item.createdAt).getTime()
+				const updated = new Date(item.updatedAt).getTime()
+				const neverEdited = Math.abs(updated - created) < 5_000
+				return (
+					<span
+						className={neverEdited ? 'text-text-muted italic' : 'text-text-secondary'}
+						title={neverEdited
+							? `Imported ${absoluteDate(item.updatedAt)} — never edited`
+							: absoluteDate(item.updatedAt)}
+					>
+						{relativeTime(item.updatedAt)}
+					</span>
+				)
+			},
+		},
+		{
+			id: 'createdAt',
+			label: 'Created',
+			render: (item) => (
+				<span className="text-text-secondary" title={absoluteDate(item.createdAt)}>
+					{relativeTime(item.createdAt)}
+				</span>
+			),
+		},
+		{
+			id: 'publishedAt',
+			label: 'Published',
+			render: (item) =>
+				item.publishedAt ? (
+					<span className="text-text-secondary" title={absoluteDate(item.publishedAt)}>
+						{relativeTime(item.publishedAt)}
+					</span>
+				) : (
+					<span className="text-text-muted">—</span>
+				),
+		},
+	]
+
+	const metadataCols: ColumnDescriptor[] = (collection.fields || []).map((f) => ({
+		id: `meta:${f.name}`,
+		label: f.name,
+		render: (item) => renderMetadataValue(item.metadata?.[f.name]),
+	}))
+
+	return [...builtins, ...metadataCols]
+}
+
+function renderMetadataValue(value: unknown): ReactNode {
+	if (value === null || value === undefined || value === '') return <span className="text-text-muted">—</span>
+	if (typeof value === 'boolean') return <span className="text-text-secondary">{value ? '✓' : '—'}</span>
+	if (Array.isArray(value)) return <span className="text-text-secondary text-xs">{value.join(', ')}</span>
+	if (typeof value === 'object') return <span className="text-text-muted text-xs italic">[object]</span>
+	return <span className="text-text-secondary">{String(value)}</span>
+}
+
+function buildFilters(collection: CollectionWithCount): FilterDescriptor[] {
+	const builtins: FilterDescriptor[] = [
+		{ id: 'status', label: 'Status', type: 'enum', options: STATUS_OPTIONS },
+		{ id: 'locale', label: 'Locale', type: 'text' },
+		{ id: 'updatedAt', label: 'Last edited', type: 'date-range' },
+		{ id: 'createdAt', label: 'Created', type: 'date-range' },
+		{ id: 'publishedAt', label: 'Published', type: 'date-range' },
+	]
+	const metadata: FilterDescriptor[] = (collection.fields || []).map((f) => {
+		if (f.options && f.options.length > 0) {
+			return {
+				id: `meta:${f.name}`,
+				label: f.name,
+				type: 'enum',
+				options: f.options.map((o) => ({ value: o, label: o })),
+			}
+		}
+		return { id: `meta:${f.name}`, label: f.name, type: 'text' }
+	})
+	return [...builtins, ...metadata]
+}
+
+function filtersToQueryParams(filters: FilterMap): URLSearchParams {
+	const out = new URLSearchParams()
+	const metadata: Record<string, string> = {}
+	for (const [id, value] of Object.entries(filters)) {
+		if (id.startsWith('meta:')) {
+			const key = id.slice(5)
+			if (typeof value === 'string' && value) metadata[key] = value
+			continue
+		}
+		if (id === 'status' && typeof value === 'string' && value) {
+			out.set('status', value)
+			continue
+		}
+		if (id === 'locale' && typeof value === 'string' && value) {
+			out.set('locale', value)
+			continue
+		}
+		if (id === 'updatedAt' && typeof value === 'object') {
+			if (value.from) out.set('updatedFrom', value.from)
+			if (value.to) out.set('updatedTo', value.to)
+			continue
+		}
+		if (id === 'createdAt' && typeof value === 'object') {
+			if (value.from) out.set('createdFrom', value.from)
+			if (value.to) out.set('createdTo', value.to)
+			continue
+		}
+		if (id === 'publishedAt' && typeof value === 'object') {
+			if (value.from) out.set('publishedFrom', value.from)
+			if (value.to) out.set('publishedTo', value.to)
+		}
+	}
+	if (Object.keys(metadata).length > 0) out.set('metadata', JSON.stringify(metadata))
+	return out
+}
+
+const DEFAULT_COLUMNS = ['title', 'slug', 'status', 'updatedAt']
+const PINNED_COLUMNS = ['title']
 
 function CollectionContentList() {
 	const { slug } = Route.useParams()
@@ -72,12 +243,44 @@ function CollectionContentList() {
 	const [page, setPage] = useState(1)
 	const [ready, setReady] = useState(false)
 	const [search, setSearch] = useState('')
-	const [statusFilter, setStatusFilter] = useState<string>('')
+
+	const { filters, setFilter, clearAll } = useUrlFilters()
+
+	const allColumns: ColumnDescriptor[] = useMemo(
+		() => (collection ? buildColumns(collection) : []),
+		[collection],
+	)
+	const allFilters: FilterDescriptor[] = useMemo(
+		() => (collection ? buildFilters(collection) : []),
+		[collection],
+	)
+
+	const columnConfig = useColumnConfig({
+		collectionId: collection?.id || '__none__',
+		available: allColumns.map((c) => c.id),
+		defaults: DEFAULT_COLUMNS,
+		pinned: PINNED_COLUMNS,
+	})
+
+	const visibleColumns: ColumnDescriptor[] = useMemo(
+		() => columnConfig.visible
+			.map((id) => allColumns.find((c) => c.id === id))
+			.filter((c): c is ColumnDescriptor => Boolean(c)),
+		[columnConfig.visible, allColumns],
+	)
+
+	const columnOptions: ColumnOption[] = useMemo(
+		() => allColumns.map((c) => ({ id: c.id, label: c.label })),
+		[allColumns],
+	)
 
 	const [reviewItems, setReviewItems] = useState<ContentItem[]>([])
 	const [reviewTotal, setReviewTotal] = useState(0)
 	const [reviewPage, setReviewPage] = useState(1)
 	const [reviewLoading, setReviewLoading] = useState(false)
+
+	const filterQuery = useMemo(() => filtersToQueryParams(filters).toString(), [filters])
+	const hasActiveFilters = Object.keys(filters).length > 0
 
 	useEffect(() => {
 		if (!collection) return
@@ -86,7 +289,8 @@ function CollectionContentList() {
 		params.set('limit', '25')
 		params.set('collectionId', collection.id)
 		if (search) params.set('search', search)
-		if (statusFilter) params.set('status', statusFilter)
+		// Merge active filters
+		for (const [k, v] of new URLSearchParams(filterQuery)) params.set(k, v)
 
 		api.get<ContentResponse>(`/api/v1/content?${params}`)
 			.then((res) => {
@@ -95,7 +299,7 @@ function CollectionContentList() {
 			})
 			.catch(() => {})
 			.finally(() => setReady(true))
-	}, [page, search, statusFilter, collection])
+	}, [page, search, filterQuery, collection])
 
 	const fetchReviewQueue = useCallback(() => {
 		if (!collection) return
@@ -132,6 +336,8 @@ function CollectionContentList() {
 		)
 	}
 
+	const showToolbar = total > 0 || search || hasActiveFilters
+
 	return (
 		<div className="p-8 pt-5 flex flex-col h-full">
 			<div className="flex items-center justify-between mb-6">
@@ -162,7 +368,7 @@ function CollectionContentList() {
 						</button>
 					</div>
 				</div>
-				{(total > 0 || search || statusFilter) && (
+				{showToolbar && (
 					<Link
 						to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
@@ -174,35 +380,39 @@ function CollectionContentList() {
 
 			{tab === 'all' ? (
 				<>
-					{(total > 0 || search || statusFilter) && (
-						<div className="flex gap-3 mb-4">
-							<input
-								type="text"
-								placeholder="Search..."
-								value={search}
-								onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-								className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-							/>
-							<Dropdown
-								value={statusFilter}
-								onChange={(v) => { setStatusFilter(v); setPage(1) }}
-								options={[
-									{ value: '', label: 'All statuses' },
-									{ value: 'draft', label: 'Draft' },
-									{ value: 'pending_review', label: 'Pending Review' },
-									{ value: 'published', label: 'Published' },
-									{ value: 'archived', label: 'Archived' },
-								]}
-								className="w-40 shrink-0"
+					{showToolbar && (
+						<div className="flex flex-col gap-3 mb-4">
+							<div className="flex gap-3 items-center">
+								<input
+									type="text"
+									placeholder="Search..."
+									value={search}
+									onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+									className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
+								/>
+								<ColumnConfig
+									available={columnOptions}
+									visible={columnConfig.visible}
+									pinned={columnConfig.pinned}
+									onToggle={columnConfig.toggle}
+									onMove={columnConfig.move}
+									onReset={columnConfig.reset}
+								/>
+							</div>
+							<FilterBar
+								available={allFilters}
+								filters={filters}
+								onChange={(id, value) => { setFilter(id, value); setPage(1) }}
+								onClearAll={() => { clearAll(); setPage(1) }}
 							/>
 						</div>
 					)}
 
-					<div className={total > 0 || search || statusFilter ? 'rounded-lg border border-border' : ''}>
+					<div className={total > 0 || search || hasActiveFilters ? 'rounded-lg border border-border' : ''}>
 						{!ready ? (
 							<div className="p-8" />
 						) : items.length === 0 ? (
-							search || statusFilter ? (
+							search || hasActiveFilters ? (
 								<div className="p-8 text-center text-text-secondary text-sm">No content matches your filters.</div>
 							) : (
 								<div className="flex flex-col items-center pt-[15vh] text-center">
@@ -230,31 +440,19 @@ function CollectionContentList() {
 							<table className="w-full text-sm">
 								<thead>
 									<tr className="text-left text-text-secondary border-b border-border">
-										<th className="px-4 py-3 font-medium">Title</th>
-										<th className="px-4 py-3 font-medium">Slug</th>
-										<th className="px-4 py-3 font-medium">Status</th>
-										<th className="px-4 py-3 font-medium">Updated</th>
+										{visibleColumns.map((col) => (
+											<th key={col.id} className="px-4 py-3 font-medium">{col.label}</th>
+										))}
 									</tr>
 								</thead>
 								<tbody>
 									{items.map((item) => (
 										<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
-											<td className="px-4 py-3">
-												<Link
-													to="/collections/$slug/$contentId"
-													params={{ slug, contentId: item.id }}
-													className="hover:text-text transition-colors"
-												>
-													{(item.metadata?.title as string) || item.slug}
-												</Link>
-											</td>
-											<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
-											<td className="px-4 py-3">
-												<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
-													{STATUS_LABELS[item.status] || item.status}
-												</span>
-											</td>
-											<td className="px-4 py-3 text-text-secondary">{new Date(item.updatedAt).toLocaleDateString()}</td>
+											{visibleColumns.map((col) => (
+												<td key={col.id} className="px-4 py-3">
+													{col.render(item, { slug })}
+												</td>
+											))}
 										</tr>
 									))}
 								</tbody>
@@ -286,7 +484,7 @@ function CollectionContentList() {
 								<tr className="text-left text-text-secondary border-b border-border">
 									<th className="px-4 py-3 font-medium">Title</th>
 									<th className="px-4 py-3 font-medium">Slug</th>
-									<th className="px-4 py-3 font-medium">Updated</th>
+									<th className="px-4 py-3 font-medium">Last edited</th>
 									<th className="px-4 py-3 font-medium text-right">Actions</th>
 								</tr>
 							</thead>
@@ -299,7 +497,7 @@ function CollectionContentList() {
 											</Link>
 										</td>
 										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
-										<td className="px-4 py-3 text-text-secondary">{new Date(item.updatedAt).toLocaleDateString()}</td>
+										<td className="px-4 py-3 text-text-secondary" title={absoluteDate(item.updatedAt)}>{relativeTime(item.updatedAt)}</td>
 										<td className="px-4 py-3 text-right">
 											<div className="flex gap-2 justify-end">
 												<button type="button" onClick={() => approveItem(item.id)} className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover">Approve</button>

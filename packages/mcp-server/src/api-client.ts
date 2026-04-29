@@ -41,7 +41,7 @@ export class InnolopeClient {
 		return this.request<CollectionItem>(`/api/v1/collections/${id}`)
 	}
 
-	async bulkCreateContent(items: Array<{ slug: string; collectionId: string; markdown: string; metadata?: Record<string, unknown>; locale?: string; status?: string }>) {
+	async bulkCreateContent(items: Array<{ slug: string; collectionId: string; markdown: string; metadata?: Record<string, unknown>; locale?: string; status?: string; createdAt?: string; updatedAt?: string; publishedAt?: string }>) {
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'POST',
 			body: JSON.stringify({ items }),
@@ -93,6 +93,9 @@ export class InnolopeClient {
 		metadata?: Record<string, unknown>
 		locale?: string
 		status?: string
+		createdAt?: string
+		updatedAt?: string
+		publishedAt?: string
 	}) {
 		return this.request<ContentItem>('/api/v1/content', {
 			method: 'POST',
