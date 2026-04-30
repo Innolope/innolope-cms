@@ -15,6 +15,7 @@ interface Stats {
 	apiKeys: number
 	collections: number
 	users: number
+	members?: number
 }
 
 interface RecentItem {
@@ -27,12 +28,82 @@ interface RecentItem {
 	locale: string
 }
 
+type StatId = 'total' | 'published' | 'draft' | 'media' | 'apiKeys' | 'collections' | 'members'
+
+const ALL_STATS: { id: StatId; label: string; to: string }[] = [
+	{ id: 'total', label: 'Total Content', to: '/collections' },
+	{ id: 'published', label: 'Published', to: '/collections' },
+	{ id: 'draft', label: 'Drafts', to: '/collections' },
+	{ id: 'media', label: 'Media Files', to: '/media' },
+	{ id: 'apiKeys', label: 'API Keys', to: '/settings' },
+	{ id: 'collections', label: 'Collections', to: '/collections' },
+	{ id: 'members', label: 'Members', to: '/settings' },
+]
+
+const DEFAULT_VISIBLE_STATS: StatId[] = ['total', 'published', 'draft', 'media', 'apiKeys']
+const STATS_STORAGE_KEY = 'dashboard.visibleStats'
+const MCP_HIDDEN_STORAGE_KEY = 'dashboard.mcpConfigHidden'
+
+function loadVisibleStats(): StatId[] {
+	try {
+		const raw = localStorage.getItem(STATS_STORAGE_KEY)
+		if (!raw) return DEFAULT_VISIBLE_STATS
+		const parsed = JSON.parse(raw)
+		const validIds = new Set(ALL_STATS.map((s) => s.id))
+		if (Array.isArray(parsed)) {
+			const filtered = parsed.filter((id: unknown): id is StatId => typeof id === 'string' && validIds.has(id as StatId))
+			return filtered.length > 0 ? filtered : DEFAULT_VISIBLE_STATS
+		}
+	} catch {}
+	return DEFAULT_VISIBLE_STATS
+}
+
 
 function Dashboard() {
 	const navigate = useNavigate()
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [recent, setRecent] = useState<RecentItem[]>([])
 	const [ready, setReady] = useState(false)
+	const [visibleStats, setVisibleStats] = useState<StatId[]>(loadVisibleStats)
+	const [statsCustomizeOpen, setStatsCustomizeOpen] = useState(false)
+	const [mcpConfigHidden, setMcpConfigHidden] = useState<boolean>(() => {
+		try {
+			return localStorage.getItem(MCP_HIDDEN_STORAGE_KEY) === 'true'
+		} catch {
+			return false
+		}
+	})
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(visibleStats))
+		} catch {}
+	}, [visibleStats])
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(MCP_HIDDEN_STORAGE_KEY, String(mcpConfigHidden))
+		} catch {}
+	}, [mcpConfigHidden])
+
+	const toggleStat = (id: StatId) => {
+		setVisibleStats((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+	}
+
+	const resetStats = () => setVisibleStats(DEFAULT_VISIBLE_STATS)
+
+	const getStatValue = (id: StatId): number | string => {
+		if (!stats) return '—'
+		switch (id) {
+			case 'total': return stats.content.total
+			case 'published': return stats.content.published
+			case 'draft': return stats.content.draft
+			case 'media': return stats.media
+			case 'apiKeys': return stats.apiKeys
+			case 'collections': return stats.collections
+			case 'members': return stats.members ?? '—'
+		}
+	}
 
 	useEffect(() => {
 		Promise.all([
@@ -53,18 +124,53 @@ function Dashboard() {
 	if (isEmpty) return <EmptyDashboard />
 	if (!ready) return <div className="p-8 pt-5" />
 
+	const visibleStatItems = visibleStats
+		.map((id) => ALL_STATS.find((s) => s.id === id))
+		.filter((s): s is (typeof ALL_STATS)[number] => Boolean(s))
+
 	return (
 		<div className="p-8 pt-5">
-			<h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+			<div className="flex items-center justify-between mb-6">
+				<h2 className="text-2xl font-bold">Dashboard</h2>
+				<button
+					type="button"
+					onClick={() => setStatsCustomizeOpen(true)}
+					className="flex items-center gap-1.5 px-2.5 py-1.5 text-text-secondary hover:text-text hover:bg-surface-alt rounded transition-colors"
+					title="Customize statistics"
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+						<line x1="4" y1="21" x2="4" y2="14" />
+						<line x1="4" y1="10" x2="4" y2="3" />
+						<line x1="12" y1="21" x2="12" y2="12" />
+						<line x1="12" y1="8" x2="12" y2="3" />
+						<line x1="20" y1="21" x2="20" y2="16" />
+						<line x1="20" y1="12" x2="20" y2="3" />
+						<line x1="1" y1="14" x2="7" y2="14" />
+						<line x1="9" y1="8" x2="15" y2="8" />
+						<line x1="17" y1="16" x2="23" y2="16" />
+					</svg>
+					<span className="text-xs">Customize</span>
+				</button>
+			</div>
 
 			{/* Stats grid */}
-			<div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-				<StatCard label="Total Content" value={stats?.content.total ?? '—'} to="/collections" />
-				<StatCard label="Published" value={stats?.content.published ?? '—'} to="/collections" />
-				<StatCard label="Drafts" value={stats?.content.draft ?? '—'} to="/collections" />
-				<StatCard label="Media Files" value={stats?.media ?? '—'} to="/media" />
-				<StatCard label="API Keys" value={stats?.apiKeys ?? '—'} to="/settings" />
-			</div>
+			{visibleStatItems.length > 0 && (
+				<div
+					className={`grid grid-cols-2 gap-3 mb-8 ${
+						visibleStatItems.length >= 5
+							? 'md:grid-cols-5'
+							: visibleStatItems.length === 4
+								? 'md:grid-cols-4'
+								: visibleStatItems.length === 3
+									? 'md:grid-cols-3'
+									: 'md:grid-cols-2'
+					}`}
+				>
+					{visibleStatItems.map((stat) => (
+						<StatCard key={stat.id} label={stat.label} value={getStatValue(stat.id)} to={stat.to} />
+					))}
+				</div>
+			)}
 
 			{/* Analytics */}
 			<div className="rounded-lg border border-border p-5 mb-6">
@@ -149,9 +255,23 @@ function Dashboard() {
 						</Step>
 					</div>
 
-					<div className="mt-6 pt-4 border-t border-border">
-						<h4 className="text-xs font-medium text-text-secondary mb-2">MCP Config</h4>
-						<pre className="text-xs bg-surface p-3 rounded overflow-x-auto text-text-secondary border border-border">
+					{!mcpConfigHidden ? (
+						<div className="mt-6 pt-4 border-t border-border">
+							<div className="flex items-center justify-between mb-2">
+								<h4 className="text-xs font-medium text-text-secondary">MCP Config</h4>
+								<button
+									type="button"
+									onClick={() => setMcpConfigHidden(true)}
+									className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
+									title="Hide MCP Config"
+								>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<line x1="18" y1="6" x2="6" y2="18" />
+										<line x1="6" y1="6" x2="18" y2="18" />
+									</svg>
+								</button>
+							</div>
+							<pre className="text-xs bg-surface p-3 rounded overflow-x-auto text-text-secondary border border-border">
 {`{
   "mcpServers": {
     "innolope": {
@@ -164,8 +284,105 @@ function Dashboard() {
     }
   }
 }`}
-						</pre>
-					</div>
+							</pre>
+						</div>
+					) : (
+						<div className="mt-6 pt-4 border-t border-border">
+							<button
+								type="button"
+								onClick={() => setMcpConfigHidden(false)}
+								className="text-xs text-text-secondary hover:text-text transition-colors"
+							>
+								Show MCP Config
+							</button>
+						</div>
+					)}
+				</div>
+			</div>
+
+			{statsCustomizeOpen && (
+				<StatsCustomizeModal
+					visibleStats={visibleStats}
+					onToggle={toggleStat}
+					onReset={resetStats}
+					onClose={() => setStatsCustomizeOpen(false)}
+				/>
+			)}
+		</div>
+	)
+}
+
+function StatsCustomizeModal({
+	visibleStats,
+	onToggle,
+	onReset,
+	onClose,
+}: {
+	visibleStats: StatId[]
+	onToggle: (id: StatId) => void
+	onReset: () => void
+	onClose: () => void
+}) {
+	const visibleSet = new Set(visibleStats)
+	return (
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+			<div
+				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md p-6"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<div className="flex items-center justify-between mb-2">
+					<h3 className="font-semibold text-text">Customize Statistics</h3>
+					<button
+						type="button"
+						onClick={onClose}
+						className="w-6 h-6 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
+						title="Close"
+					>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18" />
+							<line x1="6" y1="6" x2="18" y2="18" />
+						</svg>
+					</button>
+				</div>
+				<p className="text-sm text-text-secondary mb-4">
+					Select which data points to show on your dashboard.
+				</p>
+				<div className="space-y-1 mb-6 max-h-80 overflow-y-auto">
+					{ALL_STATS.map((stat) => {
+						const checked = visibleSet.has(stat.id)
+						return (
+							<label
+								key={stat.id}
+								className="flex items-center gap-3 px-3 py-2 rounded hover:bg-surface-alt cursor-pointer"
+							>
+								<input
+									type="checkbox"
+									checked={checked}
+									onChange={() => onToggle(stat.id)}
+									className="cursor-pointer"
+								/>
+								<span className={`flex-1 text-sm ${checked ? 'text-text' : 'text-text-secondary'}`}>
+									{stat.label}
+								</span>
+							</label>
+						)
+					})}
+				</div>
+				<div className="flex items-center justify-between">
+					<button
+						type="button"
+						onClick={onReset}
+						className="text-xs text-text-secondary hover:text-text transition-colors"
+					>
+						Reset to default
+					</button>
+					<button
+						type="button"
+						onClick={onClose}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+					>
+						Done
+					</button>
 				</div>
 			</div>
 		</div>
