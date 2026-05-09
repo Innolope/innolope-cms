@@ -2,12 +2,14 @@ import { projects, collections, content } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 import postgres from 'postgres'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
 /** Block connection strings targeting private/internal networks (SSRF protection). */
-function validateConnectionString(connStr: string): string | null {
+async function validateConnectionString(connStr: string): Promise<string | null> {
 	const lc = connStr.toLowerCase()
 	const blockedPatterns = [
 		'localhost', '127.0.0.1', '::1', '0.0.0.0',
@@ -23,7 +25,80 @@ function validateConnectionString(connStr: string): string | null {
 			return `Connection to private/internal addresses is not allowed (matched: ${pattern}).`
 		}
 	}
+
+	const hostname = extractHostname(connStr)
+	if (!hostname) return null
+
+	let addresses: string[]
+	if (isIP(hostname)) {
+		addresses = [hostname]
+	} else {
+		try {
+			const resolved = await lookup(hostname, { all: true, verbatim: true })
+			addresses = resolved.map((entry) => entry.address)
+		} catch {
+			return null
+		}
+	}
+
+	for (const address of addresses) {
+		if (isPrivateAddress(address)) {
+			return `Connection to private/internal addresses is not allowed (resolved: ${address}).`
+		}
+	}
 	return null
+}
+
+function extractHostname(connStr: string): string | null {
+	try {
+		const parsed = new URL(connStr)
+		return parsed.hostname.replace(/^\[|\]$/g, '')
+	} catch {
+		return null
+	}
+}
+
+function isPrivateAddress(address: string): boolean {
+	if (address.includes(':')) {
+		const normalized = address.toLowerCase()
+		return normalized === '::1'
+			|| normalized === '::'
+			|| normalized.startsWith('fc')
+			|| normalized.startsWith('fd')
+			|| normalized.startsWith('fe80:')
+			|| normalized.startsWith('::ffff:127.')
+			|| normalized.startsWith('::ffff:10.')
+			|| normalized.startsWith('::ffff:192.168.')
+			|| /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(normalized)
+	}
+
+	const parts = address.split('.').map(Number)
+	if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false
+	const [a, b] = parts
+	return a === 10
+		|| a === 127
+		|| (a === 172 && b >= 16 && b <= 31)
+		|| (a === 192 && b === 168)
+		|| (a === 169 && b === 254)
+		|| a === 0
+		|| a >= 224
+}
+
+function getSavedExternalDb(project: typeof projects.$inferSelect) {
+	return ((project.settings as unknown as Record<string, unknown>)?.externalDb || {}) as Record<string, unknown>
+}
+
+function sanitizeProject(project: typeof projects.$inferSelect) {
+	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
+	const externalDb = settings.externalDb as Record<string, unknown> | undefined
+	if (externalDb) {
+		settings.externalDb = {
+			...externalDb,
+			connectionString: undefined,
+			hasConnectionString: Boolean(externalDb.connectionString),
+		}
+	}
+	return { ...project, settings }
 }
 
 export async function databaseRoutes(app: FastifyInstance) {
@@ -41,7 +116,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				return reply.status(400).send({ ok: false, message: 'Connection string is required.' })
 			}
 
-			const ssrfError = validateConnectionString(connectionString)
+			const ssrfError = await validateConnectionString(connectionString)
 			if (ssrfError) {
 				return reply.status(400).send({ ok: false, message: ssrfError })
 			}
@@ -120,7 +195,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 				database?: string
 			}
 
-			const ssrfErr = validateConnectionString(connectionString)
+			const [project] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+			const savedExternalDb = getSavedExternalDb(project)
+			const effectiveConnectionString = connectionString || savedExternalDb.connectionString as string | undefined
+			const effectiveDatabase = database || savedExternalDb.database as string | undefined
+
+			if (!effectiveConnectionString) return reply.status(400).send({ error: 'Connection string is required.' })
+
+			const ssrfErr = await validateConnectionString(effectiveConnectionString)
 			if (ssrfErr) {
 				return reply.status(400).send({ error: ssrfErr })
 			}
@@ -132,8 +215,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 					case 'vercel-postgres':
 					case 'neon':
 					case 'cockroachdb': {
-						const client = postgres(connectionString, {
-							ssl: connectionString.includes('sslmode=') ? 'require' : false,
+						const client = postgres(effectiveConnectionString, {
+							ssl: effectiveConnectionString.includes('sslmode=') ? 'require' : false,
 							connect_timeout: 10,
 						})
 
@@ -167,11 +250,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'mongodb': {
 						const { MongoClient } = await import('mongodb')
-						const client = new MongoClient(connectionString, {
+						const client = new MongoClient(effectiveConnectionString, {
 							serverSelectionTimeoutMS: 10000,
 						})
 						await client.connect()
-						const db = database ? client.db(database) : client.db()
+						const db = effectiveDatabase ? client.db(effectiveDatabase) : client.db()
 						const collections = await db.listCollections().toArray()
 
 						const result = []
@@ -194,7 +277,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'mysql': {
 						const mysql = await import('mysql2/promise')
-						const conn = await mysql.createConnection(connectionString)
+						const conn = await mysql.createConnection(effectiveConnectionString)
 
 						const [tableRows] = await conn.execute(
 							`SELECT table_name FROM information_schema.tables
@@ -229,7 +312,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'firebase': {
 						const admin = await import('firebase-admin')
-						const credentials = JSON.parse(connectionString)
+						const credentials = JSON.parse(effectiveConnectionString)
 						const app = admin.initializeApp({
 							credential: admin.credential.cert(credentials),
 						}, `scan-${Date.now()}`)
@@ -272,7 +355,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				connectionString: string
 			}
 
-			const ssrfErr2 = validateConnectionString(connectionString)
+			const ssrfErr2 = await validateConnectionString(connectionString)
 			if (ssrfErr2) {
 				return reply.status(400).send({ error: ssrfErr2 })
 			}
@@ -329,7 +412,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			}
 
 			if (connectionString) {
-				const ssrfErr3 = validateConnectionString(connectionString)
+				const ssrfErr3 = await validateConnectionString(connectionString)
 				if (ssrfErr3) {
 					return reply.status(400).send({ error: ssrfErr3 })
 				}
@@ -462,7 +545,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			}
 
 			return {
-				project: updated,
+				project: sanitizeProject(updated),
 				collections: createdCollections,
 				warnings: warnings.length > 0 ? warnings : undefined,
 			}

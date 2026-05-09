@@ -4,6 +4,7 @@ import { api } from '../lib/api-client'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { useToast } from '../lib/toast'
+import { useCollections } from '../lib/collections'
 
 export const Route = createFileRoute('/dashboard')({
 	component: Dashboard,
@@ -29,6 +30,7 @@ interface RecentItem {
 }
 
 type StatId = 'total' | 'published' | 'draft' | 'media' | 'apiKeys' | 'collections' | 'members'
+type StatTarget = { to: string; search?: Record<string, string> }
 
 const ALL_STATS: { id: StatId; label: string; to: string }[] = [
 	{ id: 'total', label: 'Total Content', to: '/collections' },
@@ -61,6 +63,7 @@ function loadVisibleStats(): StatId[] {
 
 function Dashboard() {
 	const navigate = useNavigate()
+	const { collections } = useCollections()
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [recent, setRecent] = useState<RecentItem[]>([])
 	const [ready, setReady] = useState(false)
@@ -127,6 +130,13 @@ function Dashboard() {
 	const visibleStatItems = visibleStats
 		.map((id) => ALL_STATS.find((s) => s.id === id))
 		.filter((s): s is (typeof ALL_STATS)[number] => Boolean(s))
+	const contentListPath = collections[0] ? `/collections/${collections[0].name}` : '/collections'
+	const getStatTarget = (stat: (typeof ALL_STATS)[number]): StatTarget => {
+		if (stat.id === 'published') return { to: contentListPath, search: { 'f.status': 'published' } }
+		if (stat.id === 'draft') return { to: contentListPath, search: { 'f.status': 'draft' } }
+		if (stat.id === 'total') return { to: contentListPath }
+		return { to: stat.to }
+	}
 
 	return (
 		<div className="p-8 pt-5">
@@ -166,9 +176,12 @@ function Dashboard() {
 									: 'md:grid-cols-2'
 					}`}
 				>
-					{visibleStatItems.map((stat) => (
-						<StatCard key={stat.id} label={stat.label} value={getStatValue(stat.id)} to={stat.to} />
-					))}
+					{visibleStatItems.map((stat) => {
+						const target = getStatTarget(stat)
+						return (
+							<StatCard key={stat.id} label={stat.label} value={getStatValue(stat.id)} to={target.to} search={target.search} />
+						)
+					})}
 				</div>
 			)}
 
@@ -574,10 +587,11 @@ function EmptyDashboard() {
 	return null
 }
 
-function StatCard({ label, value, to }: { label: string; value: number | string; to: string }) {
+function StatCard({ label, value, to, search }: { label: string; value: number | string; to: string; search?: Record<string, string> }) {
 	return (
 		<Link
 			to={to}
+			search={search}
 			className="rounded-lg border border-border p-4 hover:border-text-muted transition-colors"
 		>
 			<p className="text-xs text-text-secondary">{label}</p>

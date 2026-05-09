@@ -2,6 +2,19 @@ import { projects, projectMembers, users } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql } from 'drizzle-orm'
 
+function sanitizeProject(project: typeof projects.$inferSelect, role?: string) {
+	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
+	const externalDb = settings.externalDb as Record<string, unknown> | undefined
+	if (externalDb) {
+		settings.externalDb = {
+			...externalDb,
+			connectionString: undefined,
+			hasConnectionString: Boolean(externalDb.connectionString),
+		}
+	}
+	return { ...project, settings, role }
+}
+
 export async function projectRoutes(app: FastifyInstance) {
 	// List user's projects
 	app.get('/', { preHandler: [app.authenticate] }, async (request) => {
@@ -14,10 +27,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			.innerJoin(projects, eq(projects.id, projectMembers.projectId))
 			.where(eq(projectMembers.userId, request.user!.id))
 
-		return memberships.map((m) => ({
-			...m.project,
-			role: m.role,
-		}))
+		return memberships.map((m) => sanitizeProject(m.project, m.role))
 	})
 
 	// Get project by ID
@@ -31,7 +41,7 @@ export async function projectRoutes(app: FastifyInstance) {
 				.where(eq(projects.id, request.project!.id))
 				.limit(1)
 
-			return { ...project, role: request.projectRole }
+			return sanitizeProject(project, request.projectRole)
 		},
 	)
 
@@ -70,7 +80,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			role: 'owner',
 		})
 
-		return reply.status(201).send(project)
+		return reply.status(201).send(sanitizeProject(project, 'owner'))
 	})
 
 	// Update project
@@ -84,10 +94,25 @@ export async function projectRoutes(app: FastifyInstance) {
 				settings?: Record<string, unknown>
 			}
 
+			const [current] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
+			if (!current) return reply.status(404).send({ error: 'Project not found' })
+
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (name !== undefined) updates.name = name
 			if (slug !== undefined) updates.slug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-')
-			if (settings !== undefined) updates.settings = settings
+			if (settings !== undefined) {
+				const currentSettings = (current.settings as unknown as Record<string, unknown>) || {}
+				const nextSettings = { ...currentSettings, ...settings }
+				const currentExternalDb = currentSettings.externalDb as Record<string, unknown> | undefined
+				const nextExternalDb = nextSettings.externalDb as Record<string, unknown> | undefined
+				if (currentExternalDb?.connectionString && nextExternalDb && !nextExternalDb.connectionString) {
+					nextSettings.externalDb = {
+						...nextExternalDb,
+						connectionString: currentExternalDb.connectionString,
+					}
+				}
+				updates.settings = nextSettings
+			}
 
 			const [updated] = await app.db
 				.update(projects)
@@ -95,7 +120,7 @@ export async function projectRoutes(app: FastifyInstance) {
 				.where(eq(projects.id, request.project!.id))
 				.returning()
 
-			return updated
+			return sanitizeProject(updated, request.projectRole)
 		},
 	)
 

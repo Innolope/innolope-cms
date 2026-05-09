@@ -253,7 +253,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				const t = (extDb.type as string) || 'built-in'
 				setDbType(t)
 				initialDbType.current = t
-				setConnectionString((extDb.connectionString as string) || '')
+				setConnectionString('')
 			}
 		}
 	}, [currentProject])
@@ -502,9 +502,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							<p className="text-sm text-text">
 								Connected to <span className="font-medium">{connectedOption.label}</span>
 							</p>
-							{connectionString && (
-								<p className="text-xs text-text-muted font-mono truncate">{maskConnectionString(connectionString)}</p>
-							)}
+								<p className="text-xs text-text-muted font-mono truncate">
+									{connectionString ? maskConnectionString(connectionString) : 'Connection saved securely'}
+								</p>
 						</div>
 						<img src={connectedOption.logo} alt="" className="w-5 h-5 shrink-0 opacity-60" />
 					</div>

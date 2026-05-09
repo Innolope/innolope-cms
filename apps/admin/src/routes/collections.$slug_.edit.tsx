@@ -162,10 +162,10 @@ function CollectionSchemaEditor() {
 										try {
 											const settings = currentProject.settings as unknown as Record<string, unknown>
 											const extDb = settings?.externalDb as Record<string, unknown> | undefined
-											if (!extDb?.type || !extDb?.connectionString) throw new Error('No external DB config')
+											if (!extDb?.type) throw new Error('No external DB config')
 											const result = await api.post<{ tables: Array<{ name: string; columns: { name: string; type: string }[] }> }>(
 												`/api/v1/projects/${currentProject.id}/database/scan`,
-												{ type: extDb.type, connectionString: extDb.connectionString, database: extDb.database || undefined },
+												{ type: extDb.type, database: extDb.database || undefined },
 											)
 											const match = result.tables.find(t => t.name === collection.name)
 											if (match) {

@@ -10,6 +10,103 @@ function sanitizeHtml(html: string): string {
 }
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 
+type ExternalDbConfig = {
+	type: string
+	connectionString: string
+	database?: string
+}
+
+function getExternalDbConfig(project: typeof projects.$inferSelect | undefined): ExternalDbConfig | null {
+	const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as Record<string, unknown> | undefined
+	if (!extDb?.type || !extDb?.connectionString) return null
+	return {
+		type: extDb.type as string,
+		connectionString: extDb.connectionString as string,
+		database: extDb.database as string | undefined,
+	}
+}
+
+function buildExternalData(
+	col: typeof collections.$inferSelect,
+	input: { metadata?: Record<string, unknown>; markdown?: string; slug?: string },
+): Record<string, unknown> {
+	const fieldNames = new Set((col.fields || []).map((field) => field.name))
+	const data: Record<string, unknown> = {}
+
+	for (const [key, value] of Object.entries(input.metadata || {})) {
+		if (fieldNames.size === 0 || fieldNames.has(key)) data[key] = value
+	}
+
+	if (input.slug && fieldNames.has('slug')) data.slug = input.slug
+
+	const bodyField = ['content', 'body', 'markdown', 'text', 'html'].find((field) => fieldNames.has(field))
+	if (bodyField && input.markdown !== undefined) data[bodyField] = input.markdown
+
+	return data
+}
+
+async function insertIntoExternalDb(
+	app: FastifyInstance,
+	projectId: string,
+	col: typeof collections.$inferSelect,
+	data: Record<string, unknown>,
+) {
+	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const extDb = getExternalDbConfig(project)
+	if (!extDb || !col.externalTable) throw new Error('External database is not configured')
+
+	const adapter = createExternalDbAdapter(extDb)
+	await adapter.connect()
+	try {
+		return await adapter.insert(col.externalTable, data)
+	} finally {
+		await adapter.disconnect()
+	}
+}
+
+async function updateExternalDb(
+	app: FastifyInstance,
+	projectId: string,
+	col: typeof collections.$inferSelect,
+	externalId: string,
+	data: Record<string, unknown>,
+) {
+	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const extDb = getExternalDbConfig(project)
+	if (!extDb || !col.externalTable) throw new Error('External database is not configured')
+
+	const adapter = createExternalDbAdapter(extDb)
+	await adapter.connect()
+	try {
+		return await adapter.update(col.externalTable, externalId, data)
+	} finally {
+		await adapter.disconnect()
+	}
+}
+
+async function deleteFromExternalDb(
+	app: FastifyInstance,
+	projectId: string,
+	col: typeof collections.$inferSelect,
+	externalId: string,
+) {
+	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const extDb = getExternalDbConfig(project)
+	if (!extDb || !col.externalTable) return
+
+	const adapter = createExternalDbAdapter(extDb)
+	await adapter.connect()
+	try {
+		await adapter.delete(col.externalTable, externalId)
+	} finally {
+		await adapter.disconnect()
+	}
+}
+
+function httpError(message: string, statusCode: number) {
+	return Object.assign(new Error(message), { statusCode })
+}
+
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -133,24 +230,59 @@ export async function contentRoutes(app: FastifyInstance) {
 	app.post('/', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
 		const input = contentInputSchema.parse(request.body)
 		const html = sanitizeHtml(await marked(input.markdown))
+		const [col] = await app.db.select().from(collections)
+			.where(and(eq(collections.id, input.collectionId), eq(collections.projectId, request.project!.id)))
+			.limit(1)
 
-		const [created] = await app.db
-			.insert(content)
-			.values({
-				projectId: request.project!.id,
+		if (!col) return reply.status(404).send({ error: 'Collection not found' })
+		if (col.source === 'external' && col.accessMode === 'read-only') {
+			return reply.status(403).send({ error: 'This collection is read-only' })
+		}
+
+		const [duplicate] = await app.db.select({ id: content.id }).from(content)
+			.where(and(eq(content.projectId, request.project!.id), eq(content.slug, input.slug), eq(content.locale, input.locale || 'en')))
+			.limit(1)
+		if (duplicate) return reply.status(409).send({ error: 'Content with this slug and locale already exists' })
+
+		let externalId: string | undefined
+		if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+			const externalData = buildExternalData(col, {
 				slug: input.slug,
-				collectionId: input.collectionId,
-				metadata: input.metadata || {},
+				metadata: input.metadata,
 				markdown: input.markdown,
-				html,
-				locale: input.locale || 'en',
-				status: input.status || 'draft',
-				createdBy: request.user!.id,
-				...(input.createdAt && { createdAt: new Date(input.createdAt) }),
-				...(input.updatedAt && { updatedAt: new Date(input.updatedAt) }),
-				...(input.publishedAt && { publishedAt: new Date(input.publishedAt) }),
 			})
-			.returning()
+			const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
+			externalId = inserted?._id
+		}
+
+		let created: typeof content.$inferSelect
+		try {
+			;[created] = await app.db
+				.insert(content)
+				.values({
+					projectId: request.project!.id,
+					slug: input.slug,
+					collectionId: input.collectionId,
+					metadata: input.metadata || {},
+					markdown: input.markdown,
+					html,
+					locale: input.locale || 'en',
+					status: input.status || 'draft',
+					createdBy: request.user!.id,
+					...(externalId && { externalId }),
+					...(input.createdAt && { createdAt: new Date(input.createdAt) }),
+					...(input.updatedAt && { updatedAt: new Date(input.updatedAt) }),
+					...(input.publishedAt && { publishedAt: new Date(input.publishedAt) }),
+				})
+				.returning()
+		} catch (err) {
+			if (externalId) {
+				await deleteFromExternalDb(app, request.project!.id, col, externalId).catch((cleanupErr) => {
+					app.log.error(cleanupErr, 'Failed to clean up external row after CMS create failed')
+				})
+			}
+			throw err
+		}
 
 		app.events.emit({
 			type: 'content:created',
@@ -168,28 +300,66 @@ export async function contentRoutes(app: FastifyInstance) {
 		if (!Array.isArray(items) || items.length === 0) return reply.status(400).send({ error: 'items array is required' })
 		if (items.length > 50) return reply.status(400).send({ error: 'Maximum 50 items per bulk create' })
 
-		const created = await app.db.transaction(async (tx) => {
-			const results = []
-			for (const item of items) {
-				const html = sanitizeHtml(await marked(item.markdown))
-				const [result] = await tx.insert(content).values({
-					projectId: request.project!.id,
-					slug: item.slug,
-					collectionId: item.collectionId,
-					metadata: item.metadata || {},
-					markdown: item.markdown,
-					html,
-					locale: item.locale || 'en',
-					status: (item.status || 'draft') as 'draft' | 'published',
-					createdBy: request.user!.id,
-					...(item.createdAt && { createdAt: new Date(item.createdAt) }),
-					...(item.updatedAt && { updatedAt: new Date(item.updatedAt) }),
-					...(item.publishedAt && { publishedAt: new Date(item.publishedAt) }),
-				}).returning()
-				results.push(result)
-			}
-			return results
-		})
+		const insertedExternalRows: Array<{ col: typeof collections.$inferSelect; externalId: string }> = []
+		let created: Array<typeof content.$inferSelect>
+		try {
+			created = await app.db.transaction(async (tx) => {
+				const results = []
+				for (const item of items) {
+					const html = sanitizeHtml(await marked(item.markdown))
+					const [col] = await tx.select().from(collections)
+						.where(and(eq(collections.id, item.collectionId), eq(collections.projectId, request.project!.id)))
+						.limit(1)
+
+					if (!col) throw httpError(`Collection not found: ${item.collectionId}`, 400)
+					if (col.source === 'external' && col.accessMode === 'read-only') {
+						throw httpError(`Collection is read-only: ${col.name}`, 403)
+					}
+
+					const [duplicate] = await tx.select({ id: content.id }).from(content)
+						.where(and(eq(content.projectId, request.project!.id), eq(content.slug, item.slug), eq(content.locale, item.locale || 'en')))
+						.limit(1)
+					if (duplicate) throw httpError(`Content with slug already exists: ${item.slug}`, 409)
+
+					let externalId: string | undefined
+					if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+						const externalData = buildExternalData(col, {
+							slug: item.slug,
+							metadata: item.metadata,
+							markdown: item.markdown,
+						})
+						const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
+						externalId = inserted?._id
+						if (externalId) insertedExternalRows.push({ col, externalId })
+					}
+
+					const [result] = await tx.insert(content).values({
+						projectId: request.project!.id,
+						slug: item.slug,
+						collectionId: item.collectionId,
+						metadata: item.metadata || {},
+						markdown: item.markdown,
+						html,
+						locale: item.locale || 'en',
+						status: (item.status || 'draft') as 'draft' | 'published',
+						createdBy: request.user!.id,
+						...(externalId && { externalId }),
+						...(item.createdAt && { createdAt: new Date(item.createdAt) }),
+						...(item.updatedAt && { updatedAt: new Date(item.updatedAt) }),
+						...(item.publishedAt && { publishedAt: new Date(item.publishedAt) }),
+					}).returning()
+					results.push(result)
+				}
+				return results
+			})
+		} catch (err) {
+			await Promise.all(insertedExternalRows.map(({ col, externalId }) =>
+				deleteFromExternalDb(app, request.project!.id, col, externalId).catch((cleanupErr) => {
+					app.log.error(cleanupErr, 'Failed to clean up external row after bulk CMS create failed')
+				}),
+			))
+			throw err
+		}
 
 		for (const result of created) {
 			app.events.emit({
@@ -212,6 +382,37 @@ export async function contentRoutes(app: FastifyInstance) {
 		const updated = await app.db.transaction(async (tx) => {
 			const results = []
 			for (const item of items) {
+				const [current] = await tx
+					.select()
+					.from(content)
+					.where(and(eq(content.id, item.id), eq(content.projectId, request.project!.id)))
+					.limit(1)
+				if (!current) throw httpError(`Content not found: ${item.id}`, 404)
+
+				const [col] = await tx.select().from(collections)
+					.where(and(eq(collections.id, current.collectionId), eq(collections.projectId, request.project!.id)))
+					.limit(1)
+
+				let externalId = current.externalId
+				if (col?.source === 'external' && col.accessMode === 'read-only') {
+					throw httpError(`Collection is read-only: ${col.name}`, 403)
+				}
+				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+					const nextMetadata = { ...current.metadata, ...item.metadata }
+					const externalData = buildExternalData(col, {
+						slug: item.slug ?? current.slug,
+						metadata: nextMetadata,
+						markdown: item.markdown ?? current.markdown,
+					})
+
+					if (externalId) {
+						await updateExternalDb(app, request.project!.id, col, externalId, externalData)
+					} else {
+						const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
+						externalId = inserted?._id ?? null
+					}
+				}
+
 				const html = item.markdown ? sanitizeHtml(await marked(item.markdown)) : undefined
 				const [result] = await tx
 					.update(content)
@@ -222,6 +423,7 @@ export async function contentRoutes(app: FastifyInstance) {
 						...(item.metadata && { metadata: item.metadata }),
 						...(item.status && { status: item.status as 'draft' | 'pending_review' | 'published' | 'archived' }),
 						updatedAt: new Date(),
+						...(externalId && { externalId }),
 					})
 					.where(and(eq(content.id, item.id), eq(content.projectId, request.project!.id)))
 					.returning()
@@ -287,35 +489,33 @@ export async function contentRoutes(app: FastifyInstance) {
 
 		if (!current) return reply.status(404).send({ error: 'Content not found' })
 
-		// If this content belongs to an external collection with write access, sync to external DB
-		if (current.externalId) {
-			const [col] = await app.db.select().from(collections)
-				.where(and(eq(collections.id, current.collectionId), eq(collections.projectId, request.project!.id)))
-				.limit(1)
+		const [col] = await app.db.select().from(collections)
+			.where(and(eq(collections.id, current.collectionId), eq(collections.projectId, request.project!.id)))
+			.limit(1)
 
-			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-				const [project] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
-				const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as Record<string, unknown> | undefined
+		let externalId = current.externalId
+		if (col?.source === 'external' && col.accessMode === 'read-only') {
+			return reply.status(403).send({ error: 'This collection is read-only' })
+		}
 
-				if (extDb?.type && extDb?.connectionString) {
-					try {
-						const adapter = createExternalDbAdapter({
-							type: extDb.type as string,
-							connectionString: extDb.connectionString as string,
-							database: extDb.database as string | undefined,
-						})
-						await adapter.connect()
-						// Build update data from metadata + title
-						const updateData: Record<string, unknown> = { ...input.metadata }
-						if (input.markdown) updateData.content = input.markdown
-						await adapter.update(col.externalTable, current.externalId, updateData)
-						await adapter.disconnect()
-					} catch (err) {
-						app.log.warn(err, 'Failed to sync to external DB — cache will be updated')
-					}
+		if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+			const nextMetadata = { ...current.metadata, ...input.metadata }
+			const externalData = buildExternalData(col, {
+				slug: input.slug ?? current.slug,
+				metadata: nextMetadata,
+				markdown: input.markdown ?? current.markdown,
+			})
+
+			try {
+				if (externalId) {
+					await updateExternalDb(app, request.project!.id, col, externalId, externalData)
+				} else {
+					const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
+					externalId = inserted?._id ?? null
 				}
-			} else if (col?.source === 'external' && col.accessMode === 'read-only') {
-				return reply.status(403).send({ error: 'This collection is read-only' })
+			} catch (err) {
+				app.log.warn(err, 'Failed to sync to external DB')
+				return reply.status(502).send({ error: 'Failed to sync to external database' })
 			}
 		}
 
@@ -338,6 +538,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				version: newVersion,
 				updatedAt: new Date(),
 				...(input.status === 'published' && !current.publishedAt ? { publishedAt: new Date() } : {}),
+				...(externalId && { externalId }),
 			})
 			.where(eq(content.id, request.params.id))
 			.returning()
