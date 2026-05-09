@@ -368,14 +368,23 @@ function CollectionContentList() {
 						</button>
 					</div>
 				</div>
-				{showToolbar && (
+				<div className="flex items-center gap-2">
 					<Link
-						to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
-						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
+						to="/collections/$slug/edit"
+						params={{ slug }}
+						className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors"
 					>
-						New {collection.label.replace(/s$/, '')}
+						Schema
 					</Link>
-				)}
+					{showToolbar && (
+						<Link
+							to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
+							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
+						>
+							New {collection.label.replace(/s$/, '')}
+						</Link>
+					)}
+				</div>
 			</div>
 
 			{tab === 'all' ? (

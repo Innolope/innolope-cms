@@ -28,21 +28,57 @@ function getExternalDbConfig(project: typeof projects.$inferSelect | undefined):
 
 function buildExternalData(
 	col: typeof collections.$inferSelect,
-	input: { metadata?: Record<string, unknown>; markdown?: string; slug?: string },
+	input: {
+		metadata?: Record<string, unknown>
+		markdown?: string
+		slug?: string
+		status?: string
+		createdAt?: string | Date
+		updatedAt?: string | Date
+		publishedAt?: string | Date | null
+	},
 ): Record<string, unknown> {
-	const fieldNames = new Set((col.fields || []).map((field) => field.name))
+	const fields = col.fields || []
+	const fieldNames = new Set(fields.map((field) => field.name))
 	const data: Record<string, unknown> = {}
 
 	for (const [key, value] of Object.entries(input.metadata || {})) {
-		if (fieldNames.size === 0 || fieldNames.has(key)) data[key] = value
+		if (fieldNames.size === 0 || fieldNames.has(key)) {
+			data[key] = coerceExternalFieldValue(fields.find((field) => field.name === key)?.type, value)
+		}
 	}
 
 	if (input.slug && fieldNames.has('slug')) data.slug = input.slug
+	if (input.status && fieldNames.has('status')) {
+		data.status = coerceExternalFieldValue(fields.find((field) => field.name === 'status')?.type, input.status)
+	}
 
 	const bodyField = ['content', 'body', 'markdown', 'text', 'html'].find((field) => fieldNames.has(field))
 	if (bodyField && input.markdown !== undefined) data[bodyField] = input.markdown
 
+	const timestampValues: Record<string, string | Date | null | undefined> = {
+		createdAt: input.createdAt,
+		updatedAt: input.updatedAt,
+		publishedAt: input.publishedAt,
+	}
+	for (const [fieldName, value] of Object.entries(timestampValues)) {
+		if (value !== undefined && fieldNames.has(fieldName)) {
+			data[fieldName] = coerceExternalFieldValue(fields.find((field) => field.name === fieldName)?.type, value)
+		}
+	}
+
 	return data
+}
+
+function coerceExternalFieldValue(fieldType: string | undefined, value: unknown): unknown {
+	if (value === null || value === undefined) return value
+	if (fieldType !== 'date') return value
+	if (value instanceof Date) return value
+	if (typeof value === 'string' || typeof value === 'number') {
+		const date = new Date(value)
+		return Number.isNaN(date.getTime()) ? value : date
+	}
+	return value
 }
 
 async function insertIntoExternalDb(
@@ -246,10 +282,15 @@ export async function contentRoutes(app: FastifyInstance) {
 
 		let externalId: string | undefined
 		if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+			const now = new Date()
 			const externalData = buildExternalData(col, {
 				slug: input.slug,
+				status: input.status || 'draft',
 				metadata: input.metadata,
 				markdown: input.markdown,
+				createdAt: input.createdAt || now,
+				updatedAt: input.updatedAt || now,
+				publishedAt: input.publishedAt || (input.status === 'published' ? now : null),
 			})
 			const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
 			externalId = inserted?._id
@@ -323,10 +364,15 @@ export async function contentRoutes(app: FastifyInstance) {
 
 					let externalId: string | undefined
 					if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+						const now = new Date()
 						const externalData = buildExternalData(col, {
 							slug: item.slug,
+							status: item.status || 'draft',
 							metadata: item.metadata,
 							markdown: item.markdown,
+							createdAt: item.createdAt || now,
+							updatedAt: item.updatedAt || now,
+							publishedAt: item.publishedAt || (item.status === 'published' ? now : null),
 						})
 						const inserted = await insertIntoExternalDb(app, request.project!.id, col, externalData)
 						externalId = inserted?._id
@@ -399,10 +445,15 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 					const nextMetadata = { ...current.metadata, ...item.metadata }
+					const now = new Date()
 					const externalData = buildExternalData(col, {
 						slug: item.slug ?? current.slug,
+						status: item.status ?? current.status,
 						metadata: nextMetadata,
 						markdown: item.markdown ?? current.markdown,
+						createdAt: current.createdAt,
+						updatedAt: now,
+						publishedAt: item.status === 'published' && !current.publishedAt ? now : current.publishedAt,
 					})
 
 					if (externalId) {
@@ -500,10 +551,15 @@ export async function contentRoutes(app: FastifyInstance) {
 
 		if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 			const nextMetadata = { ...current.metadata, ...input.metadata }
+			const now = new Date()
 			const externalData = buildExternalData(col, {
 				slug: input.slug ?? current.slug,
+				status: input.status ?? current.status,
 				metadata: nextMetadata,
 				markdown: input.markdown ?? current.markdown,
+				createdAt: current.createdAt,
+				updatedAt: now,
+				publishedAt: input.status === 'published' && !current.publishedAt ? now : current.publishedAt,
 			})
 
 			try {
