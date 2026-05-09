@@ -8,6 +8,36 @@ import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-d
 import { and, eq } from 'drizzle-orm'
 
 const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
+type ContentStatus = 'draft' | 'pending_review' | 'published' | 'archived'
+type SyncOptions = { batchSize?: number; userId?: string; versionTable?: any }
+type CachedContentValues = {
+	projectId: string
+	collectionId: string
+	metadata: Record<string, unknown>
+	markdown: string
+	html: string
+	externalId: string
+	status: ContentStatus
+	locale: string
+	createdBy: string | null
+	createdAt?: Date
+	updatedAt: Date
+	publishedAt?: Date
+}
+
+export interface SyncChange {
+	field: string
+	local: unknown
+	external: unknown
+}
+
+export interface SyncPreviewItem {
+	externalId: string
+	contentId?: string
+	slug: string
+	changeType: 'created' | 'updated'
+	changes: SyncChange[]
+}
 
 /** Convert an external document to markdown with YAML frontmatter */
 export function documentToMarkdown(
@@ -94,7 +124,7 @@ export async function populateMarkdownCache(
 		externalTable: string
 		fields: CollectionField[]
 	},
-	opts: { batchSize?: number; userId?: string } = {},
+	opts: SyncOptions = {},
 ): Promise<number> {
 	const result = await syncMarkdownCache(db, contentTable, adapter, collection, opts)
 	return result.created
@@ -111,7 +141,7 @@ export async function syncMarkdownCache(
 		externalTable: string
 		fields: CollectionField[]
 	},
-	opts: { batchSize?: number; userId?: string } = {},
+	opts: SyncOptions = {},
 ): Promise<{ created: number; updated: number }> {
 	const batchSize = opts.batchSize || 100
 	let offset = 0
@@ -123,31 +153,7 @@ export async function syncMarkdownCache(
 		if (docs.length === 0) break
 
 		for (const doc of docs) {
-			const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
-			const slug = generateSlugFromDoc(metadata, doc._id)
-			const status = normalizeStatus(metadata.status)
-
-			// Simple HTML from markdown (basic conversion)
-			const html = markdown
-				.replace(/^### (.*$)/gm, '<h3>$1</h3>')
-				.replace(/^## (.*$)/gm, '<h2>$1</h2>')
-				.replace(/^# (.*$)/gm, '<h1>$1</h1>')
-				.replace(/\n/g, '<br>')
-
-			const values = {
-				projectId: collection.projectId,
-				collectionId: collection.id,
-				metadata,
-				markdown,
-				html,
-				externalId: doc._id,
-				status,
-				locale: 'en',
-				createdBy: opts.userId || null,
-				...(toDate(metadata.createdAt) ? { createdAt: toDate(metadata.createdAt) } : {}),
-				...(toDate(metadata.updatedAt) ? { updatedAt: toDate(metadata.updatedAt) } : { updatedAt: new Date() }),
-				...(toDate(metadata.publishedAt) ? { publishedAt: toDate(metadata.publishedAt) } : {}),
-			}
+			const { values, slug } = buildCachedContentValues(doc, collection, opts)
 
 			try {
 				const [existing] = await (db.select as Function)()
@@ -160,8 +166,17 @@ export async function syncMarkdownCache(
 					.limit(1)
 
 				if (existing) {
+					if (opts.versionTable) {
+						await (db.insert as Function)(opts.versionTable).values({
+							contentId: existing.id,
+							version: existing.version,
+							markdown: existing.markdown,
+							metadata: existing.metadata,
+							createdBy: opts.userId || null,
+						})
+					}
 					await (db.update as Function)(contentTable)
-						.set(values)
+						.set({ ...values, version: (existing.version || 1) + 1 })
 						.where(eq(contentTable.id, existing.id))
 					updated++
 				} else {
@@ -182,8 +197,141 @@ export async function syncMarkdownCache(
 	return { created, updated }
 }
 
-function normalizeStatus(value: unknown): 'draft' | 'pending_review' | 'published' | 'archived' {
-	if (typeof value === 'string' && VALID_STATUSES.has(value)) return value as 'draft' | 'pending_review' | 'published' | 'archived'
+/** Compare cached CMS rows with the external source before applying a sync. */
+export async function previewMarkdownCacheSync(
+	db: { select: Function },
+	contentTable: any,
+	adapter: ExternalDbAdapter,
+	collection: {
+		id: string
+		projectId: string
+		externalTable: string
+		fields: CollectionField[]
+	},
+	opts: { batchSize?: number; limit?: number } = {},
+): Promise<{ discrepancies: SyncPreviewItem[]; total: number }> {
+	const batchSize = opts.batchSize || 100
+	const limit = opts.limit || 25
+	let offset = 0
+	let total = 0
+	const discrepancies: SyncPreviewItem[] = []
+
+	while (true) {
+		const docs = await adapter.findAll(collection.externalTable, { limit: batchSize, offset })
+		if (docs.length === 0) break
+
+		for (const doc of docs) {
+			const { values, slug } = buildCachedContentValues(doc, collection, {})
+			const [existing] = await (db.select as Function)()
+				.from(contentTable)
+				.where(and(
+					eq(contentTable.projectId, collection.projectId),
+					eq(contentTable.collectionId, collection.id),
+					eq(contentTable.externalId, doc._id),
+				))
+				.limit(1)
+
+			if (!existing) {
+				total++
+				if (discrepancies.length < limit) {
+					discrepancies.push({
+						externalId: doc._id,
+						slug: `${slug}-${doc._id.slice(-6)}`,
+						changeType: 'created',
+						changes: [{ field: 'content', local: null, external: 'new external row' }],
+					})
+				}
+				continue
+			}
+
+			const changes = diffCachedContent(existing, values)
+			if (changes.length > 0) {
+				total++
+				if (discrepancies.length < limit) {
+					discrepancies.push({
+						externalId: doc._id,
+						contentId: existing.id,
+						slug: existing.slug,
+						changeType: 'updated',
+						changes,
+					})
+				}
+			}
+		}
+
+		offset += batchSize
+	}
+
+	return { discrepancies, total }
+}
+
+function buildCachedContentValues(
+	doc: ExternalDocument,
+	collection: {
+		id: string
+		projectId: string
+		fields: CollectionField[]
+	},
+	opts: Pick<SyncOptions, 'userId'>,
+): { values: CachedContentValues; slug: string } {
+	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
+	const slug = generateSlugFromDoc(metadata, doc._id)
+
+	// Simple HTML from markdown (basic conversion)
+	const html = markdown
+		.replace(/^### (.*$)/gm, '<h3>$1</h3>')
+		.replace(/^## (.*$)/gm, '<h2>$1</h2>')
+		.replace(/^# (.*$)/gm, '<h1>$1</h1>')
+		.replace(/\n/g, '<br>')
+
+	const createdAt = toDate(metadata.createdAt)
+	const updatedAt = toDate(metadata.updatedAt)
+	const publishedAt = toDate(metadata.publishedAt)
+
+	return {
+		slug,
+		values: {
+			projectId: collection.projectId,
+			collectionId: collection.id,
+			metadata,
+			markdown,
+			html,
+			externalId: doc._id,
+			status: normalizeStatus(metadata.status),
+			locale: 'en',
+			createdBy: opts.userId || null,
+			...(createdAt ? { createdAt } : {}),
+			updatedAt: updatedAt || new Date(),
+			...(publishedAt ? { publishedAt } : {}),
+		},
+	}
+}
+
+function diffCachedContent(existing: Record<string, unknown>, next: CachedContentValues): SyncChange[] {
+	const changes: SyncChange[] = []
+	pushChange(changes, 'status', existing.status, next.status)
+	pushChange(changes, 'markdown', existing.markdown, next.markdown)
+
+	const localMetadata = (existing.metadata || {}) as Record<string, unknown>
+	const keys = new Set([...Object.keys(localMetadata), ...Object.keys(next.metadata)])
+	for (const key of keys) {
+		pushChange(changes, `metadata.${key}`, localMetadata[key], next.metadata[key])
+	}
+	return changes
+}
+
+function pushChange(changes: SyncChange[], field: string, local: unknown, external: unknown) {
+	if (stableValue(local) !== stableValue(external)) changes.push({ field, local, external })
+}
+
+function stableValue(value: unknown): string {
+	if (value instanceof Date) return value.toISOString()
+	if (value && typeof value === 'object') return JSON.stringify(value, Object.keys(value as Record<string, unknown>).sort())
+	return String(value ?? '')
+}
+
+function normalizeStatus(value: unknown): ContentStatus {
+	if (typeof value === 'string' && VALID_STATUSES.has(value)) return value as ContentStatus
 	return 'published'
 }
 

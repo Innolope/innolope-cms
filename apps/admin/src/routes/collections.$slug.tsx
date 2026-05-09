@@ -40,6 +40,19 @@ interface ContentResponse {
 	pagination: { page: number; limit: number; total: number; totalPages: number }
 }
 
+interface SyncPreviewItem {
+	externalId: string
+	contentId?: string
+	slug: string
+	changeType: 'created' | 'updated'
+	changes: Array<{ field: string; local: unknown; external: unknown }>
+}
+
+interface SyncPreview {
+	discrepancies: SyncPreviewItem[]
+	total: number
+}
+
 const STATUS_STYLES: Record<string, string> = {
 	draft: 'bg-surface-alt text-text-secondary',
 	pending_review: 'bg-surface-alt text-text',
@@ -246,6 +259,8 @@ function CollectionContentList() {
 	const [ready, setReady] = useState(false)
 	const [search, setSearch] = useState('')
 	const [syncing, setSyncing] = useState(false)
+	const [syncPreview, setSyncPreview] = useState<SyncPreview | null>(null)
+	const [previewLoading, setPreviewLoading] = useState(false)
 
 	const { filters, setFilter, clearAll } = useUrlFilters()
 
@@ -335,12 +350,30 @@ function CollectionContentList() {
 		fetchReviewQueue()
 	}
 
+	const previewExternalSync = async () => {
+		if (!collection || collection.source !== 'external') return
+		setPreviewLoading(true)
+		try {
+			const preview = await api.get<SyncPreview>(`/api/v1/collections/${collection.id}/sync-preview`)
+			if (preview.total === 0) {
+				toast('No external discrepancies found', 'success')
+			} else {
+				setSyncPreview(preview)
+			}
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Sync preview failed', 'error')
+		} finally {
+			setPreviewLoading(false)
+		}
+	}
+
 	const syncExternalContent = async () => {
 		if (!collection || collection.source !== 'external') return
 		setSyncing(true)
 		try {
 			const result = await api.post<{ created: number; updated: number }>(`/api/v1/collections/${collection.id}/sync`, {})
 			toast(`Synced ${result.updated} updated and ${result.created} new item${result.created === 1 ? '' : 's'}`, 'success')
+			setSyncPreview(null)
 			fetchContent()
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Sync failed', 'error')
@@ -393,11 +426,11 @@ function CollectionContentList() {
 					{collection.source === 'external' && (
 						<button
 							type="button"
-							onClick={syncExternalContent}
-							disabled={syncing}
+							onClick={previewExternalSync}
+							disabled={previewLoading || syncing}
 							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors disabled:opacity-50"
 						>
-							{syncing ? 'Syncing...' : 'Sync'}
+							{previewLoading ? 'Checking...' : syncing ? 'Syncing...' : 'Sync'}
 						</button>
 					)}
 					<Link
@@ -551,6 +584,97 @@ function CollectionContentList() {
 					)}
 				</div>
 			)}
+			{syncPreview && (
+				<SyncPreviewDialog
+					preview={syncPreview}
+					syncing={syncing}
+					onCancel={() => setSyncPreview(null)}
+					onConfirm={syncExternalContent}
+				/>
+			)}
 		</div>
 	)
+}
+
+function SyncPreviewDialog({
+	preview,
+	syncing,
+	onCancel,
+	onConfirm,
+}: {
+	preview: SyncPreview
+	syncing: boolean
+	onCancel: () => void
+	onConfirm: () => void
+}) {
+	return (
+		<div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-6">
+			<div className="w-full max-w-4xl max-h-[82vh] bg-surface border border-border rounded-lg shadow-xl flex flex-col">
+				<div className="p-5 border-b border-border">
+					<h3 className="text-lg font-semibold text-text">External changes found</h3>
+					<p className="mt-1 text-sm text-text-secondary">
+						Sync will overwrite the local CMS cache with the external database values. A copy of each overwritten local version will be saved in version history.
+					</p>
+				</div>
+				<div className="overflow-auto p-5 space-y-4">
+					{preview.discrepancies.map((item) => (
+						<div key={item.externalId} className="border border-border rounded-lg overflow-hidden">
+							<div className="px-4 py-3 bg-surface-alt flex items-center justify-between gap-3">
+								<div>
+									<p className="text-sm font-medium text-text">{item.slug}</p>
+									<p className="text-xs text-text-muted font-mono">{item.externalId}</p>
+								</div>
+								<span className="text-xs text-text-secondary">{item.changeType}</span>
+							</div>
+							<div className="divide-y divide-border">
+								{item.changes.slice(0, 6).map((change) => (
+									<div key={change.field} className="grid grid-cols-[160px_1fr_1fr] gap-3 p-3 text-xs">
+										<div className="font-mono text-text-secondary">{change.field}</div>
+										<DiffValue label="Local" value={change.local} />
+										<DiffValue label="External" value={change.external} />
+									</div>
+								))}
+								{item.changes.length > 6 && (
+									<div className="px-3 py-2 text-xs text-text-muted">+{item.changes.length - 6} more changed fields</div>
+								)}
+							</div>
+						</div>
+					))}
+					{preview.total > preview.discrepancies.length && (
+						<p className="text-xs text-text-muted">Showing {preview.discrepancies.length} of {preview.total} discrepanc{preview.total === 1 ? 'y' : 'ies'}.</p>
+					)}
+				</div>
+				<div className="p-4 border-t border-border flex items-center justify-end gap-2">
+					<button type="button" onClick={onCancel} disabled={syncing} className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50">
+						Cancel
+					</button>
+					<button type="button" onClick={onConfirm} disabled={syncing} className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">
+						{syncing ? 'Syncing...' : 'Overwrite local cache'}
+					</button>
+				</div>
+			</div>
+		</div>
+	)
+}
+
+function DiffValue({ label, value }: { label: string; value: unknown }) {
+	return (
+		<div>
+			<p className="mb-1 text-[10px] uppercase tracking-wide text-text-muted">{label}</p>
+			<pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-input border border-border px-2 py-1.5 text-text-secondary">
+				{formatDiffValue(value)}
+			</pre>
+		</div>
+	)
+}
+
+function formatDiffValue(value: unknown): string {
+	if (value === null || value === undefined || value === '') return 'empty'
+	if (typeof value === 'string') return value
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+	try {
+		return JSON.stringify(value, null, 2)
+	} catch {
+		return String(value)
+	}
 }

@@ -1,8 +1,8 @@
-import { collections, content, projects } from '@innolope/db'
+import { collections, content, contentVersions, projects } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
 import { eq, and, sql, asc } from 'drizzle-orm'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
-import { syncMarkdownCache } from '../../services/markdown-cache.js'
+import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
 
 function getExternalDbConfig(project: typeof projects.$inferSelect | undefined) {
 	const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as Record<string, unknown> | undefined
@@ -64,6 +64,41 @@ export async function collectionRoutes(app: FastifyInstance) {
 		},
 	)
 
+	// Preview external source-of-truth changes before overwriting the local cache.
+	app.get<{ Params: { id: string } }>('/:id/sync-preview', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
+		const [collection] = await app.db
+			.select()
+			.from(collections)
+			.where(and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)))
+			.limit(1)
+
+		if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+		if (collection.source !== 'external' || !collection.externalTable) {
+			return reply.status(400).send({ error: 'Collection is not backed by an external database' })
+		}
+
+		const [project] = await app.db
+			.select()
+			.from(projects)
+			.where(eq(projects.id, request.project!.id))
+			.limit(1)
+		const extDb = getExternalDbConfig(project)
+		if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
+
+		const adapter = createExternalDbAdapter(extDb)
+		await adapter.connect()
+		try {
+			return await previewMarkdownCacheSync(app.db as any, content, adapter, {
+				id: collection.id,
+				projectId: collection.projectId,
+				externalTable: collection.externalTable,
+				fields: collection.fields,
+			})
+		} finally {
+			await adapter.disconnect()
+		}
+	})
+
 	// Refresh local content cache from the external source of truth (editor+, project-scoped)
 	app.post<{ Params: { id: string } }>('/:id/sync', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
 		const [collection] = await app.db
@@ -93,7 +128,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 				projectId: collection.projectId,
 				externalTable: collection.externalTable,
 				fields: collection.fields,
-			}, { userId: request.user?.id })
+			}, { userId: request.user?.id, versionTable: contentVersions })
 			return result
 		} finally {
 			await adapter.disconnect()
