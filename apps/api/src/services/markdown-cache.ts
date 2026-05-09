@@ -5,6 +5,9 @@ interface CollectionField {
 	localized?: boolean
 }
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
+import { and, eq } from 'drizzle-orm'
+
+const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
 
 /** Convert an external document to markdown with YAML frontmatter */
 export function documentToMarkdown(
@@ -82,7 +85,7 @@ export function generateSlugFromDoc(metadata: Record<string, unknown>, externalI
 
 /** Populate markdown cache for all documents in an external collection */
 export async function populateMarkdownCache(
-	db: { insert: Function; select: Function },
+	db: { insert: Function; select: Function; update: Function },
 	contentTable: unknown,
 	adapter: ExternalDbAdapter,
 	collection: {
@@ -93,9 +96,27 @@ export async function populateMarkdownCache(
 	},
 	opts: { batchSize?: number; userId?: string } = {},
 ): Promise<number> {
+	const result = await syncMarkdownCache(db, contentTable, adapter, collection, opts)
+	return result.created
+}
+
+/** Refresh cached CMS rows from an external collection. External documents are the source of truth. */
+export async function syncMarkdownCache(
+	db: { insert: Function; select: Function; update: Function },
+	contentTable: any,
+	adapter: ExternalDbAdapter,
+	collection: {
+		id: string
+		projectId: string
+		externalTable: string
+		fields: CollectionField[]
+	},
+	opts: { batchSize?: number; userId?: string } = {},
+): Promise<{ created: number; updated: number }> {
 	const batchSize = opts.batchSize || 100
 	let offset = 0
-	let totalCached = 0
+	let created = 0
+	let updated = 0
 
 	while (true) {
 		const docs = await adapter.findAll(collection.externalTable, { limit: batchSize, offset })
@@ -104,6 +125,7 @@ export async function populateMarkdownCache(
 		for (const doc of docs) {
 			const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
 			const slug = generateSlugFromDoc(metadata, doc._id)
+			const status = normalizeStatus(metadata.status)
 
 			// Simple HTML from markdown (basic conversion)
 			const html = markdown
@@ -112,20 +134,43 @@ export async function populateMarkdownCache(
 				.replace(/^# (.*$)/gm, '<h1>$1</h1>')
 				.replace(/\n/g, '<br>')
 
+			const values = {
+				projectId: collection.projectId,
+				collectionId: collection.id,
+				metadata,
+				markdown,
+				html,
+				externalId: doc._id,
+				status,
+				locale: 'en',
+				createdBy: opts.userId || null,
+				...(toDate(metadata.createdAt) ? { createdAt: toDate(metadata.createdAt) } : {}),
+				...(toDate(metadata.updatedAt) ? { updatedAt: toDate(metadata.updatedAt) } : { updatedAt: new Date() }),
+				...(toDate(metadata.publishedAt) ? { publishedAt: toDate(metadata.publishedAt) } : {}),
+			}
+
 			try {
-				await (db.insert as Function)(contentTable).values({
-					projectId: collection.projectId,
-					collectionId: collection.id,
-					slug: `${slug}-${doc._id.slice(-6)}`,
-					metadata,
-					markdown,
-					html,
-					externalId: doc._id,
-					status: 'published',
-					locale: 'en',
-					createdBy: opts.userId || null,
-				})
-				totalCached++
+				const [existing] = await (db.select as Function)()
+					.from(contentTable)
+					.where(and(
+						eq(contentTable.projectId, collection.projectId),
+						eq(contentTable.collectionId, collection.id),
+						eq(contentTable.externalId, doc._id),
+					))
+					.limit(1)
+
+				if (existing) {
+					await (db.update as Function)(contentTable)
+						.set(values)
+						.where(eq(contentTable.id, existing.id))
+					updated++
+				} else {
+					await (db.insert as Function)(contentTable).values({
+						...values,
+						slug: `${slug}-${doc._id.slice(-6)}`,
+					})
+					created++
+				}
 			} catch {
 				// Skip duplicates (unique constraint on slug+locale+projectId)
 			}
@@ -134,5 +179,20 @@ export async function populateMarkdownCache(
 		offset += batchSize
 	}
 
-	return totalCached
+	return { created, updated }
+}
+
+function normalizeStatus(value: unknown): 'draft' | 'pending_review' | 'published' | 'archived' {
+	if (typeof value === 'string' && VALID_STATUSES.has(value)) return value as 'draft' | 'pending_review' | 'published' | 'archived'
+	return 'published'
+}
+
+function toDate(value: unknown): Date | undefined {
+	if (!value) return undefined
+	if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value
+	if (typeof value === 'string' || typeof value === 'number') {
+		const date = new Date(value)
+		return Number.isNaN(date.getTime()) ? undefined : date
+	}
+	return undefined
 }

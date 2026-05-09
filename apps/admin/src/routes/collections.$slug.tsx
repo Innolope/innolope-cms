@@ -8,6 +8,7 @@ import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { useUrlFilters, type FilterMap } from '../lib/use-url-filters'
 import { useColumnConfig } from '../lib/use-column-config'
 import { relativeTime, absoluteDate } from '../lib/relative-time'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/collections/$slug')({
 	component: CollectionLayout,
@@ -224,6 +225,7 @@ function CollectionContentList() {
 	const { slug } = Route.useParams()
 	const { getCollectionByName } = useCollections()
 	const collection = getCollectionByName(slug)
+	const toast = useToast()
 	const license = useLicense()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
 
@@ -243,6 +245,7 @@ function CollectionContentList() {
 	const [page, setPage] = useState(1)
 	const [ready, setReady] = useState(false)
 	const [search, setSearch] = useState('')
+	const [syncing, setSyncing] = useState(false)
 
 	const { filters, setFilter, clearAll } = useUrlFilters()
 
@@ -282,7 +285,7 @@ function CollectionContentList() {
 	const filterQuery = useMemo(() => filtersToQueryParams(filters).toString(), [filters])
 	const hasActiveFilters = Object.keys(filters).length > 0
 
-	useEffect(() => {
+	const fetchContent = useCallback(() => {
 		if (!collection) return
 		const params = new URLSearchParams()
 		params.set('page', String(page))
@@ -300,6 +303,10 @@ function CollectionContentList() {
 			.catch(() => {})
 			.finally(() => setReady(true))
 	}, [page, search, filterQuery, collection])
+
+	useEffect(() => {
+		fetchContent()
+	}, [fetchContent])
 
 	const fetchReviewQueue = useCallback(() => {
 		if (!collection) return
@@ -326,6 +333,20 @@ function CollectionContentList() {
 		const reason = prompt('Rejection reason (optional):')
 		await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 		fetchReviewQueue()
+	}
+
+	const syncExternalContent = async () => {
+		if (!collection || collection.source !== 'external') return
+		setSyncing(true)
+		try {
+			const result = await api.post<{ created: number; updated: number }>(`/api/v1/collections/${collection.id}/sync`, {})
+			toast(`Synced ${result.updated} updated and ${result.created} new item${result.created === 1 ? '' : 's'}`, 'success')
+			fetchContent()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Sync failed', 'error')
+		} finally {
+			setSyncing(false)
+		}
 	}
 
 	if (!collection) {
@@ -369,6 +390,16 @@ function CollectionContentList() {
 					</div>
 				</div>
 				<div className="flex items-center gap-2">
+					{collection.source === 'external' && (
+						<button
+							type="button"
+							onClick={syncExternalContent}
+							disabled={syncing}
+							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors disabled:opacity-50"
+						>
+							{syncing ? 'Syncing...' : 'Sync'}
+						</button>
+					)}
 					<Link
 						to="/collections/$slug/edit"
 						params={{ slug }}
