@@ -10,6 +10,14 @@ import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gat
 import { useToast } from '../lib/toast'
 import { Dropdown } from '../components/dropdown'
 import { RelationField } from '../components/editor/relation-field'
+import { PillInput } from '../components/editor/pill-input'
+
+/** Normalize a stored value (array or comma string) to a string array. */
+function toStringArray(v: unknown): string[] {
+	if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean)
+	if (typeof v === 'string' && v.trim()) return v.split(',').map((s) => s.trim()).filter(Boolean)
+	return []
+}
 
 export const Route = createFileRoute('/collections/$slug/$contentId')({
 	component: CollectionContentEditor,
@@ -83,7 +91,7 @@ function CollectionContentEditor() {
 	const [title, setTitle] = useState('')
 	const [contentSlug, setContentSlug] = useState('')
 	const [status, setStatus] = useState('draft')
-	const [tags, setTags] = useState('')
+	const [tags, setTags] = useState<string[]>([])
 	const [version, setVersion] = useState(1)
 	const [dirty, setDirty] = useState(false)
 	const [saving, setSaving] = useState(false)
@@ -114,7 +122,7 @@ function CollectionContentEditor() {
 					setTitle((mergedMeta.title as string) || '')
 					setContentSlug(item.slug)
 					setStatus(item.status)
-					setTags(((mergedMeta.tags as string[]) || []).join(', '))
+					setTags(toStringArray(mergedMeta.tags))
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
 					setIsLive(Boolean(item.live))
@@ -206,7 +214,7 @@ function CollectionContentEditor() {
 			const metadata = {
 				...extraFields,
 				title,
-				tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+				tags: tags.map((t) => t.trim()).filter(Boolean),
 			}
 			if (isNew) {
 				const created = await api.post<{ id: string }>('/api/v1/content', {
@@ -400,13 +408,11 @@ function CollectionContentEditor() {
 				)}
 
 				<Field label="Tags">
-					<input
-						type="text"
+					<PillInput
 						value={tags}
-						onChange={(e) => { setTags(e.target.value); setDirty(true) }}
-						placeholder="comma, separated, tags"
+						onChange={(v) => { setTags(v); setDirty(true) }}
+						placeholder="Add a tag and press Enter"
 						disabled={isReadOnly}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 					/>
 				</Field>
 
@@ -448,6 +454,12 @@ function CollectionContentEditor() {
 									relationTo={f.relationTo}
 									disabled={isReadOnly}
 									onChange={(v) => { setExtraFields(prev => ({ ...prev, [f.name]: v })); setDirty(true) }}
+								/>
+							) : f.type === 'array' ? (
+								<PillInput
+									value={toStringArray(extraFields[f.name])}
+									onChange={(v) => { setExtraFields(prev => ({ ...prev, [f.name]: v })); setDirty(true) }}
+									disabled={isReadOnly}
 								/>
 							) : (
 								<input

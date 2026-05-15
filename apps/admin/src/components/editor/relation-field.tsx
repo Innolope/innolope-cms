@@ -97,13 +97,19 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">
-				{currentUrl ? (
-					<img src={currentUrl} alt="" className="h-14 w-14 rounded object-cover border border-border" />
-				) : (
-					<div className="h-14 w-14 rounded border border-dashed border-border flex items-center justify-center text-[10px] text-text-muted">
-						{value ? 'ref' : 'empty'}
-					</div>
-				)}
+				<button
+					type="button"
+					onClick={() => !disabled && setPicking(true)}
+					disabled={disabled}
+					title="Choose or upload"
+					className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden flex items-center justify-center hover:border-border-strong disabled:opacity-60"
+				>
+					{currentUrl ? (
+						<img src={currentUrl} alt="" className="h-full w-full object-cover" />
+					) : (
+						<span className="text-[10px] text-text-muted">{value ? 'ref' : '+ image'}</span>
+					)}
+				</button>
 				<div className="flex-1 min-w-0">
 					{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
 					{!disabled && (
@@ -151,9 +157,25 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 					>
 						<div className="flex items-center justify-between px-5 py-4 border-b border-border">
 							<h3 className="text-sm font-semibold">Select {related.label}</h3>
-							<button type="button" onClick={() => setPicking(false)} className="text-text-secondary hover:text-text text-xs">
-								Close
-							</button>
+							<div className="flex items-center gap-3">
+								<label className="px-2 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover cursor-pointer">
+									{uploading ? 'Uploading…' : 'Upload new'}
+									<input
+										type="file"
+										accept="image/*"
+										className="hidden"
+										disabled={uploading || !urlField}
+										onChange={(e) => {
+											const file = e.target.files?.[0]
+											if (file) handleUpload(file).then(() => setPicking(false))
+											e.target.value = ''
+										}}
+									/>
+								</label>
+								<button type="button" onClick={() => setPicking(false)} className="text-text-secondary hover:text-text text-xs">
+									Close
+								</button>
+							</div>
 						</div>
 						<div className="flex-1 overflow-auto p-4">
 							{loading ? (

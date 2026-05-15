@@ -552,14 +552,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 				}
 
 				for (const table of tables) {
-					// Skip if collection already exists
 					const [existing] = await app.db
 						.select({ id: collections.id })
 						.from(collections)
 						.where(and(eq(collections.name, table.name), eq(collections.projectId, request.project!.id)))
 						.limit(1)
-
-					if (existing) continue
 
 					// Map column types to field types. MongoDB scan columns already carry a
 					// resolved CollectionField type; SQL columns carry a raw data_type string.
@@ -573,6 +570,16 @@ export async function databaseRoutes(app: FastifyInstance) {
 							...(c.relationTo && { relationTo: c.relationTo }),
 							...(c.relationIsArray && { relationIsArray: true }),
 						}))
+
+					// Collection already imported — refresh its detected field schema so
+					// re-running the wizard upgrades types (e.g. text → relation/date).
+					if (existing) {
+						await app.db
+							.update(collections)
+							.set({ fields, updatedAt: new Date() })
+							.where(eq(collections.id, existing.id))
+						continue
+					}
 
 					const [created] = await app.db
 						.insert(collections)
