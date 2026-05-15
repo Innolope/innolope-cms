@@ -13,6 +13,7 @@ export function GeneralSettings() {
 	const [locales, setLocales] = useState('en')
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const [showDelete, setShowDelete] = useState(false)
 	const initialRef = useRef({ name: '', slug: '', defaultLocale: 'en', locales: 'en' })
 
 	useEffect(() => {
@@ -106,6 +107,106 @@ export function GeneralSettings() {
 				setDefaultLocale(initialRef.current.defaultLocale)
 				setLocales(initialRef.current.locales)
 			}} />
+
+			{currentProject?.role === 'owner' && (
+				<div className="mt-10 pt-6 border-t border-border">
+					<h3 className="text-sm font-semibold text-danger mb-1">Danger zone</h3>
+					<div className="flex items-center justify-between gap-4 max-w-2xl px-4 py-3 rounded-lg border border-danger/40">
+						<div className="min-w-0">
+							<p className="text-sm text-text font-medium">Delete this workspace</p>
+							<p className="text-xs text-text-muted mt-0.5">
+								Permanently removes the workspace and its CMS content. Your external database and its data are not touched.
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => setShowDelete(true)}
+							className="shrink-0 px-3 py-2 rounded text-sm font-medium bg-danger text-white hover:opacity-90"
+						>
+							Delete workspace
+						</button>
+					</div>
+				</div>
+			)}
+
+			{showDelete && currentProject && (
+				<DeleteWorkspaceModal
+					projectId={currentProject.id}
+					projectName={currentProject.name}
+					onCancel={() => setShowDelete(false)}
+				/>
+			)}
+		</div>
+	)
+}
+
+function DeleteWorkspaceModal({
+	projectId,
+	projectName,
+	onCancel,
+}: {
+	projectId: string
+	projectName: string
+	onCancel: () => void
+}) {
+	const toast = useToast()
+	const [confirmText, setConfirmText] = useState('')
+	const [deleting, setDeleting] = useState(false)
+	const matches = confirmText.trim() === projectName
+
+	const handleDelete = async () => {
+		if (!matches) return
+		setDeleting(true)
+		try {
+			await api.delete(`/api/v1/projects/${projectId}`)
+			localStorage.removeItem('innolope_project')
+			window.location.href = '/'
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to delete workspace', 'error')
+			setDeleting(false)
+		}
+	}
+
+	return (
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+			<div
+				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-sm p-6"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<h3 className="font-semibold text-text mb-2">Delete workspace</h3>
+				<p className="text-sm text-text-secondary mb-4">
+					This permanently deletes <span className="font-medium text-text">{projectName}</span> and all of its
+					CMS content, collections, and members. This cannot be undone. Your connected external database and its
+					data will not be deleted.
+				</p>
+				<label className="block text-xs text-text-secondary mb-1.5">
+					Type <span className="font-mono text-text">{projectName}</span> to confirm
+				</label>
+				<input
+					type="text"
+					value={confirmText}
+					onChange={(e) => setConfirmText(e.target.value)}
+					placeholder={projectName}
+					className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong mb-6"
+				/>
+				<div className="flex gap-3 justify-end">
+					<button
+						type="button"
+						onClick={onCancel}
+						className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onClick={handleDelete}
+						disabled={!matches || deleting}
+						className="px-4 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40"
+					>
+						{deleting ? 'Deleting…' : 'Delete workspace'}
+					</button>
+				</div>
+			</div>
 		</div>
 	)
 }

@@ -508,15 +508,21 @@ export async function databaseRoutes(app: FastifyInstance) {
 			const settings = (project.settings as unknown as Record<string, unknown>) || {}
 			const warnings: string[] = []
 
+			// Fall back to the saved connection string/database when the client omits them
+			// (re-sync from the settings page never re-sends the secret connection string).
+			const savedExternalDb = getSavedExternalDb(project)
+			const effectiveConnectionString = connectionString || (savedExternalDb.connectionString as string | undefined) || null
+			const effectiveDatabase = database || (savedExternalDb.database as string | undefined)
+
 			if (!type || type === 'built-in') {
 				delete settings.externalDb
 			} else {
 				settings.externalDb = {
 					type,
-					connectionString,
-					database: database || undefined,
+					connectionString: effectiveConnectionString,
+					database: effectiveDatabase || undefined,
 					tables: (tables || []).map(t => t.name),
-					accessMode: accessMode || 'read-write',
+					accessMode: accessMode || (savedExternalDb.accessMode as string | undefined) || 'read-write',
 				}
 			}
 
@@ -530,14 +536,14 @@ export async function databaseRoutes(app: FastifyInstance) {
 			// Create collection records for selected tables
 			const createdCollections: Array<typeof collections.$inferSelect> = []
 
-			if (type && type !== 'built-in' && tables?.length && connectionString) {
-				const mode = accessMode || 'read-write'
+			if (type && type !== 'built-in' && tables?.length && effectiveConnectionString) {
+				const mode = accessMode || (savedExternalDb.accessMode as 'read-write' | 'read-only' | undefined) || 'read-write'
 
 				// Test write permissions if read-write requested
 				let effectiveMode = mode
 				if (mode === 'read-write') {
 					try {
-						const adapter = createExternalDbAdapter({ type, connectionString, database: database || undefined })
+						const adapter = createExternalDbAdapter({ type, connectionString: effectiveConnectionString, database: effectiveDatabase || undefined })
 						await adapter.connect()
 						const canWrite = await adapter.testWritePermission(tables[0].name)
 						await adapter.disconnect()
@@ -623,7 +629,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 				if (createdCollections.length > 0) {
 					try {
-						const adapter = createExternalDbAdapter({ type, connectionString, database: database || undefined })
+						const adapter = createExternalDbAdapter({ type, connectionString: effectiveConnectionString, database: effectiveDatabase || undefined })
 						await adapter.connect()
 
 						// Size the *selected* collections only — not the whole database.

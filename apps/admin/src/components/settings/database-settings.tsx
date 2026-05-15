@@ -256,6 +256,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
+	const [resyncing, setResyncing] = useState(false)
 	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
@@ -479,6 +480,54 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		}
 	}
 
+	// Re-scan the already-connected database and refresh imported collections' field
+	// schema (e.g. picks up new date/relation typing). Uses the server-saved connection string.
+	const resyncSchema = async () => {
+		if (!currentProject) return
+		const ext = (currentProject.settings as Record<string, unknown> | undefined)?.externalDb as Record<string, unknown> | undefined
+		if (!ext?.type) return
+		setResyncing(true)
+		try {
+			const scan = await api.post<{ tables: DetectedTable[] }>(
+				`/api/v1/projects/${currentProject.id}/database/scan`,
+				{ type: ext.type, database: ext.database || undefined },
+			)
+			const importedNames = new Set((ext.tables as string[]) || [])
+			const toImport = new Set(importedNames)
+			// Include related collections so relation fields stay editable.
+			for (const t of scan.tables) {
+				if (importedNames.has(t.name)) {
+					for (const target of relationTargets(t, scan.tables)) toImport.add(target)
+				}
+			}
+			const tablesToSave = scan.tables.filter((t) => toImport.has(t.name))
+			if (tablesToSave.length === 0) {
+				toast('No imported collections found to re-sync', 'error')
+				return
+			}
+			const result = await api.put<{ collections: Array<{ name: string }>; warnings?: string[] }>(
+				`/api/v1/projects/${currentProject.id}/database`,
+				{
+					type: ext.type,
+					connectionString: null,
+					database: ext.database || null,
+					tables: tablesToSave,
+					accessMode: ext.accessMode || 'read-write',
+				},
+			)
+			await refreshProjects()
+			await refreshCollections()
+			if (result.warnings?.length) {
+				for (const w of result.warnings) toast(w, 'error')
+			}
+			toast('Collections re-synced', 'success')
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Re-sync failed', 'error')
+		} finally {
+			setResyncing(false)
+		}
+	}
+
 	const goBack = () => {
 		if (step === 1) {
 			setStep(0)
@@ -531,6 +580,25 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								</p>
 						</div>
 						<img src={connectedOption.logo} alt="" className="w-5 h-5 shrink-0 opacity-60" />
+					</div>
+				)}
+
+				{connectedOption && (
+					<div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-border">
+						<div className="min-w-0">
+							<p className="text-sm text-text font-medium">Re-sync collections &amp; schema</p>
+							<p className="text-xs text-text-muted mt-0.5">
+								Re-scan the database to refresh field types (dates, relations) and pull in newly-related collections.
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={resyncSchema}
+							disabled={resyncing}
+							className="shrink-0 px-3 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							{resyncing ? 'Re-syncing…' : 'Re-sync'}
+						</button>
 					</div>
 				)}
 
