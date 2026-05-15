@@ -59,10 +59,15 @@ export async function buildApp() {
 		contentSecurityPolicy: {
 			directives: {
 				defaultSrc: ["'self'"],
-				scriptSrc: ["'self'", "'unsafe-inline'"],
+				scriptSrc: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
 				styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
 				imgSrc: ["'self'", 'data:', 'https:'],
-				connectSrc: ["'self'"],
+				connectSrc: [
+					"'self'",
+					'https://www.googletagmanager.com',
+					'https://www.google-analytics.com',
+					'https://stats.g.doubleclick.net',
+				],
 				fontSrc: ["'self'", 'https://fonts.gstatic.com'],
 				objectSrc: ["'none'"],
 				frameAncestors: ["'none'"],
