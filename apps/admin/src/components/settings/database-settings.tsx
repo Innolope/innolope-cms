@@ -12,6 +12,13 @@ interface DetectedTable {
 	name: string
 	columns: { name: string; type: string }[]
 	count?: number
+	sizeBytes?: number
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
 const DB_OPTIONS = [
@@ -240,7 +247,6 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
-	const [estimatedSizeBytes, setEstimatedSizeBytes] = useState<number | null>(null)
 	const initialDbType = useRef('built-in')
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 	const abortRef = useRef<AbortController>(undefined)
@@ -332,12 +338,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							setStep(3)
 							setScanning(true)
 							try {
-								const tableResult = await api.post<{ tables: DetectedTable[]; estimatedSizeBytes?: number }>(
+								const tableResult = await api.post<{ tables: DetectedTable[] }>(
 									`/api/v1/projects/${currentProject.id}/database/scan`,
 									{ type: dbType, connectionString: connStr, database: dbResult.databases[0] },
 								)
 								setTables(tableResult.tables)
-								if (tableResult.estimatedSizeBytes != null) setEstimatedSizeBytes(tableResult.estimatedSizeBytes)
 							} catch (err) {
 								toast(err instanceof Error ? err.message : 'Scan failed', 'error')
 							} finally {
@@ -355,12 +360,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					setStep(2)
 					setScanning(true)
 					try {
-						const tableResult = await api.post<{ tables: DetectedTable[]; estimatedSizeBytes?: number }>(
+						const tableResult = await api.post<{ tables: DetectedTable[] }>(
 							`/api/v1/projects/${currentProject.id}/database/scan`,
 							{ type: dbType, connectionString: connStr },
 						)
 						setTables(tableResult.tables)
-								if (tableResult.estimatedSizeBytes != null) setEstimatedSizeBytes(tableResult.estimatedSizeBytes)
 					} catch (err) {
 						toast(err instanceof Error ? err.message : 'Scan failed', 'error')
 					} finally {
@@ -740,7 +744,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 									<th className="pb-2 pl-1 w-8" />
 									<th className="pb-2">Name</th>
 									<th className="pb-2 text-right">{isNoSql ? 'Fields' : 'Columns'}</th>
-									<th className="pb-2 text-right pr-1">Records</th>
+									<th className="pb-2 text-right">Records</th>
+									<th className="pb-2 text-right pr-1">Size</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -754,7 +759,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										</td>
 										<td className="py-2 font-medium">{t.name}</td>
 										<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
-										<td className="py-2 text-right text-text-muted pr-1">{t.count ?? '—'}</td>
+										<td className="py-2 text-right text-text-muted">{t.count ?? '—'}</td>
+										<td className="py-2 text-right text-text-muted pr-1">{t.sizeBytes != null ? formatBytes(t.sizeBytes) : '—'}</td>
 									</tr>
 								))}
 							</tbody>
@@ -769,15 +775,20 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					</p>
 				)}
 
-				{/* Size estimate */}
-				{estimatedSizeBytes != null && (
-					<p className="text-xs text-text-muted">
-						Estimated database size: {estimatedSizeBytes < 1024 * 1024 ? `${Math.round(estimatedSizeBytes / 1024)} KB` : `${Math.round(estimatedSizeBytes / 1024 / 1024)} MB`}
-						{estimatedSizeBytes > 100 * 1024 * 1024 && (
-							<span className="text-text-secondary"> — Content will be cached on demand</span>
-						)}
-					</p>
-				)}
+				{/* Size estimate — based on the collections you selected, not the whole database */}
+				{selectedTables.size > 0 && (() => {
+					const selectedSizeBytes = tables
+						.filter(t => selectedTables.has(t.name))
+						.reduce((sum, t) => sum + (t.sizeBytes ?? 0), 0)
+					return (
+						<p className="text-xs text-text-muted">
+							Selected {isNoSql ? 'collections' : 'tables'} size: {formatBytes(selectedSizeBytes)}
+							{selectedSizeBytes > 100 * 1024 * 1024 && (
+								<span className="text-text-secondary"> — too large to cache automatically; records are read live from the database until you sync</span>
+							)}
+						</p>
+					)
+				})()}
 
 				{/* Access mode */}
 				{tables.length > 0 && (

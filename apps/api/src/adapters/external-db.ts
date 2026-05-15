@@ -6,7 +6,7 @@ export interface ExternalDocument {
 export interface ExternalDbAdapter {
 	connect(): Promise<void>
 	disconnect(): Promise<void>
-	estimateSizeBytes(): Promise<number>
+	estimateTableSizeBytes(table: string): Promise<number>
 	findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]>
 	findById(table: string, id: string): Promise<ExternalDocument | null>
 	insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument>
@@ -49,9 +49,9 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return this.dbInstance
 	}
 
-	async estimateSizeBytes(): Promise<number> {
-		const stats = await this.db().stats()
-		return stats.dataSize || 0
+	async estimateTableSizeBytes(table: string): Promise<number> {
+		const stats = await this.db().command({ collStats: table })
+		return Number(stats.size) || 0
 	}
 
 	async findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]> {
@@ -136,9 +136,9 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		return this.client
 	}
 
-	async estimateSizeBytes(): Promise<number> {
-		const [row] = await this.sql()`SELECT pg_database_size(current_database()) as size`
-		return Number(row.size)
+	async estimateTableSizeBytes(table: string): Promise<number> {
+		const [row] = await this.sql()`SELECT pg_total_relation_size(${table}::regclass) as size`
+		return Number(row?.size) || 0
 	}
 
 	private async getPrimaryKey(table: string): Promise<string> {
@@ -223,9 +223,10 @@ export class MySqlAdapter implements ExternalDbAdapter {
 		return this.conn
 	}
 
-	async estimateSizeBytes(): Promise<number> {
+	async estimateTableSizeBytes(table: string): Promise<number> {
 		const [rows] = await this.db().execute(
-			`SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()`,
+			`SELECT data_length + index_length as size FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+			[table],
 		)
 		return Number((rows as Array<{ size: number }>)[0]?.size || 0)
 	}

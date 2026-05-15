@@ -234,6 +234,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 								ORDER BY ordinal_position
 							`
 							const [{ count }] = await client`SELECT count(*)::int as count FROM ${client(t.table_name as string)}`
+							const [{ size }] = await client`SELECT pg_total_relation_size(${t.table_name}::regclass) as size`
 							result.push({
 								name: t.table_name as string,
 								columns: columns.map((c) => ({
@@ -241,12 +242,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 									type: String(c.data_type),
 								})),
 								count: Number(count),
+								sizeBytes: Number(size) || 0,
 							})
 						}
 
-						const [{ size: pgSize }] = await client`SELECT pg_database_size(current_database()) as size`
 						await client.end()
-						return { tables: result, estimatedSizeBytes: Number(pgSize) }
+						return { tables: result }
 					}
 					case 'mongodb': {
 						const { MongoClient } = await import('mongodb')
@@ -268,12 +269,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 									}))
 								: []
 							const count = await coll.estimatedDocumentCount()
-							result.push({ name: col.name, columns, count })
+							let sizeBytes = 0
+							try {
+								const collStats = await db.command({ collStats: col.name })
+								sizeBytes = Number(collStats.size) || 0
+							} catch {
+								// collStats unavailable (e.g. on a view) — leave size at 0
+							}
+							result.push({ name: col.name, columns, count, sizeBytes })
 						}
 
-						const mongoStats = await db.stats()
 						await client.close()
-						return { tables: result, estimatedSizeBytes: mongoStats.dataSize || 0 }
+						return { tables: result }
 					}
 					case 'mysql': {
 						const mysql = await import('mysql2/promise')
@@ -295,6 +302,10 @@ export async function databaseRoutes(app: FastifyInstance) {
 							)
 							const [countRows] = await conn.execute(`SELECT COUNT(*) as count FROM \`${t.table_name}\``)
 							const countRow = (countRows as Array<{ count: number }>)[0]
+							const [sizeRows] = await conn.execute(
+								`SELECT data_length + index_length as size FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+								[t.table_name],
+							)
 							result.push({
 								name: t.table_name,
 								columns: (colRows as Array<{ column_name: string; data_type: string }>).map((c) => ({
@@ -302,13 +313,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 									type: c.data_type,
 								})),
 								count: Number(countRow.count),
+								sizeBytes: Number((sizeRows as Array<{ size: number }>)[0]?.size || 0),
 							})
 						}
 
-						const [sizeRows] = await conn.execute(`SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()`)
-						const mysqlSize = Number((sizeRows as Array<{ size: number }>)[0]?.size || 0)
 						await conn.end()
-						return { tables: result, estimatedSizeBytes: mysqlSize }
+						return { tables: result }
 					}
 					case 'firebase': {
 						const admin = await import('firebase-admin')
@@ -519,9 +529,16 @@ export async function databaseRoutes(app: FastifyInstance) {
 					try {
 						const adapter = createExternalDbAdapter({ type, connectionString, database: database || undefined })
 						await adapter.connect()
-						const sizeBytes = await adapter.estimateSizeBytes()
 
-						if (sizeBytes <= cacheLimitBytes) {
+						// Size the *selected* collections only — not the whole database.
+						let selectedSizeBytes = 0
+						for (const col of createdCollections) {
+							if (col.externalTable) {
+								selectedSizeBytes += await adapter.estimateTableSizeBytes(col.externalTable)
+							}
+						}
+
+						if (selectedSizeBytes <= cacheLimitBytes) {
 							for (const col of createdCollections) {
 								if (col.externalTable) {
 									await populateMarkdownCache(app.db, content, adapter, {
@@ -533,8 +550,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 								}
 							}
 						} else {
-							const sizeMb = Math.round(sizeBytes / 1024 / 1024)
-							warnings.push(`Database is ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be cached on demand.`)
+							const sizeMb = Math.round(selectedSizeBytes / 1024 / 1024)
+							warnings.push(`Selected collections total ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be cached on demand.`)
 						}
 
 						await adapter.disconnect()
