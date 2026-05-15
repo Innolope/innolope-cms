@@ -10,7 +10,7 @@ import { SaveBar } from '../save-bar'
 
 interface DetectedTable {
 	name: string
-	columns: { name: string; type: string }[]
+	columns: { name: string; type: string; relationTo?: string; relationIsArray?: boolean }[]
 	count?: number
 	sizeBytes?: number
 }
@@ -19,6 +19,18 @@ function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`
 	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
 	return `${Math.round(bytes / 1024 / 1024)} MB`
+}
+
+/** Unique collection names this table references that also exist in the scanned set. */
+function relationTargets(table: DetectedTable, allTables: DetectedTable[]): string[] {
+	const known = new Set(allTables.map((t) => t.name))
+	const targets = new Set<string>()
+	for (const col of table.columns) {
+		if (col.relationTo && known.has(col.relationTo) && col.relationTo !== table.name) {
+			targets.add(col.relationTo)
+		}
+	}
+	return [...targets]
 }
 
 const DB_OPTIONS = [
@@ -414,8 +426,16 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 	const toggleTable = (name: string) => {
 		const next = new Set(selectedTables)
-		if (next.has(name)) next.delete(name)
-		else next.add(name)
+		if (next.has(name)) {
+			next.delete(name)
+		} else {
+			next.add(name)
+			// Auto-include related collections so relation fields stay editable.
+			const table = tables.find((t) => t.name === name)
+			if (table) {
+				for (const target of relationTargets(table, tables)) next.add(target)
+			}
+		}
 		setSelectedTables(next)
 	}
 
@@ -757,7 +777,18 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										<td className="py-2 pl-1">
 											<input type="checkbox" checked={selectedTables.has(t.name)} onChange={() => toggleTable(t.name)} className="rounded" />
 										</td>
-										<td className="py-2 font-medium">{t.name}</td>
+										<td className="py-2 font-medium">
+											{t.name}
+											{relationTargets(t, tables).map((target) => (
+												<span
+													key={target}
+													title={`References ${target} — it will be imported automatically`}
+													className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted font-normal"
+												>
+													&rarr; {target}
+												</span>
+											))}
+										</td>
 										<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
 										<td className="py-2 text-right text-text-muted">{t.count ?? '—'}</td>
 										<td className="py-2 text-right text-text-muted pr-1">{t.sizeBytes != null ? formatBytes(t.sizeBytes) : '—'}</td>

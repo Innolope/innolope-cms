@@ -82,6 +82,29 @@ function coerceExternalFieldValue(fieldType: string | undefined, value: unknown)
 	return value
 }
 
+/** MongoDB stores references as ObjectId — wrap 24-hex relation values so the field type stays consistent. */
+async function coerceExternalRelations(
+	dbType: string,
+	col: typeof collections.$inferSelect,
+	data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	if (dbType !== 'mongodb') return data
+	const relationFields = (col.fields || []).filter((f) => f.type === 'relation').map((f) => f.name)
+	if (relationFields.length === 0) return data
+	const { ObjectId } = await import('mongodb')
+	const isObjectIdString = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v)
+	const out = { ...data }
+	for (const name of relationFields) {
+		const value = out[name]
+		if (isObjectIdString(value)) {
+			out[name] = new ObjectId(value)
+		} else if (Array.isArray(value)) {
+			out[name] = value.map((item) => (isObjectIdString(item) ? new ObjectId(item) : item))
+		}
+	}
+	return out
+}
+
 async function insertIntoExternalDb(
 	app: FastifyInstance,
 	projectId: string,
@@ -95,7 +118,7 @@ async function insertIntoExternalDb(
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		return await adapter.insert(col.externalTable, data)
+		return await adapter.insert(col.externalTable, await coerceExternalRelations(extDb.type, col, data))
 	} finally {
 		await adapter.disconnect()
 	}
@@ -115,7 +138,7 @@ async function updateExternalDb(
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		return await adapter.update(col.externalTable, externalId, data)
+		return await adapter.update(col.externalTable, externalId, await coerceExternalRelations(extDb.type, col, data))
 	} finally {
 		await adapter.disconnect()
 	}
@@ -156,6 +179,24 @@ async function loadExternalCollection(app: FastifyInstance, projectId: string, c
 	if (!extDb) return null
 
 	return { col, extDb }
+}
+
+/** Push a status change to the external DB row, if the collection is an external read-write source. */
+async function syncExternalStatus(
+	app: FastifyInstance,
+	projectId: string,
+	collectionId: string,
+	externalId: string | null,
+	status: string,
+	publishedAt: Date | null,
+) {
+	const [col] = await app.db.select().from(collections)
+		.where(and(eq(collections.id, collectionId), eq(collections.projectId, projectId)))
+		.limit(1)
+	if (!col || col.source !== 'external' || col.accessMode !== 'read-write' || !col.externalTable) return
+	if (!externalId) return
+	const data = buildExternalData(col, { status, publishedAt })
+	await updateExternalDb(app, projectId, col, externalId, data)
 }
 
 /** Fetch a page of records live from the external DB (used when the local cache is empty). */
@@ -865,6 +906,13 @@ export async function contentRoutes(app: FastifyInstance) {
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
 			if (item.status !== 'pending_review') return reply.status(400).send({ error: 'Only pending review items can be approved' })
 
+			try {
+				await syncExternalStatus(app, request.project!.id, item.collectionId, item.externalId, 'published', new Date())
+			} catch (err) {
+				app.log.warn(err, 'Failed to sync approval to external DB')
+				return reply.status(502).send({ error: 'Failed to sync to external database' })
+			}
+
 			const [updated] = await app.db
 				.update(content)
 				.set({ status: 'published', publishedAt: new Date(), updatedAt: new Date() })
@@ -897,6 +945,13 @@ export async function contentRoutes(app: FastifyInstance) {
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
 			if (item.status !== 'pending_review') return reply.status(400).send({ error: 'Only pending review items can be rejected' })
 
+			try {
+				await syncExternalStatus(app, request.project!.id, item.collectionId, item.externalId, 'draft', null)
+			} catch (err) {
+				app.log.warn(err, 'Failed to sync rejection to external DB')
+				return reply.status(502).send({ error: 'Failed to sync to external database' })
+			}
+
 			const [updated] = await app.db
 				.update(content)
 				.set({ status: 'draft', updatedAt: new Date() })
@@ -912,4 +967,34 @@ export async function contentRoutes(app: FastifyInstance) {
 			return updated
 		},
 	)
+
+	// Create a record in a related external collection (e.g. uploading an image for a relation field)
+	app.post('/relation-records', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
+		const { relationTo, values } = (request.body as { relationTo?: string; values?: Record<string, unknown> }) || {}
+		if (!relationTo || typeof relationTo !== 'string') {
+			return reply.status(400).send({ error: 'relationTo is required' })
+		}
+
+		const [targetCol] = await app.db
+			.select()
+			.from(collections)
+			.where(and(eq(collections.name, relationTo), eq(collections.projectId, request.project!.id)))
+			.limit(1)
+
+		if (!targetCol) return reply.status(404).send({ error: `Related collection not found: ${relationTo}` })
+		if (targetCol.source !== 'external' || targetCol.accessMode !== 'read-write' || !targetCol.externalTable) {
+			return reply.status(400).send({ error: 'Related collection is not an external read-write collection' })
+		}
+
+		const now = new Date()
+		const data = buildExternalData(targetCol, { metadata: values || {}, createdAt: now, updatedAt: now })
+
+		try {
+			const inserted = await insertIntoExternalDb(app, request.project!.id, targetCol, data)
+			return reply.status(201).send({ _id: inserted._id })
+		} catch (err) {
+			app.log.warn(err, 'Failed to insert relation record')
+			return reply.status(502).send({ error: 'Failed to write to external database' })
+		}
+	})
 }

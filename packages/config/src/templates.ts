@@ -5,6 +5,10 @@ export interface CollectionField {
 	localized?: boolean
 	options?: string[]
 	defaultValue?: unknown
+	/** For `relation` fields on external collections: the external table this field references. */
+	relationTo?: string
+	/** Whether the relation field holds an array of references. */
+	relationIsArray?: boolean
 }
 
 export interface CollectionTemplate {

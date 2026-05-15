@@ -8,6 +8,8 @@ interface CollectionField {
 	required?: boolean
 	localized?: boolean
 	options?: string[]
+	relationTo?: string
+	relationIsArray?: boolean
 }
 
 export interface CollectionWithCount {

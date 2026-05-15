@@ -101,6 +101,29 @@ function sanitizeProject(project: typeof projects.$inferSelect) {
 	return { ...project, settings }
 }
 
+const FIELD_TYPES = new Set(['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array'])
+
+/** Classify a runtime MongoDB value into a CollectionField type. */
+function classifyMongoValue(value: unknown): { type: string; isObjectId: boolean; isArray: boolean } {
+	if (value === null || value === undefined) return { type: 'unknown', isObjectId: false, isArray: false }
+	if (typeof value === 'object' && (value as { _bsontype?: string })._bsontype === 'ObjectId') {
+		return { type: 'relation', isObjectId: true, isArray: false }
+	}
+	if (value instanceof Date) return { type: 'date', isObjectId: false, isArray: false }
+	if (Array.isArray(value)) {
+		const first = value[0]
+		if (first && typeof first === 'object' && (first as { _bsontype?: string })._bsontype === 'ObjectId') {
+			return { type: 'relation', isObjectId: true, isArray: true }
+		}
+		return { type: 'array', isObjectId: false, isArray: true }
+	}
+	const t = typeof value
+	if (t === 'string') return { type: 'text', isObjectId: false, isArray: false }
+	if (t === 'number') return { type: 'number', isObjectId: false, isArray: false }
+	if (t === 'boolean') return { type: 'boolean', isObjectId: false, isArray: false }
+	return { type: 'object', isObjectId: false, isArray: false }
+}
+
 export async function databaseRoutes(app: FastifyInstance) {
 	// Test external database connection
 	app.post<{ Params: { id: string } }>(
@@ -258,16 +281,31 @@ export async function databaseRoutes(app: FastifyInstance) {
 						const db = effectiveDatabase ? client.db(effectiveDatabase) : client.db()
 						const collections = await db.listCollections().toArray()
 
-						const result = []
+						// First pass: sample documents and classify each field's type.
+						type FieldInfo = { type: string; isArray: boolean; objectIdSamples: unknown[]; relationTo?: string }
+						const scanned: Array<{ name: string; count: number; sizeBytes: number; fields: Map<string, FieldInfo> }> = []
+
 						for (const col of collections) {
 							const coll = db.collection(col.name)
-							const sample = await coll.findOne()
-							const columns = sample
-								? Object.entries(sample).map(([name, value]) => ({
-										name,
-										type: typeof value,
-									}))
-								: []
+							const samples = await coll.find().limit(20).toArray()
+							const fields = new Map<string, FieldInfo>()
+							for (const doc of samples) {
+								for (const [name, value] of Object.entries(doc)) {
+									const cls = classifyMongoValue(value)
+									if (cls.type === 'unknown') continue
+									let entry = fields.get(name)
+									if (!entry) {
+										entry = { type: cls.type, isArray: cls.isArray, objectIdSamples: [] }
+										fields.set(name, entry)
+									}
+									if (cls.isObjectId) {
+										const ids = cls.isArray ? (value as unknown[]) : [value]
+										for (const id of ids) {
+											if (entry.objectIdSamples.length < 10) entry.objectIdSamples.push(id)
+										}
+									}
+								}
+							}
 							const count = await coll.estimatedDocumentCount()
 							let sizeBytes = 0
 							try {
@@ -276,8 +314,39 @@ export async function databaseRoutes(app: FastifyInstance) {
 							} catch {
 								// collStats unavailable (e.g. on a view) — leave size at 0
 							}
-							result.push({ name: col.name, columns, count, sizeBytes })
+							scanned.push({ name: col.name, count, sizeBytes, fields })
 						}
+
+						// Second pass: resolve relation targets by probing sample ObjectIds against each collection's _id.
+						for (const tbl of scanned) {
+							for (const entry of tbl.fields.values()) {
+								if (entry.type !== 'relation' || entry.objectIdSamples.length === 0) continue
+								let bestTarget: string | undefined
+								let bestMatches = 0
+								for (const candidate of scanned) {
+									const matches = await db
+										.collection(candidate.name)
+										.countDocuments({ _id: { $in: entry.objectIdSamples as import('mongodb').ObjectId[] } })
+									if (matches > bestMatches) {
+										bestMatches = matches
+										bestTarget = candidate.name
+									}
+								}
+								if (bestMatches > 0) entry.relationTo = bestTarget
+							}
+						}
+
+						const result = scanned.map((tbl) => ({
+							name: tbl.name,
+							columns: [...tbl.fields.entries()].map(([name, entry]) => ({
+								name,
+								type: entry.type,
+								...(entry.relationTo && { relationTo: entry.relationTo }),
+								...(entry.type === 'relation' && entry.isArray && { relationIsArray: true }),
+							})),
+							count: tbl.count,
+							sizeBytes: tbl.sizeBytes,
+						}))
 
 						await client.close()
 						return { tables: result }
@@ -417,7 +486,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				type: string | null
 				connectionString: string | null
 				database?: string | null
-				tables?: Array<{ name: string; columns: { name: string; type: string }[]; count?: number }>
+				tables?: Array<{ name: string; columns: { name: string; type: string; relationTo?: string; relationIsArray?: boolean }[]; count?: number }>
 				accessMode?: 'read-write' | 'read-only'
 			}
 
@@ -492,14 +561,17 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 					if (existing) continue
 
-					// Map column types to field types
+					// Map column types to field types. MongoDB scan columns already carry a
+					// resolved CollectionField type; SQL columns carry a raw data_type string.
 					const fields = table.columns
 						.filter(c => c.name !== '_id' && c.name !== 'id')
 						.map(c => ({
 							name: c.name,
-							type: mapColumnType(c.type) as any,
+							type: (FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)) as any,
 							required: false,
 							localized: false,
+							...(c.relationTo && { relationTo: c.relationTo }),
+							...(c.relationIsArray && { relationIsArray: true }),
 						}))
 
 					const [created] = await app.db
@@ -517,6 +589,23 @@ export async function databaseRoutes(app: FastifyInstance) {
 						.returning()
 
 					createdCollections.push(created)
+				}
+
+				// Warn about relations to collections that were not imported.
+				const selectedNames = new Set(tables.map(t => t.name))
+				const missingRelations = new Map<string, Set<string>>()
+				for (const table of tables) {
+					for (const col of table.columns) {
+						if (col.relationTo && !selectedNames.has(col.relationTo)) {
+							if (!missingRelations.has(table.name)) missingRelations.set(table.name, new Set())
+							missingRelations.get(table.name)!.add(col.relationTo)
+						}
+					}
+				}
+				for (const [tableName, targets] of missingRelations) {
+					warnings.push(
+						`"${tableName}" references ${[...targets].join(', ')} which ${targets.size === 1 ? 'was' : 'were'} not imported. Relation fields pointing to ${targets.size === 1 ? 'it' : 'them'} will not be editable.`,
+					)
 				}
 
 				// Populate markdown cache if DB is small enough

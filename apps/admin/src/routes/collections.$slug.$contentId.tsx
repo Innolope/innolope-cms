@@ -9,6 +9,7 @@ import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gate'
 import { useToast } from '../lib/toast'
 import { Dropdown } from '../components/dropdown'
+import { RelationField } from '../components/editor/relation-field'
 
 export const Route = createFileRoute('/collections/$slug/$contentId')({
 	component: CollectionContentEditor,
@@ -58,6 +59,13 @@ function parseFrontmatter(md: string): { body: string; meta: Record<string, unkn
 	}
 
 	return { body, meta }
+}
+
+/** Normalize a stored date value to a `yyyy-mm-dd` string for <input type="date">. */
+function toDateInputValue(v: unknown): string {
+	if (!v) return ''
+	const d = new Date(v as string)
+	return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
 }
 
 function CollectionContentEditor() {
@@ -139,6 +147,24 @@ function CollectionContentEditor() {
 				.finally(() => setLoading(false))
 		}
 	}, [contentId, isNew, navigate, slug, draftKey, collection])
+
+	// Prefill date-typed schema fields with today for new records
+	useEffect(() => {
+		if (!isNew || !collection) return
+		const dateFields = collection.fields?.filter((f) => f.type === 'date') ?? []
+		if (dateFields.length === 0) return
+		setExtraFields((prev) => {
+			const next = { ...prev }
+			let changed = false
+			for (const f of dateFields) {
+				if (next[f.name] == null || next[f.name] === '') {
+					next[f.name] = new Date().toISOString()
+					changed = true
+				}
+			}
+			return changed ? next : prev
+		})
+	}, [isNew, collection])
 
 	// Auto-save draft to localStorage every 5 seconds when dirty
 	useEffect(() => {
@@ -373,9 +399,20 @@ function CollectionContentEditor() {
 					</>
 				)}
 
+				<Field label="Tags">
+					<input
+						type="text"
+						value={tags}
+						onChange={(e) => { setTags(e.target.value); setDirty(true) }}
+						placeholder="comma, separated, tags"
+						disabled={isReadOnly}
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+					/>
+				</Field>
+
 				{/* Dynamic schema fields (both internal and external) */}
 				{collection?.fields
-					?.filter(f => f.name !== 'title' && f.name !== 'content' && f.name !== 'body')
+					?.filter(f => f.name !== 'title' && f.name !== 'content' && f.name !== 'body' && f.name !== 'tags')
 					.map(f => (
 						<Field key={f.name} label={f.name}>
 							{f.type === 'boolean' ? (
@@ -396,6 +433,21 @@ function CollectionContentEditor() {
 									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value ? Number(e.target.value) : '' })); setDirty(true) }}
 									disabled={isReadOnly}
 									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+								/>
+							) : f.type === 'date' ? (
+								<input
+									type="date"
+									value={toDateInputValue(extraFields[f.name])}
+									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value ? new Date(e.target.value).toISOString() : '' })); setDirty(true) }}
+									disabled={isReadOnly}
+									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+								/>
+							) : f.type === 'relation' ? (
+								<RelationField
+									value={String(extraFields[f.name] ?? '')}
+									relationTo={f.relationTo}
+									disabled={isReadOnly}
+									onChange={(v) => { setExtraFields(prev => ({ ...prev, [f.name]: v })); setDirty(true) }}
 								/>
 							) : (
 								<input
