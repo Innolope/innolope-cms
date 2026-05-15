@@ -9,6 +9,7 @@ function sanitizeHtml(html: string): string {
 	return DOMPurify.sanitize(html)
 }
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
+import { externalDocToContentItem } from '../../services/markdown-cache.js'
 
 type ExternalDbConfig = {
 	type: string
@@ -143,6 +144,67 @@ function httpError(message: string, statusCode: number) {
 	return Object.assign(new Error(message), { statusCode })
 }
 
+/** Load an external collection + its project's external DB config, or null if not applicable. */
+async function loadExternalCollection(app: FastifyInstance, projectId: string, collectionId: string) {
+	const [col] = await app.db.select().from(collections)
+		.where(and(eq(collections.id, collectionId), eq(collections.projectId, projectId)))
+		.limit(1)
+	if (!col || col.source !== 'external' || !col.externalTable) return null
+
+	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const extDb = getExternalDbConfig(project)
+	if (!extDb) return null
+
+	return { col, extDb }
+}
+
+/** Fetch a page of records live from the external DB (used when the local cache is empty). */
+async function fetchLiveExternalContent(
+	app: FastifyInstance,
+	projectId: string,
+	collectionId: string,
+	opts: { limit: number; offset: number },
+): Promise<{ items: Record<string, unknown>[]; total: number } | null> {
+	const loaded = await loadExternalCollection(app, projectId, collectionId)
+	if (!loaded) return null
+	const { col, extDb } = loaded
+
+	const adapter = createExternalDbAdapter(extDb)
+	await adapter.connect()
+	try {
+		const total = await adapter.count(col.externalTable!)
+		const docs = await adapter.findAll(col.externalTable!, opts)
+		const items = docs.map((doc) =>
+			externalDocToContentItem(doc, { id: col.id, projectId: col.projectId, fields: col.fields || [] }),
+		)
+		return { items, total }
+	} finally {
+		await adapter.disconnect()
+	}
+}
+
+/** Fetch a single record live from the external DB (used when it is not in the local cache). */
+async function fetchLiveExternalRecord(
+	app: FastifyInstance,
+	projectId: string,
+	collectionId: string,
+	externalId: string,
+): Promise<Record<string, unknown> | null> {
+	const loaded = await loadExternalCollection(app, projectId, collectionId)
+	if (!loaded) return null
+	const { col, extDb } = loaded
+
+	const adapter = createExternalDbAdapter(extDb)
+	await adapter.connect()
+	try {
+		const doc = await adapter.findById(col.externalTable!, externalId)
+		if (!doc) return null
+		return externalDocToContentItem(doc, { id: col.id, projectId: col.projectId, fields: col.fields || [] })
+	} finally {
+		await adapter.disconnect()
+	}
+}
+
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -197,6 +259,28 @@ export async function contentRoutes(app: FastifyInstance) {
 			app.db.select({ count: sql<number>`count(*)` }).from(content).where(where),
 		])
 
+		// Live fallback: local cache is empty for this external collection — read directly
+		// from the external DB so records stay visible before a Sync runs.
+		if (collectionId && Number(countResult[0].count) === 0) {
+			try {
+				const live = await fetchLiveExternalContent(app, pid, collectionId, { limit, offset })
+				if (live) {
+					return {
+						data: live.items,
+						pagination: {
+							page,
+							limit,
+							total: live.total,
+							totalPages: Math.ceil(live.total / limit),
+						},
+						live: true,
+					}
+				}
+			} catch (err) {
+				app.log.warn(err, 'Live external content fallback failed')
+			}
+		}
+
 		// Track search analytics (fire-and-forget)
 		if (search) {
 			app.db.insert(contentAnalytics).values({
@@ -242,12 +326,37 @@ export async function contentRoutes(app: FastifyInstance) {
 	)
 
 	// Get single content by ID (viewer+, project-scoped)
-	app.get<{ Params: { id: string } }>('/:id', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
-		const [item] = await app.db
-			.select()
-			.from(content)
-			.where(and(eq(content.id, request.params.id), eq(content.projectId, request.project!.id)))
-			.limit(1)
+	app.get<{ Params: { id: string }; Querystring: { collectionId?: string } }>(
+		'/:id',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+		// The id may be an external id (non-UUID) when it refers to a live external row,
+		// which makes the uuid-typed local lookup throw — treat that as "not found locally".
+		let item: typeof content.$inferSelect | undefined
+		try {
+			;[item] = await app.db
+				.select()
+				.from(content)
+				.where(and(eq(content.id, request.params.id), eq(content.projectId, request.project!.id)))
+				.limit(1)
+		} catch {
+			item = undefined
+		}
+
+		// Live fallback: not in the local cache — try reading the row directly from the external DB.
+		if (!item && request.query.collectionId) {
+			try {
+				const live = await fetchLiveExternalRecord(
+					app,
+					request.project!.id,
+					request.query.collectionId,
+					request.params.id,
+				)
+				if (live) return live
+			} catch (err) {
+				app.log.warn(err, 'Live external record fallback failed')
+			}
+		}
 
 		if (!item) return reply.status(404).send({ error: 'Content not found' })
 

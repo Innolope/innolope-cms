@@ -265,6 +265,54 @@ export async function previewMarkdownCacheSync(
 	return { discrepancies, total }
 }
 
+/** Basic markdown→HTML conversion used for cached/live rows. */
+function markdownToBasicHtml(markdown: string): string {
+	return markdown
+		.replace(/^### (.*$)/gm, '<h3>$1</h3>')
+		.replace(/^## (.*$)/gm, '<h2>$1</h2>')
+		.replace(/^# (.*$)/gm, '<h1>$1</h1>')
+		.replace(/\n/g, '<br>')
+}
+
+/**
+ * Convert an external document into an object shaped like a `content` table row,
+ * for serving live (un-synced) external data. Not persisted — `id` is the
+ * external id so the row stays navigable in the UI.
+ */
+export function externalDocToContentItem(
+	doc: ExternalDocument,
+	collection: {
+		id: string
+		projectId: string
+		fields: CollectionField[]
+	},
+): Record<string, unknown> {
+	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
+	const slug = `${generateSlugFromDoc(metadata, doc._id)}-${doc._id.slice(-6)}`
+	const createdAt = toDate(metadata.createdAt)
+	const updatedAt = toDate(metadata.updatedAt)
+	const publishedAt = toDate(metadata.publishedAt)
+
+	return {
+		id: doc._id,
+		externalId: doc._id,
+		projectId: collection.projectId,
+		collectionId: collection.id,
+		slug,
+		metadata,
+		markdown,
+		html: markdownToBasicHtml(markdown),
+		status: normalizeStatus(metadata.status),
+		locale: 'en',
+		version: 1,
+		createdBy: null,
+		createdAt: createdAt || updatedAt || new Date(),
+		updatedAt: updatedAt || new Date(),
+		publishedAt: publishedAt || null,
+		live: true,
+	}
+}
+
 function buildCachedContentValues(
 	doc: ExternalDocument,
 	collection: {
@@ -278,11 +326,7 @@ function buildCachedContentValues(
 	const slug = generateSlugFromDoc(metadata, doc._id)
 
 	// Simple HTML from markdown (basic conversion)
-	const html = markdown
-		.replace(/^### (.*$)/gm, '<h3>$1</h3>')
-		.replace(/^## (.*$)/gm, '<h2>$1</h2>')
-		.replace(/^# (.*$)/gm, '<h1>$1</h1>')
-		.replace(/\n/g, '<br>')
+	const html = markdownToBasicHtml(markdown)
 
 	const createdAt = toDate(metadata.createdAt)
 	const updatedAt = toDate(metadata.updatedAt)

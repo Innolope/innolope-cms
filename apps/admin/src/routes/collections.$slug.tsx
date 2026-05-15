@@ -38,6 +38,7 @@ interface ContentItem {
 interface ContentResponse {
 	data: ContentItem[]
 	pagination: { page: number; limit: number; total: number; totalPages: number }
+	live?: boolean
 }
 
 interface SyncPreviewItem {
@@ -254,6 +255,7 @@ function CollectionContentList() {
 	}
 
 	const [items, setItems] = useState<ContentItem[]>([])
+	const [isLive, setIsLive] = useState(false)
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
 	const [ready, setReady] = useState(false)
@@ -314,6 +316,7 @@ function CollectionContentList() {
 			.then((res) => {
 				setItems(res.data)
 				setTotal(res.pagination.total)
+				setIsLive(Boolean(res.live))
 			})
 			.catch(() => {})
 			.finally(() => setReady(true))
@@ -453,6 +456,15 @@ function CollectionContentList() {
 
 			{tab === 'all' ? (
 				<>
+					{isLive && (
+						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-text-muted"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>
+							<span>
+								Showing live data from the external database — this collection is too large to cache automatically.
+								Search, filtering, sorting, and editing require syncing the collection first.
+							</span>
+						</div>
+					)}
 					{showToolbar && (
 						<div className="flex flex-col gap-3 mb-4">
 							<div className="flex gap-3 items-center">

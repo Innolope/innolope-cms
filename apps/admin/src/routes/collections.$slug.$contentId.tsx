@@ -24,6 +24,7 @@ interface ContentItem {
 	version: number
 	collectionId: string
 	externalId?: string
+	live?: boolean
 }
 
 /** Parse YAML frontmatter from markdown, return body + metadata */
@@ -67,7 +68,8 @@ function CollectionContentEditor() {
 	const collection = getCollectionByName(slug)
 	const isNew = contentId === 'new'
 	const isExternal = collection?.source === 'external'
-	const isReadOnly = isExternal && collection?.accessMode === 'read-only'
+	const [isLive, setIsLive] = useState(false)
+	const isReadOnly = (isExternal && collection?.accessMode === 'read-only') || isLive
 
 	const [markdown, setMarkdown] = useState('')
 	const [title, setTitle] = useState('')
@@ -94,8 +96,8 @@ function CollectionContentEditor() {
 
 	// Load content
 	useEffect(() => {
-		if (!isNew && contentId) {
-			api.get<ContentItem>(`/api/v1/content/${contentId}`)
+		if (!isNew && contentId && collection) {
+			api.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}`)
 				.then((item) => {
 					const { body, meta } = parseFrontmatter(item.markdown)
 					const mergedMeta = { ...meta, ...item.metadata }
@@ -107,6 +109,7 @@ function CollectionContentEditor() {
 					setTags(((mergedMeta.tags as string[]) || []).join(', '))
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
+					setIsLive(Boolean(item.live))
 
 					// All metadata except title goes into extraFields (schema fields rendered dynamically for both internal and external)
 					if (collection) {
@@ -135,7 +138,7 @@ function CollectionContentEditor() {
 				.catch(() => navigate({ to: `/collections/${slug}` }))
 				.finally(() => setLoading(false))
 		}
-	}, [contentId, isNew, navigate, slug, draftKey])
+	}, [contentId, isNew, navigate, slug, draftKey, collection])
 
 	// Auto-save draft to localStorage every 5 seconds when dirty
 	useEffect(() => {
@@ -295,7 +298,9 @@ function CollectionContentEditor() {
 				{isReadOnly && (
 					<div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-surface-alt text-xs text-text-muted">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
-						This content is read-only. The external database connection is configured as read-only.
+						{isLive
+							? 'This is live data from the external database. Sync the collection to cache it locally and enable editing.'
+							: 'This content is read-only. The external database connection is configured as read-only.'}
 					</div>
 				)}
 
