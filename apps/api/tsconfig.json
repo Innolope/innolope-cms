@@ -1,13 +1,14 @@
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src"
-  },
-  "include": ["src"],
-  "references": [
-    { "path": "../../packages/types" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/config" }
-  ]
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"outDir": "./dist",
+		"rootDir": "./src"
+	},
+	"include": ["src"],
+	"exclude": ["src/**/*.test.ts"],
+	"references": [
+		{ "path": "../../packages/types" },
+		{ "path": "../../packages/db" },
+		{ "path": "../../packages/config" }
+	]
 }

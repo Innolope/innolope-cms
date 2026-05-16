@@ -1,12 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
-import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
 import { useLicense } from '../license-gate'
 import { SaveBar } from '../save-bar'
-
 
 interface DetectedTable {
 	name: string
@@ -35,17 +34,50 @@ function relationTargets(table: DetectedTable, allTables: DetectedTable[]): stri
 
 const DB_OPTIONS = [
 	{ value: 'built-in', label: 'Innolope CMS', desc: 'Managed PostgreSQL', logo: '/logo.svg' },
-	{ value: 'mongodb', label: 'MongoDB', desc: 'Atlas or self-hosted', logo: '/db-logos/mongodb.svg' },
-	{ value: 'postgresql', label: 'PostgreSQL', desc: 'Direct connection', logo: '/db-logos/postgresql.svg' },
+	{
+		value: 'mongodb',
+		label: 'MongoDB',
+		desc: 'Atlas or self-hosted',
+		logo: '/db-logos/mongodb.svg',
+	},
+	{
+		value: 'postgresql',
+		label: 'PostgreSQL',
+		desc: 'Direct connection',
+		logo: '/db-logos/postgresql.svg',
+	},
 	{ value: 'mysql', label: 'MySQL', desc: 'Direct connection', logo: '/db-logos/mysql.svg' },
-	{ value: 'supabase', label: 'Supabase', desc: 'Managed Postgres', logo: '/db-logos/supabase.svg' },
-	{ value: 'cockroachdb', label: 'CockroachDB', desc: 'Distributed SQL', logo: '/db-logos/cockroachdb.svg' },
-	{ value: 'firebase', label: 'Firebase', desc: 'Firestore connection', logo: '/db-logos/firebase.svg' },
+	{
+		value: 'supabase',
+		label: 'Supabase',
+		desc: 'Managed Postgres',
+		logo: '/db-logos/supabase.svg',
+	},
+	{
+		value: 'cockroachdb',
+		label: 'CockroachDB',
+		desc: 'Distributed SQL',
+		logo: '/db-logos/cockroachdb.svg',
+	},
+	{
+		value: 'firebase',
+		label: 'Firebase',
+		desc: 'Firestore connection',
+		logo: '/db-logos/firebase.svg',
+	},
 	{ value: 'neon', label: 'Neon', desc: 'Serverless Postgres', logo: '/db-logos/neon.svg' },
-	{ value: 'vercel-postgres', label: 'Vercel Postgres', desc: 'Serverless SQL', logo: '/db-logos/vercel.svg' },
+	{
+		value: 'vercel-postgres',
+		label: 'Vercel Postgres',
+		desc: 'Serverless SQL',
+		logo: '/db-logos/vercel.svg',
+	},
 ] as const
 
-const CONNECTION_HELP: Record<string, { label: string; placeholder: string; instructions: string[]; format: string }> = {
+const CONNECTION_HELP: Record<
+	string,
+	{ label: string; placeholder: string; instructions: string[]; format: string }
+> = {
 	mongodb: {
 		label: 'MongoDB connection string',
 		placeholder: 'mongodb+srv://username:password@cluster.mongodb.net/database',
@@ -78,8 +110,10 @@ const CONNECTION_HELP: Record<string, { label: string; placeholder: string; inst
 	},
 	supabase: {
 		label: 'Supabase connection string',
-		placeholder: 'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
-		format: 'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
+		placeholder:
+			'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
+		format:
+			'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
 		instructions: [
 			'Open your Supabase project dashboard',
 			'Go to Project Settings \u2192 Database',
@@ -89,8 +123,10 @@ const CONNECTION_HELP: Record<string, { label: string; placeholder: string; inst
 	},
 	cockroachdb: {
 		label: 'CockroachDB connection string',
-		placeholder: 'postgresql://user:password@cluster.cockroachlabs.cloud:26257/database?sslmode=verify-full',
-		format: 'postgresql://<user>:<password>@<cluster>.cockroachlabs.cloud:26257/<database>?sslmode=verify-full',
+		placeholder:
+			'postgresql://user:password@cluster.cockroachlabs.cloud:26257/database?sslmode=verify-full',
+		format:
+			'postgresql://<user>:<password>@<cluster>.cockroachlabs.cloud:26257/<database>?sslmode=verify-full',
 		instructions: [
 			'Open the CockroachDB Cloud Console',
 			'Select your cluster and click "Connect"',
@@ -111,7 +147,8 @@ const CONNECTION_HELP: Record<string, { label: string; placeholder: string; inst
 	},
 	neon: {
 		label: 'Neon connection string',
-		placeholder: 'postgresql://user:password@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require',
+		placeholder:
+			'postgresql://user:password@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require',
 		format: 'postgresql://<user>:<password>@<endpoint>.aws.neon.tech/<database>?sslmode=require',
 		instructions: [
 			'Open your Neon project dashboard',
@@ -122,7 +159,8 @@ const CONNECTION_HELP: Record<string, { label: string; placeholder: string; inst
 	},
 	'vercel-postgres': {
 		label: 'Vercel Postgres URL',
-		placeholder: 'postgres://default:xxxxx@ep-xxx-pooler.us-east-1.aws.neon.tech/verceldb?sslmode=require',
+		placeholder:
+			'postgres://default:xxxxx@ep-xxx-pooler.us-east-1.aws.neon.tech/verceldb?sslmode=require',
 		format: 'postgres://default:<password>@<host>/verceldb?sslmode=require',
 		instructions: [
 			'Open the Vercel dashboard and go to Storage',
@@ -139,7 +177,10 @@ const STORAGE_KEY = 'innolope:db-wizard'
 function maskConnectionString(str: string): string {
 	if (!str) return ''
 	if (str.trim().startsWith('{')) {
-		return str.replace(/"private_key"\s*:\s*"[^"]*"/, '"private_key": "\u2022\u2022\u2022\u2022\u2022\u2022"')
+		return str.replace(
+			/"private_key"\s*:\s*"[^"]*"/,
+			'"private_key": "\u2022\u2022\u2022\u2022\u2022\u2022"',
+		)
 	}
 	return str.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:\u2022\u2022\u2022\u2022@')
 }
@@ -152,18 +193,28 @@ function updateUrlStep(stepName: string | null) {
 }
 
 function saveWizardState(data: { dbType: string; connectionString: string; selectedDb: string }) {
-	try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+	try {
+		sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+	} catch {}
 }
 
-function loadWizardState(): { dbType: string; connectionString: string; selectedDb: string } | null {
+function loadWizardState(): {
+	dbType: string
+	connectionString: string
+	selectedDb: string
+} | null {
 	try {
 		const raw = sessionStorage.getItem(STORAGE_KEY)
 		return raw ? JSON.parse(raw) : null
-	} catch { return null }
+	} catch {
+		return null
+	}
 }
 
 function clearWizardState() {
-	try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+	try {
+		sessionStorage.removeItem(STORAGE_KEY)
+	} catch {}
 }
 
 function BackLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
@@ -173,7 +224,18 @@ function BackLink({ onClick, children }: { onClick: () => void; children: React.
 			onClick={onClick}
 			className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors"
 		>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+			<svg
+				width="16"
+				height="16"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<polyline points="15 18 9 12 15 6" />
+			</svg>
 			{children}
 		</button>
 	)
@@ -184,24 +246,43 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
 		<div className="flex items-center justify-center gap-1.5 mb-10">
 			{steps.map((label, i) => (
 				<div key={label} className="flex items-center gap-1.5">
-					<div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
-						i < current ? 'text-accent' : i === current ? 'text-text' : 'text-text-muted'
-					}`}>
-						<div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold transition-colors ${
-							i < current
-								? 'bg-accent text-btn-primary-text'
-								: i === current
-									? 'bg-text text-surface'
-									: 'bg-surface-alt text-text-muted'
-						}`}>
+					<div
+						className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
+							i < current ? 'text-accent' : i === current ? 'text-text' : 'text-text-muted'
+						}`}
+					>
+						<div
+							className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold transition-colors ${
+								i < current
+									? 'bg-accent text-btn-primary-text'
+									: i === current
+										? 'bg-text text-surface'
+										: 'bg-surface-alt text-text-muted'
+							}`}
+						>
 							{i < current ? (
-								<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-							) : i + 1}
+								<svg
+									width="10"
+									height="10"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="3"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<polyline points="20 6 9 17 4 12" />
+								</svg>
+							) : (
+								i + 1
+							)}
 						</div>
 						{label}
 					</div>
 					{i < steps.length - 1 && (
-						<div className={`w-6 h-px transition-colors ${i < current ? 'bg-accent' : 'bg-border'}`} />
+						<div
+							className={`w-6 h-px transition-colors ${i < current ? 'bg-accent' : 'bg-border'}`}
+						/>
 					)}
 				</div>
 			))}
@@ -262,11 +343,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
 	const initialDbType = useRef('built-in')
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-	const abortRef = useRef<AbortController>(undefined)
+	// Monotonic token: each auto-test bumps it; stale in-flight responses are discarded.
+	const testSeqRef = useRef(0)
 
 	useEffect(() => {
 		if (currentProject) {
-			const settings = currentProject.settings as Record<string, unknown> || {}
+			const settings = (currentProject.settings as Record<string, unknown>) || {}
 			const extDb = settings.externalDb as Record<string, unknown> | undefined
 			if (extDb) {
 				const t = (extDb.type as string) || 'built-in'
@@ -298,11 +380,18 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 	const setStep = (n: number) => {
 		setStepLocal(n)
-		const stepName = n === 0 ? null
-			: n === 1 ? 'connection'
-			: n === 2 ? (needsDbSelect ? 'select-db' : 'tables')
-			: n === 3 ? 'tables'
-			: null
+		const stepName =
+			n === 0
+				? null
+				: n === 1
+					? 'connection'
+					: n === 2
+						? needsDbSelect
+							? 'select-db'
+							: 'tables'
+						: n === 3
+							? 'tables'
+							: null
 		updateUrlStep(stepName)
 	}
 
@@ -323,74 +412,86 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	}
 
 	// Auto-test and auto-advance when connection string changes
-	const testAndAdvance = useCallback(async (connStr: string) => {
-		if (!currentProject || !connStr.trim()) return
+	const testAndAdvance = useCallback(
+		async (connStr: string) => {
+			if (!currentProject || !connStr.trim()) return
 
-		abortRef.current?.abort()
-		abortRef.current = new AbortController()
+			const seq = ++testSeqRef.current
+			const isStale = () => testSeqRef.current !== seq
 
-		setTesting(true)
-		setTestResult(null)
-		try {
-			const result = await api.post<{ ok: boolean; message: string }>(
-				`/api/v1/projects/${currentProject.id}/database/test`,
-				{ type: dbType, connectionString: connStr },
-			)
-			setTestResult(result)
-			if (result.ok) {
-				if (needsDbSelect) {
-					setScanning(true)
-					try {
-						const dbResult = await api.post<{ databases: string[] }>(
-							`/api/v1/projects/${currentProject.id}/database/scan-databases`,
-							{ type: dbType, connectionString: connStr },
-						)
-						setDatabases(dbResult.databases)
-						if (dbResult.databases.length === 1) {
-							setSelectedDb(dbResult.databases[0])
-							setStep(3)
-							setScanning(true)
-							try {
-								const tableResult = await api.post<{ tables: DetectedTable[] }>(
-									`/api/v1/projects/${currentProject.id}/database/scan`,
-									{ type: dbType, connectionString: connStr, database: dbResult.databases[0] },
-								)
-								setTables(tableResult.tables)
-							} catch (err) {
-								toast(err instanceof Error ? err.message : 'Scan failed', 'error')
-							} finally {
-								setScanning(false)
+			setTesting(true)
+			setTestResult(null)
+			try {
+				const result = await api.post<{ ok: boolean; message: string }>(
+					`/api/v1/projects/${currentProject.id}/database/test`,
+					{ type: dbType, connectionString: connStr },
+				)
+				if (isStale()) return
+				setTestResult(result)
+				if (result.ok) {
+					if (needsDbSelect) {
+						setScanning(true)
+						try {
+							const dbResult = await api.post<{ databases: string[] }>(
+								`/api/v1/projects/${currentProject.id}/database/scan-databases`,
+								{ type: dbType, connectionString: connStr },
+							)
+							if (isStale()) return
+							setDatabases(dbResult.databases)
+							if (dbResult.databases.length === 1) {
+								setSelectedDb(dbResult.databases[0])
+								setStep(3)
+								setScanning(true)
+								try {
+									const tableResult = await api.post<{ tables: DetectedTable[] }>(
+										`/api/v1/projects/${currentProject.id}/database/scan`,
+										{ type: dbType, connectionString: connStr, database: dbResult.databases[0] },
+									)
+									if (isStale()) return
+									if (isStale()) return
+									setTables(tableResult.tables)
+								} catch (err) {
+									toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+								} finally {
+									setScanning(false)
+								}
+							} else {
+								setStep(2)
 							}
-						} else {
-							setStep(2)
+						} catch (err) {
+							toast(err instanceof Error ? err.message : 'Failed to scan databases', 'error')
+						} finally {
+							setScanning(false)
 						}
-					} catch (err) {
-						toast(err instanceof Error ? err.message : 'Failed to scan databases', 'error')
-					} finally {
-						setScanning(false)
-					}
-				} else {
-					setStep(2)
-					setScanning(true)
-					try {
-						const tableResult = await api.post<{ tables: DetectedTable[] }>(
-							`/api/v1/projects/${currentProject.id}/database/scan`,
-							{ type: dbType, connectionString: connStr },
-						)
-						setTables(tableResult.tables)
-					} catch (err) {
-						toast(err instanceof Error ? err.message : 'Scan failed', 'error')
-					} finally {
-						setScanning(false)
+					} else {
+						setStep(2)
+						setScanning(true)
+						try {
+							const tableResult = await api.post<{ tables: DetectedTable[] }>(
+								`/api/v1/projects/${currentProject.id}/database/scan`,
+								{ type: dbType, connectionString: connStr },
+							)
+							setTables(tableResult.tables)
+						} catch (err) {
+							toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+						} finally {
+							setScanning(false)
+						}
 					}
 				}
+			} catch (err) {
+				if (isStale()) return
+				setTestResult({
+					ok: false,
+					message: err instanceof Error ? err.message : 'Connection failed',
+				})
+			} finally {
+				// Only the most recent attempt owns the testing flag.
+				if (!isStale()) setTesting(false)
 			}
-		} catch (err) {
-			setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Connection failed' })
-		} finally {
-			setTesting(false)
-		}
-	}, [currentProject, dbType, needsDbSelect, toast])
+		},
+		[currentProject, dbType, needsDbSelect, toast],
+	)
 
 	// Debounced effect: auto-test 800ms after user stops typing
 	useEffect(() => {
@@ -402,21 +503,24 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		return () => clearTimeout(debounceRef.current)
 	}, [connectionString, step, testAndAdvance])
 
-	const scanTablesFor = useCallback(async (db: string) => {
-		if (!currentProject || !connectionString.trim()) return
-		setScanning(true)
-		try {
-			const result = await api.post<{ tables: DetectedTable[] }>(
-				`/api/v1/projects/${currentProject.id}/database/scan`,
-				{ type: dbType, connectionString, database: db },
-			)
-			setTables(result.tables)
-		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Scan failed', 'error')
-		} finally {
-			setScanning(false)
-		}
-	}, [currentProject, connectionString, dbType, toast])
+	const scanTablesFor = useCallback(
+		async (db: string) => {
+			if (!currentProject || !connectionString.trim()) return
+			setScanning(true)
+			try {
+				const result = await api.post<{ tables: DetectedTable[] }>(
+					`/api/v1/projects/${currentProject.id}/database/scan`,
+					{ type: dbType, connectionString, database: db },
+				)
+				setTables(result.tables)
+			} catch (err) {
+				toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+			} finally {
+				setScanning(false)
+			}
+		},
+		[currentProject, connectionString, dbType, toast],
+	)
 
 	const selectDatabase = (db: string) => {
 		setSelectedDb(db)
@@ -444,7 +548,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		if (!currentProject) return
 		setSaving(true)
 		try {
-			const selectedTableData = tables.filter(t => selectedTables.has(t.name))
+			const selectedTableData = tables.filter((t) => selectedTables.has(t.name))
 			const result = await api.put<{
 				project: unknown
 				collections: Array<{ name: string }>
@@ -484,9 +588,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	// schema (e.g. picks up new date/relation typing). Uses the server-saved connection string.
 	const resyncSchema = async () => {
 		if (!currentProject) return
-		const ext = (currentProject.settings as Record<string, unknown> | undefined)?.externalDb as Record<string, unknown> | undefined
+		const ext = (currentProject.settings as Record<string, unknown> | undefined)?.externalDb as
+			| Record<string, unknown>
+			| undefined
 		if (!ext?.type) return
 		setResyncing(true)
+		toast('Re-syncing collections — this can take a moment…', 'info')
 		try {
 			const scan = await api.post<{ tables: DetectedTable[] }>(
 				`/api/v1/projects/${currentProject.id}/database/scan`,
@@ -509,6 +616,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				`/api/v1/projects/${currentProject.id}/database`,
 				{
 					type: ext.type,
+					// null = reuse the connection string already stored on the project
+					// (it is never sent back to the client, so we cannot resend it here).
 					connectionString: null,
 					database: ext.database || null,
 					tables: tablesToSave,
@@ -558,26 +667,42 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		}
 	}
 
-	const selectedOption = DB_OPTIONS.find(o => o.value === dbType)!
+	const selectedOption = DB_OPTIONS.find((o) => o.value === dbType)!
 
 	// ─── Step 0: Select database type ─────────────────────────────────────
 	if (step === 0) {
 		const hasExternalDb = initialDbType.current !== 'built-in'
-		const connectedOption = hasExternalDb ? DB_OPTIONS.find(o => o.value === initialDbType.current) : null
+		const connectedOption = hasExternalDb
+			? DB_OPTIONS.find((o) => o.value === initialDbType.current)
+			: null
 
 		return (
 			<div className="space-y-4">
 				{/* Connected database info */}
 				{connectedOption && (
 					<div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-alt border border-border">
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className="text-accent shrink-0"
+						>
+							<polyline points="20 6 9 17 4 12" />
+						</svg>
 						<div className="flex-1 min-w-0">
 							<p className="text-sm text-text">
 								Connected to <span className="font-medium">{connectedOption.label}</span>
 							</p>
-								<p className="text-xs text-text-muted font-mono truncate">
-									{connectionString ? maskConnectionString(connectionString) : 'Connection saved securely'}
-								</p>
+							<p className="text-xs text-text-muted font-mono truncate">
+								{connectionString
+									? maskConnectionString(connectionString)
+									: 'Connection saved securely'}
+							</p>
 						</div>
 						<img src={connectedOption.logo} alt="" className="w-5 h-5 shrink-0 opacity-60" />
 					</div>
@@ -588,7 +713,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						<div className="min-w-0">
 							<p className="text-sm text-text font-medium">Re-sync collections &amp; schema</p>
 							<p className="text-xs text-text-muted mt-0.5">
-								Re-scan the database to refresh field types (dates, relations) and pull in newly-related collections.
+								Re-scan the database to refresh field types (dates, relations) and pull in
+								newly-related collections.
 							</p>
 						</div>
 						<button
@@ -603,7 +729,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				)}
 
 				<div>
-					<label className="block text-xs text-text-secondary mb-2">{hasExternalDb ? 'Change database source' : 'Select database source'}</label>
+					<label className="block text-xs text-text-secondary mb-2">
+						{hasExternalDb ? 'Change database source' : 'Select database source'}
+					</label>
 					<div className="grid grid-cols-3 gap-3">
 						{DB_OPTIONS.map((opt) => (
 							<button
@@ -616,13 +744,17 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										: 'border-border hover:border-border-strong'
 								}`}
 							>
-								<div className={`absolute top-4 right-4 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center ${
-									dbType === opt.value ? 'border-accent' : 'border-border-strong'
-								}`}>
+								<div
+									className={`absolute top-4 right-4 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center ${
+										dbType === opt.value ? 'border-accent' : 'border-border-strong'
+									}`}
+								>
 									{dbType === opt.value && <div className="w-2.5 h-2.5 rounded-full bg-accent" />}
 								</div>
 								<img src={opt.logo} alt="" className="w-6 h-6 mb-2" />
-								<p className={`font-medium ${dbType === opt.value ? 'text-accent' : 'text-text'}`}>{opt.label}</p>
+								<p className={`font-medium ${dbType === opt.value ? 'text-accent' : 'text-text'}`}>
+									{opt.label}
+								</p>
 								<p className="text-xs text-text-muted mt-1">{opt.desc}</p>
 							</button>
 						))}
@@ -630,12 +762,20 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				</div>
 
 				{dbType === 'built-in' && (
-					<p className="text-xs text-text-muted">Content stored in the default Innolope CMS database. No external connection needed.</p>
+					<p className="text-xs text-text-muted">
+						Content stored in the default Innolope CMS database. No external connection needed.
+					</p>
 				)}
 
 				{/* Only show save when switching back to built-in (disconnecting external DB) */}
 				{dbType === 'built-in' && dirty && (
-					<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} saveLabel="Switch to Built-in" />
+					<SaveBar
+						dirty={dirty}
+						saving={saving}
+						saved={saved}
+						onSave={save}
+						saveLabel="Switch to Built-in"
+					/>
 				)}
 			</div>
 		)
@@ -669,7 +809,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						{isFirebase ? (
 							<textarea
 								value={connectionString}
-								onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
+								onChange={(e) => {
+									setConnectionString(e.target.value)
+									setTestResult(null)
+								}}
 								placeholder={help.placeholder}
 								rows={6}
 								className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong resize-y"
@@ -678,7 +821,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							<input
 								type="password"
 								value={connectionString}
-								onChange={(e) => { setConnectionString(e.target.value); setTestResult(null) }}
+								onChange={(e) => {
+									setConnectionString(e.target.value)
+									setTestResult(null)
+								}}
 								placeholder={help.placeholder}
 								className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 							/>
@@ -690,7 +836,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 					{/* Instructions */}
 					<div className="bg-surface-alt rounded-lg p-4 space-y-2">
-						<p className="text-xs font-medium text-text-secondary">How to find your connection string</p>
+						<p className="text-xs font-medium text-text-secondary">
+							How to find your connection string
+						</p>
 						<ol className="space-y-1.5">
 							{help.instructions.map((line, i) => (
 								<li key={i} className="flex gap-2 text-sm text-text-muted">
@@ -700,7 +848,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							))}
 						</ol>
 						<div className="mt-2 pt-2 border-t border-border">
-							<p className="text-[11px] text-text-muted font-mono break-all">Format: {help.format}</p>
+							<p className="text-[11px] text-text-muted font-mono break-all">
+								Format: {help.format}
+							</p>
 						</div>
 					</div>
 
@@ -721,7 +871,20 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 					{testResult && !testResult.ok && !testing && (
 						<div className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg bg-danger-surface text-danger">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<circle cx="12" cy="12" r="10" />
+								<line x1="15" y1="9" x2="9" y2="15" />
+								<line x1="9" y1="9" x2="15" y2="15" />
+							</svg>
 							{testResult.message}
 						</div>
 					)}
@@ -741,11 +904,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					<StepIndicator steps={stepLabels} current={2} />
 
 					<div>
-						<label className="block text-xs text-text-secondary mb-2">
-							Select a database
-						</label>
+						<label className="block text-xs text-text-secondary mb-2">Select a database</label>
 						<p className="text-sm text-text-muted mb-3">
-							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this server. Choose which one to connect.
+							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this
+							server. Choose which one to connect.
 						</p>
 						<div className="grid grid-cols-3 gap-3">
 							{databases.map((db) => (
@@ -756,8 +918,20 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 									className="p-5 rounded-lg border border-border hover:border-border-strong text-left transition-colors relative"
 								>
 									<div className="absolute top-4 right-4 w-[18px] h-[18px] rounded-full border-2 border-border-strong flex items-center justify-center" />
-									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
-										<ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+									<svg
+										width="20"
+										height="20"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="1.5"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="text-text-muted mb-3"
+									>
+										<ellipse cx="12" cy="5" rx="9" ry="3" />
+										<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+										<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
 									</svg>
 									<p className="font-medium text-text">{db}</p>
 								</button>
@@ -780,137 +954,218 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					</BackLink>
 				</div>
 				<div className="space-y-5">
-				<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
+					<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
 
-				<div className="text-center space-y-1">
-					<div className="flex items-center justify-center gap-2">
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
-						<span className="text-sm text-text-secondary">Connected to <span className="font-medium text-text">{selectedOption.label}</span></span>
-						<button
-							type="button"
-							onClick={() => scanTablesFor(selectedDb || '')}
-							disabled={scanning}
-							title="Refresh collections"
-							className="text-text-muted hover:text-text transition-colors disabled:opacity-40"
-						>
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={scanning ? 'animate-spin' : ''}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
-						</button>
-					</div>
-					{selectedDb && (
-						<p className="text-sm text-text-muted">Database found: <span className="font-medium text-text">{selectedDb}</span></p>
-					)}
-				</div>
-
-				{scanning ? (
-					<div className="flex items-center gap-3 py-8 justify-center">
-						<div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-						<span className="text-sm text-text-muted">
-							Scanning {isNoSql ? 'collections' : 'tables'}...
-						</span>
-					</div>
-				) : tables.length > 0 ? (
-					<div>
-						<div className="flex items-center justify-between mb-3">
-							<label className="text-xs text-text-secondary">
-								{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to manage as CMS collections
-							</label>
+					<div className="text-center space-y-1">
+						<div className="flex items-center justify-center gap-2">
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="text-accent"
+							>
+								<polyline points="20 6 9 17 4 12" />
+							</svg>
+							<span className="text-sm text-text-secondary">
+								Connected to <span className="font-medium text-text">{selectedOption.label}</span>
+							</span>
+							<button
+								type="button"
+								onClick={() => scanTablesFor(selectedDb || '')}
+								disabled={scanning}
+								title="Refresh collections"
+								className="text-text-muted hover:text-text transition-colors disabled:opacity-40"
+							>
+								<svg
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									className={scanning ? 'animate-spin' : ''}
+								>
+									<polyline points="23 4 23 10 17 10" />
+									<path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+								</svg>
+							</button>
 						</div>
-						<div className="flex items-center gap-4 mb-3">
-							<div className="flex items-center gap-2 text-xs text-text-secondary">
-								<span>Sort:</span>
-								<button type="button" onClick={() => setTableSort('name')} className={`px-2 py-0.5 rounded ${tableSort === 'name' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}>A-Z</button>
-								<button type="button" onClick={() => setTableSort('records')} className={`px-2 py-0.5 rounded ${tableSort === 'records' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}>Records</button>
-							</div>
-							<label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
-								<input type="checkbox" checked={hideEmpty} onChange={e => setHideEmpty(e.target.checked)} className="rounded" />
-								Hide empty
-							</label>
-						</div>
-						<table className="w-full text-sm">
-							<thead>
-								<tr className="text-left text-xs text-text-muted border-b border-border">
-									<th className="pb-2 pl-1 w-8" />
-									<th className="pb-2">Name</th>
-									<th className="pb-2 text-right">{isNoSql ? 'Fields' : 'Columns'}</th>
-									<th className="pb-2 text-right">Records</th>
-									<th className="pb-2 text-right pr-1">Size</th>
-								</tr>
-							</thead>
-							<tbody>
-								{tables
-									.filter(t => !hideEmpty || (t.count ?? 0) > 0)
-									.sort((a, b) => tableSort === 'name' ? a.name.localeCompare(b.name) : (b.count ?? 0) - (a.count ?? 0))
-									.map(t => (
-									<tr key={t.name} className="border-b border-border hover:bg-surface-alt transition-colors cursor-pointer" onClick={() => toggleTable(t.name)}>
-										<td className="py-2 pl-1">
-											<input type="checkbox" checked={selectedTables.has(t.name)} onChange={() => toggleTable(t.name)} className="rounded" />
-										</td>
-										<td className="py-2 font-medium">
-											{t.name}
-											{relationTargets(t, tables).map((target) => (
-												<span
-													key={target}
-													title={`References ${target} — it will be imported automatically`}
-													className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted font-normal"
-												>
-													&rarr; {target}
-												</span>
-											))}
-										</td>
-										<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
-										<td className="py-2 text-right text-text-muted">{t.count ?? '—'}</td>
-										<td className="py-2 text-right text-text-muted pr-1">{t.sizeBytes != null ? formatBytes(t.sizeBytes) : '—'}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-						{hideEmpty && tables.some(t => (t.count ?? 0) === 0) && (
-							<p className="text-xs text-text-muted mt-2">{tables.filter(t => (t.count ?? 0) === 0).length} empty {isNoSql ? 'collections' : 'tables'} hidden</p>
+						{selectedDb && (
+							<p className="text-sm text-text-muted">
+								Database found: <span className="font-medium text-text">{selectedDb}</span>
+							</p>
 						)}
 					</div>
-				) : (
-					<p className="text-sm text-text-muted py-4 text-center">
-						No {isNoSql ? 'collections' : 'tables'} found in this database.
-					</p>
-				)}
 
-				{/* Size estimate — based on the collections you selected, not the whole database */}
-				{selectedTables.size > 0 && (() => {
-					const selectedSizeBytes = tables
-						.filter(t => selectedTables.has(t.name))
-						.reduce((sum, t) => sum + (t.sizeBytes ?? 0), 0)
-					return (
-						<p className="text-xs text-text-muted">
-							Selected {isNoSql ? 'collections' : 'tables'} size: {formatBytes(selectedSizeBytes)}
-							{selectedSizeBytes > 100 * 1024 * 1024 && (
-								<span className="text-text-secondary"> — too large to cache automatically; records are read live from the database until you sync</span>
+					{scanning ? (
+						<div className="flex items-center gap-3 py-8 justify-center">
+							<div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+							<span className="text-sm text-text-muted">
+								Scanning {isNoSql ? 'collections' : 'tables'}...
+							</span>
+						</div>
+					) : tables.length > 0 ? (
+						<div>
+							<div className="flex items-center justify-between mb-3">
+								<label className="text-xs text-text-secondary">
+									{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to
+									manage as CMS collections
+								</label>
+							</div>
+							<div className="flex items-center gap-4 mb-3">
+								<div className="flex items-center gap-2 text-xs text-text-secondary">
+									<span>Sort:</span>
+									<button
+										type="button"
+										onClick={() => setTableSort('name')}
+										className={`px-2 py-0.5 rounded ${tableSort === 'name' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}
+									>
+										A-Z
+									</button>
+									<button
+										type="button"
+										onClick={() => setTableSort('records')}
+										className={`px-2 py-0.5 rounded ${tableSort === 'records' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}
+									>
+										Records
+									</button>
+								</div>
+								<label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+									<input
+										type="checkbox"
+										checked={hideEmpty}
+										onChange={(e) => setHideEmpty(e.target.checked)}
+										className="rounded"
+									/>
+									Hide empty
+								</label>
+							</div>
+							<table className="w-full text-sm">
+								<thead>
+									<tr className="text-left text-xs text-text-muted border-b border-border">
+										<th className="pb-2 pl-1 w-8" />
+										<th className="pb-2">Name</th>
+										<th className="pb-2 text-right">{isNoSql ? 'Fields' : 'Columns'}</th>
+										<th className="pb-2 text-right">Records</th>
+										<th className="pb-2 text-right pr-1">Size</th>
+									</tr>
+								</thead>
+								<tbody>
+									{tables
+										.filter((t) => !hideEmpty || (t.count ?? 0) > 0)
+										.sort((a, b) =>
+											tableSort === 'name'
+												? a.name.localeCompare(b.name)
+												: (b.count ?? 0) - (a.count ?? 0),
+										)
+										.map((t) => (
+											<tr
+												key={t.name}
+												className="border-b border-border hover:bg-surface-alt transition-colors cursor-pointer"
+												onClick={() => toggleTable(t.name)}
+											>
+												<td className="py-2 pl-1">
+													<input
+														type="checkbox"
+														checked={selectedTables.has(t.name)}
+														onChange={() => toggleTable(t.name)}
+														className="rounded"
+													/>
+												</td>
+												<td className="py-2 font-medium">
+													{t.name}
+													{relationTargets(t, tables).map((target) => (
+														<span
+															key={target}
+															title={`References ${target} — it will be imported automatically`}
+															className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted font-normal"
+														>
+															&rarr; {target}
+														</span>
+													))}
+												</td>
+												<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
+												<td className="py-2 text-right text-text-muted">{t.count ?? '—'}</td>
+												<td className="py-2 text-right text-text-muted pr-1">
+													{t.sizeBytes != null ? formatBytes(t.sizeBytes) : '—'}
+												</td>
+											</tr>
+										))}
+								</tbody>
+							</table>
+							{hideEmpty && tables.some((t) => (t.count ?? 0) === 0) && (
+								<p className="text-xs text-text-muted mt-2">
+									{tables.filter((t) => (t.count ?? 0) === 0).length} empty{' '}
+									{isNoSql ? 'collections' : 'tables'} hidden
+								</p>
 							)}
+						</div>
+					) : (
+						<p className="text-sm text-text-muted py-4 text-center">
+							No {isNoSql ? 'collections' : 'tables'} found in this database.
 						</p>
-					)
-				})()}
+					)}
 
-				{/* Access mode */}
-				{tables.length > 0 && (
-					<div className="flex items-center gap-4 text-xs text-text-secondary">
-						<span>Access mode:</span>
-						<label className="flex items-center gap-1.5 cursor-pointer">
-							<input type="radio" name="accessMode" checked={accessMode === 'read-write'} onChange={() => setAccessMode('read-write')} />
-							Read & Write
-						</label>
-						<label className="flex items-center gap-1.5 cursor-pointer">
-							<input type="radio" name="accessMode" checked={accessMode === 'read-only'} onChange={() => setAccessMode('read-only')} />
-							Read Only
-						</label>
-					</div>
-				)}
+					{/* Size estimate — based on the collections you selected, not the whole database */}
+					{selectedTables.size > 0 &&
+						(() => {
+							const selectedSizeBytes = tables
+								.filter((t) => selectedTables.has(t.name))
+								.reduce((sum, t) => sum + (t.sizeBytes ?? 0), 0)
+							return (
+								<p className="text-xs text-text-muted">
+									Selected {isNoSql ? 'collections' : 'tables'} size:{' '}
+									{formatBytes(selectedSizeBytes)}
+									{selectedSizeBytes > 100 * 1024 * 1024 && (
+										<span className="text-text-secondary">
+											{' '}
+											— too large to cache automatically; records are read live from the database
+											until you sync
+										</span>
+									)}
+								</p>
+							)
+						})()}
 
-				<SaveBar
-					dirty={selectedTables.size > 0 || dirty}
-					saving={saving}
-					saved={saved}
-					onSave={save}
-					saveLabel="Save"
-				/>
+					{/* Access mode */}
+					{tables.length > 0 && (
+						<div className="flex items-center gap-4 text-xs text-text-secondary">
+							<span>Access mode:</span>
+							<label className="flex items-center gap-1.5 cursor-pointer">
+								<input
+									type="radio"
+									name="accessMode"
+									checked={accessMode === 'read-write'}
+									onChange={() => setAccessMode('read-write')}
+								/>
+								Read & Write
+							</label>
+							<label className="flex items-center gap-1.5 cursor-pointer">
+								<input
+									type="radio"
+									name="accessMode"
+									checked={accessMode === 'read-only'}
+									onChange={() => setAccessMode('read-only')}
+								/>
+								Read Only
+							</label>
+						</div>
+					)}
+
+					<SaveBar
+						dirty={selectedTables.size > 0 || dirty}
+						saving={saving}
+						saved={saved}
+						onSave={save}
+						saveLabel="Save"
+					/>
 				</div>
 			</div>
 		)

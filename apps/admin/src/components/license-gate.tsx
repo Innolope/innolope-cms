@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, type ReactNode } from 'react'
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
 
 interface LicenseInfo {
@@ -33,7 +33,10 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
 	})
 
 	useEffect(() => {
-		api.get<LicenseInfo>('/api/v1/license')
+		// Intentional swallow: on failure we keep the safe community defaults already in
+		// state. Paid features stay gated, so a failed check never grants extra access.
+		api
+			.get<LicenseInfo>('/api/v1/license')
 			.then(setLicense)
 			.catch(() => {})
 	}, [])
@@ -65,7 +68,12 @@ export function LicenseGate({
 		return <>{children}</>
 	}
 
-	return <UpgradePrompt feature={featureLabel} plan={feature === 'ai-assistant' ? 'Pro' : 'Enterprise'} />
+	return (
+		<UpgradePrompt
+			feature={featureLabel}
+			plan={feature === 'ai-assistant' ? 'Pro' : 'Enterprise'}
+		/>
+	)
 }
 
 export function ProBadge() {

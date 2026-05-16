@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 
 export const Route = createFileRoute('/login')({
@@ -46,12 +46,28 @@ function LoginPage() {
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		setError('')
+
+		const trimmedEmail = email.trim()
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+			setError('Enter a valid email address.')
+			return
+		}
+		if (mode === 'setup' && !name.trim()) {
+			setError('Enter your name.')
+			return
+		}
+		const passwordRequired = mode === 'setup' || !ssoDiscovery?.enforceSso
+		if (passwordRequired && password.length < 8) {
+			setError('Password must be at least 8 characters.')
+			return
+		}
+
 		setSubmitting(true)
 		try {
 			if (mode === 'setup') {
-				await register(email, password, name)
+				await register(trimmedEmail, password, name.trim())
 			} else {
-				await login(email, password)
+				await login(trimmedEmail, password)
 			}
 			navigate({ to: '/' })
 		} catch (err) {
@@ -65,7 +81,9 @@ function LoginPage() {
 	const onEmailBlur = async () => {
 		if (!email.includes('@') || mode === 'setup') return
 		try {
-			const res = await fetch(`/api/v1/auth/sso/discover?email=${encodeURIComponent(email)}`, { credentials: 'include' })
+			const res = await fetch(`/api/v1/auth/sso/discover?email=${encodeURIComponent(email)}`, {
+				credentials: 'include',
+			})
 			if (res.ok) {
 				const data = (await res.json()) as SsoDiscovery
 				setSsoDiscovery(data)
@@ -96,14 +114,12 @@ function LoginPage() {
 		<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
-					<img
-						src="/logo.svg"
-						alt="Innolope CMS"
-						className="w-10 h-10 mx-auto mb-4 "
-					/>
+					<img src="/logo.svg" alt="Innolope CMS" className="w-10 h-10 mx-auto mb-4 " />
 					<h1 className="text-2xl font-bold text-text">Innolope CMS</h1>
 					<p className="text-text-secondary text-sm mt-1">
-						{mode === 'setup' ? 'Welcome! Set up your Innolope CMS account to get started.' : 'Sign in to your Innolope CMS account'}
+						{mode === 'setup'
+							? 'Welcome! Set up your Innolope CMS account to get started.'
+							: 'Sign in to your Innolope CMS account'}
 					</p>
 				</div>
 

@@ -4,7 +4,8 @@ function getProjectId(): string | null {
 	return localStorage.getItem('innolope_project')
 }
 
-function getCsrfToken(): string | null {
+/** Read the double-submit CSRF token from the `innolope_csrf` cookie. */
+export function getCsrfToken(): string | null {
 	const match = document.cookie.match(/(?:^|;\s*)innolope_csrf=([^;]+)/)
 	return match ? decodeURIComponent(match[1]) : null
 }
@@ -19,13 +20,15 @@ async function tryRefresh(): Promise<boolean> {
 		credentials: 'include',
 	})
 		.then((res) => res.ok)
-		.finally(() => { refreshPromise = null })
+		.finally(() => {
+			refreshPromise = null
+		})
 	return refreshPromise
 }
 
 function buildHeaders(options?: RequestInit): Record<string, string> {
 	const headers: Record<string, string> = {
-		...options?.headers as Record<string, string>,
+		...(options?.headers as Record<string, string>),
 	}
 	const projectId = getProjectId()
 	if (projectId) headers['X-Project-Id'] = projectId

@@ -1,11 +1,11 @@
-import { apiKeys, users, refreshTokens } from '@innolope/db'
+import { createHash, randomUUID } from 'node:crypto'
+import { apiKeys, refreshTokens, users } from '@innolope/db'
 import type { UserRole } from '@innolope/types'
-import { eq, and } from 'drizzle-orm'
+import bcrypt from 'bcrypt'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
-import bcrypt from 'bcrypt'
-import { createHash, randomUUID } from 'node:crypto'
-import { SignJWT, jwtVerify } from 'jose'
+import { jwtVerify, SignJWT } from 'jose'
 
 interface AuthUser {
 	id: string
@@ -40,6 +40,13 @@ const ROLE_HIERARCHY: Record<UserRole, number> = {
 	admin: 3,
 	editor: 2,
 	viewer: 1,
+}
+
+/** True if `userRole` meets or exceeds the least-privileged role in `allowedRoles`. */
+export function roleSatisfies(userRole: UserRole | string, allowedRoles: UserRole[]): boolean {
+	const userLevel = ROLE_HIERARCHY[userRole as UserRole] || 0
+	const minLevel = Math.min(...allowedRoles.map((r) => ROLE_HIERARCHY[r] || 0))
+	return userLevel >= minLevel
 }
 
 export function hashApiKey(key: string): string {
@@ -138,17 +145,10 @@ export async function rotateRefreshToken(
 	}
 
 	// Revoke the used token
-	await db
-		.update(refreshTokens)
-		.set({ revoked: true })
-		.where(eq(refreshTokens.id, existing.id))
+	await db.update(refreshTokens).set({ revoked: true }).where(eq(refreshTokens.id, existing.id))
 
 	// Get user
-	const [user] = await db
-		.select()
-		.from(users)
-		.where(eq(users.id, existing.userId))
-		.limit(1)
+	const [user] = await db.select().from(users).where(eq(users.id, existing.userId)).limit(1)
 
 	if (!user) return null
 
@@ -194,10 +194,7 @@ export async function revokeAllUserRefreshTokens(
 	db: FastifyInstance['db'],
 	userId: string,
 ): Promise<void> {
-	await db
-		.update(refreshTokens)
-		.set({ revoked: true })
-		.where(eq(refreshTokens.userId, userId))
+	await db.update(refreshTokens).set({ revoked: true }).where(eq(refreshTokens.userId, userId))
 }
 
 export async function verifyJwt(token: string): Promise<AuthUser | null> {
@@ -224,11 +221,7 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 			const rawKey = authHeader.slice(7)
 			const keyHash = hashApiKey(rawKey)
 
-			const [key] = await app.db
-				.select()
-				.from(apiKeys)
-				.where(eq(apiKeys.keyHash, keyHash))
-				.limit(1)
+			const [key] = await app.db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).limit(1)
 
 			if (!key) {
 				return reply.status(401).send({ error: 'Invalid API key' })
@@ -239,17 +232,10 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 			}
 
 			// Update last used
-			await app.db
-				.update(apiKeys)
-				.set({ lastUsedAt: new Date() })
-				.where(eq(apiKeys.id, key.id))
+			await app.db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id))
 
 			// Get associated user for role info
-			const [user] = await app.db
-				.select()
-				.from(users)
-				.where(eq(users.id, key.userId))
-				.limit(1)
+			const [user] = await app.db.select().from(users).where(eq(users.id, key.userId)).limit(1)
 
 			if (user) {
 				request.user = {
@@ -304,28 +290,26 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 				return reply.status(401).send({ error: 'Authentication required' })
 			}
 
-			const userLevel = ROLE_HIERARCHY[request.user.role] || 0
-			const minLevel = Math.min(...roles.map((r) => ROLE_HIERARCHY[r] || 0))
-
-			if (userLevel < minLevel) {
+			if (!roleSatisfies(request.user.role, roles)) {
 				return reply.status(403).send({ error: 'Insufficient permissions' })
 			}
 		}
 
 	// Permission check for API keys
-	const requirePermission = (permission: string) => async (request: FastifyRequest, reply: FastifyReply) => {
-		await authenticate(request, reply)
-		if (reply.sent) return
+	const requirePermission =
+		(permission: string) => async (request: FastifyRequest, reply: FastifyReply) => {
+			await authenticate(request, reply)
+			if (reply.sent) return
 
-		// If authenticated via API key, check granular permission
-		if (request.apiKeyAuth) {
-			const perms = request.apiKeyAuth.permissions
-			if (perms.length > 0 && !perms.includes(permission) && !perms.includes('*')) {
-				return reply.status(403).send({ error: `Missing permission: ${permission}` })
+			// If authenticated via API key, check granular permission
+			if (request.apiKeyAuth) {
+				const perms = request.apiKeyAuth.permissions
+				if (perms.length > 0 && !perms.includes(permission) && !perms.includes('*')) {
+					return reply.status(403).send({ error: `Missing permission: ${permission}` })
+				}
 			}
+			// Role-based users (admin/editor) bypass granular permissions
 		}
-		// Role-based users (admin/editor) bypass granular permissions
-	}
 
 	app.decorate('authenticate', authenticate)
 	app.decorate('requireRole', requireRole)

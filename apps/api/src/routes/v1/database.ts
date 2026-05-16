@@ -1,24 +1,43 @@
-import { projects, collections, content } from '@innolope/db'
-import type { FastifyInstance } from 'fastify'
-import { eq, and, sql } from 'drizzle-orm'
-import postgres from 'postgres'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { collections, content, projects } from '@innolope/db'
+import { and, eq, sql } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
+import postgres from 'postgres'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
 /** Block connection strings targeting private/internal networks (SSRF protection). */
-async function validateConnectionString(connStr: string): Promise<string | null> {
+export async function validateConnectionString(connStr: string): Promise<string | null> {
 	const lc = connStr.toLowerCase()
 	const blockedPatterns = [
-		'localhost', '127.0.0.1', '::1', '0.0.0.0',
-		'10.', '172.16.', '172.17.', '172.18.', '172.19.',
-		'172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
-		'172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
-		'172.30.', '172.31.',
-		'192.168.', '169.254.',
-		'.internal', '.local', 'metadata.google',
+		'localhost',
+		'127.0.0.1',
+		'::1',
+		'0.0.0.0',
+		'10.',
+		'172.16.',
+		'172.17.',
+		'172.18.',
+		'172.19.',
+		'172.20.',
+		'172.21.',
+		'172.22.',
+		'172.23.',
+		'172.24.',
+		'172.25.',
+		'172.26.',
+		'172.27.',
+		'172.28.',
+		'172.29.',
+		'172.30.',
+		'172.31.',
+		'192.168.',
+		'169.254.',
+		'.internal',
+		'.local',
+		'metadata.google',
 	]
 	for (const pattern of blockedPatterns) {
 		if (lc.includes(pattern)) {
@@ -61,31 +80,38 @@ function extractHostname(connStr: string): string | null {
 function isPrivateAddress(address: string): boolean {
 	if (address.includes(':')) {
 		const normalized = address.toLowerCase()
-		return normalized === '::1'
-			|| normalized === '::'
-			|| normalized.startsWith('fc')
-			|| normalized.startsWith('fd')
-			|| normalized.startsWith('fe80:')
-			|| normalized.startsWith('::ffff:127.')
-			|| normalized.startsWith('::ffff:10.')
-			|| normalized.startsWith('::ffff:192.168.')
-			|| /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(normalized)
+		return (
+			normalized === '::1' ||
+			normalized === '::' ||
+			normalized.startsWith('fc') ||
+			normalized.startsWith('fd') ||
+			normalized.startsWith('fe80:') ||
+			normalized.startsWith('::ffff:127.') ||
+			normalized.startsWith('::ffff:10.') ||
+			normalized.startsWith('::ffff:192.168.') ||
+			/^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(normalized)
+		)
 	}
 
 	const parts = address.split('.').map(Number)
 	if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false
 	const [a, b] = parts
-	return a === 10
-		|| a === 127
-		|| (a === 172 && b >= 16 && b <= 31)
-		|| (a === 192 && b === 168)
-		|| (a === 169 && b === 254)
-		|| a === 0
-		|| a >= 224
+	return (
+		a === 10 ||
+		a === 127 ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		(a === 169 && b === 254) ||
+		a === 0 ||
+		a >= 224
+	)
 }
 
 function getSavedExternalDb(project: typeof projects.$inferSelect) {
-	return ((project.settings as unknown as Record<string, unknown>)?.externalDb || {}) as Record<string, unknown>
+	return ((project.settings as unknown as Record<string, unknown>)?.externalDb || {}) as Record<
+		string,
+		unknown
+	>
 }
 
 function sanitizeProject(project: typeof projects.$inferSelect) {
@@ -101,18 +127,36 @@ function sanitizeProject(project: typeof projects.$inferSelect) {
 	return { ...project, settings }
 }
 
-const FIELD_TYPES = new Set(['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array'])
+const FIELD_TYPES = new Set([
+	'text',
+	'number',
+	'boolean',
+	'date',
+	'enum',
+	'relation',
+	'object',
+	'array',
+])
 
 /** Classify a runtime MongoDB value into a CollectionField type. */
-function classifyMongoValue(value: unknown): { type: string; isObjectId: boolean; isArray: boolean } {
-	if (value === null || value === undefined) return { type: 'unknown', isObjectId: false, isArray: false }
+function classifyMongoValue(value: unknown): {
+	type: string
+	isObjectId: boolean
+	isArray: boolean
+} {
+	if (value === null || value === undefined)
+		return { type: 'unknown', isObjectId: false, isArray: false }
 	if (typeof value === 'object' && (value as { _bsontype?: string })._bsontype === 'ObjectId') {
 		return { type: 'relation', isObjectId: true, isArray: false }
 	}
 	if (value instanceof Date) return { type: 'date', isObjectId: false, isArray: false }
 	if (Array.isArray(value)) {
 		const first = value[0]
-		if (first && typeof first === 'object' && (first as { _bsontype?: string })._bsontype === 'ObjectId') {
+		if (
+			first &&
+			typeof first === 'object' &&
+			(first as { _bsontype?: string })._bsontype === 'ObjectId'
+		) {
 			return { type: 'relation', isObjectId: true, isArray: true }
 		}
 		return { type: 'array', isObjectId: false, isArray: true }
@@ -122,6 +166,28 @@ function classifyMongoValue(value: unknown): { type: string; isObjectId: boolean
 	if (t === 'number') return { type: 'number', isObjectId: false, isArray: false }
 	if (t === 'boolean') return { type: 'boolean', isObjectId: false, isArray: false }
 	return { type: 'object', isObjectId: false, isArray: false }
+}
+
+/** Parse a Firebase service-account JSON connection string, failing with a clear 400. */
+export function parseFirebaseCredentials(connStr: string): Record<string, unknown> {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(connStr)
+	} catch {
+		const err = new Error(
+			'Invalid Firebase service-account JSON. Paste the full contents of the service-account key file.',
+		) as Error & { statusCode?: number }
+		err.statusCode = 400
+		throw err
+	}
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		const err = new Error('Firebase credentials must be a JSON object.') as Error & {
+			statusCode?: number
+		}
+		err.statusCode = 400
+		throw err
+	}
+	return parsed as Record<string, unknown>
 }
 
 export async function databaseRoutes(app: FastifyInstance) {
@@ -178,28 +244,43 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'firebase': {
 						const admin = await import('firebase-admin')
-						const credentials = JSON.parse(connectionString)
-						const app = admin.initializeApp({
-							credential: admin.credential.cert(credentials),
-						}, `test-${Date.now()}`)
+						const credentials = parseFirebaseCredentials(connectionString)
+						const app = admin.initializeApp(
+							{
+								credential: admin.credential.cert(credentials),
+							},
+							`test-${Date.now()}`,
+						)
 						const firestore = app.firestore()
 						await firestore.listCollections()
 						await app.delete()
 						return { ok: true, message: 'Connected successfully.' }
 					}
 					default:
-						return reply.status(400).send({ ok: false, message: `Unsupported database type: ${type}` })
+						return reply
+							.status(400)
+							.send({ ok: false, message: `Unsupported database type: ${type}` })
 				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : 'Connection failed.'
 				// Detect IP whitelisting / network access errors
-				const ipKeywords = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'getaddrinfo', 'connect EHOSTUNREACH', 'Server selection timed out', 'authentication failed', 'not whitelisted', 'IP address']
-				const isNetworkError = ipKeywords.some(kw => msg.includes(kw))
+				const ipKeywords = [
+					'ECONNREFUSED',
+					'ETIMEDOUT',
+					'ENOTFOUND',
+					'getaddrinfo',
+					'connect EHOSTUNREACH',
+					'Server selection timed out',
+					'authentication failed',
+					'not whitelisted',
+					'IP address',
+				]
+				const isNetworkError = ipKeywords.some((kw) => msg.includes(kw))
 				if (isNetworkError) {
 					const sshHost = process.env.SSH_HOST
 					const hint = sshHost
 						? ` If your database requires IP whitelisting, add ${sshHost} to your allow list.`
-						: ' If your database requires IP whitelisting, add this server\'s IP to your allow list.'
+						: " If your database requires IP whitelisting, add this server's IP to your allow list."
 					return { ok: false, message: msg + hint }
 				}
 				return { ok: false, message: msg }
@@ -218,13 +299,19 @@ export async function databaseRoutes(app: FastifyInstance) {
 				database?: string
 			}
 
-			const [project] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, request.project!.id))
+				.limit(1)
 			if (!project) return reply.status(404).send({ error: 'Project not found' })
 			const savedExternalDb = getSavedExternalDb(project)
-			const effectiveConnectionString = connectionString || savedExternalDb.connectionString as string | undefined
-			const effectiveDatabase = database || savedExternalDb.database as string | undefined
+			const effectiveConnectionString =
+				connectionString || (savedExternalDb.connectionString as string | undefined)
+			const effectiveDatabase = database || (savedExternalDb.database as string | undefined)
 
-			if (!effectiveConnectionString) return reply.status(400).send({ error: 'Connection string is required.' })
+			if (!effectiveConnectionString)
+				return reply.status(400).send({ error: 'Connection string is required.' })
 
 			const ssrfErr = await validateConnectionString(effectiveConnectionString)
 			if (ssrfErr) {
@@ -256,8 +343,10 @@ export async function databaseRoutes(app: FastifyInstance) {
 								WHERE table_schema = 'public' AND table_name = ${t.table_name}
 								ORDER BY ordinal_position
 							`
-							const [{ count }] = await client`SELECT count(*)::int as count FROM ${client(t.table_name as string)}`
-							const [{ size }] = await client`SELECT pg_total_relation_size(${t.table_name}::regclass) as size`
+							const [{ count }] =
+								await client`SELECT count(*)::int as count FROM ${client(t.table_name as string)}`
+							const [{ size }] =
+								await client`SELECT pg_total_relation_size(${t.table_name}::regclass) as size`
 							result.push({
 								name: t.table_name as string,
 								columns: columns.map((c) => ({
@@ -282,8 +371,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 						const collections = await db.listCollections().toArray()
 
 						// First pass: sample documents and classify each field's type.
-						type FieldInfo = { type: string; isArray: boolean; objectIdSamples: unknown[]; relationTo?: string }
-						const scanned: Array<{ name: string; count: number; sizeBytes: number; fields: Map<string, FieldInfo> }> = []
+						type FieldInfo = {
+							type: string
+							isArray: boolean
+							objectIdSamples: unknown[]
+							relationTo?: string
+						}
+						const scanned: Array<{
+							name: string
+							count: number
+							sizeBytes: number
+							fields: Map<string, FieldInfo>
+						}> = []
 
 						for (const col of collections) {
 							const coll = db.collection(col.name)
@@ -291,6 +390,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 							const fields = new Map<string, FieldInfo>()
 							for (const doc of samples) {
 								for (const [name, value] of Object.entries(doc)) {
+									// _id is the primary key, never an importable field — skip it so it
+									// isn't mis-detected as a self-relation (which is very slow to probe).
+									if (name === '_id') continue
 									const cls = classifyMongoValue(value)
 									if (cls.type === 'unknown') continue
 									let entry = fields.get(name)
@@ -317,22 +419,49 @@ export async function databaseRoutes(app: FastifyInstance) {
 							scanned.push({ name: col.name, count, sizeBytes, fields })
 						}
 
-						// Second pass: resolve relation targets by probing sample ObjectIds against each collection's _id.
+						// Second pass: resolve relation targets. Gather every sampled reference id, then
+						// find which collection each id lives in (one query per collection) and map fields.
+						const relationEntries: Array<{ entry: FieldInfo; ids: import('mongodb').ObjectId[] }> =
+							[]
 						for (const tbl of scanned) {
 							for (const entry of tbl.fields.values()) {
-								if (entry.type !== 'relation' || entry.objectIdSamples.length === 0) continue
-								let bestTarget: string | undefined
-								let bestMatches = 0
-								for (const candidate of scanned) {
-									const matches = await db
+								if (entry.type === 'relation' && entry.objectIdSamples.length > 0) {
+									relationEntries.push({
+										entry,
+										ids: entry.objectIdSamples as import('mongodb').ObjectId[],
+									})
+								}
+							}
+						}
+						if (relationEntries.length > 0) {
+							const allIds = relationEntries.flatMap((r) => r.ids)
+							const idToCollection = new Map<string, string>()
+							for (const candidate of scanned) {
+								try {
+									const hits = await db
 										.collection(candidate.name)
-										.countDocuments({ _id: { $in: entry.objectIdSamples as import('mongodb').ObjectId[] } })
-									if (matches > bestMatches) {
-										bestMatches = matches
-										bestTarget = candidate.name
+										.find({ _id: { $in: allIds } }, { projection: { _id: 1 } })
+										.toArray()
+									for (const hit of hits) idToCollection.set(String(hit._id), candidate.name)
+								} catch {
+									// Collection could not be probed — skip it.
+								}
+							}
+							for (const { entry, ids } of relationEntries) {
+								const tally = new Map<string, number>()
+								for (const id of ids) {
+									const target = idToCollection.get(String(id))
+									if (target) tally.set(target, (tally.get(target) ?? 0) + 1)
+								}
+								let best: string | undefined
+								let bestCount = 0
+								for (const [target, count] of tally) {
+									if (count > bestCount) {
+										bestCount = count
+										best = target
 									}
 								}
-								if (bestMatches > 0) entry.relationTo = bestTarget
+								if (best) entry.relationTo = best
 							}
 						}
 
@@ -369,7 +498,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 								 ORDER BY ordinal_position`,
 								[t.table_name],
 							)
-							const [countRows] = await conn.execute(`SELECT COUNT(*) as count FROM \`${t.table_name}\``)
+							const [countRows] = await conn.execute(
+								`SELECT COUNT(*) as count FROM \`${t.table_name}\``,
+							)
 							const countRow = (countRows as Array<{ count: number }>)[0]
 							const [sizeRows] = await conn.execute(
 								`SELECT data_length + index_length as size FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
@@ -377,10 +508,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 							)
 							result.push({
 								name: t.table_name,
-								columns: (colRows as Array<{ column_name: string; data_type: string }>).map((c) => ({
-									name: c.column_name,
-									type: c.data_type,
-								})),
+								columns: (colRows as Array<{ column_name: string; data_type: string }>).map(
+									(c) => ({
+										name: c.column_name,
+										type: c.data_type,
+									}),
+								),
 								count: Number(countRow.count),
 								sizeBytes: Number((sizeRows as Array<{ size: number }>)[0]?.size || 0),
 							})
@@ -391,10 +524,13 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'firebase': {
 						const admin = await import('firebase-admin')
-						const credentials = JSON.parse(effectiveConnectionString)
-						const app = admin.initializeApp({
-							credential: admin.credential.cert(credentials),
-						}, `scan-${Date.now()}`)
+						const credentials = parseFirebaseCredentials(effectiveConnectionString)
+						const app = admin.initializeApp(
+							{
+								credential: admin.credential.cert(credentials),
+							},
+							`scan-${Date.now()}`,
+						)
 						const firestore = app.firestore()
 						const collections = await firestore.listCollections()
 
@@ -417,7 +553,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 						return reply.status(400).send({ error: 'Unsupported database type.' })
 				}
 			} catch (err) {
-				return reply.status(500).send({
+				const statusCode = (err as { statusCode?: number }).statusCode || 500
+				return reply.status(statusCode).send({
 					error: err instanceof Error ? err.message : 'Scan failed.',
 				})
 			}
@@ -458,19 +595,25 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 					case 'firebase': {
 						const admin = await import('firebase-admin')
-						const credentials = JSON.parse(connectionString)
-						const app = admin.initializeApp({
-							credential: admin.credential.cert(credentials),
-						}, `scan-dbs-${Date.now()}`)
+						const credentials = parseFirebaseCredentials(connectionString)
+						const app = admin.initializeApp(
+							{
+								credential: admin.credential.cert(credentials),
+							},
+							`scan-dbs-${Date.now()}`,
+						)
 						// Firestore has a single default database per project
 						await app.delete()
 						return { databases: ['(default)'] }
 					}
 					default:
-						return reply.status(400).send({ error: 'This database type does not support database scanning.' })
+						return reply
+							.status(400)
+							.send({ error: 'This database type does not support database scanning.' })
 				}
 			} catch (err) {
-				return reply.status(500).send({
+				const statusCode = (err as { statusCode?: number }).statusCode || 500
+				return reply.status(statusCode).send({
 					error: err instanceof Error ? err.message : 'Scan failed.',
 				})
 			}
@@ -486,7 +629,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 				type: string | null
 				connectionString: string | null
 				database?: string | null
-				tables?: Array<{ name: string; columns: { name: string; type: string; relationTo?: string; relationIsArray?: boolean }[]; count?: number }>
+				tables?: Array<{
+					name: string
+					columns: { name: string; type: string; relationTo?: string; relationIsArray?: boolean }[]
+					count?: number
+				}>
 				accessMode?: 'read-write' | 'read-only'
 			}
 
@@ -511,7 +658,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 			// Fall back to the saved connection string/database when the client omits them
 			// (re-sync from the settings page never re-sends the secret connection string).
 			const savedExternalDb = getSavedExternalDb(project)
-			const effectiveConnectionString = connectionString || (savedExternalDb.connectionString as string | undefined) || null
+			const effectiveConnectionString =
+				connectionString || (savedExternalDb.connectionString as string | undefined) || null
 			const effectiveDatabase = database || (savedExternalDb.database as string | undefined)
 
 			if (!type || type === 'built-in') {
@@ -521,8 +669,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 					type,
 					connectionString: effectiveConnectionString,
 					database: effectiveDatabase || undefined,
-					tables: (tables || []).map(t => t.name),
-					accessMode: accessMode || (savedExternalDb.accessMode as string | undefined) || 'read-write',
+					tables: (tables || []).map((t) => t.name),
+					accessMode:
+						accessMode || (savedExternalDb.accessMode as string | undefined) || 'read-write',
 				}
 			}
 
@@ -537,13 +686,20 @@ export async function databaseRoutes(app: FastifyInstance) {
 			const createdCollections: Array<typeof collections.$inferSelect> = []
 
 			if (type && type !== 'built-in' && tables?.length && effectiveConnectionString) {
-				const mode = accessMode || (savedExternalDb.accessMode as 'read-write' | 'read-only' | undefined) || 'read-write'
+				const mode =
+					accessMode ||
+					(savedExternalDb.accessMode as 'read-write' | 'read-only' | undefined) ||
+					'read-write'
 
 				// Test write permissions if read-write requested
 				let effectiveMode = mode
 				if (mode === 'read-write') {
 					try {
-						const adapter = createExternalDbAdapter({ type, connectionString: effectiveConnectionString, database: effectiveDatabase || undefined })
+						const adapter = createExternalDbAdapter({
+							type,
+							connectionString: effectiveConnectionString,
+							database: effectiveDatabase || undefined,
+						})
 						await adapter.connect()
 						const canWrite = await adapter.testWritePermission(tables[0].name)
 						await adapter.disconnect()
@@ -561,14 +717,16 @@ export async function databaseRoutes(app: FastifyInstance) {
 					const [existing] = await app.db
 						.select({ id: collections.id })
 						.from(collections)
-						.where(and(eq(collections.name, table.name), eq(collections.projectId, request.project!.id)))
+						.where(
+							and(eq(collections.name, table.name), eq(collections.projectId, request.project!.id)),
+						)
 						.limit(1)
 
 					// Map column types to field types. MongoDB scan columns already carry a
 					// resolved CollectionField type; SQL columns carry a raw data_type string.
 					const fields = table.columns
-						.filter(c => c.name !== '_id' && c.name !== 'id')
-						.map(c => ({
+						.filter((c) => c.name !== '_id' && c.name !== 'id')
+						.map((c) => ({
 							name: c.name,
 							type: (FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)) as any,
 							required: false,
@@ -605,7 +763,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				}
 
 				// Warn about relations to collections that were not imported.
-				const selectedNames = new Set(tables.map(t => t.name))
+				const selectedNames = new Set(tables.map((t) => t.name))
 				const missingRelations = new Map<string, Set<string>>()
 				for (const table of tables) {
 					for (const col of table.columns) {
@@ -622,14 +780,19 @@ export async function databaseRoutes(app: FastifyInstance) {
 				}
 
 				// Populate markdown cache if DB is small enough
-				const cacheLimitMb = Number(process.env.EXTERNAL_DB_CACHE_LIMIT_MB)
-					|| (settings.externalDb as Record<string, unknown>)?.cacheLimitMb as number
-					|| 100
+				const cacheLimitMb =
+					Number(process.env.EXTERNAL_DB_CACHE_LIMIT_MB) ||
+					((settings.externalDb as Record<string, unknown>)?.cacheLimitMb as number) ||
+					100
 				const cacheLimitBytes = cacheLimitMb * 1024 * 1024
 
 				if (createdCollections.length > 0) {
 					try {
-						const adapter = createExternalDbAdapter({ type, connectionString: effectiveConnectionString, database: effectiveDatabase || undefined })
+						const adapter = createExternalDbAdapter({
+							type,
+							connectionString: effectiveConnectionString,
+							database: effectiveDatabase || undefined,
+						})
 						await adapter.connect()
 
 						// Size the *selected* collections only — not the whole database.
@@ -643,22 +806,32 @@ export async function databaseRoutes(app: FastifyInstance) {
 						if (selectedSizeBytes <= cacheLimitBytes) {
 							for (const col of createdCollections) {
 								if (col.externalTable) {
-									await populateMarkdownCache(app.db, content, adapter, {
-										id: col.id,
-										projectId: col.projectId,
-										externalTable: col.externalTable,
-										fields: col.fields,
-									}, { userId: request.user?.id })
+									await populateMarkdownCache(
+										app.db,
+										content,
+										adapter,
+										{
+											id: col.id,
+											projectId: col.projectId,
+											externalTable: col.externalTable,
+											fields: col.fields,
+										},
+										{ userId: request.user?.id },
+									)
 								}
 							}
 						} else {
 							const sizeMb = Math.round(selectedSizeBytes / 1024 / 1024)
-							warnings.push(`Selected collections total ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be cached on demand.`)
+							warnings.push(
+								`Selected collections total ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be cached on demand.`,
+							)
 						}
 
 						await adapter.disconnect()
 					} catch (err) {
-						warnings.push(`Cache population failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+						warnings.push(
+							`Cache population failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+						)
 					}
 				}
 			}

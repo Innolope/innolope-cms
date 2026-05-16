@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { loadConnectionBySlug, initiateOidc } from './oidc.js'
-import { initiateSaml } from './saml.js'
 import { SsoError } from '../../services/sso-login.js'
+import { initiateOidc, loadConnectionBySlug } from './oidc.js'
+import { initiateSaml } from './saml.js'
 
 /** Unified SP-initiated entrypoint that dispatches to OIDC or SAML based on the connection. */
 export async function ssoInitiateRoutes(app: FastifyInstance) {
@@ -43,7 +43,7 @@ export async function ssoInitiateRoutes(app: FastifyInstance) {
 				}
 				const e = err as Error
 				app.log.error({ err: e }, 'SSO initiate failed')
-				return reply.status(500).send({ error: e.message })
+				return reply.status(500).send({ error: 'Failed to initiate SSO login.' })
 			}
 		},
 	)

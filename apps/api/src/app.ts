@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import formbody from '@fastify/formbody'
@@ -5,38 +7,53 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
-import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { dbPlugin } from './plugins/db.js'
+import { auditLogRoutes } from './ee/audit-log.js'
+import { schedulingRoutes } from './ee/scheduling.js'
+import { meIdentitiesRoutes, ssoAdminRoutes, ssoRoutes } from './ee/sso/index.js'
+import { scimRoutes, scimTokenAdminRoutes } from './ee/sso/scim.js'
+import { webhookRoutes } from './ee/webhooks.js'
 import { authPlugin } from './plugins/auth.js'
+import { dbPlugin } from './plugins/db.js'
+import { emailPlugin } from './plugins/email.js'
 import { eventsPlugin } from './plugins/events.js'
 import { licensePlugin } from './plugins/license.js'
-import { projectPlugin } from './plugins/project.js'
-import { emailPlugin } from './plugins/email.js'
 import { mediaPlugin } from './plugins/media.js'
-import { auditLogRoutes } from './ee/audit-log.js'
-import { webhookRoutes } from './ee/webhooks.js'
-import { schedulingRoutes } from './ee/scheduling.js'
-import { ssoRoutes, ssoAdminRoutes, meIdentitiesRoutes } from './ee/sso/index.js'
-import { scimRoutes, scimTokenAdminRoutes } from './ee/sso/scim.js'
-import { databaseRoutes } from './routes/v1/database.js'
+import { posthogPlugin } from './plugins/posthog.js'
+import { projectPlugin } from './plugins/project.js'
 import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
-import { contentRoutes } from './routes/v1/content.js'
 import { collectionRoutes } from './routes/v1/collections.js'
+import { contentRoutes } from './routes/v1/content.js'
+import { databaseRoutes } from './routes/v1/database.js'
+import { exportRoutes } from './routes/v1/export.js'
+import { inviteRoutes } from './routes/v1/invites.js'
 import { localeRoutes } from './routes/v1/locales.js'
 import { mediaRoutes } from './routes/v1/media.js'
+import { passwordResetRoutes } from './routes/v1/password-reset.js'
 import { projectRoutes } from './routes/v1/projects.js'
+import { semanticSearchRoutes } from './routes/v1/semantic-search.js'
 import { statsRoutes } from './routes/v1/stats.js'
 import { streamRoutes } from './routes/v1/stream.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
-import { passwordResetRoutes } from './routes/v1/password-reset.js'
-import { inviteRoutes } from './routes/v1/invites.js'
-import { exportRoutes } from './routes/v1/export.js'
-import { semanticSearchRoutes } from './routes/v1/semantic-search.js'
-import { posthogPlugin } from './plugins/posthog.js'
-import { initWebhookDispatcher } from './services/webhook-dispatch.js'
 import { initAutoEmbedding } from './services/embedding.js'
+import { initWebhookDispatcher } from './services/webhook-dispatch.js'
+
+/** Resolve a safe, concrete CORS origin from ADMIN_URL, rejecting wildcards/malformed values. */
+function resolveCorsOrigin(adminUrl: string | undefined): string {
+	const fallback = 'http://localhost:5173'
+	if (!adminUrl) return fallback
+	const trimmed = adminUrl.trim()
+	if (trimmed === '*' || trimmed === '') {
+		throw new Error('ADMIN_URL must be a concrete origin, not a wildcard. Refusing to start.')
+	}
+	let parsed: URL
+	try {
+		parsed = new URL(trimmed)
+	} catch {
+		throw new Error(`ADMIN_URL is not a valid URL: ${trimmed}. Refusing to start.`)
+	}
+	return parsed.origin
+}
 
 export async function buildApp() {
 	const app = Fastify({
@@ -82,8 +99,12 @@ export async function buildApp() {
 	// SAML ACS and SCIM clients post application/x-www-form-urlencoded bodies.
 	await app.register(formbody)
 
+	// CORS: only ever allow a single concrete origin. A wildcard with credentials is
+	// invalid per spec and a misconfigured ADMIN_URL must not silently widen access.
+	const corsOrigin = resolveCorsOrigin(process.env.ADMIN_URL)
+	app.log.info(`CORS origin: ${corsOrigin}`)
 	await app.register(cors, {
-		origin: process.env.ADMIN_URL || 'http://localhost:5173',
+		origin: corsOrigin,
 		credentials: true,
 	})
 
@@ -97,8 +118,16 @@ export async function buildApp() {
 		if (authHeader?.startsWith('Bearer ink_')) return
 		// Skip for public auth endpoints that don't have a session yet
 		const path = request.url.split('?')[0]
-		const csrfExemptPaths = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/logout', '/api/v1/auth/refresh', '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password', '/api/v1/invites/accept']
-		if (csrfExemptPaths.some(p => path.startsWith(p))) return
+		const csrfExemptPaths = [
+			'/api/v1/auth/login',
+			'/api/v1/auth/register',
+			'/api/v1/auth/logout',
+			'/api/v1/auth/refresh',
+			'/api/v1/auth/forgot-password',
+			'/api/v1/auth/reset-password',
+			'/api/v1/invites/accept',
+		]
+		if (csrfExemptPaths.some((p) => path.startsWith(p))) return
 		// SAML ACS is a POST from the IdP — no way for it to carry our CSRF cookie; SCIM is bearer-auth machine-to-machine
 		if (/^\/api\/v1\/auth\/sso\/[^/]+\/saml\/acs$/.test(path)) return
 		if (path.startsWith('/api/v1/scim/')) return

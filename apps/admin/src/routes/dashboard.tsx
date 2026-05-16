@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect, useRef } from 'react'
-import { api } from '../lib/api-client'
+import { useEffect, useRef, useState } from 'react'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
 import { DatabaseSettings } from '../components/settings/database-settings'
-import { useToast } from '../lib/toast'
+import { api } from '../lib/api-client'
 import { useCollections } from '../lib/collections'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/dashboard')({
 	component: Dashboard,
@@ -53,18 +53,20 @@ function loadVisibleStats(): StatId[] {
 		const parsed = JSON.parse(raw)
 		const validIds = new Set(ALL_STATS.map((s) => s.id))
 		if (Array.isArray(parsed)) {
-			const filtered = parsed.filter((id: unknown): id is StatId => typeof id === 'string' && validIds.has(id as StatId))
+			const filtered = parsed.filter(
+				(id: unknown): id is StatId => typeof id === 'string' && validIds.has(id as StatId),
+			)
 			return filtered.length > 0 ? filtered : DEFAULT_VISIBLE_STATS
 		}
 	} catch {}
 	return DEFAULT_VISIBLE_STATS
 }
 
-
 function Dashboard() {
 	const navigate = useNavigate()
 	const { collections } = useCollections()
 	const [stats, setStats] = useState<Stats | null>(null)
+	const [statsError, setStatsError] = useState(false)
 	const [recent, setRecent] = useState<RecentItem[]>([])
 	const [ready, setReady] = useState(false)
 	const [visibleStats, setVisibleStats] = useState<StatId[]>(loadVisibleStats)
@@ -98,21 +100,30 @@ function Dashboard() {
 	const getStatValue = (id: StatId): number | string => {
 		if (!stats) return '—'
 		switch (id) {
-			case 'total': return stats.content.total
-			case 'published': return stats.content.published
-			case 'draft': return stats.content.draft
-			case 'media': return stats.media
-			case 'apiKeys': return stats.apiKeys
-			case 'collections': return stats.collections
-			case 'members': return stats.members ?? '—'
+			case 'total':
+				return stats.content.total
+			case 'published':
+				return stats.content.published
+			case 'draft':
+				return stats.content.draft
+			case 'media':
+				return stats.media
+			case 'apiKeys':
+				return stats.apiKeys
+			case 'collections':
+				return stats.collections
+			case 'members':
+				return stats.members ?? '—'
 		}
 	}
 
 	useEffect(() => {
 		Promise.all([
-			api.get<Stats>('/api/v1/stats').then(setStats).catch(() => {}),
-			api.get<RecentItem[]>('/api/v1/stats/recent').then(setRecent).catch(() => {}),
-		]).finally(() => setReady(true))
+			api.get<Stats>('/api/v1/stats').then(setStats),
+			api.get<RecentItem[]>('/api/v1/stats/recent').then(setRecent),
+		])
+			.catch(() => setStatsError(true))
+			.finally(() => setReady(true))
 	}, [])
 
 	const isEmpty = ready && stats && stats.content.total === 0 && stats.collections === 0
@@ -148,7 +159,16 @@ function Dashboard() {
 					className="flex items-center gap-1.5 px-2.5 py-1.5 text-text-secondary hover:text-text hover:bg-surface-alt rounded transition-colors"
 					title="Customize statistics"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+					<svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
 						<line x1="4" y1="21" x2="4" y2="14" />
 						<line x1="4" y1="10" x2="4" y2="3" />
 						<line x1="12" y1="21" x2="12" y2="12" />
@@ -162,6 +182,12 @@ function Dashboard() {
 					<span className="text-xs">Customize</span>
 				</button>
 			</div>
+
+			{statsError && (
+				<div className="mb-6 px-4 py-3 rounded-lg border border-red-900 bg-red-900/20 text-sm text-red-200">
+					Couldn't load dashboard statistics. Check your connection and reload the page.
+				</div>
+			)}
 
 			{/* Stats grid */}
 			{visibleStatItems.length > 0 && (
@@ -179,7 +205,13 @@ function Dashboard() {
 					{visibleStatItems.map((stat) => {
 						const target = getStatTarget(stat)
 						return (
-							<StatCard key={stat.id} label={stat.label} value={getStatValue(stat.id)} to={target.to} search={target.search} />
+							<StatCard
+								key={stat.id}
+								label={stat.label}
+								value={getStatValue(stat.id)}
+								to={target.to}
+								search={target.search}
+							/>
 						)
 					})}
 				</div>
@@ -220,9 +252,7 @@ function Dashboard() {
 									</div>
 									<div className="flex items-center gap-2 ml-3">
 										<StatusBadge status={item.status} />
-										<span className="text-xs text-text-secondary">
-											{timeAgo(item.updatedAt)}
-										</span>
+										<span className="text-xs text-text-secondary">{timeAgo(item.updatedAt)}</span>
 									</div>
 								</Link>
 							))}
@@ -278,14 +308,23 @@ function Dashboard() {
 									className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
 									title="Hide MCP Config"
 								>
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
 										<line x1="18" y1="6" x2="6" y2="18" />
 										<line x1="6" y1="6" x2="18" y2="18" />
 									</svg>
 								</button>
 							</div>
 							<pre className="text-xs bg-surface p-3 rounded overflow-x-auto text-text-secondary border border-border">
-{`{
+								{`{
   "mcpServers": {
     "innolope": {
       "command": "npx",
@@ -338,7 +377,10 @@ function StatsCustomizeModal({
 }) {
 	const visibleSet = new Set(visibleStats)
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+			onClick={onClose}
+		>
 			<div
 				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md p-6"
 				onClick={(e) => e.stopPropagation()}
@@ -351,7 +393,16 @@ function StatsCustomizeModal({
 						className="w-6 h-6 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
 						title="Close"
 					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						>
 							<line x1="18" y1="6" x2="6" y2="18" />
 							<line x1="6" y1="6" x2="18" y2="18" />
 						</svg>
@@ -423,7 +474,10 @@ function EmptyDashboard() {
 		const file = e.target.files?.[0]
 		if (!file) return
 		// TODO: implement import endpoint
-		toast('File import is coming soon. For now, use the MCP server or API to bulk-create content.', 'error')
+		toast(
+			'File import is coming soon. For now, use the MCP server or API to bulk-create content.',
+			'error',
+		)
 	}
 
 	if (step === 'choose') {
@@ -432,7 +486,9 @@ function EmptyDashboard() {
 				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
 						<h2 className="text-2xl font-bold mb-2">Welcome to Innolope CMS</h2>
-						<p className="text-text-secondary text-sm">How would you like to add your first content?</p>
+						<p className="text-text-secondary text-sm">
+							How would you like to add your first content?
+						</p>
 					</div>
 
 					<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -442,7 +498,15 @@ function EmptyDashboard() {
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
 							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
-								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
+								<svg
+									width="24"
+									height="24"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.5"
+									className="text-white"
+								>
 									<ellipse cx="12" cy="5" rx="9" ry="3" />
 									<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
 									<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
@@ -450,7 +514,9 @@ function EmptyDashboard() {
 							</div>
 							<div className="mt-6">
 								<h3 className="font-semibold text-white mb-1.5">Connect Database</h3>
-								<p className="text-sm text-white/70">I already have content in an external database</p>
+								<p className="text-sm text-white/70">
+									I already have content in an external database
+								</p>
 							</div>
 						</button>
 
@@ -460,7 +526,15 @@ function EmptyDashboard() {
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
 							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
-								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
+								<svg
+									width="24"
+									height="24"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.5"
+									className="text-white"
+								>
 									<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
 									<polyline points="17 8 12 3 7 8" />
 									<line x1="12" y1="3" x2="12" y2="15" />
@@ -477,7 +551,15 @@ function EmptyDashboard() {
 							className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-8 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all group flex flex-col"
 						>
 							<div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center">
-								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
+								<svg
+									width="24"
+									height="24"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.5"
+									className="text-white"
+								>
 									<line x1="12" y1="5" x2="12" y2="19" />
 									<line x1="5" y1="12" x2="19" y2="12" />
 								</svg>
@@ -501,19 +583,30 @@ function EmptyDashboard() {
 					onClick={() => setStep('choose')}
 					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-6"
 				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					<svg
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
+						<polyline points="15 18 9 12 15 6" />
+					</svg>
 					Choose a different method
 				</button>
 				<div className="flex justify-center min-h-[70vh]">
-				<div className="max-w-4xl w-full">
-					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Connect Database</h2>
-						<p className="text-text-secondary text-sm">
-							Connect an external database to import existing content.
-						</p>
+					<div className="max-w-4xl w-full">
+						<div className="text-center mb-10">
+							<h2 className="text-2xl font-bold mb-2">Connect Database</h2>
+							<p className="text-text-secondary text-sm">
+								Connect an external database to import existing content.
+							</p>
+						</div>
+						<DatabaseSettings onChangeDatabase={() => setStep('choose')} />
 					</div>
-					<DatabaseSettings onChangeDatabase={() => setStep('choose')} />
-				</div>
 				</div>
 			</div>
 		)
@@ -527,7 +620,18 @@ function EmptyDashboard() {
 					onClick={() => setStep('choose')}
 					className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text transition-colors mb-6"
 				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+					<svg
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
+						<polyline points="15 18 9 12 15 6" />
+					</svg>
 					Choose a different method
 				</button>
 				<div className="flex justify-center min-h-[70vh]">
@@ -560,10 +664,23 @@ function EmptyDashboard() {
 							onDrop={(e) => {
 								e.preventDefault()
 								e.currentTarget.classList.remove('border-text-secondary')
-								if (e.dataTransfer.files.length) handleFileUpload({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>)
+								if (e.dataTransfer.files.length)
+									handleFileUpload({
+										target: { files: e.dataTransfer.files },
+									} as React.ChangeEvent<HTMLInputElement>)
 							}}
 						>
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-3">
+							<svg
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.5"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="text-text-muted mb-3"
+							>
 								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
 								<polyline points="17 8 12 3 7 8" />
 								<line x1="12" y1="3" x2="12" y2="15" />
@@ -587,7 +704,17 @@ function EmptyDashboard() {
 	return null
 }
 
-function StatCard({ label, value, to, search }: { label: string; value: number | string; to: string; search?: Record<string, string> }) {
+function StatCard({
+	label,
+	value,
+	to,
+	search,
+}: {
+	label: string
+	value: number | string
+	to: string
+	search?: Record<string, string>
+}) {
 	return (
 		<Link
 			to={to}
@@ -607,9 +734,7 @@ function StatusBadge({ status }: { status: string }) {
 		archived: 'bg-surface-alt text-text-muted',
 	}
 	return (
-		<span className={`px-1.5 py-0.5 rounded text-[10px] ${styles[status] || ''}`}>
-			{status}
-		</span>
+		<span className={`px-1.5 py-0.5 rounded text-[10px] ${styles[status] || ''}`}>{status}</span>
 	)
 }
 

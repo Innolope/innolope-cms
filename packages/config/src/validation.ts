@@ -42,6 +42,8 @@ export const envSchema = z.object({
 	AUTH_SECRET: z.string().min(16),
 	API_PORT: z.coerce.number().default(3001),
 	API_HOST: z.string().default('0.0.0.0'),
+	// Allowed CORS origin for the admin UI. Must be a concrete origin — never a wildcard.
+	ADMIN_URL: z.string().url().optional(),
 	CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
 	CLOUDFLARE_API_TOKEN: z.string().optional(),
 	CLOUDFLARE_IMAGES_ACCOUNT_HASH: z.string().optional(),
