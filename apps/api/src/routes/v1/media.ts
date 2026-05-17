@@ -1,6 +1,7 @@
 import { media } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { cfImageVariants } from '../../lib/cf-images.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import { getUser } from '../../plugins/auth.js'
 import { mediaAdapterName, mediaMaxSize } from '../../plugins/media.js'
@@ -53,7 +54,11 @@ export async function mediaRoutes(app: FastifyInstance) {
 
 		const total = Number(countResult[0].count)
 		return {
-			data: items,
+			// Attach Cloudflare Images responsive renditions when the file is CF-Images-backed.
+			data: items.map((item) => {
+				const variants = cfImageVariants(item.url)
+				return variants ? { ...item, variants } : item
+			}),
 			pagination: {
 				page: Number(page),
 				limit: Number(limit),
@@ -117,6 +122,29 @@ export async function mediaRoutes(app: FastifyInstance) {
 
 		return reply.status(201).send(created)
 	})
+
+	// Update media metadata — alt text (SEO) and filename (editor+, project-scoped, Pro feature)
+	app.patch<{ Params: { id: string } }>(
+		'/:id',
+		{ preHandler: [app.requireProject('editor'), app.requireLicense('media-integrations')] },
+		async (request, reply) => {
+			const { alt, filename } = (request.body as { alt?: string; filename?: string }) || {}
+			const updates: Partial<typeof media.$inferInsert> = {}
+			if (alt !== undefined) updates.alt = alt
+			if (typeof filename === 'string' && filename.trim()) updates.filename = filename.trim()
+			if (Object.keys(updates).length === 0) {
+				return reply.status(400).send({ error: 'Nothing to update' })
+			}
+			const [updated] = await app.db
+				.update(media)
+				.set(updates)
+				.where(and(eq(media.id, request.params.id), eq(media.projectId, getProject(request).id)))
+				.returning()
+			if (!updated) return reply.status(404).send({ error: 'Media not found' })
+			const variants = cfImageVariants(updated.url)
+			return variants ? { ...updated, variants } : updated
+		},
+	)
 
 	// Delete media (admin+, project-scoped, Pro feature)
 	app.delete<{ Params: { id: string } }>(

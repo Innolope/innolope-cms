@@ -18,6 +18,8 @@ interface MediaItem {
 	url: string
 	alt: string | null
 	createdAt: string
+	/** Cloudflare Images responsive renditions, when the file is CF-Images-backed. */
+	variants?: { thumbnail: string; small: string; medium: string; large: string }
 }
 
 // The Media library is a Pro feature. The tab stays visible to free users but
@@ -46,7 +48,14 @@ function MediaLibraryContent() {
 	const [uploading, setUploading] = useState(false)
 	const [selected, setSelected] = useState<MediaItem | null>(null)
 	const [typeFilter, setTypeFilter] = useState('')
+	const [altDraft, setAltDraft] = useState('')
+	const [savingAlt, setSavingAlt] = useState(false)
 	const fileRef = useRef<HTMLInputElement>(null)
+
+	// Sync the alt-text editor whenever a different media item is opened.
+	useEffect(() => {
+		setAltDraft(selected?.alt || '')
+	}, [selected])
 
 	const fetchMedia = useCallback(() => {
 		const params = new URLSearchParams()
@@ -84,6 +93,20 @@ function MediaLibraryContent() {
 		await api.delete(`/api/v1/media/${id}`)
 		setSelected(null)
 		fetchMedia()
+	}
+
+	const saveAlt = async () => {
+		if (!selected) return
+		setSavingAlt(true)
+		try {
+			const updated = await api.patch<MediaItem>(`/api/v1/media/${selected.id}`, { alt: altDraft })
+			setSelected(updated)
+			setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+		} catch {
+			// ignore — surfaced by the disabled state staying actionable
+		} finally {
+			setSavingAlt(false)
+		}
 	}
 
 	const formatSize = (bytes: number) => {
@@ -201,7 +224,7 @@ function MediaLibraryContent() {
 									>
 										{item.type === 'image' ? (
 											<img
-												src={item.url}
+												src={item.variants?.thumbnail || item.url}
 												alt={item.alt || item.filename}
 												className="w-full h-full object-cover"
 											/>
@@ -250,7 +273,11 @@ function MediaLibraryContent() {
 				<div className="w-72 border-l border-border p-6 space-y-4 overflow-auto">
 					<h3 className="font-semibold text-sm">Details</h3>
 					{selected.type === 'image' && (
-						<img src={selected.url} alt={selected.alt || ''} className="w-full rounded" />
+						<img
+							src={selected.variants?.small || selected.url}
+							alt={selected.alt || ''}
+							className="w-full rounded"
+						/>
 					)}
 					<dl className="text-sm space-y-2">
 						<dt className="text-text-secondary">Filename</dt>
@@ -274,6 +301,31 @@ function MediaLibraryContent() {
 						<dt className="text-text-secondary">Uploaded</dt>
 						<dd>{new Date(selected.createdAt).toLocaleString()}</dd>
 					</dl>
+
+					{selected.type === 'image' && (
+						<div className="pt-4 border-t border-border space-y-1.5">
+							<label htmlFor="media-alt" className="text-text-secondary text-sm">
+								Alt text
+							</label>
+							<textarea
+								id="media-alt"
+								value={altDraft}
+								onChange={(e) => setAltDraft(e.target.value)}
+								rows={2}
+								placeholder="Describe this image for search engines and screen readers"
+								className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong resize-y"
+							/>
+							<button
+								type="button"
+								onClick={saveAlt}
+								disabled={savingAlt || altDraft === (selected.alt || '')}
+								className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								{savingAlt ? 'Saving…' : 'Save alt text'}
+							</button>
+						</div>
+					)}
+
 					<div className="pt-4 border-t border-border flex gap-2">
 						<button
 							type="button"

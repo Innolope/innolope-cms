@@ -2,10 +2,12 @@ import type { CollectionField } from '@innolope/config'
 import { collections, content, media } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { cfImageVariants } from './cf-images.js'
 
 /** A `media` row reshaped like a content item so relation fields resolve uniformly. */
 export function mediaRowToContentItem(m: typeof media.$inferSelect) {
 	const meta = (m.metadata as Record<string, unknown>) || {}
+	const variants = cfImageVariants(m.url)
 	return {
 		id: m.id,
 		metadata: {
@@ -17,6 +19,8 @@ export function mediaRowToContentItem(m: typeof media.$inferSelect) {
 			size: m.size,
 			width: meta.width ?? null,
 			height: meta.height ?? null,
+			// Responsive Cloudflare Images renditions, when the file is CF-Images-backed.
+			...(variants ? { variants } : {}),
 		},
 		createdAt: m.createdAt,
 	}
