@@ -23,6 +23,12 @@ function toStringArray(v: unknown): string[] {
 	return []
 }
 
+/**
+ * Schema fields not rendered as their own input: `title`/`content`/`body`/`tags` have
+ * dedicated editors above, and `__v` is the Mongo version key maintained by the database.
+ */
+const HIDDEN_FIELDS = new Set(['title', 'content', 'body', 'tags', '__v'])
+
 export const Route = createFileRoute('/collections/$slug/$contentId')({
 	component: CollectionContentEditor,
 })
@@ -523,10 +529,7 @@ function CollectionContentEditor() {
 
 				{/* Dynamic schema fields (both internal and external) */}
 				{collection?.fields
-					?.filter(
-						(f) =>
-							f.name !== 'title' && f.name !== 'content' && f.name !== 'body' && f.name !== 'tags',
-					)
+					?.filter((f) => !HIDDEN_FIELDS.has(f.name))
 					.map((f) => (
 						<Field key={f.name} label={f.name}>
 							{f.type === 'boolean' ? (

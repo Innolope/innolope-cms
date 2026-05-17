@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useCollections } from '../../lib/collections'
 import { useToast } from '../../lib/toast'
@@ -17,15 +17,82 @@ interface RelationFieldProps {
 }
 
 const URL_FIELD_PATTERN = /(^|_)(url|src|image|imageurl|photo|path|secure_url|file|thumbnail)($|_)/i
+const LABEL_FIELD_PATTERN = /(^|_)(name|title|label|heading|slug|filename)($|_)/i
+
+/** Split camelCase so `fullPath`/`imageUrl` match the `_`-delimited field patterns. */
+const splitCamel = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
 
 /** Pick the field in a related collection most likely to hold an image/file URL. */
 function pickUrlField(fields: { name: string; type: string }[]): string | undefined {
-	const textFields = fields.filter((f) => f.type === 'text' || f.type === 'string')
-	return (textFields.find((f) => URL_FIELD_PATTERN.test(f.name)) || textFields[0])?.name
+	return fields
+		.filter((f) => f.type === 'text' || f.type === 'string')
+		.find((f) => URL_FIELD_PATTERN.test(splitCamel(f.name)))?.name
+}
+
+/** Pick the field that best labels a record in a dropdown (name/title/slug/…). */
+function pickLabelField(fields: { name: string; type: string }[]): string | undefined {
+	const named = fields.find((f) => LABEL_FIELD_PATTERN.test(splitCamel(f.name)))
+	if (named) return named.name
+	return fields.find((f) => f.type === 'text' || f.type === 'string')?.name
+}
+
+/** Resolve a possibly-localized ({ en, ua, … }) value to a plain display string. */
+function resolveText(raw: unknown): string {
+	if (raw == null) return ''
+	if (typeof raw === 'string') return raw
+	if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw)
+	if (typeof raw === 'object') {
+		const obj = raw as Record<string, unknown>
+		const pref = obj.en ?? obj.ua ?? Object.values(obj)[0]
+		return typeof pref === 'string' ? pref : ''
+	}
+	return ''
+}
+
+/** True when a string is usable as an <img> src (absolute URL, root path, or data URI). */
+function isImageUrl(value: string): boolean {
+	return /^(https?:\/\/|\/|data:image\/)/i.test(value.trim())
 }
 
 function docId(doc: RelatedDoc): string {
 	return doc.externalId || doc.id
+}
+
+function docLabel(doc: RelatedDoc, labelField?: string): string {
+	const raw = labelField ? resolveText(doc.metadata[labelField]) : ''
+	return raw || docId(doc)
+}
+
+function ImagePlaceholderIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.5"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<rect x="3" y="3" width="18" height="18" rx="2" />
+			<circle cx="8.5" cy="8.5" r="1.5" />
+			<path d="m21 15-5-5L5 21" />
+		</svg>
+	)
+}
+
+/** Render an image, falling back to a placeholder icon for non-URL values or load errors. */
+function Thumb({ url, className }: { url: string; className: string }) {
+	const [failed, setFailed] = useState(false)
+	if (url && isImageUrl(url) && !failed) {
+		return <img src={url} alt="" className={className} onError={() => setFailed(true)} />
+	}
+	return (
+		<div className={`${className} flex items-center justify-center bg-input`}>
+			<ImagePlaceholderIcon className="h-1/2 w-1/2 text-text-muted" />
+		</div>
+	)
 }
 
 export function RelationField({ value, relationTo, disabled, onChange }: RelationFieldProps) {
@@ -35,25 +102,26 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 
 	const [docs, setDocs] = useState<RelatedDoc[]>([])
 	const [loading, setLoading] = useState(false)
-	const [picking, setPicking] = useState(false)
+	const [open, setOpen] = useState(false)
 	const [uploading, setUploading] = useState(false)
-
-	useEffect(() => {
-		if (!picking) return
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') setPicking(false)
-		}
-		document.addEventListener('keydown', onKeyDown)
-		return () => document.removeEventListener('keydown', onKeyDown)
-	}, [picking])
+	const [creating, setCreating] = useState(false)
+	const [createName, setCreateName] = useState('')
+	const [createSaving, setCreateSaving] = useState(false)
+	const ref = useRef<HTMLDivElement>(null)
+	const createInputRef = useRef<HTMLInputElement>(null)
 
 	const urlField = useMemo(() => (related ? pickUrlField(related.fields) : undefined), [related])
+	const labelField = useMemo(
+		() => (related ? pickLabelField(related.fields) : undefined),
+		[related],
+	)
+	const canWrite = related?.accessMode === 'read-write'
 
 	const loadDocs = useCallback(() => {
 		if (!related) return
 		setLoading(true)
 		api
-			.get<{ data: RelatedDoc[] }>(`/api/v1/content?collectionId=${related.id}&limit=50`)
+			.get<{ data: RelatedDoc[] }>(`/api/v1/content?collectionId=${related.id}&limit=100`)
 			.then((res) => setDocs(res.data || []))
 			.catch(() => setDocs([]))
 			.finally(() => setLoading(false))
@@ -63,8 +131,21 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 		loadDocs()
 	}, [loadDocs])
 
+	useEffect(() => {
+		if (creating) createInputRef.current?.focus()
+	}, [creating])
+
+	useEffect(() => {
+		if (!open) return
+		const handler = (e: MouseEvent) => {
+			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+		}
+		document.addEventListener('mousedown', handler)
+		return () => document.removeEventListener('mousedown', handler)
+	}, [open])
+
 	const current = docs.find((d) => docId(d) === value)
-	const currentUrl = current && urlField ? String(current.metadata[urlField] || '') : ''
+	const currentUrl = current && urlField ? resolveText(current.metadata[urlField]) : ''
 
 	const handleUpload = async (file: File) => {
 		if (!related || !urlField) return
@@ -83,6 +164,25 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 			toast(err instanceof Error ? err.message : 'Upload failed', 'error')
 		} finally {
 			setUploading(false)
+		}
+	}
+
+	const handleCreate = async () => {
+		if (!related || !labelField || !createName.trim() || createSaving) return
+		setCreateSaving(true)
+		try {
+			const created = await api.post<{ _id: string }>('/api/v1/content/relation-records', {
+				relationTo,
+				values: { [labelField]: createName.trim() },
+			})
+			onChange(created._id)
+			setCreating(false)
+			setCreateName('')
+			loadDocs()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Create failed', 'error')
+		} finally {
+			setCreateSaving(false)
 		}
 	}
 
@@ -107,53 +207,97 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 	}
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-1.5">
 			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={() => !disabled && setPicking(true)}
-					disabled={disabled}
-					title="Choose or upload"
-					className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden flex items-center justify-center hover:border-border-strong disabled:opacity-60"
-				>
-					{currentUrl ? (
-						<img src={currentUrl} alt="" className="h-full w-full object-cover" />
-					) : (
-						<span className="text-[10px] text-text-muted">{value ? 'ref' : '+ image'}</span>
-					)}
-				</button>
-				<div className="flex-1 min-w-0">
-					{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
-					{!disabled && (
-						<div className="flex gap-2 mt-1">
-							<button
-								type="button"
-								onClick={() => setPicking(true)}
-								className="px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover"
-							>
-								Select
-							</button>
-							<label className="px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-								{uploading ? 'Uploading…' : 'Upload'}
-								<input
-									type="file"
-									accept="image/*"
-									className="hidden"
-									disabled={uploading || !urlField}
-									onChange={(e) => {
-										const file = e.target.files?.[0]
-										if (file) handleUpload(file)
-										e.target.value = ''
-									}}
-								/>
-							</label>
+				{urlField && (
+					<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
+						<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
+					</div>
+				)}
+				<div className="relative flex-1 min-w-0" ref={ref}>
+					<button
+						type="button"
+						disabled={disabled}
+						onClick={() => !disabled && setOpen((o) => !o)}
+						className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
+					>
+						<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
+							{current ? docLabel(current, labelField) : value || `Select ${related.label}…`}
+						</span>
+						<svg
+							width="12"
+							height="12"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className={`text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
+							aria-hidden="true"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</button>
+
+					{open && !disabled && (
+						<div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border-strong rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
 							{value && (
 								<button
 									type="button"
-									onClick={() => onChange('')}
-									className="px-2 py-1 text-text-muted hover:text-text text-xs"
+									onClick={() => {
+										onChange('')
+										setOpen(false)
+									}}
+									className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
 								>
-									Clear
+									— None —
+								</button>
+							)}
+							{loading ? (
+								<p className="px-3 py-2 text-sm text-text-muted">Loading…</p>
+							) : docs.length === 0 ? (
+								<p className="px-3 py-2 text-sm text-text-muted">No records yet.</p>
+							) : (
+								docs.map((doc) => {
+									const id = docId(doc)
+									const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
+									return (
+										<button
+											key={id}
+											type="button"
+											onClick={() => {
+												onChange(id)
+												setOpen(false)
+											}}
+											className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm transition-colors ${
+												id === value
+													? 'bg-surface-alt text-text font-medium'
+													: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+											}`}
+										>
+											{urlField && (
+												<Thumb
+													key={docUrl}
+													url={docUrl}
+													className="h-6 w-6 shrink-0 rounded object-cover"
+												/>
+											)}
+											<span className="truncate">{docLabel(doc, labelField)}</span>
+										</button>
+									)
+								})
+							)}
+							{!disabled && canWrite && labelField && (
+								<button
+									type="button"
+									onClick={() => {
+										setOpen(false)
+										setCreating(true)
+									}}
+									className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
+								>
+									+ Create new {related.label}
 								</button>
 							)}
 						</div>
@@ -161,81 +305,68 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 				</div>
 			</div>
 
-			{picking && (
+			{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
+
+			{urlField && !disabled && canWrite && (
+				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
+					{uploading ? 'Uploading…' : 'Upload image'}
+					<input
+						type="file"
+						accept="image/*"
+						className="hidden"
+						disabled={uploading}
+						onChange={(e) => {
+							const file = e.target.files?.[0]
+							if (file) handleUpload(file)
+							e.target.value = ''
+						}}
+					/>
+				</label>
+			)}
+
+			{creating && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 					<button
 						type="button"
 						aria-label="Close dialog"
 						className="absolute inset-0 -z-10 cursor-default"
-						onClick={() => setPicking(false)}
+						onClick={() => setCreating(false)}
 					/>
 					<div
 						role="dialog"
 						aria-modal="true"
-						aria-label={`Select ${related.label}`}
-						className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
+						aria-label={`New ${related.label}`}
+						className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-3"
 					>
-						<div className="flex items-center justify-between px-5 py-4 border-b border-border">
-							<h3 className="text-sm font-semibold">Select {related.label}</h3>
-							<div className="flex items-center gap-3">
-								<label className="px-2 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover cursor-pointer">
-									{uploading ? 'Uploading…' : 'Upload new'}
-									<input
-										type="file"
-										accept="image/*"
-										className="hidden"
-										disabled={uploading || !urlField}
-										onChange={(e) => {
-											const file = e.target.files?.[0]
-											if (file) handleUpload(file).then(() => setPicking(false))
-											e.target.value = ''
-										}}
-									/>
-								</label>
-								<button
-									type="button"
-									onClick={() => setPicking(false)}
-									className="text-text-secondary hover:text-text text-xs"
-								>
-									Close
-								</button>
-							</div>
-						</div>
-						<div className="flex-1 overflow-auto p-4">
-							{loading ? (
-								<p className="text-sm text-text-muted">Loading…</p>
-							) : docs.length === 0 ? (
-								<p className="text-sm text-text-muted">No records found.</p>
-							) : (
-								<div className="grid grid-cols-3 gap-2">
-									{docs.map((doc) => {
-										const id = docId(doc)
-										const url = urlField ? String(doc.metadata[urlField] || '') : ''
-										return (
-											<button
-												key={id}
-												type="button"
-												onClick={() => {
-													onChange(id)
-													setPicking(false)
-												}}
-												className={`rounded border overflow-hidden text-left ${id === value ? 'border-border-strong' : 'border-border'} hover:border-border-strong`}
-											>
-												{url ? (
-													<img src={url} alt="" className="h-20 w-full object-cover" />
-												) : (
-													<div className="h-20 flex items-center justify-center text-[10px] text-text-muted">
-														no preview
-													</div>
-												)}
-												<p className="px-1.5 py-1 text-[10px] text-text-muted font-mono truncate">
-													{id}
-												</p>
-											</button>
-										)
-									})}
-								</div>
-							)}
+						<h3 className="text-sm font-semibold">New {related.label}</h3>
+						<input
+							ref={createInputRef}
+							type="text"
+							value={createName}
+							onChange={(e) => setCreateName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === 'Enter') handleCreate()
+								if (e.key === 'Escape') setCreating(false)
+							}}
+							placeholder={labelField || 'Name'}
+							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
+						/>
+						<div className="flex justify-end gap-2">
+							<button
+								type="button"
+								onClick={() => setCreating(false)}
+								className="px-3 py-1.5 text-text-secondary hover:text-text text-xs"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleCreate}
+								disabled={createSaving || !createName.trim()}
+								className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								{createSaving ? 'Creating…' : 'Create'}
+							</button>
 						</div>
 					</div>
 				</div>

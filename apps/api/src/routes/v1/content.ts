@@ -460,6 +460,21 @@ export async function contentRoutes(app: FastifyInstance) {
 				item = undefined
 			}
 
+			// External rows are linked by their external id, not the local uuid — match on that
+			// before falling back to a live read, so a synced collection is recognised as cached.
+			if (!item) {
+				;[item] = await app.db
+					.select()
+					.from(content)
+					.where(
+						and(
+							eq(content.externalId, request.params.id),
+							eq(content.projectId, getProject(request).id),
+						),
+					)
+					.limit(1)
+			}
+
 			// Live fallback: not in the local cache — try reading the row directly from the external DB.
 			if (!item && request.query.collectionId) {
 				try {
