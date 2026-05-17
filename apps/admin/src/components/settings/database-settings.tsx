@@ -97,21 +97,6 @@ interface MediaStorageConfig {
 	hasCredentials?: boolean
 }
 
-const MEDIA_ADAPTER_OPTIONS = [
-	{ value: 'absolute', label: 'Already absolute URLs' },
-	{ value: 'r2', label: 'Cloudflare R2' },
-	{ value: 'cloudflare-images', label: 'Cloudflare Images' },
-	{ value: 's3', label: 'Amazon S3 / S3-compatible' },
-	{ value: 'custom-url', label: 'Custom base URL' },
-]
-
-const MEDIA_BASE_URL_PLACEHOLDER: Record<string, string> = {
-	r2: 'https://pub-xxxx.r2.dev',
-	'cloudflare-images': 'https://imagedelivery.net/<account-hash>',
-	s3: 'https://<bucket>.s3.<region>.amazonaws.com',
-	'custom-url': 'https://cdn.example.com',
-}
-
 const DB_OPTIONS = [
 	{ value: 'built-in', label: 'Innolope CMS', desc: 'Managed PostgreSQL', logo: '/logo.svg' },
 	{
@@ -708,24 +693,28 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			save()
 			return
 		}
-		setMediaConfigs((prev) => {
-			const next = { ...prev }
-			for (const t of tables.filter((tt) => selectedTables.has(tt.name))) {
-				if (!next[t.name]) {
-					next[t.name] = {
-						enabled: isMediaTable(t),
-						adapter: 'absolute',
-						pathColumn: pickPathColumn(t),
-						baseUrl: '',
-						access: 'public',
-						credentials: emptyCreds(),
-						hasCredentials: false,
-					}
+		const next = { ...mediaConfigs }
+		const freshlyAdded: string[] = []
+		for (const t of tables.filter((tt) => selectedTables.has(tt.name))) {
+			if (!next[t.name]) {
+				next[t.name] = {
+					enabled: isMediaTable(t),
+					adapter: 'custom-url',
+					pathColumn: pickPathColumn(t),
+					baseUrl: '',
+					access: 'public',
+					credentials: emptyCreds(),
+					hasCredentials: false,
 				}
+				freshlyAdded.push(t.name)
 			}
-			return next
-		})
+		}
+		setMediaConfigs(next)
 		setStep(mediaStepIndex)
+		// Auto-probe each detected library live from the external DB — no button click.
+		for (const tname of freshlyAdded) {
+			if (next[tname].enabled) probeMedia(tname, next[tname])
+		}
 	}
 
 	const updateMediaConfig = (name: string, patch: Partial<MediaStorageConfig>) => {
@@ -755,13 +744,13 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	}
 
 	// Probe a media library live from the external DB during the wizard (before import).
-	const probeMedia = async (tableName: string) => {
+	const probeMedia = async (tableName: string, cfgOverride?: MediaStorageConfig) => {
 		if (!currentProject) return
-		const cfg = mediaConfigs[tableName]
+		const cfg = cfgOverride || mediaConfigs[tableName]
 		if (!cfg) return
 		setMediaProbes((p) => ({ ...p, [tableName]: { loading: true } }))
 		try {
-			const res = await api.post<{ result: string; detail?: string }>(
+			const res = await api.post<{ result: string; detail?: string; provider?: string }>(
 				`/api/v1/projects/${currentProject.id}/database/media-probe`,
 				{
 					table: tableName,
@@ -772,12 +761,16 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					baseUrl: cfg.baseUrl.trim() || undefined,
 				},
 			)
-			setMediaProbes((p) => ({ ...p, [tableName]: { result: res.result, detail: res.detail } }))
-			if (res.result === 'public') updateMediaConfig(tableName, { access: 'public' })
+			setMediaProbes((p) => ({
+				...p,
+				[tableName]: { result: res.result, detail: res.detail, provider: res.provider },
+			}))
+			if (res.result === 'public')
+				updateMediaConfig(tableName, { access: 'public', adapter: 'custom-url' })
 			else if (res.result === 'private')
 				updateMediaConfig(tableName, {
 					access: 'private',
-					adapter: cfg.adapter === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
+					adapter: res.provider === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
 				})
 		} catch (err) {
 			setMediaProbes((p) => ({
@@ -1517,6 +1510,8 @@ interface ProbeState {
 	loading?: boolean
 	result?: string
 	detail?: string
+	/** Best-guess host detected from a sample URL (`r2`, `cloudflare-images`, …). */
+	provider?: string
 }
 
 function CredField({
@@ -1546,21 +1541,72 @@ function CredField({
 	)
 }
 
-const PROBE_LABEL: Record<string, string> = {
-	public: 'Public — files are reachable by URL',
-	private: 'Private — signed access required',
-	'need-base-url': 'Enter a base URL, then re-check',
-	inconclusive: 'Could not determine — set access manually',
-	error: 'Probe failed',
+const PROVIDER_OPTIONS = [
+	{
+		id: 'public',
+		label: 'Public URL',
+		desc: 'Files load directly by their URL — no credentials needed.',
+	},
+	{
+		id: 'r2',
+		label: 'Cloudflare R2',
+		desc: 'Private bucket — the CMS signs short-lived URLs.',
+	},
+	{
+		id: 'cloudflare-images',
+		label: 'Cloudflare Images',
+		desc: 'Private images — the CMS signs delivery URLs.',
+	},
+]
+
+function providerLabel(id: string): string {
+	return PROVIDER_OPTIONS.find((p) => p.id === id)?.label || id
+}
+
+const TONE_CLASS: Record<string, string> = {
+	ok: 'text-accent',
+	warn: 'text-text',
+	muted: 'text-text-muted',
+}
+
+/** The plain-language conclusion from the auto-probe, shown above the provider choice. */
+function probeConclusion(p: ProbeState | undefined): { tone: string; text: string } {
+	if (!p || p.loading) {
+		return { tone: 'muted', text: 'Checking where these files are stored…' }
+	}
+	if (p.result === 'public') {
+		return {
+			tone: 'ok',
+			text: 'We checked a sample of files — they load publicly. Nothing else to configure.',
+		}
+	}
+	if (p.result === 'private') {
+		return {
+			tone: 'warn',
+			text: p.provider
+				? `These files are private — they look like ${providerLabel(p.provider)}. Enter its credentials below.`
+				: 'These files are private. Pick the host below and enter its credentials.',
+		}
+	}
+	if (p.result === 'need-base-url') {
+		return {
+			tone: 'muted',
+			text: 'These files are stored as relative paths — tell us how they are served below.',
+		}
+	}
+	return {
+		tone: 'muted',
+		text: `We couldn't check automatically${p.detail ? ` (${p.detail})` : ''}. Choose where these files are stored below.`,
+	}
 }
 
 /**
- * One imported media library's storage config: file path column, public/private access
- * (with a "Check access" probe), and either a public base URL or signed-access credentials.
- * Shared by the import wizard's media step and the post-import Database-settings panel.
+ * One imported media library's storage config. The parent auto-probes a sample of files
+ * to conclude public vs. private; this card then asks only for what can't be detected —
+ * which host and its credentials — via provider cards. Shared by the wizard and panel.
  */
 function MediaStorageCard({
-	name,
+	name: _name,
 	label,
 	columnNames,
 	detected,
@@ -1580,8 +1626,16 @@ function MediaStorageCard({
 	onChangeCreds: (patch: Partial<MediaCreds>) => void
 	onProbe: () => void
 }) {
-	const access = config.access || 'public'
+	const [showColumnPicker, setShowColumnPicker] = useState(false)
 	const creds = config.credentials || emptyCreds()
+	const selectedProvider = config.access === 'private' ? config.adapter : 'public'
+	const conclusion = probeConclusion(probeState)
+
+	const selectProvider = (id: string) => {
+		if (id === 'public') onChange({ access: 'public', adapter: 'custom-url' })
+		else onChange({ access: 'private', adapter: id })
+	}
+
 	return (
 		<div className="rounded-lg border border-border p-3">
 			<label className="flex items-center gap-2.5 cursor-pointer">
@@ -1594,155 +1648,148 @@ function MediaStorageCard({
 				<span className="text-sm font-medium text-text">{label}</span>
 				{detected && (
 					<span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted">
-						detected media library
+						media library
 					</span>
 				)}
 			</label>
+
 			{config.enabled && (
 				<div className="mt-3 pl-6 space-y-3">
-					<div>
-						<div className="block text-xs text-text-secondary mb-1">File path column</div>
+					{/* Auto-probe conclusion */}
+					<div className="flex items-start gap-2">
+						{probeState?.loading && (
+							<span className="mt-0.5 w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
+						)}
+						<p className={`text-xs ${TONE_CLASS[conclusion.tone]}`}>{conclusion.text}</p>
+					</div>
+
+					{/* Where are the files stored — provider cards */}
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+						{PROVIDER_OPTIONS.map((opt) => {
+							const active = selectedProvider === opt.id
+							const suggested = probeState?.provider === opt.id
+							return (
+								<button
+									key={opt.id}
+									type="button"
+									onClick={() => selectProvider(opt.id)}
+									className={`p-3 rounded-lg border text-left transition-colors ${
+										active
+											? 'border-accent bg-accent-soft'
+											: 'border-border hover:border-border-strong'
+									}`}
+								>
+									<p className={`text-sm font-medium ${active ? 'text-accent' : 'text-text'}`}>
+										{opt.label}
+									</p>
+									<p className="text-[11px] text-text-muted mt-0.5 leading-snug">{opt.desc}</p>
+									{suggested && !active && (
+										<p className="text-[10px] text-accent mt-1">Suggested</p>
+									)}
+								</button>
+							)
+						})}
+					</div>
+
+					{/* Inputs for the chosen provider */}
+					{selectedProvider === 'public' ? (
+						<div>
+							<div className="block text-xs text-text-secondary mb-1">
+								Base URL <span className="text-text-muted">(optional)</span>
+							</div>
+							<input
+								type="text"
+								value={config.baseUrl}
+								onChange={(e) => onChange({ baseUrl: e.target.value })}
+								placeholder="https://cdn.example.com"
+								className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+							/>
+							<p className="mt-1 text-[11px] text-text-muted">
+								Leave blank if the stored paths are already full URLs.
+							</p>
+						</div>
+					) : selectedProvider === 'cloudflare-images' ? (
+						<div className="space-y-2.5">
+							<CredField
+								label="Account hash"
+								value={creds.accountHash}
+								onChange={(v) => onChangeCreds({ accountHash: v })}
+								saved={config.hasCredentials}
+							/>
+							<CredField
+								label="URL signing key"
+								value={creds.signingKey}
+								onChange={(v) => onChangeCreds({ signingKey: v })}
+								password
+								saved={config.hasCredentials}
+							/>
+							<p className="text-[11px] text-text-muted">
+								Stored server-side and never sent back to the browser.
+							</p>
+						</div>
+					) : (
+						<div className="space-y-2.5">
+							<CredField
+								label="Account ID"
+								value={creds.accountId}
+								onChange={(v) => onChangeCreds({ accountId: v })}
+								saved={config.hasCredentials}
+							/>
+							<CredField
+								label="R2 bucket"
+								value={creds.bucket}
+								onChange={(v) => onChangeCreds({ bucket: v })}
+								saved={config.hasCredentials}
+							/>
+							<CredField
+								label="Access key ID"
+								value={creds.accessKeyId}
+								onChange={(v) => onChangeCreds({ accessKeyId: v })}
+								saved={config.hasCredentials}
+							/>
+							<CredField
+								label="Secret access key"
+								value={creds.secretAccessKey}
+								onChange={(v) => onChangeCreds({ secretAccessKey: v })}
+								password
+								saved={config.hasCredentials}
+							/>
+							<p className="text-[11px] text-text-muted">
+								Stored server-side and never sent back to the browser.
+							</p>
+						</div>
+					)}
+
+					{/* Secondary: which column holds the file path + re-check */}
+					<div className="flex items-center gap-3 text-[11px] text-text-muted pt-1">
+						<span>
+							File paths from{' '}
+							<code className="text-text-secondary">{config.pathColumn || '—'}</code>
+						</span>
+						<button
+							type="button"
+							onClick={() => setShowColumnPicker((s) => !s)}
+							className="text-accent hover:underline"
+						>
+							{showColumnPicker ? 'Done' : 'Change'}
+						</button>
+						<span className="text-border">·</span>
+						<button
+							type="button"
+							onClick={onProbe}
+							disabled={probeState?.loading}
+							className="text-accent hover:underline disabled:opacity-50"
+						>
+							Re-check access
+						</button>
+					</div>
+					{showColumnPicker && (
 						<Dropdown
 							value={config.pathColumn}
 							onChange={(v) => onChange({ pathColumn: v })}
 							options={columnNames.map((n) => ({ value: n, label: n }))}
 							className="w-full max-w-xs"
 						/>
-					</div>
-
-					<div className="flex items-center gap-4 text-xs text-text-secondary">
-						<span>Access:</span>
-						<label className="flex items-center gap-1.5 cursor-pointer">
-							<input
-								type="radio"
-								name={`access-${name}`}
-								checked={access === 'public'}
-								onChange={() => onChange({ access: 'public', adapter: 'absolute' })}
-							/>
-							Public
-						</label>
-						<label className="flex items-center gap-1.5 cursor-pointer">
-							<input
-								type="radio"
-								name={`access-${name}`}
-								checked={access === 'private'}
-								onChange={() => onChange({ access: 'private', adapter: 'r2' })}
-							/>
-							Private
-						</label>
-						<button
-							type="button"
-							onClick={onProbe}
-							disabled={probeState?.loading}
-							className="px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover disabled:opacity-50"
-						>
-							{probeState?.loading ? 'Checking…' : 'Check access'}
-						</button>
-					</div>
-					{probeState && !probeState.loading && (
-						<p className="text-[11px] text-text-muted">
-							{PROBE_LABEL[probeState.result || 'inconclusive'] || probeState.result}
-							{probeState.detail ? ` — ${probeState.detail}` : ''}
-						</p>
-					)}
-
-					{access === 'public' ? (
-						<>
-							<div>
-								<div className="block text-xs text-text-secondary mb-1">Storage</div>
-								<Dropdown
-									value={config.adapter}
-									onChange={(v) => onChange({ adapter: v })}
-									options={MEDIA_ADAPTER_OPTIONS}
-									className="w-full max-w-xs"
-								/>
-							</div>
-							{config.adapter !== 'absolute' && (
-								<div>
-									<div className="block text-xs text-text-secondary mb-1">Public base URL</div>
-									<input
-										type="text"
-										value={config.baseUrl}
-										onChange={(e) => onChange({ baseUrl: e.target.value })}
-										placeholder={MEDIA_BASE_URL_PLACEHOLDER[config.adapter] || 'https://...'}
-										className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
-									/>
-								</div>
-							)}
-						</>
-					) : (
-						<div className="space-y-2.5">
-							<div className="flex items-center gap-4 text-xs text-text-secondary">
-								<span>Service:</span>
-								<label className="flex items-center gap-1.5 cursor-pointer">
-									<input
-										type="radio"
-										name={`svc-${name}`}
-										checked={config.adapter === 'r2'}
-										onChange={() => onChange({ adapter: 'r2' })}
-									/>
-									Cloudflare R2
-								</label>
-								<label className="flex items-center gap-1.5 cursor-pointer">
-									<input
-										type="radio"
-										name={`svc-${name}`}
-										checked={config.adapter === 'cloudflare-images'}
-										onChange={() => onChange({ adapter: 'cloudflare-images' })}
-									/>
-									Cloudflare Images
-								</label>
-							</div>
-							{config.adapter === 'cloudflare-images' ? (
-								<>
-									<CredField
-										label="Account hash"
-										value={creds.accountHash}
-										onChange={(v) => onChangeCreds({ accountHash: v })}
-										saved={config.hasCredentials}
-									/>
-									<CredField
-										label="URL signing key"
-										value={creds.signingKey}
-										onChange={(v) => onChangeCreds({ signingKey: v })}
-										password
-										saved={config.hasCredentials}
-									/>
-								</>
-							) : (
-								<>
-									<CredField
-										label="Account ID"
-										value={creds.accountId}
-										onChange={(v) => onChangeCreds({ accountId: v })}
-										saved={config.hasCredentials}
-									/>
-									<CredField
-										label="R2 bucket"
-										value={creds.bucket}
-										onChange={(v) => onChangeCreds({ bucket: v })}
-										saved={config.hasCredentials}
-									/>
-									<CredField
-										label="Access key ID"
-										value={creds.accessKeyId}
-										onChange={(v) => onChangeCreds({ accessKeyId: v })}
-										saved={config.hasCredentials}
-									/>
-									<CredField
-										label="Secret access key"
-										value={creds.secretAccessKey}
-										onChange={(v) => onChangeCreds({ secretAccessKey: v })}
-										password
-										saved={config.hasCredentials}
-									/>
-								</>
-							)}
-							<p className="text-[11px] text-text-muted">
-								The CMS uses these to generate short-lived signed URLs. Credentials are stored
-								server-side and never sent back to the browser.
-							</p>
-						</div>
 					)}
 				</div>
 			)}
@@ -1767,8 +1814,58 @@ function ImportedMediaStorage() {
 	const [saved, setSaved] = useState(false)
 	const [dirty, setDirty] = useState(false)
 
+	const autoProbed = useRef<Set<string>>(new Set())
 	const mediaCols = collections.filter((c) => c.source === 'external' && isMediaCollectionLike(c))
 
+	const update = (name: string, patch: Partial<MediaStorageConfig>) => {
+		setConfigs((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }))
+		setDirty(true)
+	}
+
+	const updateCreds = (name: string, patch: Partial<MediaCreds>) => {
+		setConfigs((prev) => {
+			const cur = prev[name]
+			return {
+				...prev,
+				[name]: { ...cur, credentials: { ...(cur.credentials || emptyCreds()), ...patch } },
+			}
+		})
+		setDirty(true)
+	}
+
+	const probe = async (name: string, cfgOverride?: MediaStorageConfig) => {
+		if (!currentProject) return
+		const cfg = cfgOverride || configs[name]
+		if (!cfg) return
+		setProbes((p) => ({ ...p, [name]: { loading: true } }))
+		try {
+			const res = await api.post<{ result: string; detail?: string; provider?: string }>(
+				`/api/v1/projects/${currentProject.id}/database/media-probe`,
+				{
+					collectionName: name,
+					pathColumn: cfg.pathColumn,
+					baseUrl: cfg.baseUrl.trim() || undefined,
+				},
+			)
+			setProbes((p) => ({
+				...p,
+				[name]: { result: res.result, detail: res.detail, provider: res.provider },
+			}))
+			if (res.result === 'public') update(name, { access: 'public', adapter: 'custom-url' })
+			else if (res.result === 'private')
+				update(name, {
+					access: 'private',
+					adapter: res.provider === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
+				})
+		} catch (err) {
+			setProbes((p) => ({
+				...p,
+				[name]: { result: 'error', detail: err instanceof Error ? err.message : 'Probe failed' },
+			}))
+		}
+	}
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: one-shot init — `probe` is guarded by the autoProbed ref, and re-running on its identity change would clobber user edits.
 	useEffect(() => {
 		const externalDb = (currentProject?.settings as Record<string, unknown> | undefined)
 			?.externalDb as Record<string, unknown> | undefined
@@ -1798,7 +1895,7 @@ function ImportedMediaStorage() {
 					}
 				: {
 						enabled: true,
-						adapter: 'absolute',
+						adapter: 'custom-url',
 						pathColumn: pickPathField(c.fields),
 						baseUrl: '',
 						access: 'public',
@@ -1808,53 +1905,16 @@ function ImportedMediaStorage() {
 		}
 		setConfigs(next)
 		setDirty(detected.some((c) => !savedMap[c.name]))
+		// Auto-probe freshly-detected, unconfigured libraries — no button click needed.
+		for (const c of detected) {
+			if (!savedMap[c.name] && !autoProbed.current.has(c.name)) {
+				autoProbed.current.add(c.name)
+				probe(c.name, next[c.name])
+			}
+		}
 	}, [collections, currentProject])
 
 	if (mediaCols.length === 0) return null
-
-	const update = (name: string, patch: Partial<MediaStorageConfig>) => {
-		setConfigs((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }))
-		setDirty(true)
-	}
-
-	const updateCreds = (name: string, patch: Partial<MediaCreds>) => {
-		setConfigs((prev) => {
-			const cur = prev[name]
-			return {
-				...prev,
-				[name]: { ...cur, credentials: { ...(cur.credentials || emptyCreds()), ...patch } },
-			}
-		})
-		setDirty(true)
-	}
-
-	const probe = async (name: string) => {
-		if (!currentProject) return
-		const cfg = configs[name]
-		setProbes((p) => ({ ...p, [name]: { loading: true } }))
-		try {
-			const res = await api.post<{ result: string; detail?: string }>(
-				`/api/v1/projects/${currentProject.id}/database/media-probe`,
-				{
-					collectionName: name,
-					pathColumn: cfg.pathColumn,
-					baseUrl: cfg.baseUrl.trim() || undefined,
-				},
-			)
-			setProbes((p) => ({ ...p, [name]: { result: res.result, detail: res.detail } }))
-			if (res.result === 'public') update(name, { access: 'public' })
-			else if (res.result === 'private')
-				update(name, {
-					access: 'private',
-					adapter: cfg.adapter === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
-				})
-		} catch (err) {
-			setProbes((p) => ({
-				...p,
-				[name]: { result: 'error', detail: err instanceof Error ? err.message : 'Probe failed' },
-			}))
-		}
-	}
 
 	const save = async () => {
 		if (!currentProject) return
@@ -1899,9 +1959,9 @@ function ImportedMediaStorage() {
 			<div>
 				<p className="text-sm text-text font-medium">Imported media storage</p>
 				<p className="text-xs text-text-muted mt-0.5">
-					Tell the CMS where the files for your imported media{' '}
-					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored. Use “Check access” to
-					detect whether they are public, or configure credentials for private ones.
+					We check where the files for your imported media{' '}
+					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found
+					below — confirm the host, and add credentials if they're private.
 				</p>
 			</div>
 			{mediaCols.map((c) => {

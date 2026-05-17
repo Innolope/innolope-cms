@@ -79,6 +79,24 @@ function extractHostname(connStr: string): string | null {
 	}
 }
 
+/** Best-guess the media host (`r2` | `cloudflare-images` | `s3` | `cloudinary`) from a sample URL. */
+function detectProvider(url: string | undefined): string | undefined {
+	if (!url) return undefined
+	let host: string
+	try {
+		host = new URL(url).hostname.toLowerCase()
+	} catch {
+		return undefined
+	}
+	if (host === 'imagedelivery.net' || host.endsWith('.imagedelivery.net'))
+		return 'cloudflare-images'
+	if (host.endsWith('.r2.dev') || host.endsWith('.r2.cloudflarestorage.com')) return 'r2'
+	if (host.endsWith('.cloudinary.com')) return 'cloudinary'
+	if (host.includes('.s3.') || host === 's3.amazonaws.com' || host.endsWith('.amazonaws.com'))
+		return 's3'
+	return undefined
+}
+
 function isPrivateAddress(address: string): boolean {
 	if (address.includes(':')) {
 		const normalized = address.toLowerCase()
@@ -1083,7 +1101,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			if (publicHits > 0 && privateHits === 0) result = 'public'
 			else if (privateHits > 0) result = 'private'
 
-			return { result, probed, publicHits, privateHits, sampleUrl }
+			return { result, probed, publicHits, privateHits, sampleUrl, provider: detectProvider(sampleUrl) }
 		},
 	)
 }
