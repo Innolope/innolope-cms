@@ -338,6 +338,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [resyncing, setResyncing] = useState(false)
+	const [resyncPhase, setResyncPhase] = useState<
+		'scanning' | 'importing' | 'finishing' | 'done' | null
+	>(null)
+	const [resyncResult, setResyncResult] = useState<{ count: number } | null>(null)
 	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
@@ -596,7 +600,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			| undefined
 		if (!ext?.type) return
 		setResyncing(true)
-		toast('Re-syncing collections — this can take a moment…', 'info')
+		setResyncResult(null)
+		setResyncPhase('scanning')
 		try {
 			const scan = await api.post<{ tables: DetectedTable[] }>(
 				`/api/v1/projects/${currentProject.id}/database/scan`,
@@ -612,9 +617,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			}
 			const tablesToSave = scan.tables.filter((t) => toImport.has(t.name))
 			if (tablesToSave.length === 0) {
+				setResyncPhase(null)
 				toast('No imported collections found to re-sync', 'error')
 				return
 			}
+			setResyncPhase('importing')
 			const result = await api.put<{ collections: Array<{ name: string }>; warnings?: string[] }>(
 				`/api/v1/projects/${currentProject.id}/database`,
 				{
@@ -627,13 +634,16 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					accessMode: ext.accessMode || 'read-write',
 				},
 			)
+			setResyncPhase('finishing')
 			await refreshProjects()
 			await refreshCollections()
 			if (result.warnings?.length) {
 				for (const w of result.warnings) toast(w, 'error')
 			}
-			toast('Collections re-synced', 'success')
+			setResyncResult({ count: result.collections?.length ?? tablesToSave.length })
+			setResyncPhase('done')
 		} catch (err) {
+			setResyncPhase(null)
 			toast(err instanceof Error ? err.message : 'Re-sync failed', 'error')
 		} finally {
 			setResyncing(false)
@@ -712,22 +722,84 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				)}
 
 				{connectedOption && (
-					<div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-border">
-						<div className="min-w-0">
-							<p className="text-sm text-text font-medium">Re-sync collections &amp; schema</p>
-							<p className="text-xs text-text-muted mt-0.5">
-								Re-scan the database to refresh field types (dates, relations) and pull in
-								newly-related collections.
-							</p>
+					<div className="px-4 py-3 rounded-lg border border-border">
+						<div className="flex items-center justify-between gap-3">
+							<div className="min-w-0">
+								<p className="text-sm text-text font-medium">Re-sync collections &amp; schema</p>
+								<p className="text-xs text-text-muted mt-0.5">
+									Re-scan the database to refresh field types (dates, relations) and pull in
+									newly-related collections.
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={resyncSchema}
+								disabled={resyncing}
+								className="shrink-0 px-3 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+							>
+								{resyncing ? 'Re-syncing…' : 'Re-sync'}
+							</button>
 						</div>
-						<button
-							type="button"
-							onClick={resyncSchema}
-							disabled={resyncing}
-							className="shrink-0 px-3 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
-						>
-							{resyncing ? 'Re-syncing…' : 'Re-sync'}
-						</button>
+
+						{resyncPhase && (
+							<div className="mt-3 pt-3 border-t border-border animate-[slideIn_0.2s_ease-out]">
+								{resyncPhase === 'done' ? (
+									<div className="flex items-center gap-2 text-sm text-accent">
+										<svg
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2.5"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											className="shrink-0"
+										>
+											<polyline points="20 6 9 17 4 12" />
+										</svg>
+										<span className="font-medium">
+											Re-sync complete — {resyncResult?.count ?? 0} collection
+											{resyncResult?.count === 1 ? '' : 's'} refreshed
+										</span>
+									</div>
+								) : (
+									<>
+										<div className="flex items-center justify-between mb-2">
+											<span className="text-xs font-medium text-text-secondary">
+												{resyncPhase === 'scanning'
+													? 'Scanning database for changes…'
+													: resyncPhase === 'importing'
+														? 'Importing collection schema…'
+														: 'Refreshing collections…'}
+											</span>
+											<span className="text-xs text-text-muted">
+												Step{' '}
+												{resyncPhase === 'scanning'
+													? 1
+													: resyncPhase === 'importing'
+														? 2
+														: 3}{' '}
+												of 3
+											</span>
+										</div>
+										<div className="h-1.5 w-full rounded-full bg-surface-alt overflow-hidden">
+											<div
+												className="h-full rounded-full bg-accent transition-[width] duration-500 ease-out"
+												style={{
+													width:
+														resyncPhase === 'scanning'
+															? '25%'
+															: resyncPhase === 'importing'
+																? '65%'
+																: '88%',
+												}}
+											/>
+										</div>
+									</>
+								)}
+							</div>
+						)}
 					</div>
 				)}
 
