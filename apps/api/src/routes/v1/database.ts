@@ -689,6 +689,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 			// Create collection records for selected tables
 			const createdCollections: Array<typeof collections.$inferSelect> = []
+			// Every selected collection (new or already-imported) whose content cache should be filled.
+			const cacheTargets: Array<typeof collections.$inferSelect> = []
 
 			if (type && type !== 'built-in' && tables?.length && effectiveConnectionString) {
 				const mode =
@@ -748,10 +750,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 					// Collection already imported — refresh its detected field schema so
 					// re-running the wizard upgrades types (e.g. text → relation/date).
 					if (existing) {
-						await app.db
+						const [refreshed] = await app.db
 							.update(collections)
 							.set({ fields, updatedAt: new Date() })
 							.where(eq(collections.id, existing.id))
+							.returning()
+						if (refreshed) cacheTargets.push(refreshed)
 						continue
 					}
 
@@ -770,6 +774,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 						.returning()
 
 					createdCollections.push(created)
+					cacheTargets.push(created)
 				}
 
 				// Warn about relations to collections that were not imported.
@@ -800,7 +805,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					100
 				const cacheLimitBytes = cacheLimitMb * 1024 * 1024
 
-				if (createdCollections.length > 0) {
+				if (cacheTargets.length > 0) {
 					try {
 						const adapter = createExternalDbAdapter({
 							type,
@@ -811,14 +816,14 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 						// Size the *selected* collections only — not the whole database.
 						let selectedSizeBytes = 0
-						for (const col of createdCollections) {
+						for (const col of cacheTargets) {
 							if (col.externalTable) {
 								selectedSizeBytes += await adapter.estimateTableSizeBytes(col.externalTable)
 							}
 						}
 
 						if (selectedSizeBytes <= cacheLimitBytes) {
-							for (const col of createdCollections) {
+							for (const col of cacheTargets) {
 								if (col.externalTable) {
 									await populateMarkdownCache(
 										app.db,

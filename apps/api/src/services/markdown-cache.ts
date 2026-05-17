@@ -9,6 +9,11 @@ import type { content, contentVersions, Database } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
 
+/** Postgres `unique_violation` — the row already exists under a colliding slug. */
+function isUniqueViolation(err: unknown): boolean {
+	return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
+}
+
 const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
 type ContentStatus = 'draft' | 'pending_review' | 'published' | 'archived'
 type ContentTable = typeof content
@@ -195,8 +200,10 @@ export async function syncMarkdownCache(
 					})
 					created++
 				}
-			} catch {
-				// Skip duplicates (unique constraint on slug+locale+projectId)
+			} catch (err) {
+				// A duplicate slug is expected and harmless; any other failure must surface
+				// so a sync that cached nothing is not silently reported as a success.
+				if (!isUniqueViolation(err)) throw err
 			}
 		}
 
