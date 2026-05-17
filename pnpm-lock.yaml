@@ -132,6 +132,9 @@ importers:
       '@sentry/node':
         specifier: ^10.48.0
         version: 10.48.0
+      aws4fetch:
+        specifier: ^1.0.20
+        version: 1.0.20
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
@@ -2301,6 +2304,9 @@ packages:
   aws-ssl-profiles@1.1.2:
     resolution: {integrity: sha512-NZKeq9AfyQvEeNlN0zSYAaWrmBffJh3IELMZfRpJVWgrpEbtEpnjvzqBPf+mxoI287JohRDoa+/nsfqqiZmF6g==}
     engines: {node: '>= 6.0.0'}
+
+  aws4fetch@1.0.20:
+    resolution: {integrity: sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g==}
 
   babel-dead-code-elimination@1.0.12:
     resolution: {integrity: sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig==}
@@ -6183,6 +6189,8 @@ snapshots:
       fastq: 1.20.1
 
   aws-ssl-profiles@1.1.2: {}
+
+  aws4fetch@1.0.20: {}
 
   babel-dead-code-elimination@1.0.12:
     dependencies:

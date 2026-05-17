@@ -120,10 +120,33 @@ function sanitizeProject(project: typeof projects.$inferSelect) {
 	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
 	const externalDb = settings.externalDb as Record<string, unknown> | undefined
 	if (externalDb) {
+		// Strip media-storage credentials; expose only a `hasCredentials` flag.
+		const mediaStorage = externalDb.mediaStorage as
+			| Record<string, Record<string, unknown>>
+			| undefined
+		const sanitizedMedia = mediaStorage
+			? Object.fromEntries(
+					Object.entries(mediaStorage).map(([table, entry]) => {
+						const { credentials, ...rest } = entry
+						return [
+							table,
+							{
+								...rest,
+								hasCredentials: Boolean(
+									credentials &&
+										typeof credentials === 'object' &&
+										Object.keys(credentials).length > 0,
+								),
+							},
+						]
+					}),
+				)
+			: undefined
 		settings.externalDb = {
 			...externalDb,
 			connectionString: undefined,
 			hasConnectionString: Boolean(externalDb.connectionString),
+			...(sanitizedMedia ? { mediaStorage: sanitizedMedia } : {}),
 		}
 	}
 	return { ...project, settings }
@@ -873,6 +896,194 @@ export async function databaseRoutes(app: FastifyInstance) {
 				collections: createdCollections,
 				warnings: warnings.length > 0 ? warnings : undefined,
 			}
+		},
+	)
+
+	// Update only the per-table media-storage config for the connected external DB.
+	// Lets users configure where an imported media library's files live without
+	// re-running the whole import wizard.
+	app.put<{ Params: { id: string } }>(
+		'/:id/database/media-storage',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { mediaStorage } =
+				(request.body as {
+					mediaStorage?: Record<string, Record<string, unknown>>
+				}) || {}
+
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+
+			const settings = (project.settings as unknown as Record<string, unknown>) || {}
+			const externalDb = settings.externalDb as Record<string, unknown> | undefined
+			if (!externalDb) {
+				return reply.status(400).send({ error: 'No external database is connected' })
+			}
+
+			// Merge: when the client omits `credentials` for a table (they are never sent
+			// back to the browser), keep whatever is already stored.
+			const prevMap = (externalDb.mediaStorage || {}) as Record<string, Record<string, unknown>>
+			let nextMap: Record<string, Record<string, unknown>> | undefined
+			if (mediaStorage && Object.keys(mediaStorage).length > 0) {
+				nextMap = {}
+				for (const [table, entry] of Object.entries(mediaStorage)) {
+					const incoming = { ...entry }
+					const creds = incoming.credentials as Record<string, unknown> | undefined
+					if (!creds || Object.keys(creds).length === 0) {
+						const prevCreds = prevMap[table]?.credentials
+						if (prevCreds) incoming.credentials = prevCreds
+						else delete incoming.credentials
+					}
+					nextMap[table] = incoming
+				}
+			}
+			externalDb.mediaStorage = nextMap
+
+			const [updated] = await app.db
+				.update(projects)
+				.set({
+					settings: settings as unknown as (typeof projects.$inferInsert)['settings'],
+					updatedAt: new Date(),
+				})
+				.where(eq(projects.id, getProject(request).id))
+				.returning()
+
+			return { project: sanitizeProject(updated) }
+		},
+	)
+
+	// Probe a sample of an imported media library's files to detect whether they are
+	// publicly fetchable or require signed/credentialed access.
+	app.post<{ Params: { id: string } }>(
+		'/:id/database/media-probe',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { collectionName, table, type, connectionString, database, pathColumn, baseUrl } =
+				(request.body as {
+					collectionName?: string
+					table?: string
+					type?: string
+					connectionString?: string
+					database?: string
+					pathColumn?: string
+					baseUrl?: string
+				}) || {}
+			if (!pathColumn) {
+				return reply.status(400).send({ error: 'pathColumn is required' })
+			}
+			const pid = getProject(request).id
+			const values: string[] = []
+
+			if (collectionName) {
+				// Post-import: sample the local content cache of an imported collection.
+				const [col] = await app.db
+					.select()
+					.from(collections)
+					.where(and(eq(collections.name, collectionName), eq(collections.projectId, pid)))
+					.limit(1)
+				if (!col) return reply.status(404).send({ error: 'Collection not found' })
+				const rows = await app.db
+					.select()
+					.from(content)
+					.where(and(eq(content.projectId, pid), eq(content.collectionId, col.id)))
+					.limit(8)
+				for (const row of rows) {
+					const v = (row.metadata as Record<string, unknown> | null)?.[pathColumn]
+					if (typeof v === 'string' && v.trim()) values.push(v.trim())
+				}
+				if (values.length === 0) {
+					return {
+						result: 'inconclusive',
+						detail:
+							'No cached rows with a value in this path column. Sync the collection first, then retry.',
+					}
+				}
+			} else if (table) {
+				// Wizard-time: sample rows live from the external database before import.
+				const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
+				const saved = project ? getSavedExternalDb(project) : {}
+				const connStr = connectionString || (saved.connectionString as string | undefined)
+				const dbType = type || (saved.type as string | undefined)
+				if (!connStr || !dbType) {
+					return reply.status(400).send({ error: 'Connection details are required to probe' })
+				}
+				const ssrfError = await validateConnectionString(connStr)
+				if (ssrfError) return reply.status(400).send({ error: ssrfError })
+				const adapter = createExternalDbAdapter({
+					type: dbType,
+					connectionString: connStr,
+					database: database || (saved.database as string | undefined),
+				})
+				await adapter.connect()
+				try {
+					const docs = await adapter.findAll(table, { limit: 8, offset: 0 })
+					for (const doc of docs) {
+						const v = (doc as Record<string, unknown>)[pathColumn]
+						if (typeof v === 'string' && v.trim()) values.push(v.trim())
+					}
+				} finally {
+					await adapter.disconnect()
+				}
+				if (values.length === 0) {
+					return {
+						result: 'inconclusive',
+						detail: 'No rows with a value in this path column to sample.',
+					}
+				}
+			} else {
+				return reply.status(400).send({ error: 'collectionName or table is required' })
+			}
+
+			let probed = 0
+			let publicHits = 0
+			let privateHits = 0
+			let skippedRelative = 0
+			let sampleUrl: string | undefined
+			for (const value of values.slice(0, 5)) {
+				let url: string | null = null
+				if (/^https?:\/\//i.test(value)) url = value
+				else if (baseUrl?.trim())
+					url = `${baseUrl.trim().replace(/\/$/, '')}/${value.replace(/^\//, '')}`
+				if (!url) {
+					skippedRelative++
+					continue
+				}
+				// SSRF guard: never probe private/internal hosts.
+				if (await validateConnectionString(url)) continue
+				sampleUrl = sampleUrl || url
+				try {
+					const ctrl = new AbortController()
+					const timer = setTimeout(() => ctrl.abort(), 8000)
+					const res = await fetch(url, {
+						method: 'GET',
+						headers: { Range: 'bytes=0-0' },
+						redirect: 'follow',
+						signal: ctrl.signal,
+					})
+					clearTimeout(timer)
+					probed++
+					if (res.status === 200 || res.status === 206) publicHits++
+					else if (res.status === 401 || res.status === 403) privateHits++
+				} catch {
+					// network error — inconclusive for this sample
+				}
+			}
+
+			let result: 'public' | 'private' | 'inconclusive' | 'need-base-url' = 'inconclusive'
+			if (probed === 0 && skippedRelative > 0) {
+				return {
+					result: 'need-base-url',
+					detail: 'Paths are relative — provide a public base URL to probe access.',
+				}
+			}
+			if (publicHits > 0 && privateHits === 0) result = 'public'
+			else if (privateHits > 0) result = 'private'
+
+			return { result, probed, publicHits, privateHits, sampleUrl }
 		},
 	)
 }

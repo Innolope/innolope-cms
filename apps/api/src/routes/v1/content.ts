@@ -306,7 +306,7 @@ async function applyExternalMediaStorage(
 ) {
 	if (!col || col.source !== 'external' || !col.externalTable) return
 	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
-	applyMediaStorage(items, col.externalTable, getMediaStorageMap(project))
+	await applyMediaStorage(items, col.externalTable, getMediaStorageMap(project))
 }
 
 /** Resolve a single content item's `relation` fields in place (default depth 1). */

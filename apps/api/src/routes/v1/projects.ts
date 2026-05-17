@@ -21,10 +21,33 @@ function sanitizeProject(project: typeof projects.$inferSelect, role?: string) {
 	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
 	const externalDb = settings.externalDb as Record<string, unknown> | undefined
 	if (externalDb) {
+		// Strip media-storage credentials; expose only a `hasCredentials` flag.
+		const mediaStorage = externalDb.mediaStorage as
+			| Record<string, Record<string, unknown>>
+			| undefined
+		const sanitizedMedia = mediaStorage
+			? Object.fromEntries(
+					Object.entries(mediaStorage).map(([table, entry]) => {
+						const { credentials, ...rest } = entry
+						return [
+							table,
+							{
+								...rest,
+								hasCredentials: Boolean(
+									credentials &&
+										typeof credentials === 'object' &&
+										Object.keys(credentials).length > 0,
+								),
+							},
+						]
+					}),
+				)
+			: undefined
 		settings.externalDb = {
 			...externalDb,
 			connectionString: undefined,
 			hasConnectionString: Boolean(externalDb.connectionString),
+			...(sanitizedMedia ? { mediaStorage: sanitizedMedia } : {}),
 		}
 	}
 	return { ...project, settings, role }
@@ -124,15 +147,34 @@ export async function projectRoutes(app: FastifyInstance) {
 				const nextSettings = { ...currentSettings, ...settings }
 				const currentExternalDb = currentSettings.externalDb as Record<string, unknown> | undefined
 				const nextExternalDb = nextSettings.externalDb as Record<string, unknown> | undefined
-				if (
-					currentExternalDb?.connectionString &&
-					nextExternalDb &&
-					!nextExternalDb.connectionString
-				) {
-					nextSettings.externalDb = {
-						...nextExternalDb,
-						connectionString: currentExternalDb.connectionString,
+				if (nextExternalDb && currentExternalDb) {
+					const merged: Record<string, unknown> = { ...nextExternalDb }
+					// The client only ever sees sanitized settings — restore secrets it can't resend.
+					if (currentExternalDb.connectionString && !merged.connectionString) {
+						merged.connectionString = currentExternalDb.connectionString
 					}
+					const currentMedia = currentExternalDb.mediaStorage as
+						| Record<string, Record<string, unknown>>
+						| undefined
+					const nextMedia = merged.mediaStorage as
+						| Record<string, Record<string, unknown>>
+						| undefined
+					if (nextMedia) {
+						merged.mediaStorage = Object.fromEntries(
+							Object.entries(nextMedia).map(([table, entry]) => {
+								const { hasCredentials: _drop, ...rest } = entry
+								const creds = rest.credentials as Record<string, unknown> | undefined
+								if (
+									(!creds || Object.keys(creds).length === 0) &&
+									currentMedia?.[table]?.credentials
+								) {
+									rest.credentials = currentMedia[table].credentials
+								}
+								return [table, rest]
+							}),
+						)
+					}
+					nextSettings.externalDb = merged
 				}
 				updates.settings = nextSettings
 			}

@@ -55,11 +55,46 @@ function pickPathColumn(table: DetectedTable): string {
 	return ref?.name || table.columns[0]?.name || ''
 }
 
+/** Heuristic applied to an already-imported collection (operates on its `fields`). */
+function isMediaCollectionLike(col: { name: string; fields: { name: string }[] }): boolean {
+	if (MEDIA_NAME_RE.test(col.name)) return true
+	const hasRef = col.fields.some((f) => FILE_REF_RE.test(splitCamelCol(f.name)))
+	const hasMeta = col.fields.some((f) => FILE_META_RE.test(splitCamelCol(f.name)))
+	return hasRef && hasMeta
+}
+
+/** Best guess for the file-path field of an imported collection. */
+function pickPathField(fields: { name: string }[]): string {
+	return fields.find((f) => FILE_REF_RE.test(splitCamelCol(f.name)))?.name || fields[0]?.name || ''
+}
+
+interface MediaCreds {
+	accountId: string
+	accessKeyId: string
+	secretAccessKey: string
+	bucket: string
+	accountHash: string
+	signingKey: string
+}
+
+const emptyCreds = (): MediaCreds => ({
+	accountId: '',
+	accessKeyId: '',
+	secretAccessKey: '',
+	bucket: '',
+	accountHash: '',
+	signingKey: '',
+})
+
 interface MediaStorageConfig {
 	enabled: boolean
 	adapter: string
 	pathColumn: string
 	baseUrl: string
+	access?: 'public' | 'private'
+	credentials?: MediaCreds
+	/** Server flag: credentials are already stored (the values themselves are never sent). */
+	hasCredentials?: boolean
 }
 
 const MEDIA_ADAPTER_OPTIONS = [
@@ -391,6 +426,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
 	const [mediaConfigs, setMediaConfigs] = useState<Record<string, MediaStorageConfig>>({})
+	const [mediaProbes, setMediaProbes] = useState<Record<string, ProbeState>>({})
 	const initialDbType = useRef('built-in')
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 	// Monotonic token: each auto-test bumps it; stale in-flight responses are discarded.
@@ -610,19 +646,23 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			const selectedTableData = tables.filter((t) => selectedTables.has(t.name))
 
 			// Build the per-table media storage map from the wizard's media step.
-			const mediaStorage: Record<
-				string,
-				{ adapter: string; pathColumn: string; baseUrl?: string }
-			> = {}
+			const mediaStorage: Record<string, Record<string, unknown>> = {}
 			for (const [name, cfg] of Object.entries(mediaConfigs)) {
 				if (!cfg.enabled || !selectedTables.has(name) || !cfg.pathColumn) continue
-				mediaStorage[name] = {
+				const access = cfg.access || 'public'
+				const entry: Record<string, unknown> = {
 					adapter: cfg.adapter,
 					pathColumn: cfg.pathColumn,
-					...(cfg.adapter !== 'absolute' && cfg.baseUrl.trim()
-						? { baseUrl: cfg.baseUrl.trim() }
-						: {}),
+					access,
 				}
+				if (access === 'public') {
+					if (cfg.adapter !== 'absolute' && cfg.baseUrl.trim()) entry.baseUrl = cfg.baseUrl.trim()
+				} else {
+					const c = cfg.credentials || emptyCreds()
+					const filled = Object.fromEntries(Object.entries(c).filter(([, v]) => v.trim()))
+					if (Object.keys(filled).length > 0) entry.credentials = filled
+				}
+				mediaStorage[name] = entry
 			}
 
 			const result = await api.put<{
@@ -677,6 +717,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						adapter: 'absolute',
 						pathColumn: pickPathColumn(t),
 						baseUrl: '',
+						access: 'public',
+						credentials: emptyCreds(),
+						hasCredentials: false,
 					}
 				}
 			}
@@ -692,9 +735,59 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				adapter: 'absolute',
 				pathColumn: '',
 				baseUrl: '',
+				access: 'public',
+				credentials: emptyCreds(),
+				hasCredentials: false,
 			}
 			return { ...prev, [name]: { ...current, ...patch } }
 		})
+	}
+
+	const updateMediaCreds = (name: string, patch: Partial<MediaCreds>) => {
+		setMediaConfigs((prev) => {
+			const cur = prev[name]
+			if (!cur) return prev
+			return {
+				...prev,
+				[name]: { ...cur, credentials: { ...(cur.credentials || emptyCreds()), ...patch } },
+			}
+		})
+	}
+
+	// Probe a media library live from the external DB during the wizard (before import).
+	const probeMedia = async (tableName: string) => {
+		if (!currentProject) return
+		const cfg = mediaConfigs[tableName]
+		if (!cfg) return
+		setMediaProbes((p) => ({ ...p, [tableName]: { loading: true } }))
+		try {
+			const res = await api.post<{ result: string; detail?: string }>(
+				`/api/v1/projects/${currentProject.id}/database/media-probe`,
+				{
+					table: tableName,
+					type: dbType,
+					connectionString: connectionString || undefined,
+					database: selectedDb || undefined,
+					pathColumn: cfg.pathColumn,
+					baseUrl: cfg.baseUrl.trim() || undefined,
+				},
+			)
+			setMediaProbes((p) => ({ ...p, [tableName]: { result: res.result, detail: res.detail } }))
+			if (res.result === 'public') updateMediaConfig(tableName, { access: 'public' })
+			else if (res.result === 'private')
+				updateMediaConfig(tableName, {
+					access: 'private',
+					adapter: cfg.adapter === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
+				})
+		} catch (err) {
+			setMediaProbes((p) => ({
+				...p,
+				[tableName]: {
+					result: 'error',
+					detail: err instanceof Error ? err.message : 'Probe failed',
+				},
+			}))
+		}
 	}
 
 	// Re-scan the already-connected database and refresh imported collections' field
@@ -905,6 +998,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						)}
 					</div>
 				)}
+
+				{connectedOption && <ImportedMediaStorage />}
 
 				<div>
 					<div className="block text-xs text-text-secondary mb-2">
@@ -1382,68 +1477,23 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								adapter: 'absolute',
 								pathColumn: pickPathColumn(t),
 								baseUrl: '',
+								access: 'public' as const,
+								credentials: emptyCreds(),
+								hasCredentials: false,
 							}
-							const columnOptions = t.columns.map((c) => ({ value: c.name, label: c.name }))
 							return (
-								<div key={t.name} className="rounded-lg border border-border p-4">
-									<label className="flex items-center gap-2.5 cursor-pointer">
-										<input
-											type="checkbox"
-											checked={cfg.enabled}
-											onChange={(e) => updateMediaConfig(t.name, { enabled: e.target.checked })}
-											className="rounded"
-										/>
-										<span className="text-sm font-medium text-text">{t.name}</span>
-										{isMediaTable(t) && (
-											<span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted">
-												detected media library
-											</span>
-										)}
-									</label>
-
-									{cfg.enabled && (
-										<div className="mt-3 pl-6 space-y-3">
-											<div>
-												<div className="block text-xs text-text-secondary mb-1">Storage</div>
-												<Dropdown
-													value={cfg.adapter}
-													onChange={(v) => updateMediaConfig(t.name, { adapter: v })}
-													options={MEDIA_ADAPTER_OPTIONS}
-													className="w-full max-w-xs"
-												/>
-											</div>
-											{cfg.adapter !== 'absolute' && (
-												<div>
-													<div className="block text-xs text-text-secondary mb-1">
-														Public base URL
-													</div>
-													<input
-														type="text"
-														value={cfg.baseUrl}
-														onChange={(e) => updateMediaConfig(t.name, { baseUrl: e.target.value })}
-														placeholder={MEDIA_BASE_URL_PLACEHOLDER[cfg.adapter] || 'https://...'}
-														className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
-													/>
-													<p className="mt-1 text-[11px] text-text-muted">
-														Prepended to relative paths. Values that are already absolute URLs are
-														left untouched.
-													</p>
-												</div>
-											)}
-											<div>
-												<div className="block text-xs text-text-secondary mb-1">
-													File path column
-												</div>
-												<Dropdown
-													value={cfg.pathColumn}
-													onChange={(v) => updateMediaConfig(t.name, { pathColumn: v })}
-													options={columnOptions}
-													className="w-full max-w-xs"
-												/>
-											</div>
-										</div>
-									)}
-								</div>
+								<MediaStorageCard
+									key={t.name}
+									name={t.name}
+									label={t.name}
+									columnNames={t.columns.map((c) => c.name)}
+									detected={isMediaTable(t)}
+									config={cfg}
+									probeState={mediaProbes[t.name]}
+									onChange={(patch) => updateMediaConfig(t.name, patch)}
+									onChangeCreds={(patch) => updateMediaCreds(t.name, patch)}
+									onProbe={() => probeMedia(t.name)}
+								/>
 							)
 						})}
 					</div>
@@ -1461,4 +1511,430 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	}
 
 	return null
+}
+
+interface ProbeState {
+	loading?: boolean
+	result?: string
+	detail?: string
+}
+
+function CredField({
+	label,
+	value,
+	onChange,
+	password,
+	saved,
+}: {
+	label: string
+	value: string
+	onChange: (v: string) => void
+	password?: boolean
+	saved?: boolean
+}) {
+	return (
+		<div>
+			<div className="block text-[11px] text-text-secondary mb-1">{label}</div>
+			<input
+				type={password ? 'password' : 'text'}
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				placeholder={saved ? '•••••• saved — leave blank to keep' : ''}
+				className="w-full max-w-sm px-3 py-1.5 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+			/>
+		</div>
+	)
+}
+
+const PROBE_LABEL: Record<string, string> = {
+	public: 'Public — files are reachable by URL',
+	private: 'Private — signed access required',
+	'need-base-url': 'Enter a base URL, then re-check',
+	inconclusive: 'Could not determine — set access manually',
+	error: 'Probe failed',
+}
+
+/**
+ * One imported media library's storage config: file path column, public/private access
+ * (with a "Check access" probe), and either a public base URL or signed-access credentials.
+ * Shared by the import wizard's media step and the post-import Database-settings panel.
+ */
+function MediaStorageCard({
+	name,
+	label,
+	columnNames,
+	detected,
+	config,
+	probeState,
+	onChange,
+	onChangeCreds,
+	onProbe,
+}: {
+	name: string
+	label: string
+	columnNames: string[]
+	detected?: boolean
+	config: MediaStorageConfig
+	probeState?: ProbeState
+	onChange: (patch: Partial<MediaStorageConfig>) => void
+	onChangeCreds: (patch: Partial<MediaCreds>) => void
+	onProbe: () => void
+}) {
+	const access = config.access || 'public'
+	const creds = config.credentials || emptyCreds()
+	return (
+		<div className="rounded-lg border border-border p-3">
+			<label className="flex items-center gap-2.5 cursor-pointer">
+				<input
+					type="checkbox"
+					checked={config.enabled}
+					onChange={(e) => onChange({ enabled: e.target.checked })}
+					className="rounded"
+				/>
+				<span className="text-sm font-medium text-text">{label}</span>
+				{detected && (
+					<span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted">
+						detected media library
+					</span>
+				)}
+			</label>
+			{config.enabled && (
+				<div className="mt-3 pl-6 space-y-3">
+					<div>
+						<div className="block text-xs text-text-secondary mb-1">File path column</div>
+						<Dropdown
+							value={config.pathColumn}
+							onChange={(v) => onChange({ pathColumn: v })}
+							options={columnNames.map((n) => ({ value: n, label: n }))}
+							className="w-full max-w-xs"
+						/>
+					</div>
+
+					<div className="flex items-center gap-4 text-xs text-text-secondary">
+						<span>Access:</span>
+						<label className="flex items-center gap-1.5 cursor-pointer">
+							<input
+								type="radio"
+								name={`access-${name}`}
+								checked={access === 'public'}
+								onChange={() => onChange({ access: 'public', adapter: 'absolute' })}
+							/>
+							Public
+						</label>
+						<label className="flex items-center gap-1.5 cursor-pointer">
+							<input
+								type="radio"
+								name={`access-${name}`}
+								checked={access === 'private'}
+								onChange={() => onChange({ access: 'private', adapter: 'r2' })}
+							/>
+							Private
+						</label>
+						<button
+							type="button"
+							onClick={onProbe}
+							disabled={probeState?.loading}
+							className="px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							{probeState?.loading ? 'Checking…' : 'Check access'}
+						</button>
+					</div>
+					{probeState && !probeState.loading && (
+						<p className="text-[11px] text-text-muted">
+							{PROBE_LABEL[probeState.result || 'inconclusive'] || probeState.result}
+							{probeState.detail ? ` — ${probeState.detail}` : ''}
+						</p>
+					)}
+
+					{access === 'public' ? (
+						<>
+							<div>
+								<div className="block text-xs text-text-secondary mb-1">Storage</div>
+								<Dropdown
+									value={config.adapter}
+									onChange={(v) => onChange({ adapter: v })}
+									options={MEDIA_ADAPTER_OPTIONS}
+									className="w-full max-w-xs"
+								/>
+							</div>
+							{config.adapter !== 'absolute' && (
+								<div>
+									<div className="block text-xs text-text-secondary mb-1">Public base URL</div>
+									<input
+										type="text"
+										value={config.baseUrl}
+										onChange={(e) => onChange({ baseUrl: e.target.value })}
+										placeholder={MEDIA_BASE_URL_PLACEHOLDER[config.adapter] || 'https://...'}
+										className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+									/>
+								</div>
+							)}
+						</>
+					) : (
+						<div className="space-y-2.5">
+							<div className="flex items-center gap-4 text-xs text-text-secondary">
+								<span>Service:</span>
+								<label className="flex items-center gap-1.5 cursor-pointer">
+									<input
+										type="radio"
+										name={`svc-${name}`}
+										checked={config.adapter === 'r2'}
+										onChange={() => onChange({ adapter: 'r2' })}
+									/>
+									Cloudflare R2
+								</label>
+								<label className="flex items-center gap-1.5 cursor-pointer">
+									<input
+										type="radio"
+										name={`svc-${name}`}
+										checked={config.adapter === 'cloudflare-images'}
+										onChange={() => onChange({ adapter: 'cloudflare-images' })}
+									/>
+									Cloudflare Images
+								</label>
+							</div>
+							{config.adapter === 'cloudflare-images' ? (
+								<>
+									<CredField
+										label="Account hash"
+										value={creds.accountHash}
+										onChange={(v) => onChangeCreds({ accountHash: v })}
+										saved={config.hasCredentials}
+									/>
+									<CredField
+										label="URL signing key"
+										value={creds.signingKey}
+										onChange={(v) => onChangeCreds({ signingKey: v })}
+										password
+										saved={config.hasCredentials}
+									/>
+								</>
+							) : (
+								<>
+									<CredField
+										label="Account ID"
+										value={creds.accountId}
+										onChange={(v) => onChangeCreds({ accountId: v })}
+										saved={config.hasCredentials}
+									/>
+									<CredField
+										label="R2 bucket"
+										value={creds.bucket}
+										onChange={(v) => onChangeCreds({ bucket: v })}
+										saved={config.hasCredentials}
+									/>
+									<CredField
+										label="Access key ID"
+										value={creds.accessKeyId}
+										onChange={(v) => onChangeCreds({ accessKeyId: v })}
+										saved={config.hasCredentials}
+									/>
+									<CredField
+										label="Secret access key"
+										value={creds.secretAccessKey}
+										onChange={(v) => onChangeCreds({ secretAccessKey: v })}
+										password
+										saved={config.hasCredentials}
+									/>
+								</>
+							)}
+							<p className="text-[11px] text-text-muted">
+								The CMS uses these to generate short-lived signed URLs. Credentials are stored
+								server-side and never sent back to the browser.
+							</p>
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	)
+}
+
+/**
+ * Configure where the files of imported (external) media-library collections live.
+ * Lives on the connected-database view so it is reachable after import / re-sync —
+ * not only inside the first-time import wizard. Probes sample files to detect whether
+ * the library is public; for private libraries it collects credentials so the CMS can
+ * generate signed URLs.
+ */
+function ImportedMediaStorage() {
+	const { collections } = useCollections()
+	const { currentProject, refreshProjects } = useAuth()
+	const toast = useToast()
+	const [configs, setConfigs] = useState<Record<string, MediaStorageConfig>>({})
+	const [probes, setProbes] = useState<Record<string, ProbeState>>({})
+	const [saving, setSaving] = useState(false)
+	const [saved, setSaved] = useState(false)
+	const [dirty, setDirty] = useState(false)
+
+	const mediaCols = collections.filter((c) => c.source === 'external' && isMediaCollectionLike(c))
+
+	useEffect(() => {
+		const externalDb = (currentProject?.settings as Record<string, unknown> | undefined)
+			?.externalDb as Record<string, unknown> | undefined
+		const savedMap = (externalDb?.mediaStorage || {}) as Record<
+			string,
+			{
+				adapter: string
+				pathColumn: string
+				baseUrl?: string
+				access?: 'public' | 'private'
+				hasCredentials?: boolean
+			}
+		>
+		const detected = collections.filter((c) => c.source === 'external' && isMediaCollectionLike(c))
+		const next: Record<string, MediaStorageConfig> = {}
+		for (const c of detected) {
+			const s = savedMap[c.name]
+			next[c.name] = s
+				? {
+						enabled: true,
+						adapter: s.adapter,
+						pathColumn: s.pathColumn,
+						baseUrl: s.baseUrl || '',
+						access: s.access || 'public',
+						credentials: emptyCreds(),
+						hasCredentials: Boolean(s.hasCredentials),
+					}
+				: {
+						enabled: true,
+						adapter: 'absolute',
+						pathColumn: pickPathField(c.fields),
+						baseUrl: '',
+						access: 'public',
+						credentials: emptyCreds(),
+						hasCredentials: false,
+					}
+		}
+		setConfigs(next)
+		setDirty(detected.some((c) => !savedMap[c.name]))
+	}, [collections, currentProject])
+
+	if (mediaCols.length === 0) return null
+
+	const update = (name: string, patch: Partial<MediaStorageConfig>) => {
+		setConfigs((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }))
+		setDirty(true)
+	}
+
+	const updateCreds = (name: string, patch: Partial<MediaCreds>) => {
+		setConfigs((prev) => {
+			const cur = prev[name]
+			return {
+				...prev,
+				[name]: { ...cur, credentials: { ...(cur.credentials || emptyCreds()), ...patch } },
+			}
+		})
+		setDirty(true)
+	}
+
+	const probe = async (name: string) => {
+		if (!currentProject) return
+		const cfg = configs[name]
+		setProbes((p) => ({ ...p, [name]: { loading: true } }))
+		try {
+			const res = await api.post<{ result: string; detail?: string }>(
+				`/api/v1/projects/${currentProject.id}/database/media-probe`,
+				{
+					collectionName: name,
+					pathColumn: cfg.pathColumn,
+					baseUrl: cfg.baseUrl.trim() || undefined,
+				},
+			)
+			setProbes((p) => ({ ...p, [name]: { result: res.result, detail: res.detail } }))
+			if (res.result === 'public') update(name, { access: 'public' })
+			else if (res.result === 'private')
+				update(name, {
+					access: 'private',
+					adapter: cfg.adapter === 'cloudflare-images' ? 'cloudflare-images' : 'r2',
+				})
+		} catch (err) {
+			setProbes((p) => ({
+				...p,
+				[name]: { result: 'error', detail: err instanceof Error ? err.message : 'Probe failed' },
+			}))
+		}
+	}
+
+	const save = async () => {
+		if (!currentProject) return
+		setSaving(true)
+		try {
+			const map: Record<string, Record<string, unknown>> = {}
+			for (const [name, cfg] of Object.entries(configs)) {
+				if (!cfg.enabled || !cfg.pathColumn) continue
+				const access = cfg.access || 'public'
+				const entry: Record<string, unknown> = {
+					adapter: cfg.adapter,
+					pathColumn: cfg.pathColumn,
+					access,
+				}
+				if (access === 'public') {
+					if (cfg.adapter !== 'absolute' && cfg.baseUrl.trim()) entry.baseUrl = cfg.baseUrl.trim()
+				} else {
+					// Only send credentials the user actually filled in; the server keeps
+					// previously-saved values when a field is omitted.
+					const c = cfg.credentials || emptyCreds()
+					const filled = Object.fromEntries(Object.entries(c).filter(([, v]) => v.trim()))
+					if (Object.keys(filled).length > 0) entry.credentials = filled
+				}
+				map[name] = entry
+			}
+			await api.put(`/api/v1/projects/${currentProject.id}/database/media-storage`, {
+				mediaStorage: Object.keys(map).length > 0 ? map : undefined,
+			})
+			await refreshProjects()
+			setSaved(true)
+			setDirty(false)
+			setTimeout(() => setSaved(false), 2000)
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	return (
+		<div className="px-4 py-3 rounded-lg border border-border space-y-3">
+			<div>
+				<p className="text-sm text-text font-medium">Imported media storage</p>
+				<p className="text-xs text-text-muted mt-0.5">
+					Tell the CMS where the files for your imported media{' '}
+					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored. Use “Check access” to
+					detect whether they are public, or configure credentials for private ones.
+				</p>
+			</div>
+			{mediaCols.map((c) => {
+				const cfg = configs[c.name] || {
+					enabled: true,
+					adapter: 'absolute',
+					pathColumn: pickPathField(c.fields),
+					baseUrl: '',
+					access: 'public' as const,
+					credentials: emptyCreds(),
+					hasCredentials: false,
+				}
+				return (
+					<MediaStorageCard
+						key={c.id}
+						name={c.name}
+						label={c.label || c.name}
+						columnNames={c.fields.map((f) => f.name)}
+						config={cfg}
+						probeState={probes[c.name]}
+						onChange={(patch) => update(c.name, patch)}
+						onChangeCreds={(patch) => updateCreds(c.name, patch)}
+						onProbe={() => probe(c.name)}
+					/>
+				)
+			})}
+			<SaveBar
+				dirty={dirty}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				saveLabel="Save media storage"
+			/>
+		</div>
+	)
 }
