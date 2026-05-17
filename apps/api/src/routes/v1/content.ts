@@ -903,6 +903,14 @@ export async function contentRoutes(app: FastifyInstance) {
 					}
 				}
 
+				await tx.insert(contentVersions).values({
+					contentId: current.id,
+					version: current.version,
+					markdown: current.markdown,
+					metadata: current.metadata,
+					createdBy: getUser(request).id,
+				})
+
 				const html = item.markdown ? sanitizeHtml(await marked(item.markdown)) : undefined
 				const [result] = await tx
 					.update(content)
@@ -914,6 +922,7 @@ export async function contentRoutes(app: FastifyInstance) {
 						...(item.status && {
 							status: item.status as 'draft' | 'pending_review' | 'published' | 'archived',
 						}),
+						version: current.version + 1,
 						updatedAt: new Date(),
 						...(externalId && { externalId }),
 					})

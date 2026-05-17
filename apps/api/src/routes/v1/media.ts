@@ -120,6 +120,17 @@ export async function mediaRoutes(app: FastifyInstance) {
 			})
 			.returning()
 
+		app.events.emit({
+			type: 'media:uploaded',
+			data: {
+				id: created.id,
+				filename: created.filename,
+				type: created.type,
+				projectId: getProject(request).id,
+			},
+			timestamp: new Date().toISOString(),
+		})
+
 		return reply.status(201).send(created)
 	})
 
@@ -160,6 +171,13 @@ export async function mediaRoutes(app: FastifyInstance) {
 			if (!item) return reply.status(404).send({ error: 'Media not found' })
 			if (item.externalId) await app.media.delete(item.externalId)
 			await app.db.delete(media).where(eq(media.id, request.params.id))
+
+			app.events.emit({
+				type: 'media:deleted',
+				data: { id: item.id, filename: item.filename, projectId: getProject(request).id },
+				timestamp: new Date().toISOString(),
+			})
+
 			return reply.status(204).send()
 		},
 	)
