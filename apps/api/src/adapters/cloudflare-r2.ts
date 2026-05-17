@@ -1,5 +1,5 @@
-import type { MediaAdapter, UploadResult } from '@innolope/types'
 import { randomUUID } from 'node:crypto'
+import type { MediaAdapter, UploadResult } from '@innolope/types'
 
 interface R2Config {
 	bucket: string

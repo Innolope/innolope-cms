@@ -1,6 +1,6 @@
+import { projectMembers, type ssoConnections, userIdentities, users } from '@innolope/db'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { and, eq, sql } from 'drizzle-orm'
-import { projectMembers, ssoConnections, userIdentities, users } from '@innolope/db'
 import { revokeAllUserRefreshTokens } from '../plugins/auth.js'
 import { setAuthCookies } from './auth-cookies.js'
 
@@ -45,7 +45,8 @@ export function extractProfile(
 	claims: Record<string, unknown>,
 	subject: string,
 ): SsoProfile {
-	const email = (claims[connection.attrEmail] as string | undefined) || (claims.email as string | undefined)
+	const email =
+		(claims[connection.attrEmail] as string | undefined) || (claims.email as string | undefined)
 	const name =
 		(claims[connection.attrName] as string | undefined) ||
 		(claims.name as string | undefined) ||
@@ -60,7 +61,10 @@ export function extractProfile(
 }
 
 /** Resolve the project-level role to assign from the default + group overlay. */
-function resolveProjectRole(connection: SsoConnection, groups: string[]): 'admin' | 'editor' | 'viewer' {
+function resolveProjectRole(
+	connection: SsoConnection,
+	groups: string[],
+): 'admin' | 'editor' | 'viewer' {
 	let best: 'admin' | 'editor' | 'viewer' = connection.defaultRole as 'admin' | 'editor' | 'viewer'
 	const map = (connection.groupRoleMap || {}) as Record<string, 'admin' | 'editor' | 'viewer'>
 	for (const g of groups) {
@@ -91,7 +95,11 @@ export async function completeSsoLogin(
 	if (connection.domains.length > 0 && profile.email) {
 		const emailDomain = profile.email.split('@')[1]?.toLowerCase()
 		if (!emailDomain || !connection.domains.map((d) => d.toLowerCase()).includes(emailDomain)) {
-			throw new SsoError('email_domain_not_allowed', 403, 'Email domain is not allowed for this SSO connection.')
+			throw new SsoError(
+				'email_domain_not_allowed',
+				403,
+				'Email domain is not allowed for this SSO connection.',
+			)
 		}
 	}
 
@@ -99,11 +107,21 @@ export async function completeSsoLogin(
 	const [existingIdentity] = await app.db
 		.select()
 		.from(userIdentities)
-		.where(and(eq(userIdentities.connectionId, connection.id), eq(userIdentities.subject, profile.subject)))
+		.where(
+			and(
+				eq(userIdentities.connectionId, connection.id),
+				eq(userIdentities.subject, profile.subject),
+			),
+		)
 		.limit(1)
 
 	if (intent === 'test') {
-		return { userId: existingIdentity?.userId ?? '', email: profile.email ?? '', created: false, linked: false }
+		return {
+			userId: existingIdentity?.userId ?? '',
+			email: profile.email ?? '',
+			created: false,
+			linked: false,
+		}
 	}
 
 	let userId: string
@@ -114,7 +132,11 @@ export async function completeSsoLogin(
 		userId = existingIdentity.userId
 		await app.db
 			.update(userIdentities)
-			.set({ lastLoginAt: new Date(), email: profile.email ?? existingIdentity.email, rawProfile: profile.raw })
+			.set({
+				lastLoginAt: new Date(),
+				email: profile.email ?? existingIdentity.email,
+				rawProfile: profile.raw,
+			})
 			.where(eq(userIdentities.id, existingIdentity.id))
 	} else if (intent === 'link') {
 		if (!linkUserId) throw new SsoError('link_target_missing', 400, 'Missing link target.')
@@ -186,7 +208,9 @@ export async function completeSsoLogin(
 	const [existingMember] = await app.db
 		.select()
 		.from(projectMembers)
-		.where(and(eq(projectMembers.projectId, connection.projectId), eq(projectMembers.userId, userId)))
+		.where(
+			and(eq(projectMembers.projectId, connection.projectId), eq(projectMembers.userId, userId)),
+		)
 		.limit(1)
 	if (!existingMember) {
 		await app.db
@@ -223,7 +247,13 @@ export async function completeSsoLogin(
 
 	app.events.emit({
 		type: 'auth:sso_login',
-		data: { userId, connectionId: connection.id, projectId: connection.projectId, email: user.email, created },
+		data: {
+			userId,
+			connectionId: connection.id,
+			projectId: connection.projectId,
+			email: user.email,
+			created,
+		},
 		timestamp: new Date().toISOString(),
 	})
 

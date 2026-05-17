@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useAuth } from '../../lib/auth'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
 
@@ -105,7 +105,10 @@ export function TeamSettings() {
 				<h4 className="text-sm font-medium mb-3">Members</h4>
 				<div className="space-y-2">
 					{members.map((m) => (
-						<div key={m.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt">
+						<div
+							key={m.id}
+							className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
+						>
 							<div className="min-w-0">
 								<p className="text-sm truncate">{m.userName}</p>
 								<p className="text-xs text-text-muted truncate">{m.userEmail}</p>
@@ -144,7 +147,10 @@ export function TeamSettings() {
 					<h4 className="text-sm font-medium mb-3">Pending Invites</h4>
 					<div className="space-y-2">
 						{invites.map((inv) => (
-							<div key={inv.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt">
+							<div
+								key={inv.id}
+								className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
+							>
 								<div className="min-w-0">
 									<p className="text-sm truncate">{inv.email}</p>
 									<p className="text-xs text-text-muted">
@@ -188,9 +194,7 @@ export function TeamSettings() {
 							{sending ? 'Sending...' : 'Send Invite'}
 						</button>
 					</div>
-					{sent && (
-						<p className="text-xs text-text-secondary mt-2">Invite sent to {sent}</p>
-					)}
+					{sent && <p className="text-xs text-text-secondary mt-2">Invite sent to {sent}</p>}
 				</div>
 			)}
 		</div>

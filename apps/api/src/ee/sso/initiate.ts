@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { getUser } from '../../plugins/auth.js'
 import { SsoError } from '../../services/sso-login.js'
 import { initiateOidc, loadConnectionBySlug } from './oidc.js'
 import { initiateSaml } from './saml.js'
@@ -22,7 +23,7 @@ export async function ssoInitiateRoutes(app: FastifyInstance) {
 			if (intent === 'link') {
 				await app.authenticate(request, reply)
 				if (reply.sent) return
-				linkUserId = request.user!.id
+				linkUserId = getUser(request).id
 			}
 
 			try {

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../../lib/auth'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
 import { SaveBar } from '../save-bar'
 
@@ -18,7 +18,7 @@ export function GeneralSettings() {
 
 	useEffect(() => {
 		if (currentProject) {
-			const settings = currentProject.settings as Record<string, unknown> || {}
+			const settings = (currentProject.settings as Record<string, unknown>) || {}
 			const init = {
 				name: currentProject.name,
 				slug: currentProject.slug,
@@ -33,13 +33,20 @@ export function GeneralSettings() {
 		}
 	}, [currentProject])
 
-	const dirty = name !== initialRef.current.name || slug !== initialRef.current.slug || defaultLocale !== initialRef.current.defaultLocale || locales !== initialRef.current.locales
+	const dirty =
+		name !== initialRef.current.name ||
+		slug !== initialRef.current.slug ||
+		defaultLocale !== initialRef.current.defaultLocale ||
+		locales !== initialRef.current.locales
 
 	const save = async () => {
 		if (!currentProject) return
 		setSaving(true)
 		try {
-			const localeList = locales.split(',').map((l) => l.trim()).filter(Boolean)
+			const localeList = locales
+				.split(',')
+				.map((l) => l.trim())
+				.filter(Boolean)
 			await api.put(`/api/v1/projects/${currentProject.id}`, {
 				name,
 				slug,
@@ -62,8 +69,11 @@ export function GeneralSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Project name</label>
+				<label htmlFor="gs-project-name" className="block text-xs text-text-secondary mb-1.5">
+					Project name
+				</label>
 				<input
+					id="gs-project-name"
 					type="text"
 					value={name}
 					onChange={(e) => setName(e.target.value)}
@@ -71,18 +81,26 @@ export function GeneralSettings() {
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Project slug</label>
+				<label htmlFor="gs-project-slug" className="block text-xs text-text-secondary mb-1.5">
+					Project slug
+				</label>
 				<input
+					id="gs-project-slug"
 					type="text"
 					value={slug}
 					onChange={(e) => setSlug(e.target.value)}
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 				/>
-				<p className="text-[11px] text-text-muted mt-1">Used in URLs and API. Changing this may break existing integrations.</p>
+				<p className="text-[11px] text-text-muted mt-1">
+					Used in URLs and API. Changing this may break existing integrations.
+				</p>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Default locale</label>
+				<label htmlFor="gs-default-locale" className="block text-xs text-text-secondary mb-1.5">
+					Default locale
+				</label>
 				<input
+					id="gs-default-locale"
 					type="text"
 					value={defaultLocale}
 					onChange={(e) => setDefaultLocale(e.target.value)}
@@ -91,8 +109,11 @@ export function GeneralSettings() {
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Available locales</label>
+				<label htmlFor="gs-available-locales" className="block text-xs text-text-secondary mb-1.5">
+					Available locales
+				</label>
 				<input
+					id="gs-available-locales"
 					type="text"
 					value={locales}
 					onChange={(e) => setLocales(e.target.value)}
@@ -101,12 +122,18 @@ export function GeneralSettings() {
 				/>
 				<p className="text-[11px] text-text-muted mt-1">Comma-separated locale codes.</p>
 			</div>
-			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
-				setName(initialRef.current.name)
-				setSlug(initialRef.current.slug)
-				setDefaultLocale(initialRef.current.defaultLocale)
-				setLocales(initialRef.current.locales)
-			}} />
+			<SaveBar
+				dirty={dirty}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				onReset={() => {
+					setName(initialRef.current.name)
+					setSlug(initialRef.current.slug)
+					setDefaultLocale(initialRef.current.defaultLocale)
+					setLocales(initialRef.current.locales)
+				}}
+			/>
 
 			{currentProject?.role === 'owner' && (
 				<div className="mt-10 pt-6 border-t border-border">
@@ -115,7 +142,8 @@ export function GeneralSettings() {
 						<div className="min-w-0">
 							<p className="text-sm text-text font-medium">Delete this workspace</p>
 							<p className="text-xs text-text-muted mt-0.5">
-								Permanently removes the workspace and its CMS content. Your external database and its data are not touched.
+								Permanently removes the workspace and its CMS content. Your external database and
+								its data are not touched.
 							</p>
 						</div>
 						<button
@@ -154,6 +182,14 @@ function DeleteWorkspaceModal({
 	const [deleting, setDeleting] = useState(false)
 	const matches = confirmText.trim() === projectName
 
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onCancel()
+		}
+		document.addEventListener('keydown', onKeyDown)
+		return () => document.removeEventListener('keydown', onKeyDown)
+	}, [onCancel])
+
 	const handleDelete = async () => {
 		if (!matches) return
 		setDeleting(true)
@@ -168,21 +204,30 @@ function DeleteWorkspaceModal({
 	}
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+			<button
+				type="button"
+				aria-label="Close dialog"
+				className="absolute inset-0 -z-10 cursor-default"
+				onClick={onCancel}
+			/>
 			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label="Delete workspace"
 				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-sm p-6"
-				onClick={(e) => e.stopPropagation()}
 			>
 				<h3 className="font-semibold text-text mb-2">Delete workspace</h3>
 				<p className="text-sm text-text-secondary mb-4">
-					This permanently deletes <span className="font-medium text-text">{projectName}</span> and all of its
-					CMS content, collections, and members. This cannot be undone. Your connected external database and its
-					data will not be deleted.
+					This permanently deletes <span className="font-medium text-text">{projectName}</span> and
+					all of its CMS content, collections, and members. This cannot be undone. Your connected
+					external database and its data will not be deleted.
 				</p>
-				<label className="block text-xs text-text-secondary mb-1.5">
+				<label htmlFor="gs-delete-confirm" className="block text-xs text-text-secondary mb-1.5">
 					Type <span className="font-mono text-text">{projectName}</span> to confirm
 				</label>
 				<input
+					id="gs-delete-confirm"
 					type="text"
 					value={confirmText}
 					onChange={(e) => setConfirmText(e.target.value)}

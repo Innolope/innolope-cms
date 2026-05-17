@@ -1,6 +1,6 @@
-import { mkdir, writeFile, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { MediaAdapter, UploadResult } from '@innolope/types'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -18,7 +18,8 @@ export class LocalFsAdapter implements MediaAdapter {
 		const storedName = `${id}.${ext}`
 		const filePath = join(UPLOAD_DIR, storedName)
 
-		const buffer = file instanceof Buffer ? file : Buffer.from(await new Response(file).arrayBuffer())
+		const buffer =
+			file instanceof Buffer ? file : Buffer.from(await new Response(file).arrayBuffer())
 		await writeFile(filePath, buffer)
 
 		return {

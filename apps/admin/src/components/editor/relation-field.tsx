@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useCollections } from '../../lib/collections'
 import { useToast } from '../../lib/toast'
@@ -38,18 +38,30 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 	const [picking, setPicking] = useState(false)
 	const [uploading, setUploading] = useState(false)
 
+	useEffect(() => {
+		if (!picking) return
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') setPicking(false)
+		}
+		document.addEventListener('keydown', onKeyDown)
+		return () => document.removeEventListener('keydown', onKeyDown)
+	}, [picking])
+
 	const urlField = useMemo(() => (related ? pickUrlField(related.fields) : undefined), [related])
 
 	const loadDocs = useCallback(() => {
 		if (!related) return
 		setLoading(true)
-		api.get<{ data: RelatedDoc[] }>(`/api/v1/content?collectionId=${related.id}&limit=50`)
+		api
+			.get<{ data: RelatedDoc[] }>(`/api/v1/content?collectionId=${related.id}&limit=50`)
 			.then((res) => setDocs(res.data || []))
 			.catch(() => setDocs([]))
 			.finally(() => setLoading(false))
 	}, [related])
 
-	useEffect(() => { loadDocs() }, [loadDocs])
+	useEffect(() => {
+		loadDocs()
+	}, [loadDocs])
 
 	const current = docs.find((d) => docId(d) === value)
 	const currentUrl = current && urlField ? String(current.metadata[urlField] || '') : ''
@@ -150,10 +162,18 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 			</div>
 
 			{picking && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPicking(false)}>
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+					<button
+						type="button"
+						aria-label="Close dialog"
+						className="absolute inset-0 -z-10 cursor-default"
+						onClick={() => setPicking(false)}
+					/>
 					<div
+						role="dialog"
+						aria-modal="true"
+						aria-label={`Select ${related.label}`}
 						className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
-						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="flex items-center justify-between px-5 py-4 border-b border-border">
 							<h3 className="text-sm font-semibold">Select {related.label}</h3>
@@ -172,7 +192,11 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 										}}
 									/>
 								</label>
-								<button type="button" onClick={() => setPicking(false)} className="text-text-secondary hover:text-text text-xs">
+								<button
+									type="button"
+									onClick={() => setPicking(false)}
+									className="text-text-secondary hover:text-text text-xs"
+								>
 									Close
 								</button>
 							</div>
@@ -191,15 +215,22 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 											<button
 												key={id}
 												type="button"
-												onClick={() => { onChange(id); setPicking(false) }}
+												onClick={() => {
+													onChange(id)
+													setPicking(false)
+												}}
 												className={`rounded border overflow-hidden text-left ${id === value ? 'border-border-strong' : 'border-border'} hover:border-border-strong`}
 											>
 												{url ? (
 													<img src={url} alt="" className="h-20 w-full object-cover" />
 												) : (
-													<div className="h-20 flex items-center justify-center text-[10px] text-text-muted">no preview</div>
+													<div className="h-20 flex items-center justify-center text-[10px] text-text-muted">
+														no preview
+													</div>
 												)}
-												<p className="px-1.5 py-1 text-[10px] text-text-muted font-mono truncate">{id}</p>
+												<p className="px-1.5 py-1 text-[10px] text-text-muted font-mono truncate">
+													{id}
+												</p>
 											</button>
 										)
 									})}

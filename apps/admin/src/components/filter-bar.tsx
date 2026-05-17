@@ -69,7 +69,16 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 					disabled={inactive.length === 0}
 					className="flex items-center gap-1 px-2.5 py-1.5 text-sm text-text-secondary border border-dashed border-border-strong rounded hover:bg-surface-alt hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
 				>
-					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+					<svg
+						width="12"
+						height="12"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
 						<line x1="12" y1="5" x2="12" y2="19" />
 						<line x1="5" y1="12" x2="19" y2="12" />
 					</svg>
@@ -145,7 +154,16 @@ function FilterChip({ desc, value, isEditing, onOpen, onClose, onChange, onRemov
 					className="px-1.5 border-l border-border text-text-muted hover:text-text hover:bg-border/50"
 					title="Remove filter"
 				>
-					<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+					<svg
+						width="10"
+						height="10"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
 						<line x1="18" y1="6" x2="6" y2="18" />
 						<line x1="6" y1="6" x2="18" y2="18" />
 					</svg>
@@ -161,7 +179,15 @@ function FilterChip({ desc, value, isEditing, onOpen, onClose, onChange, onRemov
 	)
 }
 
-function FilterEditor({ desc, value, onChange }: { desc: FilterDescriptor; value: FilterValue; onChange: (v: FilterValue) => void }) {
+function FilterEditor({
+	desc,
+	value,
+	onChange,
+}: {
+	desc: FilterDescriptor
+	value: FilterValue
+	onChange: (v: FilterValue) => void
+}) {
 	if (desc.type === 'enum') {
 		return (
 			<div className="max-h-60 overflow-y-auto">

@@ -1,7 +1,7 @@
-import type { FastifyInstance } from 'fastify'
-import { and, eq } from 'drizzle-orm'
 import { ssoAuthStates, ssoConnections } from '@innolope/db'
-import { Issuer, generators } from 'openid-client'
+import { and, eq } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
+import { generators, Issuer } from 'openid-client'
 import { decryptSecret } from '../../lib/crypto.js'
 import { completeSsoLogin, extractProfile, SsoError } from '../../services/sso-login.js'
 import { newNonce, sanitizeNext, signState, verifyState } from '../../services/sso-state.js'
@@ -89,115 +89,118 @@ export async function ssoOidcRoutes(app: FastifyInstance) {
 	const preLicense = [app.requireLicense('sso')]
 
 	// OIDC callback
-	app.get<{ Params: { slug: string }; Querystring: { code?: string; state?: string; error?: string } }>(
-		'/:slug/oidc/callback',
-		{ preHandler: preLicense },
-		async (request, reply) => {
-			const connection = await loadConnectionBySlug(app, request.params.slug)
-			if (!connection || connection.protocol !== 'oidc') {
-				return reply.status(404).send({ error: 'Not found' })
-			}
+	app.get<{
+		Params: { slug: string }
+		Querystring: { code?: string; state?: string; error?: string }
+	}>('/:slug/oidc/callback', { preHandler: preLicense }, async (request, reply) => {
+		const connection = await loadConnectionBySlug(app, request.params.slug)
+		if (!connection || connection.protocol !== 'oidc') {
+			return reply.status(404).send({ error: 'Not found' })
+		}
 
-			if (request.query.error) {
-				app.events.emit({
-					type: 'auth:sso_failed',
-					data: { connectionId: connection.id, reason: request.query.error },
-					timestamp: new Date().toISOString(),
-				})
-				return reply.status(400).send({ error: `IdP error: ${request.query.error}` })
-			}
+		if (request.query.error) {
+			app.events.emit({
+				type: 'auth:sso_failed',
+				data: { connectionId: connection.id, reason: request.query.error },
+				timestamp: new Date().toISOString(),
+			})
+			return reply.status(400).send({ error: `IdP error: ${request.query.error}` })
+		}
 
-			const stateJwt = request.query.state
-			const code = request.query.code
-			if (!stateJwt || !code) {
-				return reply.status(400).send({ error: 'Missing state or code' })
-			}
+		const stateJwt = request.query.state
+		const code = request.query.code
+		if (!stateJwt || !code) {
+			return reply.status(400).send({ error: 'Missing state or code' })
+		}
 
-			const decoded = await verifyState(stateJwt)
-			if (!decoded || decoded.connectionId !== connection.id) {
-				return reply.status(400).send({ error: 'Invalid state' })
-			}
+		const decoded = await verifyState(stateJwt)
+		if (!decoded || decoded.connectionId !== connection.id) {
+			return reply.status(400).send({ error: 'Invalid state' })
+		}
 
-			const [stateRow] = await app.db
-				.select()
-				.from(ssoAuthStates)
-				.where(eq(ssoAuthStates.state, decoded.nonce))
-				.limit(1)
-			if (!stateRow) {
-				return reply.status(400).send({ error: 'Unknown or replayed state' })
-			}
-			if (new Date(stateRow.expiresAt) < new Date()) {
-				await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, stateRow.id))
-				return reply.status(400).send({ error: 'State expired' })
-			}
-			// Consume: delete first so the same state cannot be replayed concurrently
+		const [stateRow] = await app.db
+			.select()
+			.from(ssoAuthStates)
+			.where(eq(ssoAuthStates.state, decoded.nonce))
+			.limit(1)
+		if (!stateRow) {
+			return reply.status(400).send({ error: 'Unknown or replayed state' })
+		}
+		if (new Date(stateRow.expiresAt) < new Date()) {
 			await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, stateRow.id))
+			return reply.status(400).send({ error: 'State expired' })
+		}
+		// Consume: delete first so the same state cannot be replayed concurrently
+		await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, stateRow.id))
 
-			let client
-			try {
-				client = await buildClient(connection)
-			} catch (err) {
-				const e = err as Error
-				return reply.status(500).send({ error: e.message })
-			}
+		let client: Awaited<ReturnType<typeof buildClient>>
+		try {
+			client = await buildClient(connection)
+		} catch (err) {
+			const e = err as Error
+			return reply.status(500).send({ error: e.message })
+		}
 
-			let tokenSet
-			try {
-				tokenSet = await client.callback(callbackUrl(connection.slug), { code, state: stateJwt }, {
+		let tokenSet: Awaited<ReturnType<typeof client.callback>>
+		try {
+			tokenSet = await client.callback(
+				callbackUrl(connection.slug),
+				{ code, state: stateJwt },
+				{
 					code_verifier: stateRow.verifier,
 					state: stateJwt,
 					nonce: stateRow.nonce ?? undefined,
-				})
-			} catch (err) {
-				const e = err as Error
-				app.log.warn({ err: e }, 'OIDC token exchange failed')
+				},
+			)
+		} catch (err) {
+			const e = err as Error
+			app.log.warn({ err: e }, 'OIDC token exchange failed')
+			app.events.emit({
+				type: 'auth:sso_failed',
+				data: { connectionId: connection.id, reason: 'token_exchange' },
+				timestamp: new Date().toISOString(),
+			})
+			return reply.status(400).send({ error: 'Token exchange failed' })
+		}
+
+		const claims = tokenSet.claims()
+		let userInfo: Record<string, unknown> = {}
+		try {
+			if (tokenSet.access_token) {
+				userInfo = (await client.userinfo(tokenSet.access_token)) as Record<string, unknown>
+			}
+		} catch (err) {
+			app.log.warn({ err }, 'OIDC userinfo failed (continuing with id_token claims)')
+		}
+
+		const merged = { ...claims, ...userInfo } as Record<string, unknown>
+		const subject = claims.sub
+		if (!subject) return reply.status(400).send({ error: 'No sub claim' })
+
+		const profile = extractProfile(connection, merged, subject)
+
+		try {
+			await completeSsoLogin(app, {
+				connection,
+				profile,
+				reply,
+				intent: stateRow.intent as 'login' | 'link' | 'test',
+				linkUserId: stateRow.linkUserId ?? undefined,
+				next: stateRow.next ?? undefined,
+			})
+		} catch (err) {
+			if (err instanceof SsoError) {
 				app.events.emit({
 					type: 'auth:sso_failed',
-					data: { connectionId: connection.id, reason: 'token_exchange' },
+					data: { connectionId: connection.id, reason: err.code },
 					timestamp: new Date().toISOString(),
 				})
-				return reply.status(400).send({ error: 'Token exchange failed' })
+				return reply.status(err.statusCode).send({ error: err.message, code: err.code })
 			}
+			throw err
+		}
 
-			const claims = tokenSet.claims()
-			let userInfo: Record<string, unknown> = {}
-			try {
-				if (tokenSet.access_token) {
-					userInfo = (await client.userinfo(tokenSet.access_token)) as Record<string, unknown>
-				}
-			} catch (err) {
-				app.log.warn({ err }, 'OIDC userinfo failed (continuing with id_token claims)')
-			}
-
-			const merged = { ...claims, ...userInfo } as Record<string, unknown>
-			const subject = claims.sub
-			if (!subject) return reply.status(400).send({ error: 'No sub claim' })
-
-			const profile = extractProfile(connection, merged, subject)
-
-			try {
-				await completeSsoLogin(app, {
-					connection,
-					profile,
-					reply,
-					intent: stateRow.intent as 'login' | 'link' | 'test',
-					linkUserId: stateRow.linkUserId ?? undefined,
-					next: stateRow.next ?? undefined,
-				})
-			} catch (err) {
-				if (err instanceof SsoError) {
-					app.events.emit({
-						type: 'auth:sso_failed',
-						data: { connectionId: connection.id, reason: err.code },
-						timestamp: new Date().toISOString(),
-					})
-					return reply.status(err.statusCode).send({ error: err.message, code: err.code })
-				}
-				throw err
-			}
-
-			const next = stateRow.next ?? '/'
-			return reply.redirect(next)
-		},
-	)
+		const next = stateRow.next ?? '/'
+		return reply.redirect(next)
+	})
 }

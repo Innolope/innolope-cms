@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect, useRef } from 'react'
-import { api } from '../lib/api-client'
-import { UnsplashPicker, UnsplashUpgradePreview } from '../components/media/unsplash-picker'
-import { useLicense, hasFeature, ProBadge } from '../components/license-gate'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dropdown } from '../components/dropdown'
+import { hasFeature, ProBadge, useLicense } from '../components/license-gate'
+import { UnsplashPicker, UnsplashUpgradePreview } from '../components/media/unsplash-picker'
+import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -40,20 +40,21 @@ function MediaLibrary() {
 	const [typeFilter, setTypeFilter] = useState('')
 	const fileRef = useRef<HTMLInputElement>(null)
 
-	const fetchMedia = () => {
+	const fetchMedia = useCallback(() => {
 		const params = new URLSearchParams()
 		params.set('limit', '50')
 		if (typeFilter) params.set('type', typeFilter)
 
-		api.get<{ data: MediaItem[] }>(`/api/v1/media?${params}`)
+		api
+			.get<{ data: MediaItem[] }>(`/api/v1/media?${params}`)
 			.then((res) => setItems(res.data))
 			.catch(() => {})
 			.finally(() => setReady(true))
-	}
+	}, [typeFilter])
 
 	useEffect(() => {
 		fetchMedia()
-	}, [typeFilter])
+	}, [fetchMedia])
 
 	const upload = async (files: FileList) => {
 		setUploading(true)
@@ -85,7 +86,9 @@ function MediaLibrary() {
 
 	return (
 		<div className="flex h-full">
-			<div className={`flex-1 p-8 pt-5 flex flex-col ${tab === 'unsplash' && !unsplashLicensed ? 'overflow-hidden pb-0' : 'overflow-auto'}`}>
+			<div
+				className={`flex-1 p-8 pt-5 flex flex-col ${tab === 'unsplash' && !unsplashLicensed ? 'overflow-hidden pb-0' : 'overflow-auto'}`}
+			>
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
 						<h2 className="text-2xl font-bold">Media</h2>
@@ -147,85 +150,99 @@ function MediaLibrary() {
 				) : tab === 'unsplash' ? (
 					<UnsplashUpgradePreview />
 				) : null}
-				{tab === 'uploaded' && (<div className="flex flex-col flex-1">
-				{!ready ? (
-					<div />
-				) : items.length === 0 ? (
-					<div className="flex flex-col items-center pt-[15vh] text-center">
-						<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
-							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
-								<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-								<circle cx="8.5" cy="8.5" r="1.5" />
-								<polyline points="21 15 16 10 5 21" />
-							</svg>
-						</div>
-						<h3 className="font-semibold text-text mb-1">No media files yet</h3>
-						<p className="text-sm text-text-secondary max-w-xs mb-5">
-							Upload images, videos, or files by dragging them into the drop zone or clicking Upload.
-						</p>
-						<button
-							type="button"
-							onClick={() => fileRef.current?.click()}
-							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
-						>
-							Upload Your First File
-						</button>
-					</div>
-				) : (
-					<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-						{items.map((item) => (
-							<button
-								type="button"
-								key={item.id}
-								onClick={() => setSelected(item)}
-								className={`group relative aspect-square rounded-lg overflow-hidden border transition-colors ${
-									selected?.id === item.id
-										? 'border-text'
-										: 'border-border hover:border-text-muted'
-								}`}
-							>
-								{item.type === 'image' ? (
-									<img
-										src={item.url}
-										alt={item.alt || item.filename}
-										className="w-full h-full object-cover"
-									/>
-								) : (
-									<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
-										{item.type === 'video' ? 'Video' : 'File'}
-										<br />
-										{item.filename}
-									</div>
-								)}
-								<div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
-									{item.filename}
+				{tab === 'uploaded' && (
+					<div className="flex flex-col flex-1">
+						{!ready ? (
+							<div />
+						) : items.length === 0 ? (
+							<div className="flex flex-col items-center pt-[15vh] text-center">
+								<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+									<svg
+										width="28"
+										height="28"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="1.5"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="text-text-muted"
+									>
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+										<circle cx="8.5" cy="8.5" r="1.5" />
+										<polyline points="21 15 16 10 5 21" />
+									</svg>
 								</div>
-							</button>
-						))}
+								<h3 className="font-semibold text-text mb-1">No media files yet</h3>
+								<p className="text-sm text-text-secondary max-w-xs mb-5">
+									Upload images, videos, or files by dragging them into the drop zone or clicking
+									Upload.
+								</p>
+								<button
+									type="button"
+									onClick={() => fileRef.current?.click()}
+									className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+								>
+									Upload Your First File
+								</button>
+							</div>
+						) : (
+							<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+								{items.map((item) => (
+									<button
+										type="button"
+										key={item.id}
+										onClick={() => setSelected(item)}
+										className={`group relative aspect-square rounded-lg overflow-hidden border transition-colors ${
+											selected?.id === item.id
+												? 'border-text'
+												: 'border-border hover:border-text-muted'
+										}`}
+									>
+										{item.type === 'image' ? (
+											<img
+												src={item.url}
+												alt={item.alt || item.filename}
+												className="w-full h-full object-cover"
+											/>
+										) : (
+											<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
+												{item.type === 'video' ? 'Video' : 'File'}
+												<br />
+												{item.filename}
+											</div>
+										)}
+										<div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+											{item.filename}
+										</div>
+									</button>
+								))}
+							</div>
+						)}
+
+						{/* Drop zone at bottom */}
+						<div className="mt-auto pt-4">
+							{/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop zone; keyboard users upload via the Choose Files button. */}
+							<div
+								className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex items-center justify-center"
+								onDragOver={(e) => {
+									e.preventDefault()
+									e.currentTarget.classList.add('border-text-secondary')
+								}}
+								onDragLeave={(e) => {
+									e.currentTarget.classList.remove('border-text-secondary')
+								}}
+								onDrop={(e) => {
+									e.preventDefault()
+									e.currentTarget.classList.remove('border-text-secondary')
+									if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
+								}}
+							>
+								Drop files here or click Upload
+							</div>
+						</div>
 					</div>
 				)}
-
-				{/* Drop zone at bottom */}
-				<div className="mt-auto pt-4">
-				<div
-					className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex items-center justify-center"
-					onDragOver={(e) => {
-						e.preventDefault()
-						e.currentTarget.classList.add('border-text-secondary')
-					}}
-					onDragLeave={(e) => {
-						e.currentTarget.classList.remove('border-text-secondary')
-					}}
-					onDrop={(e) => {
-						e.preventDefault()
-						e.currentTarget.classList.remove('border-text-secondary')
-						if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
-					}}
-				>
-					Drop files here or click Upload
-				</div>
-				</div>
-				</div>)}
 			</div>
 
 			{/* Detail panel */}
@@ -233,11 +250,7 @@ function MediaLibrary() {
 				<div className="w-72 border-l border-border p-6 space-y-4 overflow-auto">
 					<h3 className="font-semibold text-sm">Details</h3>
 					{selected.type === 'image' && (
-						<img
-							src={selected.url}
-							alt={selected.alt || ''}
-							className="w-full rounded"
-						/>
+						<img src={selected.url} alt={selected.alt || ''} className="w-full rounded" />
 					)}
 					<dl className="text-sm space-y-2">
 						<dt className="text-text-secondary">Filename</dt>

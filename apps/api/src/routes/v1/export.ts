@@ -1,7 +1,8 @@
 import { content } from '@innolope/db'
+import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { eq, and, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { getProject } from '../../plugins/project.js'
 
 const exportQuerySchema = z.object({
 	format: z.enum(['jsonl', 'csv']).default('jsonl'),
@@ -17,18 +18,21 @@ export async function exportRoutes(app: FastifyInstance) {
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
 		const params = exportQuerySchema.parse(request.query)
 
-		const conditions = [eq(content.projectId, request.project!.id)]
+		const conditions = [eq(content.projectId, getProject(request).id)]
 		if (params.collectionId) conditions.push(eq(content.collectionId, params.collectionId))
 		if (params.status) conditions.push(eq(content.status, params.status))
 		if (params.locale) conditions.push(eq(content.locale, params.locale))
 		if (params.startDate) conditions.push(sql`${content.createdAt} >= ${params.startDate}`)
 		if (params.endDate) conditions.push(sql`${content.createdAt} <= ${params.endDate}`)
 
-		const items = await app.db.select().from(content).where(and(...conditions))
+		const items = await app.db
+			.select()
+			.from(content)
+			.where(and(...conditions))
 
 		const fieldList = params.fields?.split(',').map((f: string) => f.trim()) || null
 
-		const filterItem = (item: typeof items[0]) => {
+		const filterItem = (item: (typeof items)[0]) => {
 			const base: Record<string, unknown> = {
 				id: item.id,
 				slug: item.slug,
@@ -64,7 +68,19 @@ export async function exportRoutes(app: FastifyInstance) {
 
 			if (items.length === 0) return ''
 
-			const headers = ['id', 'slug', 'status', 'collectionId', 'locale', 'version', 'markdown', 'createdAt', 'updatedAt', 'publishedAt', 'metadata']
+			const headers = [
+				'id',
+				'slug',
+				'status',
+				'collectionId',
+				'locale',
+				'version',
+				'markdown',
+				'createdAt',
+				'updatedAt',
+				'publishedAt',
+				'metadata',
+			]
 			const csvRows = [headers.join(',')]
 
 			for (const item of items) {

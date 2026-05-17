@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../../lib/auth'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
-import { SaveBar } from '../save-bar'
 import { Dropdown } from '../dropdown'
+import { SaveBar } from '../save-bar'
 
 interface MediaEnvConfig {
 	adapter: string
@@ -37,7 +37,7 @@ export function MediaSettings() {
 
 	useEffect(() => {
 		if (currentProject) {
-			const settings = currentProject.settings as Record<string, unknown> || {}
+			const settings = (currentProject.settings as Record<string, unknown>) || {}
 			const a = (settings.mediaAdapter as string) || 'local'
 			setAdapter(a)
 			initialAdapter.current = a
@@ -54,7 +54,8 @@ export function MediaSettings() {
 
 	// Fetch env config to know which fields are pre-configured
 	useEffect(() => {
-		api.get<MediaEnvConfig>('/api/v1/media/config')
+		api
+			.get<MediaEnvConfig>('/api/v1/media/config')
 			.then(setEnvConfig)
 			.catch(() => {})
 	}, [])
@@ -73,15 +74,18 @@ export function MediaSettings() {
 				settings: {
 					...(currentProject.settings as Record<string, unknown>),
 					mediaAdapter: adapter,
-					cloudflare: adapter === 'cloudflare' ? {
-						accountId: cfAccountId,
-						apiToken: cfApiToken,
-						imagesAccountHash: cfImagesHash,
-						r2Bucket: cfR2Bucket,
-						r2AccessKeyId: cfR2AccessKey,
-						r2SecretAccessKey: cfR2SecretKey,
-						r2Endpoint: cfR2Endpoint,
-					} : undefined,
+					cloudflare:
+						adapter === 'cloudflare'
+							? {
+									accountId: cfAccountId,
+									apiToken: cfApiToken,
+									imagesAccountHash: cfImagesHash,
+									r2Bucket: cfR2Bucket,
+									r2AccessKeyId: cfR2AccessKey,
+									r2SecretAccessKey: cfR2SecretKey,
+									r2Endpoint: cfR2Endpoint,
+								}
+							: undefined,
 				},
 			})
 			setSaved(true)
@@ -94,24 +98,25 @@ export function MediaSettings() {
 		}
 	}
 
-	const allCfEnvSet = envConfig?.env
-		&& envConfig.env.accountId
-		&& envConfig.env.apiToken
-		&& envConfig.env.imagesAccountHash
+	const allCfEnvSet =
+		envConfig?.env?.accountId && envConfig.env.apiToken && envConfig.env.imagesAccountHash
 
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Storage adapter</label>
+				<div className="block text-xs text-text-secondary mb-1.5">Storage adapter</div>
 				{adapterSetViaEnv ? (
 					<div>
-						<p className="text-sm font-medium text-text">{
-							effectiveAdapter === 'cloudflare' ? 'Cloudflare (Images + R2 + Stream)'
-								: effectiveAdapter === 's3' ? 'S3-compatible'
-								: effectiveAdapter
-						}</p>
+						<p className="text-sm font-medium text-text">
+							{effectiveAdapter === 'cloudflare'
+								? 'Cloudflare (Images + R2 + Stream)'
+								: effectiveAdapter === 's3'
+									? 'S3-compatible'
+									: effectiveAdapter}
+						</p>
 						<p className="text-xs text-text-muted mt-1">
-							Set via environment variable <code className="bg-surface-alt px-1 rounded">MEDIA_ADAPTER</code>
+							Set via environment variable{' '}
+							<code className="bg-surface-alt px-1 rounded">MEDIA_ADAPTER</code>
 						</p>
 					</div>
 				) : (
@@ -128,43 +133,101 @@ export function MediaSettings() {
 				)}
 			</div>
 
-			{effectiveAdapter === 'cloudflare' && (
-				allCfEnvSet ? (
+			{effectiveAdapter === 'cloudflare' &&
+				(allCfEnvSet ? (
 					<div className="rounded-lg bg-surface-alt border border-border p-4">
 						<div className="flex items-center gap-2 mb-2">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent"><polyline points="20 6 9 17 4 12" /></svg>
-							<p className="text-sm font-medium text-text">Cloudflare credentials configured via environment</p>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="text-accent"
+							>
+								<polyline points="20 6 9 17 4 12" />
+							</svg>
+							<p className="text-sm font-medium text-text">
+								Cloudflare credentials configured via environment
+							</p>
 						</div>
 						<p className="text-xs text-text-muted">
-							All required Cloudflare credentials are set as environment variables on the server.
-							No additional configuration is needed.
+							All required Cloudflare credentials are set as environment variables on the server. No
+							additional configuration is needed.
 						</p>
 					</div>
 				) : (
 					<div className="space-y-3 border-l-2 border-border pl-4">
-						<CfField label="Account ID" value={cfAccountId} onChange={setCfAccountId} envConfigured={envConfig?.env.accountId} />
-						<CfField label="API Token" value={cfApiToken} onChange={setCfApiToken} password envConfigured={envConfig?.env.apiToken} />
-						<CfField label="Images Account Hash" value={cfImagesHash} onChange={setCfImagesHash} envConfigured={envConfig?.env.imagesAccountHash} />
-						<CfField label="R2 Bucket" value={cfR2Bucket} onChange={setCfR2Bucket} envConfigured={envConfig?.env.r2Bucket} />
-						<CfField label="R2 Access Key ID" value={cfR2AccessKey} onChange={setCfR2AccessKey} envConfigured={envConfig?.env.r2AccessKeyId} />
-						<CfField label="R2 Secret Access Key" value={cfR2SecretKey} onChange={setCfR2SecretKey} password envConfigured={envConfig?.env.r2SecretAccessKey} />
-						<CfField label="R2 Endpoint" value={cfR2Endpoint} onChange={setCfR2Endpoint} placeholder="https://..." envConfigured={envConfig?.env.r2Endpoint} />
+						<CfField
+							label="Account ID"
+							value={cfAccountId}
+							onChange={setCfAccountId}
+							envConfigured={envConfig?.env.accountId}
+						/>
+						<CfField
+							label="API Token"
+							value={cfApiToken}
+							onChange={setCfApiToken}
+							password
+							envConfigured={envConfig?.env.apiToken}
+						/>
+						<CfField
+							label="Images Account Hash"
+							value={cfImagesHash}
+							onChange={setCfImagesHash}
+							envConfigured={envConfig?.env.imagesAccountHash}
+						/>
+						<CfField
+							label="R2 Bucket"
+							value={cfR2Bucket}
+							onChange={setCfR2Bucket}
+							envConfigured={envConfig?.env.r2Bucket}
+						/>
+						<CfField
+							label="R2 Access Key ID"
+							value={cfR2AccessKey}
+							onChange={setCfR2AccessKey}
+							envConfigured={envConfig?.env.r2AccessKeyId}
+						/>
+						<CfField
+							label="R2 Secret Access Key"
+							value={cfR2SecretKey}
+							onChange={setCfR2SecretKey}
+							password
+							envConfigured={envConfig?.env.r2SecretAccessKey}
+						/>
+						<CfField
+							label="R2 Endpoint"
+							value={cfR2Endpoint}
+							onChange={setCfR2Endpoint}
+							placeholder="https://..."
+							envConfigured={envConfig?.env.r2Endpoint}
+						/>
 					</div>
-				)
-			)}
+				))}
 
 			{effectiveAdapter === 'local' && (
-				<p className="text-xs text-text-muted">Files stored on the server filesystem. Good for development and small deployments.</p>
+				<p className="text-xs text-text-muted">
+					Files stored on the server filesystem. Good for development and small deployments.
+				</p>
 			)}
 
-			{!adapterSetViaEnv && (
-				<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
-			)}
+			{!adapterSetViaEnv && <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />}
 		</div>
 	)
 }
 
-function CfField({ label, value, onChange, password, placeholder, envConfigured }: {
+function CfField({
+	label,
+	value,
+	onChange,
+	password,
+	placeholder,
+	envConfigured,
+}: {
 	label: string
 	value: string
 	onChange: (v: string) => void
@@ -172,12 +235,23 @@ function CfField({ label, value, onChange, password, placeholder, envConfigured 
 	placeholder?: string
 	envConfigured?: boolean
 }) {
+	const fieldId = useId()
 	if (envConfigured && !value) {
 		return (
 			<div>
-				<label className="block text-xs text-text-secondary mb-1">{label}</label>
+				<div className="block text-xs text-text-secondary mb-1">{label}</div>
 				<div className="flex items-center gap-2 px-3 py-2 bg-surface-alt border border-border rounded text-sm text-text-muted">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+					<svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						className="shrink-0"
+					>
 						<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
 						<path d="M7 11V7a5 5 0 0110 0v4" />
 					</svg>
@@ -189,12 +263,15 @@ function CfField({ label, value, onChange, password, placeholder, envConfigured 
 
 	return (
 		<div>
-			<label className="block text-xs text-text-secondary mb-1">{label}</label>
+			<label htmlFor={fieldId} className="block text-xs text-text-secondary mb-1">
+				{label}
+			</label>
 			<input
+				id={fieldId}
 				type={password ? 'password' : 'text'}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				placeholder={envConfigured ? 'Override environment value...' : (placeholder || '')}
+				placeholder={envConfigured ? 'Override environment value...' : placeholder || ''}
 				className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 			/>
 			{envConfigured && value && (

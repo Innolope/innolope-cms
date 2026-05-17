@@ -41,25 +41,53 @@ export class InnolopeClient {
 		return this.request<CollectionItem>(`/api/v1/collections/${id}`)
 	}
 
-	async bulkCreateContent(items: Array<{ slug: string; collectionId: string; markdown: string; metadata?: Record<string, unknown>; locale?: string; status?: string; createdAt?: string; updatedAt?: string; publishedAt?: string }>) {
+	async bulkCreateContent(
+		items: Array<{
+			slug: string
+			collectionId: string
+			markdown: string
+			metadata?: Record<string, unknown>
+			locale?: string
+			status?: string
+			createdAt?: string
+			updatedAt?: string
+			publishedAt?: string
+		}>,
+	) {
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'POST',
 			body: JSON.stringify({ items }),
 		})
 	}
 
-	async bulkUpdateContent(items: Array<{ id: string; slug?: string; markdown?: string; metadata?: Record<string, unknown>; status?: string }>) {
+	async bulkUpdateContent(
+		items: Array<{
+			id: string
+			slug?: string
+			markdown?: string
+			metadata?: Record<string, unknown>
+			status?: string
+		}>,
+	) {
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'PUT',
 			body: JSON.stringify({ items }),
 		})
 	}
 
-	async queryByFields(collectionId: string, filters: Record<string, unknown>, page?: number, limit?: number) {
-		return this.request<{ data: ContentItem[]; pagination: Pagination }>('/api/v1/content/query-by-fields', {
-			method: 'POST',
-			body: JSON.stringify({ collectionId, filters, page, limit }),
-		})
+	async queryByFields(
+		collectionId: string,
+		filters: Record<string, unknown>,
+		page?: number,
+		limit?: number,
+	) {
+		return this.request<{ data: ContentItem[]; pagination: Pagination }>(
+			'/api/v1/content/query-by-fields',
+			{
+				method: 'POST',
+				body: JSON.stringify({ collectionId, filters, page, limit }),
+			},
+		)
 	}
 
 	async listContent(params?: {
@@ -105,7 +133,12 @@ export class InnolopeClient {
 
 	async updateContent(
 		id: string,
-		input: { slug?: string; markdown?: string; metadata?: Record<string, unknown>; status?: string },
+		input: {
+			slug?: string
+			markdown?: string
+			metadata?: Record<string, unknown>
+			status?: string
+		},
 	) {
 		return this.request<ContentItem>(`/api/v1/content/${id}`, {
 			method: 'PUT',
@@ -128,9 +161,22 @@ export class InnolopeClient {
 		})
 	}
 
-	async semanticSearch(params: { query: string; threshold?: number; limit?: number; collectionId?: string; hybrid?: boolean }) {
+	async semanticSearch(params: {
+		query: string
+		threshold?: number
+		limit?: number
+		collectionId?: string
+		hybrid?: boolean
+	}) {
 		return this.request<{
-			data: Array<{ contentId: string; slug: string; title: string; status: string; similarity: number; matchedChunk: string }>
+			data: Array<{
+				contentId: string
+				slug: string
+				title: string
+				status: string
+				similarity: number
+				matchedChunk: string
+			}>
 			query: string
 		}>('/api/v1/content/semantic-search', {
 			method: 'POST',
@@ -152,7 +198,9 @@ export class InnolopeClient {
 		}
 		if (this.projectId) headers['X-Project-Id'] = this.projectId
 
-		const response = await fetch(`${this.baseUrl}/api/v1/content/export${qs ? `?${qs}` : ''}`, { headers })
+		const response = await fetch(`${this.baseUrl}/api/v1/content/export${qs ? `?${qs}` : ''}`, {
+			headers,
+		})
 		if (!response.ok) {
 			const err = await response.json().catch(() => ({ error: response.statusText }))
 			throw new Error(`API error ${response.status}: ${(err as { error: string }).error}`)
@@ -160,7 +208,12 @@ export class InnolopeClient {
 		return response.text()
 	}
 
-	async trackAnalytics(data: { contentId?: string; event: string; query?: string; source: string }) {
+	async trackAnalytics(data: {
+		contentId?: string
+		event: string
+		query?: string
+		source: string
+	}) {
 		return this.request<void>('/api/v1/stats/track', {
 			method: 'POST',
 			body: JSON.stringify(data),
@@ -168,7 +221,13 @@ export class InnolopeClient {
 	}
 
 	/** Report MCP tool invocation to the API for PostHog tracking */
-	trackToolCall(data: { tool: string; durationMs: number; success: boolean; error?: string; params?: Record<string, unknown> }) {
+	trackToolCall(data: {
+		tool: string
+		durationMs: number
+		success: boolean
+		error?: string
+		params?: Record<string, unknown>
+	}) {
 		this.request<void>('/api/v1/stats/mcp-usage', {
 			method: 'POST',
 			body: JSON.stringify(data),
@@ -196,7 +255,13 @@ interface CollectionItem {
 	label: string
 	name: string
 	description: string | null
-	fields: Array<{ name: string; type: string; required?: boolean; localized?: boolean; options?: string[] }>
+	fields: Array<{
+		name: string
+		type: string
+		required?: boolean
+		localized?: boolean
+		options?: string[]
+	}>
 }
 
 interface Pagination {

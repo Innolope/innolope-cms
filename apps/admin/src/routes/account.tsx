@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { hasFeature, useLicense } from '../components/license-gate'
+import { SaveBar } from '../components/save-bar'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
-import { SaveBar } from '../components/save-bar'
-import { hasFeature, useLicense } from '../components/license-gate'
 
 export const Route = createFileRoute('/account')({
 	component: AccountSettings,
@@ -57,10 +57,18 @@ function AccountSettings() {
 			</div>
 
 			<div className="max-w-xl">
-				<div className={tab === 'profile' ? '' : 'hidden'}><ProfileSettings /></div>
-				<div className={tab === 'password' ? '' : 'hidden'}><PasswordSettings /></div>
-				<div className={tab === 'sso' ? '' : 'hidden'}><SsoIdentitiesSettings /></div>
-				<div className={tab === 'appearance' ? '' : 'hidden'}><AppearanceSettings /></div>
+				<div className={tab === 'profile' ? '' : 'hidden'}>
+					<ProfileSettings />
+				</div>
+				<div className={tab === 'password' ? '' : 'hidden'}>
+					<PasswordSettings />
+				</div>
+				<div className={tab === 'sso' ? '' : 'hidden'}>
+					<SsoIdentitiesSettings />
+				</div>
+				<div className={tab === 'appearance' ? '' : 'hidden'}>
+					<AppearanceSettings />
+				</div>
 			</div>
 		</div>
 	)
@@ -81,7 +89,9 @@ interface LinkedIdentity {
 function SsoIdentitiesSettings() {
 	const [items, setItems] = useState<LinkedIdentity[]>([])
 	const [loading, setLoading] = useState(true)
-	const [availableConnections, setAvailableConnections] = useState<Array<{ id: string; slug: string; name: string; protocol: string }>>([])
+	const [availableConnections, setAvailableConnections] = useState<
+		Array<{ id: string; slug: string; name: string; protocol: string }>
+	>([])
 
 	const refresh = useCallback(async () => {
 		try {
@@ -91,7 +101,9 @@ function SsoIdentitiesSettings() {
 			// license disabled → ignore
 		}
 		try {
-			const conns = await api.get<Array<{ id: string; slug: string; name: string; protocol: string }>>('/api/v1/ee/sso/connections')
+			const conns = await api.get<
+				Array<{ id: string; slug: string; name: string; protocol: string }>
+			>('/api/v1/ee/sso/connections')
 			setAvailableConnections(conns)
 		} catch {
 			setAvailableConnections([])
@@ -135,12 +147,22 @@ function SsoIdentitiesSettings() {
 			) : (
 				<div className="space-y-2">
 					{items.map((i) => (
-						<div key={i.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt">
+						<div
+							key={i.id}
+							className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
+						>
 							<div className="min-w-0">
-								<p className="text-sm">{i.connectionName ?? 'Unknown'} <span className="text-xs uppercase text-text-muted ml-2">{i.provider}</span></p>
-								<p className="text-xs text-text-muted truncate">{i.email ?? '(no email in profile)'}</p>
+								<p className="text-sm">
+									{i.connectionName ?? 'Unknown'}{' '}
+									<span className="text-xs uppercase text-text-muted ml-2">{i.provider}</span>
+								</p>
+								<p className="text-xs text-text-muted truncate">
+									{i.email ?? '(no email in profile)'}
+								</p>
 								{i.lastLoginAt && (
-									<p className="text-xs text-text-muted">Last sign-in: {new Date(i.lastLoginAt).toLocaleString()}</p>
+									<p className="text-xs text-text-muted">
+										Last sign-in: {new Date(i.lastLoginAt).toLocaleString()}
+									</p>
 								)}
 							</div>
 							<button
@@ -166,7 +188,10 @@ function SsoIdentitiesSettings() {
 								onClick={() => link(c.slug)}
 								className="w-full flex items-center justify-between px-3 py-2 border border-border rounded-lg hover:bg-surface-alt text-sm"
 							>
-								<span>{c.name} <span className="text-xs uppercase text-text-muted ml-2">{c.protocol}</span></span>
+								<span>
+									{c.name}{' '}
+									<span className="text-xs uppercase text-text-muted ml-2">{c.protocol}</span>
+								</span>
 								<span className="text-xs text-text-muted">Link →</span>
 							</button>
 						))}
@@ -195,7 +220,7 @@ function ProfileSettings() {
 			initialRef.current = { name, email }
 			setSaved(true)
 			setTimeout(() => setSaved(false), 2000)
-		} catch (err) {
+		} catch (_err) {
 			// handled by toast if needed
 		} finally {
 			setSaving(false)
@@ -205,8 +230,11 @@ function ProfileSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Name</label>
+				<label htmlFor="acc-name" className="block text-xs text-text-secondary mb-1.5">
+					Name
+				</label>
 				<input
+					id="acc-name"
 					type="text"
 					value={name}
 					onChange={(e) => setName(e.target.value)}
@@ -214,18 +242,27 @@ function ProfileSettings() {
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Email</label>
+				<label htmlFor="acc-email" className="block text-xs text-text-secondary mb-1.5">
+					Email
+				</label>
 				<input
+					id="acc-email"
 					type="email"
 					value={email}
 					onChange={(e) => setEmail(e.target.value)}
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
 			</div>
-			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
-				setName(initialRef.current.name)
-				setEmail(initialRef.current.email)
-			}} />
+			<SaveBar
+				dirty={dirty}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				onReset={() => {
+					setName(initialRef.current.name)
+					setEmail(initialRef.current.email)
+				}}
+			/>
 		</div>
 	)
 }
@@ -239,7 +276,8 @@ function PasswordSettings() {
 	const [error, setError] = useState('')
 
 	const dirty = currentPassword.length > 0 || newPassword.length > 0 || confirmPassword.length > 0
-	const valid = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword
+	const valid =
+		currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword
 
 	const save = async () => {
 		setError('')
@@ -268,8 +306,11 @@ function PasswordSettings() {
 	return (
 		<div className="space-y-4">
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Current password</label>
+				<label htmlFor="acc-current-password" className="block text-xs text-text-secondary mb-1.5">
+					Current password
+				</label>
 				<input
+					id="acc-current-password"
 					type="password"
 					value={currentPassword}
 					onChange={(e) => setCurrentPassword(e.target.value)}
@@ -277,8 +318,11 @@ function PasswordSettings() {
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">New password</label>
+				<label htmlFor="acc-new-password" className="block text-xs text-text-secondary mb-1.5">
+					New password
+				</label>
 				<input
+					id="acc-new-password"
 					type="password"
 					value={newPassword}
 					onChange={(e) => setNewPassword(e.target.value)}
@@ -286,8 +330,11 @@ function PasswordSettings() {
 				/>
 			</div>
 			<div>
-				<label className="block text-xs text-text-secondary mb-1.5">Confirm new password</label>
+				<label htmlFor="acc-confirm-password" className="block text-xs text-text-secondary mb-1.5">
+					Confirm new password
+				</label>
 				<input
+					id="acc-confirm-password"
 					type="password"
 					value={confirmPassword}
 					onChange={(e) => setConfirmPassword(e.target.value)}
@@ -295,12 +342,19 @@ function PasswordSettings() {
 				/>
 			</div>
 			{error && <p className="text-sm text-danger">{error}</p>}
-			<SaveBar dirty={dirty && valid} saving={saving} saved={saved} onSave={save} saveLabel="Change Password" onReset={() => {
-				setCurrentPassword('')
-				setNewPassword('')
-				setConfirmPassword('')
-				setError('')
-			}} />
+			<SaveBar
+				dirty={dirty && valid}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				saveLabel="Change Password"
+				onReset={() => {
+					setCurrentPassword('')
+					setNewPassword('')
+					setConfirmPassword('')
+					setError('')
+				}}
+			/>
 		</div>
 	)
 }
@@ -310,7 +364,7 @@ function AppearanceSettings() {
 
 	return (
 		<div className="space-y-3">
-			<label className="block text-xs text-text-secondary mb-1.5">Theme</label>
+			<div className="block text-xs text-text-secondary mb-1.5">Theme</div>
 			<div className="flex gap-2 max-w-sm">
 				{(['light', 'dark', 'system'] as const).map((t) => (
 					<button

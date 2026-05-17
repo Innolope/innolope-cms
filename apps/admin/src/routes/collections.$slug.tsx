@@ -1,14 +1,14 @@
 import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import { api } from '../lib/api-client'
-import { useCollections, type CollectionWithCount } from '../lib/collections'
-import { useLicense, hasFeature, ProBadge, UpgradePrompt } from '../components/license-gate'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
-import { useUrlFilters, type FilterMap } from '../lib/use-url-filters'
-import { useColumnConfig } from '../lib/use-column-config'
-import { relativeTime, absoluteDate } from '../lib/relative-time'
+import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
+import { api } from '../lib/api-client'
+import { type CollectionWithCount, useCollections } from '../lib/collections'
+import { absoluteDate, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
+import { useColumnConfig } from '../lib/use-column-config'
+import { type FilterMap, useUrlFilters } from '../lib/use-url-filters'
 
 export const Route = createFileRoute('/collections/$slug')({
 	component: CollectionLayout,
@@ -125,9 +125,11 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 				return (
 					<span
 						className={neverEdited ? 'text-text-muted italic' : 'text-text-secondary'}
-						title={neverEdited
-							? `Imported ${absoluteDate(item.updatedAt)} — never edited`
-							: absoluteDate(item.updatedAt)}
+						title={
+							neverEdited
+								? `Imported ${absoluteDate(item.updatedAt)} — never edited`
+								: absoluteDate(item.updatedAt)
+						}
 					>
 						{relativeTime(item.updatedAt)}
 					</span>
@@ -167,10 +169,14 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 }
 
 function renderMetadataValue(value: unknown): ReactNode {
-	if (value === null || value === undefined || value === '') return <span className="text-text-muted">—</span>
-	if (typeof value === 'boolean') return <span className="text-text-secondary">{value ? '✓' : '—'}</span>
-	if (Array.isArray(value)) return <span className="text-text-secondary text-xs">{value.join(', ')}</span>
-	if (typeof value === 'object') return <span className="text-text-muted text-xs italic">[object]</span>
+	if (value === null || value === undefined || value === '')
+		return <span className="text-text-muted">—</span>
+	if (typeof value === 'boolean')
+		return <span className="text-text-secondary">{value ? '✓' : '—'}</span>
+	if (Array.isArray(value))
+		return <span className="text-text-secondary text-xs">{value.join(', ')}</span>
+	if (typeof value === 'object')
+		return <span className="text-text-muted text-xs italic">[object]</span>
 	return <span className="text-text-secondary">{String(value)}</span>
 }
 
@@ -283,9 +289,10 @@ function CollectionContentList() {
 	})
 
 	const visibleColumns: ColumnDescriptor[] = useMemo(
-		() => columnConfig.visible
-			.map((id) => allColumns.find((c) => c.id === id))
-			.filter((c): c is ColumnDescriptor => Boolean(c)),
+		() =>
+			columnConfig.visible
+				.map((id) => allColumns.find((c) => c.id === id))
+				.filter((c): c is ColumnDescriptor => Boolean(c)),
 		[columnConfig.visible, allColumns],
 	)
 
@@ -296,7 +303,7 @@ function CollectionContentList() {
 
 	const [reviewItems, setReviewItems] = useState<ContentItem[]>([])
 	const [reviewTotal, setReviewTotal] = useState(0)
-	const [reviewPage, setReviewPage] = useState(1)
+	const [reviewPage, _setReviewPage] = useState(1)
 	const [reviewLoading, setReviewLoading] = useState(false)
 
 	const filterQuery = useMemo(() => filtersToQueryParams(filters).toString(), [filters])
@@ -312,7 +319,8 @@ function CollectionContentList() {
 		// Merge active filters
 		for (const [k, v] of new URLSearchParams(filterQuery)) params.set(k, v)
 
-		api.get<ContentResponse>(`/api/v1/content?${params}`)
+		api
+			.get<ContentResponse>(`/api/v1/content?${params}`)
 			.then((res) => {
 				setItems(res.data)
 				setTotal(res.pagination.total)
@@ -329,7 +337,10 @@ function CollectionContentList() {
 	const fetchReviewQueue = useCallback(() => {
 		if (!collection) return
 		setReviewLoading(true)
-		api.get<{ data: ContentItem[]; pagination: { total: number } }>(`/api/v1/content/review-queue?page=${reviewPage}&limit=25&collectionId=${collection.id}`)
+		api
+			.get<{ data: ContentItem[]; pagination: { total: number } }>(
+				`/api/v1/content/review-queue?page=${reviewPage}&limit=25&collectionId=${collection.id}`,
+			)
 			.then((res) => {
 				setReviewItems(res.data)
 				setReviewTotal(res.pagination.total)
@@ -357,7 +368,9 @@ function CollectionContentList() {
 		if (!collection || collection.source !== 'external') return
 		setPreviewLoading(true)
 		try {
-			const preview = await api.get<SyncPreview>(`/api/v1/collections/${collection.id}/sync-preview`)
+			const preview = await api.get<SyncPreview>(
+				`/api/v1/collections/${collection.id}/sync-preview`,
+			)
 			if (preview.total === 0) {
 				toast('No external discrepancies found', 'success')
 			} else {
@@ -374,8 +387,14 @@ function CollectionContentList() {
 		if (!collection || collection.source !== 'external') return
 		setSyncing(true)
 		try {
-			const result = await api.post<{ created: number; updated: number }>(`/api/v1/collections/${collection.id}/sync`, {})
-			toast(`Synced ${result.updated} updated and ${result.created} new item${result.created === 1 ? '' : 's'}`, 'success')
+			const result = await api.post<{ created: number; updated: number }>(
+				`/api/v1/collections/${collection.id}/sync`,
+				{},
+			)
+			toast(
+				`Synced ${result.updated} updated and ${result.created} new item${result.created === 1 ? '' : 's'}`,
+				'success',
+			)
 			setSyncPreview(null)
 			fetchContent()
 		} catch (err) {
@@ -405,7 +424,9 @@ function CollectionContentList() {
 							type="button"
 							onClick={() => setTab('all')}
 							className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-								tab === 'all' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
+								tab === 'all'
+									? 'bg-surface-alt text-text'
+									: 'text-text-secondary hover:text-text-muted'
 							}`}
 						>
 							All
@@ -414,12 +435,16 @@ function CollectionContentList() {
 							type="button"
 							onClick={() => setTab('review')}
 							className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${
-								tab === 'review' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'
+								tab === 'review'
+									? 'bg-surface-alt text-text'
+									: 'text-text-secondary hover:text-text-muted'
 							}`}
 						>
 							Review
 							{showReviewQueue && reviewTotal > 0 && (
-								<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">{reviewTotal}</span>
+								<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">
+									{reviewTotal}
+								</span>
 							)}
 							{!showReviewQueue && <ProBadge />}
 						</button>
@@ -445,7 +470,8 @@ function CollectionContentList() {
 					</Link>
 					{showToolbar && (
 						<Link
-							to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
+							to="/collections/$slug/$contentId"
+							params={{ slug, contentId: 'new' }}
 							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 						>
 							New {collection.label.replace(/s$/, '')}
@@ -458,10 +484,23 @@ function CollectionContentList() {
 				<>
 					{isLive && (
 						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-text-muted"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>
+							<svg
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="mt-0.5 shrink-0 text-text-muted"
+							>
+								<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+							</svg>
 							<span>
-								Showing live data from the external database — this collection is too large to cache automatically.
-								Search, filtering, sorting, and editing require syncing the collection first.
+								Showing live data from the external database — this collection is too large to cache
+								automatically. Search, filtering, sorting, and editing require syncing the
+								collection first.
 							</span>
 						</div>
 					)}
@@ -472,7 +511,10 @@ function CollectionContentList() {
 									type="text"
 									placeholder="Search..."
 									value={search}
-									onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+									onChange={(e) => {
+										setSearch(e.target.value)
+										setPage(1)
+									}}
 									className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 								/>
 								<ColumnConfig
@@ -487,22 +529,44 @@ function CollectionContentList() {
 							<FilterBar
 								available={allFilters}
 								filters={filters}
-								onChange={(id, value) => { setFilter(id, value); setPage(1) }}
-								onClearAll={() => { clearAll(); setPage(1) }}
+								onChange={(id, value) => {
+									setFilter(id, value)
+									setPage(1)
+								}}
+								onClearAll={() => {
+									clearAll()
+									setPage(1)
+								}}
 							/>
 						</div>
 					)}
 
-					<div className={total > 0 || search || hasActiveFilters ? 'rounded-lg border border-border' : ''}>
+					<div
+						className={
+							total > 0 || search || hasActiveFilters ? 'rounded-lg border border-border' : ''
+						}
+					>
 						{!ready ? (
 							<div className="p-8" />
 						) : items.length === 0 ? (
 							search || hasActiveFilters ? (
-								<div className="p-8 text-center text-text-secondary text-sm">No content matches your filters.</div>
+								<div className="p-8 text-center text-text-secondary text-sm">
+									No content matches your filters.
+								</div>
 							) : (
 								<div className="flex flex-col items-center pt-[15vh] text-center">
 									<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
-										<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+										<svg
+											width="28"
+											height="28"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="1.5"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											className="text-text-muted"
+										>
 											<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
 											<polyline points="14 2 14 8 20 8" />
 											<line x1="16" y1="13" x2="8" y2="13" />
@@ -514,7 +578,8 @@ function CollectionContentList() {
 										Create your first {collection.label.toLowerCase()} entry.
 									</p>
 									<Link
-										to="/collections/$slug/$contentId" params={{ slug, contentId: 'new' }}
+										to="/collections/$slug/$contentId"
+										params={{ slug, contentId: 'new' }}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
 										Create {collection.label.replace(/s$/, '')}
@@ -526,13 +591,18 @@ function CollectionContentList() {
 								<thead>
 									<tr className="text-left text-text-secondary border-b border-border">
 										{visibleColumns.map((col) => (
-											<th key={col.id} className="px-4 py-3 font-medium">{col.label}</th>
+											<th key={col.id} className="px-4 py-3 font-medium">
+												{col.label}
+											</th>
 										))}
 									</tr>
 								</thead>
 								<tbody>
 									{items.map((item) => (
-										<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
+										<tr
+											key={item.id}
+											className="border-b border-border hover:bg-surface-alt transition-colors"
+										>
 											{visibleColumns.map((col) => (
 												<td key={col.id} className="px-4 py-3">
 													{col.render(item, { slug })}
@@ -547,10 +617,26 @@ function CollectionContentList() {
 
 					{total > 25 && (
 						<div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
-							<span>{total} items — page {page}</span>
+							<span>
+								{total} items — page {page}
+							</span>
 							<div className="flex gap-2">
-								<button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30">Previous</button>
-								<button type="button" onClick={() => setPage((p) => p + 1)} disabled={items.length < 25} className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30">Next</button>
+								<button
+									type="button"
+									onClick={() => setPage((p) => Math.max(1, p - 1))}
+									disabled={page === 1}
+									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
+								>
+									Previous
+								</button>
+								<button
+									type="button"
+									onClick={() => setPage((p) => p + 1)}
+									disabled={items.length < 25}
+									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
+								>
+									Next
+								</button>
 							</div>
 						</div>
 					)}
@@ -562,7 +648,9 @@ function CollectionContentList() {
 					{reviewLoading ? (
 						<div className="p-8" />
 					) : reviewItems.length === 0 ? (
-						<div className="p-8 text-center text-text-secondary text-sm">No content pending review.</div>
+						<div className="p-8 text-center text-text-secondary text-sm">
+							No content pending review.
+						</div>
 					) : (
 						<table className="w-full text-sm">
 							<thead>
@@ -575,18 +663,42 @@ function CollectionContentList() {
 							</thead>
 							<tbody>
 								{reviewItems.map((item) => (
-									<tr key={item.id} className="border-b border-border hover:bg-surface-alt transition-colors">
+									<tr
+										key={item.id}
+										className="border-b border-border hover:bg-surface-alt transition-colors"
+									>
 										<td className="px-4 py-3">
-											<Link to="/collections/$slug/$contentId" params={{ slug, contentId: item.id }} className="hover:text-text transition-colors">
+											<Link
+												to="/collections/$slug/$contentId"
+												params={{ slug, contentId: item.id }}
+												className="hover:text-text transition-colors"
+											>
 												{(item.metadata?.title as string) || item.slug}
 											</Link>
 										</td>
 										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
-										<td className="px-4 py-3 text-text-secondary" title={absoluteDate(item.updatedAt)}>{relativeTime(item.updatedAt)}</td>
+										<td
+											className="px-4 py-3 text-text-secondary"
+											title={absoluteDate(item.updatedAt)}
+										>
+											{relativeTime(item.updatedAt)}
+										</td>
 										<td className="px-4 py-3 text-right">
 											<div className="flex gap-2 justify-end">
-												<button type="button" onClick={() => approveItem(item.id)} className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover">Approve</button>
-												<button type="button" onClick={() => rejectItem(item.id)} className="px-3 py-1 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover">Reject</button>
+												<button
+													type="button"
+													onClick={() => approveItem(item.id)}
+													className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
+												>
+													Approve
+												</button>
+												<button
+													type="button"
+													onClick={() => rejectItem(item.id)}
+													className="px-3 py-1 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover"
+												>
+													Reject
+												</button>
 											</div>
 										</td>
 									</tr>
@@ -625,7 +737,8 @@ function SyncPreviewDialog({
 				<div className="p-5 border-b border-border">
 					<h3 className="text-lg font-semibold text-text">External changes found</h3>
 					<p className="mt-1 text-sm text-text-secondary">
-						Sync will overwrite the local CMS cache with the external database values. A copy of each overwritten local version will be saved in version history.
+						Sync will overwrite the local CMS cache with the external database values. A copy of
+						each overwritten local version will be saved in version history.
 					</p>
 				</div>
 				<div className="overflow-auto p-5 space-y-4">
@@ -640,27 +753,45 @@ function SyncPreviewDialog({
 							</div>
 							<div className="divide-y divide-border">
 								{item.changes.slice(0, 6).map((change) => (
-									<div key={change.field} className="grid grid-cols-[160px_1fr_1fr] gap-3 p-3 text-xs">
+									<div
+										key={change.field}
+										className="grid grid-cols-[160px_1fr_1fr] gap-3 p-3 text-xs"
+									>
 										<div className="font-mono text-text-secondary">{change.field}</div>
 										<DiffValue label="Local" value={change.local} />
 										<DiffValue label="External" value={change.external} />
 									</div>
 								))}
 								{item.changes.length > 6 && (
-									<div className="px-3 py-2 text-xs text-text-muted">+{item.changes.length - 6} more changed fields</div>
+									<div className="px-3 py-2 text-xs text-text-muted">
+										+{item.changes.length - 6} more changed fields
+									</div>
 								)}
 							</div>
 						</div>
 					))}
 					{preview.total > preview.discrepancies.length && (
-						<p className="text-xs text-text-muted">Showing {preview.discrepancies.length} of {preview.total} discrepanc{preview.total === 1 ? 'y' : 'ies'}.</p>
+						<p className="text-xs text-text-muted">
+							Showing {preview.discrepancies.length} of {preview.total} discrepanc
+							{preview.total === 1 ? 'y' : 'ies'}.
+						</p>
 					)}
 				</div>
 				<div className="p-4 border-t border-border flex items-center justify-end gap-2">
-					<button type="button" onClick={onCancel} disabled={syncing} className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50">
+					<button
+						type="button"
+						onClick={onCancel}
+						disabled={syncing}
+						className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50"
+					>
 						Cancel
 					</button>
-					<button type="button" onClick={onConfirm} disabled={syncing} className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">
+					<button
+						type="button"
+						onClick={onConfirm}
+						disabled={syncing}
+						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+					>
 						{syncing ? 'Syncing...' : 'Overwrite local cache'}
 					</button>
 				</div>

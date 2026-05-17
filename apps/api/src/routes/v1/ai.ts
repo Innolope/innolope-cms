@@ -1,7 +1,8 @@
 import { aiSettings } from '@innolope/db'
-import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
-import { complete, AI_MODELS, type AiProviderConfig } from '../../services/ai.js'
+import type { FastifyInstance } from 'fastify'
+import { getProject } from '../../plugins/project.js'
+import { AI_MODELS, type AiProviderConfig, complete } from '../../services/ai.js'
 
 export async function aiRoutes(app: FastifyInstance) {
 	const CLOUD_MODE = !!process.env.CLOUD_MODE
@@ -11,7 +12,7 @@ export async function aiRoutes(app: FastifyInstance) {
 		const [settings] = await app.db
 			.select()
 			.from(aiSettings)
-			.where(eq(aiSettings.projectId, request.project!.id))
+			.where(eq(aiSettings.projectId, getProject(request).id))
 			.limit(1)
 
 		// List available models based on connected providers
@@ -53,7 +54,7 @@ export async function aiRoutes(app: FastifyInstance) {
 		const existing = await app.db
 			.select()
 			.from(aiSettings)
-			.where(eq(aiSettings.projectId, request.project!.id))
+			.where(eq(aiSettings.projectId, getProject(request).id))
 			.limit(1)
 
 		const updates: Record<string, unknown> = { updatedAt: new Date() }
@@ -64,7 +65,7 @@ export async function aiRoutes(app: FastifyInstance) {
 			const [updated] = await app.db
 				.update(aiSettings)
 				.set(updates)
-				.where(eq(aiSettings.projectId, request.project!.id))
+				.where(eq(aiSettings.projectId, getProject(request).id))
 				.returning()
 			return updated
 		}
@@ -72,7 +73,7 @@ export async function aiRoutes(app: FastifyInstance) {
 		const [created] = await app.db
 			.insert(aiSettings)
 			.values({
-				projectId: request.project!.id,
+				projectId: getProject(request).id,
 				defaultModel: defaultModel || 'gemini-3.1-flash-lite',
 				providers: providers || [],
 			})
@@ -81,99 +82,112 @@ export async function aiRoutes(app: FastifyInstance) {
 	})
 
 	// AI completion (editor+, project-scoped)
-	app.post('/complete', { preHandler: [app.requireProject('editor'), app.requireLicense('ai-assistant')] }, async (request, reply) => {
-		const { prompt, field, selectedText, action, model: requestedModel } = request.body as {
-			prompt?: string
-			field: string
-			selectedText?: string
-			action?: 'rewrite' | 'shorter' | 'longer' | 'fix-grammar' | 'translate' | 'seo' | 'custom'
-			model?: string
-		}
-
-		// Get project AI settings
-		const [settings] = await app.db
-			.select()
-			.from(aiSettings)
-			.where(eq(aiSettings.projectId, request.project!.id))
-			.limit(1)
-
-		const modelKey = requestedModel || settings?.defaultModel || 'gemini-3.1-flash-lite'
-		const providers = (settings?.providers || []) as AiProviderConfig[]
-
-		// Build prompt based on action
-		const systemPrompt = `You are an AI writing assistant for a CMS. You help edit and improve content. Respond with ONLY the improved text — no explanations, no markdown code fences, no meta-commentary. Match the formatting style of the input.`
-
-		let userPrompt: string
-		if (prompt) {
-			userPrompt = prompt
-			if (selectedText) {
-				userPrompt += `\n\nText to work with:\n${selectedText}`
-			}
-		} else {
-			const text = selectedText || ''
-			switch (action) {
-				case 'rewrite':
-					userPrompt = `Rewrite the following text to be clearer and more engaging. Keep the same meaning and tone.\n\n${text}`
-					break
-				case 'shorter':
-					userPrompt = `Make the following text more concise. Remove unnecessary words while keeping all key information.\n\n${text}`
-					break
-				case 'longer':
-					userPrompt = `Expand the following text with more detail and depth. Keep the same style.\n\n${text}`
-					break
-				case 'fix-grammar':
-					userPrompt = `Fix any grammar, spelling, or punctuation errors in the following text. Make minimal changes.\n\n${text}`
-					break
-				case 'translate':
-					userPrompt = `Translate the following text to English. If already in English, translate to the most likely target language based on context.\n\n${text}`
-					break
-				case 'seo':
-					userPrompt = `Optimize the following text for SEO. Improve readability, add relevant keywords naturally, and make it more engaging for search.\n\n${text}`
-					break
-				default:
-					userPrompt = text
-			}
-
-			if (field) {
-				userPrompt = `[Editing the "${field}" field]\n\n${userPrompt}`
-			}
-		}
-
-		try {
-			const result = await complete(
-				{ model: modelKey, prompt: userPrompt, systemPrompt, maxTokens: 4096 },
-				providers,
-				CLOUD_MODE,
-			)
-			return {
-				text: result.text,
+	app.post(
+		'/complete',
+		{ preHandler: [app.requireProject('editor'), app.requireLicense('ai-assistant')] },
+		async (request, reply) => {
+			const {
+				prompt,
 				field,
-				model: result.model,
-				provider: result.provider,
-				tokensUsed: result.tokensUsed,
+				selectedText,
+				action,
+				model: requestedModel,
+			} = request.body as {
+				prompt?: string
+				field: string
+				selectedText?: string
+				action?: 'rewrite' | 'shorter' | 'longer' | 'fix-grammar' | 'translate' | 'seo' | 'custom'
+				model?: string
 			}
-		} catch (err) {
-			return reply.status(502).send({
-				error: err instanceof Error ? err.message : 'AI completion failed',
-			})
-		}
-	})
+
+			// Get project AI settings
+			const [settings] = await app.db
+				.select()
+				.from(aiSettings)
+				.where(eq(aiSettings.projectId, getProject(request).id))
+				.limit(1)
+
+			const modelKey = requestedModel || settings?.defaultModel || 'gemini-3.1-flash-lite'
+			const providers = (settings?.providers || []) as AiProviderConfig[]
+
+			// Build prompt based on action
+			const systemPrompt = `You are an AI writing assistant for a CMS. You help edit and improve content. Respond with ONLY the improved text — no explanations, no markdown code fences, no meta-commentary. Match the formatting style of the input.`
+
+			let userPrompt: string
+			if (prompt) {
+				userPrompt = prompt
+				if (selectedText) {
+					userPrompt += `\n\nText to work with:\n${selectedText}`
+				}
+			} else {
+				const text = selectedText || ''
+				switch (action) {
+					case 'rewrite':
+						userPrompt = `Rewrite the following text to be clearer and more engaging. Keep the same meaning and tone.\n\n${text}`
+						break
+					case 'shorter':
+						userPrompt = `Make the following text more concise. Remove unnecessary words while keeping all key information.\n\n${text}`
+						break
+					case 'longer':
+						userPrompt = `Expand the following text with more detail and depth. Keep the same style.\n\n${text}`
+						break
+					case 'fix-grammar':
+						userPrompt = `Fix any grammar, spelling, or punctuation errors in the following text. Make minimal changes.\n\n${text}`
+						break
+					case 'translate':
+						userPrompt = `Translate the following text to English. If already in English, translate to the most likely target language based on context.\n\n${text}`
+						break
+					case 'seo':
+						userPrompt = `Optimize the following text for SEO. Improve readability, add relevant keywords naturally, and make it more engaging for search.\n\n${text}`
+						break
+					default:
+						userPrompt = text
+				}
+
+				if (field) {
+					userPrompt = `[Editing the "${field}" field]\n\n${userPrompt}`
+				}
+			}
+
+			try {
+				const result = await complete(
+					{ model: modelKey, prompt: userPrompt, systemPrompt, maxTokens: 4096 },
+					providers,
+					CLOUD_MODE,
+				)
+				return {
+					text: result.text,
+					field,
+					model: result.model,
+					provider: result.provider,
+					tokensUsed: result.tokensUsed,
+				}
+			} catch (err) {
+				return reply.status(502).send({
+					error: err instanceof Error ? err.message : 'AI completion failed',
+				})
+			}
+		},
+	)
 
 	// Generate collection schema from description (admin+, project-scoped)
-	app.post('/generate-schema', { preHandler: [app.requireProject('admin'), app.requireLicense('ai-assistant')] }, async (request, reply) => {
-		const { description } = request.body as { description: string }
-		if (!description?.trim()) return reply.status(400).send({ error: 'Description is required' })
+	app.post(
+		'/generate-schema',
+		{ preHandler: [app.requireProject('admin'), app.requireLicense('ai-assistant')] },
+		async (request, reply) => {
+			const { description } = request.body as { description: string }
+			if (!description?.trim()) return reply.status(400).send({ error: 'Description is required' })
 
-		const [settings] = await app.db
-			.select()
-			.from(aiSettings)
-			.where(eq(aiSettings.projectId, request.project!.id))
-			.limit(1)
+			const [settings] = await app.db
+				.select()
+				.from(aiSettings)
+				.where(eq(aiSettings.projectId, getProject(request).id))
+				.limit(1)
 
-		const modelKey = settings?.defaultModel || 'gemini-3.1-flash-lite'
-		const providers = (settings?.providers || []) as AiProviderConfig[]
+			const modelKey = settings?.defaultModel || 'gemini-3.1-flash-lite'
+			const providers = (settings?.providers || []) as AiProviderConfig[]
 
-		const systemPrompt = `You are a CMS schema generator. Given a description of a content collection, output a JSON array of field definitions.
+			const systemPrompt = `You are a CMS schema generator. Given a description of a content collection, output a JSON array of field definitions.
 
 Each field object must have:
 - "name": camelCase string (e.g. "publishDate", "metaTitle")
@@ -191,39 +205,51 @@ Rules:
 - Keep field count reasonable (5-15 fields typically)
 - Output ONLY the JSON array, no explanation or markdown fences`
 
-		try {
-			const result = await complete(
-				{ model: modelKey, prompt: description, systemPrompt, maxTokens: 2048 },
-				providers,
-				CLOUD_MODE,
-			)
+			try {
+				const result = await complete(
+					{ model: modelKey, prompt: description, systemPrompt, maxTokens: 2048 },
+					providers,
+					CLOUD_MODE,
+				)
 
-			// Extract JSON from response (handle potential markdown fences)
-			let jsonStr = result.text.trim()
-			const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
-			if (fenceMatch) jsonStr = fenceMatch[1].trim()
+				// Extract JSON from response (handle potential markdown fences)
+				let jsonStr = result.text.trim()
+				const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+				if (fenceMatch) jsonStr = fenceMatch[1].trim()
 
-			const fields = JSON.parse(jsonStr)
-			if (!Array.isArray(fields)) throw new Error('Expected array')
+				const fields = JSON.parse(jsonStr)
+				if (!Array.isArray(fields)) throw new Error('Expected array')
 
-			const validTypes = new Set(['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array'])
-			const cleaned = fields
-				.filter((f: Record<string, unknown>) => typeof f.name === 'string' && f.name.trim())
-				.map((f: Record<string, unknown>) => ({
-					name: String(f.name).trim(),
-					type: validTypes.has(String(f.type)) ? String(f.type) : 'text',
-					required: !!f.required,
-					localized: !!f.localized,
-					...(f.type === 'enum' && Array.isArray(f.options) ? { options: f.options.map(String) } : {}),
-				}))
+				const validTypes = new Set([
+					'text',
+					'number',
+					'boolean',
+					'date',
+					'enum',
+					'relation',
+					'object',
+					'array',
+				])
+				const cleaned = fields
+					.filter((f: Record<string, unknown>) => typeof f.name === 'string' && f.name.trim())
+					.map((f: Record<string, unknown>) => ({
+						name: String(f.name).trim(),
+						type: validTypes.has(String(f.type)) ? String(f.type) : 'text',
+						required: !!f.required,
+						localized: !!f.localized,
+						...(f.type === 'enum' && Array.isArray(f.options)
+							? { options: f.options.map(String) }
+							: {}),
+					}))
 
-			return { fields: cleaned }
-		} catch (err) {
-			return reply.status(502).send({
-				error: err instanceof Error ? err.message : 'Failed to generate schema',
-			})
-		}
-	})
+				return { fields: cleaned }
+			} catch (err) {
+				return reply.status(502).send({
+					error: err instanceof Error ? err.message : 'Failed to generate schema',
+				})
+			}
+		},
+	)
 
 	// List available models (built-in + OpenRouter dynamic)
 	app.get('/models', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -240,11 +266,12 @@ Rules:
 		const [settings] = await app.db
 			.select()
 			.from(aiSettings)
-			.where(eq(aiSettings.projectId, request.project!.id))
+			.where(eq(aiSettings.projectId, getProject(request).id))
 			.limit(1)
 
 		const providers = (settings?.providers || []) as AiProviderConfig[]
-		const hasOpenRouter = CLOUD_MODE || providers.some((p) => p.provider === 'openrouter' && p.enabled && p.apiKey)
+		const hasOpenRouter =
+			CLOUD_MODE || providers.some((p) => p.provider === 'openrouter' && p.enabled && p.apiKey)
 
 		if (hasOpenRouter) {
 			try {
@@ -259,7 +286,10 @@ Rules:
 }
 
 // Cache OpenRouter models for 1 hour
-let openRouterCache: { models: { key: string; provider: string; name: string; modelId: string; source: string }[]; fetchedAt: number } | null = null
+let openRouterCache: {
+	models: { key: string; provider: string; name: string; modelId: string; source: string }[]
+	fetchedAt: number
+} | null = null
 
 async function fetchOpenRouterModels() {
 	if (openRouterCache && Date.now() - openRouterCache.fetchedAt < 3600_000) {

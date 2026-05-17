@@ -1,17 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AiSettingsPanel } from '../components/ai/ai-settings'
+import { hasFeature, LicenseGate, ProBadge, useLicense } from '../components/license-gate'
+import { SaveBar } from '../components/save-bar'
+import { DatabaseSettings } from '../components/settings/database-settings'
+import { GeneralSettings } from '../components/settings/general-settings'
+import { MediaSettings } from '../components/settings/media-settings'
+import { SsoSettings } from '../components/settings/sso-settings'
+import { TeamSettings } from '../components/settings/team-settings'
+import { WebhookSettings } from '../components/settings/webhook-settings'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
-import { AiSettingsPanel } from '../components/ai/ai-settings'
-import { GeneralSettings } from '../components/settings/general-settings'
-import { MediaSettings } from '../components/settings/media-settings'
-import { DatabaseSettings } from '../components/settings/database-settings'
-import { TeamSettings } from '../components/settings/team-settings'
-import { WebhookSettings } from '../components/settings/webhook-settings'
-import { SsoSettings } from '../components/settings/sso-settings'
-import { LicenseGate, ProBadge, useLicense, hasFeature } from '../components/license-gate'
-import { SaveBar } from '../components/save-bar'
 
 export const Route = createFileRoute('/settings')({
 	component: Settings,
@@ -31,7 +31,16 @@ interface NewKeyResponse extends ApiKeyItem {
 	warning: string
 }
 
-type SettingsTab = 'general' | 'team' | 'sso' | 'api-keys' | 'ai-models' | 'search' | 'webhooks' | 'media' | 'database'
+type SettingsTab =
+	| 'general'
+	| 'team'
+	| 'sso'
+	| 'api-keys'
+	| 'ai-models'
+	| 'search'
+	| 'webhooks'
+	| 'media'
+	| 'database'
 
 const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
@@ -59,7 +68,7 @@ function Settings() {
 		window.history.replaceState({}, '', url.toString())
 	}
 
-	const visibleTabs = TABS.filter(t => !(t.hideInCloud && license.cloudMode))
+	const visibleTabs = TABS.filter((t) => !(t.hideInCloud && license.cloudMode))
 
 	return (
 		<div className="p-8 pt-5 relative min-h-full">
@@ -85,15 +94,23 @@ function Settings() {
 			</div>
 
 			{/* Tab content — all mounted, inactive hidden to avoid reload flicker */}
-			<div className={tab === 'general' ? '' : 'hidden'}><GeneralSettings /></div>
-			<div className={tab === 'team' ? '' : 'hidden'}><TeamSettings /></div>
+			<div className={tab === 'general' ? '' : 'hidden'}>
+				<GeneralSettings />
+			</div>
+			<div className={tab === 'team' ? '' : 'hidden'}>
+				<TeamSettings />
+			</div>
 			<div className={tab === 'sso' ? '' : 'hidden'}>
 				<LicenseGate feature="sso" featureLabel="Single Sign-On (SAML &amp; OIDC)">
 					<SsoSettings />
 				</LicenseGate>
 			</div>
-			<div className={tab === 'api-keys' ? '' : 'hidden'}><ApiKeysContent /></div>
-			<div className={tab === 'ai-models' ? '' : 'hidden'}><AiSettingsPanel /></div>
+			<div className={tab === 'api-keys' ? '' : 'hidden'}>
+				<ApiKeysContent />
+			</div>
+			<div className={tab === 'ai-models' ? '' : 'hidden'}>
+				<AiSettingsPanel />
+			</div>
 			<div className={tab === 'search' ? '' : 'hidden'}>
 				<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
 					<EmbeddingSettings />
@@ -104,8 +121,12 @@ function Settings() {
 					<WebhookSettings />
 				</LicenseGate>
 			</div>
-			<div className={tab === 'media' ? '' : 'hidden'}><MediaSettings /></div>
-			<div className={tab === 'database' ? '' : 'hidden'}><DatabaseSettings /></div>
+			<div className={tab === 'media' ? '' : 'hidden'}>
+				<MediaSettings />
+			</div>
+			<div className={tab === 'database' ? '' : 'hidden'}>
+				<DatabaseSettings />
+			</div>
 		</div>
 	)
 }
@@ -114,19 +135,24 @@ function EmbeddingSettings() {
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 	const [autoEmbed, setAutoEmbed] = useState(false)
-	const [status, setStatus] = useState<{ totalContent: number; embeddedContent: number } | null>(null)
+	const [status, setStatus] = useState<{ totalContent: number; embeddedContent: number } | null>(
+		null,
+	)
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const initialAutoEmbed = useRef(false)
 
 	useEffect(() => {
 		if (currentProject) {
-			const settings = currentProject.settings as Record<string, unknown> || {}
+			const settings = (currentProject.settings as Record<string, unknown>) || {}
 			const val = Boolean(settings.autoEmbed)
 			setAutoEmbed(val)
 			initialAutoEmbed.current = val
 		}
-		api.get<{ totalContent: number; embeddedContent: number }>('/api/v1/content/semantic-search/status')
+		api
+			.get<{ totalContent: number; embeddedContent: number }>(
+				'/api/v1/content/semantic-search/status',
+			)
 			.then(setStatus)
 			.catch(() => {})
 	}, [currentProject])
@@ -160,26 +186,41 @@ function EmbeddingSettings() {
 				Requires an OpenAI API key (configured in AI Models).
 			</p>
 
-			{status && (() => {
-				const pct = status.totalContent > 0 ? Math.round((status.embeddedContent / status.totalContent) * 100) : 0
-				return (
-					<div className="rounded-lg bg-surface-alt p-4 space-y-3">
-						<div className="flex items-center justify-between text-sm">
-							<span className="text-text-secondary">Embedding coverage</span>
-							<span className="font-semibold text-text">{status.embeddedContent} / {status.totalContent} items <span className="text-text-muted font-normal">({pct}%)</span></span>
+			{status &&
+				(() => {
+					const pct =
+						status.totalContent > 0
+							? Math.round((status.embeddedContent / status.totalContent) * 100)
+							: 0
+					return (
+						<div className="rounded-lg bg-surface-alt p-4 space-y-3">
+							<div className="flex items-center justify-between text-sm">
+								<span className="text-text-secondary">Embedding coverage</span>
+								<span className="font-semibold text-text">
+									{status.embeddedContent} / {status.totalContent} items{' '}
+									<span className="text-text-muted font-normal">({pct}%)</span>
+								</span>
+							</div>
+							<div className="h-2 rounded-full bg-border overflow-hidden">
+								<div
+									className="h-full rounded-full bg-btn-primary transition-all"
+									style={{ width: `${pct}%` }}
+								/>
+							</div>
+							{pct === 100 && status.totalContent > 0 && (
+								<p className="text-xs text-text-muted">
+									All content is indexed for semantic search.
+								</p>
+							)}
+							{pct < 100 && status.totalContent > 0 && (
+								<p className="text-xs text-text-muted">
+									{status.totalContent - status.embeddedContent} items not yet embedded. Enable
+									auto-embed below or trigger manually via the API.
+								</p>
+							)}
 						</div>
-						<div className="h-2 rounded-full bg-border overflow-hidden">
-							<div className="h-full rounded-full bg-btn-primary transition-all" style={{ width: `${pct}%` }} />
-						</div>
-						{pct === 100 && status.totalContent > 0 && (
-							<p className="text-xs text-text-muted">All content is indexed for semantic search.</p>
-						)}
-						{pct < 100 && status.totalContent > 0 && (
-							<p className="text-xs text-text-muted">{status.totalContent - status.embeddedContent} items not yet embedded. Enable auto-embed below or trigger manually via the API.</p>
-						)}
-					</div>
-				)
-			})()}
+					)
+				})()}
 
 			<label className="flex items-center gap-2">
 				<input
@@ -191,7 +232,13 @@ function EmbeddingSettings() {
 				<span className="text-sm">Auto-generate embeddings on content create/update</span>
 			</label>
 
-			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => setAutoEmbed(initialAutoEmbed.current)} />
+			<SaveBar
+				dirty={dirty}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				onReset={() => setAutoEmbed(initialAutoEmbed.current)}
+			/>
 		</div>
 	)
 }
@@ -317,9 +364,12 @@ function ApiKeysContent() {
 
 			{showCreate && (
 				<div className="mb-4 p-4 rounded-lg bg-surface border border-border-strong">
-					<label className="block text-sm mb-2">Key name</label>
+					<label htmlFor="new-api-key-name" className="block text-sm mb-2">
+						Key name
+					</label>
 					<div className="flex gap-2">
 						<input
+							id="new-api-key-name"
 							type="text"
 							value={newKeyName}
 							onChange={(e) => setNewKeyName(e.target.value)}
@@ -351,13 +401,24 @@ function ApiKeysContent() {
 			) : keys.length === 0 && !showCreate && !createdKey ? (
 				<div className="flex flex-col items-center justify-center py-16 text-center">
 					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
-						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+						<svg
+							width="28"
+							height="28"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className="text-text-muted"
+						>
 							<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
 						</svg>
 					</div>
 					<h3 className="font-semibold text-text mb-1">No API keys yet</h3>
 					<p className="text-sm text-text-secondary max-w-xs mb-5">
-						API keys let Claude, AI agents, and external services access your content via the REST API and MCP server.
+						API keys let Claude, AI agents, and external services access your content via the REST
+						API and MCP server.
 					</p>
 					<button
 						type="button"
@@ -406,4 +467,3 @@ function ApiKeysContent() {
 		</div>
 	)
 }
-

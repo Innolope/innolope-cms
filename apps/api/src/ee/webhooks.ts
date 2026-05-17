@@ -1,7 +1,8 @@
+import { createHmac, randomBytes } from 'node:crypto'
+import { webhookDeliveries, webhooks } from '@innolope/db'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { webhooks, webhookDeliveries } from '@innolope/db'
-import { eq, and, desc, sql } from 'drizzle-orm'
-import { randomBytes, createHmac } from 'node:crypto'
+import { getProject } from '../plugins/project.js'
 
 export async function webhookRoutes(app: FastifyInstance) {
 	// List webhooks (admin+, project-scoped, requires license)
@@ -12,7 +13,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 			const items = await app.db
 				.select()
 				.from(webhooks)
-				.where(eq(webhooks.projectId, request.project!.id))
+				.where(eq(webhooks.projectId, getProject(request).id))
 				.orderBy(desc(webhooks.createdAt))
 			return { data: items }
 		},
@@ -34,13 +35,16 @@ export async function webhookRoutes(app: FastifyInstance) {
 
 			const webhookSecret = secret || randomBytes(32).toString('hex')
 
-			const [created] = await app.db.insert(webhooks).values({
-				projectId: request.project!.id,
-				url,
-				secret: webhookSecret,
-				events: events || [],
-				active: active ?? true,
-			}).returning()
+			const [created] = await app.db
+				.insert(webhooks)
+				.values({
+					projectId: getProject(request).id,
+					url,
+					secret: webhookSecret,
+					events: events || [],
+					active: active ?? true,
+				})
+				.returning()
 
 			// Return the secret only on creation (never again)
 			return reply.status(201).send({ ...created, secret: webhookSecret })
@@ -66,7 +70,9 @@ export async function webhookRoutes(app: FastifyInstance) {
 					...(active !== undefined && { active }),
 					updatedAt: new Date(),
 				})
-				.where(and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, request.project!.id)))
+				.where(
+					and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, getProject(request).id)),
+				)
 				.returning()
 
 			if (!updated) return reply.status(404).send({ error: 'Webhook not found' })
@@ -81,7 +87,9 @@ export async function webhookRoutes(app: FastifyInstance) {
 		async (request, reply) => {
 			const [deleted] = await app.db
 				.delete(webhooks)
-				.where(and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, request.project!.id)))
+				.where(
+					and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, getProject(request).id)),
+				)
 				.returning()
 
 			if (!deleted) return reply.status(404).send({ error: 'Webhook not found' })
@@ -95,8 +103,12 @@ export async function webhookRoutes(app: FastifyInstance) {
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('webhooks')] },
 		async (request, reply) => {
 			// Verify webhook belongs to this project
-			const [webhook] = await app.db.select({ id: webhooks.id }).from(webhooks)
-				.where(and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, request.project!.id)))
+			const [webhook] = await app.db
+				.select({ id: webhooks.id })
+				.from(webhooks)
+				.where(
+					and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, getProject(request).id)),
+				)
 				.limit(1)
 			if (!webhook) return reply.status(404).send({ error: 'Webhook not found' })
 
@@ -133,27 +145,32 @@ export async function webhookRoutes(app: FastifyInstance) {
 			const [webhook] = await app.db
 				.select()
 				.from(webhooks)
-				.where(and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, request.project!.id)))
+				.where(
+					and(eq(webhooks.id, request.params.id), eq(webhooks.projectId, getProject(request).id)),
+				)
 				.limit(1)
 
 			if (!webhook) return reply.status(404).send({ error: 'Webhook not found' })
 
 			const payload = {
 				type: 'webhook:test',
-				data: { projectId: request.project!.id, message: 'Test webhook delivery' },
+				data: { projectId: getProject(request).id, message: 'Test webhook delivery' },
 				timestamp: new Date().toISOString(),
 			}
 
 			const body = JSON.stringify(payload)
 			const signature = createHmac('sha256', webhook.secret).update(body).digest('hex')
 
-			const [delivery] = await app.db.insert(webhookDeliveries).values({
-				webhookId: webhook.id,
-				event: 'webhook:test',
-				payload,
-				status: 'pending',
-				attempts: 1,
-			}).returning()
+			const [delivery] = await app.db
+				.insert(webhookDeliveries)
+				.values({
+					webhookId: webhook.id,
+					event: 'webhook:test',
+					payload,
+					status: 'pending',
+					attempts: 1,
+				})
+				.returning()
 
 			try {
 				const response = await fetch(webhook.url, {
@@ -168,18 +185,24 @@ export async function webhookRoutes(app: FastifyInstance) {
 				})
 
 				const responseBody = await response.text().catch(() => '')
-				await app.db.update(webhookDeliveries).set({
-					status: response.ok ? 'success' : 'failed',
-					statusCode: response.status,
-					responseBody: responseBody.slice(0, 1000),
-				}).where(eq(webhookDeliveries.id, delivery.id))
+				await app.db
+					.update(webhookDeliveries)
+					.set({
+						status: response.ok ? 'success' : 'failed',
+						statusCode: response.status,
+						responseBody: responseBody.slice(0, 1000),
+					})
+					.where(eq(webhookDeliveries.id, delivery.id))
 
 				return { success: response.ok, statusCode: response.status }
 			} catch {
-				await app.db.update(webhookDeliveries).set({
-					status: 'failed',
-					responseBody: 'Connection failed',
-				}).where(eq(webhookDeliveries.id, delivery.id))
+				await app.db
+					.update(webhookDeliveries)
+					.set({
+						status: 'failed',
+						responseBody: 'Connection failed',
+					})
+					.where(eq(webhookDeliveries.id, delivery.id))
 
 				return { success: false, error: 'Connection failed' }
 			}

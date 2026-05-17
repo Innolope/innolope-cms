@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/accept-invite')({
@@ -22,7 +22,10 @@ function AcceptInvite() {
 			return
 		}
 
-		api.post<{ action?: string; email?: string; message: string }>('/api/v1/invites/accept', { token })
+		api
+			.post<{ action?: string; email?: string; message: string }>('/api/v1/invites/accept', {
+				token,
+			})
 			.then((res) => {
 				if (res.action === 'register') {
 					setStatus('register')
@@ -43,9 +46,7 @@ function AcceptInvite() {
 	return (
 		<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 			<div className="w-full max-w-sm text-center">
-				{status === 'loading' && (
-					<p className="text-text-secondary">Accepting invite...</p>
-				)}
+				{status === 'loading' && <p className="text-text-secondary">Accepting invite...</p>}
 
 				{status === 'success' && (
 					<div className="space-y-3">

@@ -82,7 +82,9 @@ export class CloudflareStreamAdapter implements MediaAdapter {
 		return `https://customer-${this.config.accountId}.cloudflarestream.com/${id}/manifest/video.m3u8`
 	}
 
-	async getStatus(id: string): Promise<{ ready: boolean; duration: number | null; thumbnail: string | null }> {
+	async getStatus(
+		id: string,
+	): Promise<{ ready: boolean; duration: number | null; thumbnail: string | null }> {
 		const res = await fetch(
 			`https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${id}`,
 			{

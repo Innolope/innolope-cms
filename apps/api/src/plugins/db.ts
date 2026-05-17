@@ -10,9 +10,10 @@ declare module 'fastify' {
 
 async function ensureTables(connectionUrl: string) {
 	const sql = postgres(connectionUrl, {
-		ssl: connectionUrl.includes('sslmode=verify-full') || connectionUrl.includes('sslmode=require')
-			? 'require'
-			: false,
+		ssl:
+			connectionUrl.includes('sslmode=verify-full') || connectionUrl.includes('sslmode=require')
+				? 'require'
+				: false,
 	})
 
 	// Drop old snake_case tables if they exist (one-time migration)
@@ -232,7 +233,9 @@ async function ensureTables(connectionUrl: string) {
 	})
 
 	// HNSW index for fast cosine similarity search
-	await sql`CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON content_embeddings USING hnsw (embedding vector_cosine_ops)`.catch(() => {})
+	await sql`CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON content_embeddings USING hnsw (embedding vector_cosine_ops)`.catch(
+		() => {},
+	)
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS content_analytics (

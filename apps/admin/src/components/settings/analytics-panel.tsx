@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../lib/api-client'
 import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { api } from '../../lib/api-client'
 
 interface AnalyticsData {
 	topContent: { contentId: string | null; title: string; reads: number }[]
@@ -13,7 +13,8 @@ export function AnalyticsPanel() {
 	const [loading, setLoading] = useState(true)
 
 	useEffect(() => {
-		api.get<AnalyticsData>('/api/v1/stats/analytics')
+		api
+			.get<AnalyticsData>('/api/v1/stats/analytics')
 			.then(setData)
 			.catch(() => {})
 			.finally(() => setLoading(false))
@@ -95,7 +96,9 @@ export function AnalyticsPanel() {
 			{data.topQueries.filter((q) => q.misses > q.hits).length > 0 && (
 				<div>
 					<h4 className="text-sm font-medium mb-2">Content Gaps</h4>
-					<p className="text-xs text-text-secondary mb-2">Queries with more misses than hits — consider creating content for these topics.</p>
+					<p className="text-xs text-text-secondary mb-2">
+						Queries with more misses than hits — consider creating content for these topics.
+					</p>
 					<div className="space-y-1">
 						{data.topQueries
 							.filter((q) => q.misses > q.hits)
@@ -103,9 +106,7 @@ export function AnalyticsPanel() {
 							.map((q) => (
 								<div key={q.query} className="text-sm">
 									<span className="font-mono text-xs">{q.query}</span>
-									<span className="text-danger text-xs ml-2">
-										{q.misses} misses
-									</span>
+									<span className="text-danger text-xs ml-2">{q.misses} misses</span>
 								</div>
 							))}
 					</div>

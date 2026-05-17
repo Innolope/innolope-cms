@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
 
@@ -48,11 +48,15 @@ export function WebhookSettings() {
 		try {
 			const res = await api.get<{ data: Webhook[] }>('/api/v1/ee/webhooks')
 			setHooks(res.data)
-		} catch { /* */ }
+		} catch {
+			/* */
+		}
 		setLoading(false)
 	}, [])
 
-	useEffect(() => { fetchHooks() }, [fetchHooks])
+	useEffect(() => {
+		fetchHooks()
+	}, [fetchHooks])
 
 	const create = async () => {
 		if (!newUrl.trim()) return
@@ -85,7 +89,10 @@ export function WebhookSettings() {
 	const testHook = async (id: string) => {
 		try {
 			const result = await api.post<{ success: boolean }>(`/api/v1/ee/webhooks/${id}/test`, {})
-			toast(result.success ? 'Test delivery succeeded!' : 'Test delivery failed.', result.success ? 'success' : 'error')
+			toast(
+				result.success ? 'Test delivery succeeded!' : 'Test delivery failed.',
+				result.success ? 'success' : 'error',
+			)
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Test failed', 'error')
 		}
@@ -97,10 +104,14 @@ export function WebhookSettings() {
 			return
 		}
 		try {
-			const res = await api.get<{ data: Delivery[] }>(`/api/v1/ee/webhooks/${hookId}/deliveries?limit=10`)
+			const res = await api.get<{ data: Delivery[] }>(
+				`/api/v1/ee/webhooks/${hookId}/deliveries?limit=10`,
+			)
 			setDeliveries(res.data)
 			setExpandedId(hookId)
-		} catch { /* */ }
+		} catch {
+			/* */
+		}
 	}
 
 	const toggleEvent = (event: string) => {
@@ -131,7 +142,9 @@ export function WebhookSettings() {
 			{createdSecret && (
 				<div className="p-3 bg-surface-alt border border-border rounded-lg">
 					<p className="text-sm font-medium mb-1">Webhook secret (copy now — shown only once):</p>
-					<code className="text-xs font-mono bg-input px-2 py-1 rounded break-all">{createdSecret}</code>
+					<code className="text-xs font-mono bg-input px-2 py-1 rounded break-all">
+						{createdSecret}
+					</code>
 					<button
 						type="button"
 						onClick={() => setCreatedSecret(null)}
@@ -145,14 +158,25 @@ export function WebhookSettings() {
 			{hooks.length === 0 && !showCreate && !createdSecret ? (
 				<div className="flex flex-col items-center justify-center py-16 text-center">
 					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
-						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+						<svg
+							width="28"
+							height="28"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className="text-text-muted"
+						>
 							<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
 							<path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
 						</svg>
 					</div>
 					<h3 className="font-semibold text-text mb-1">No webhooks configured</h3>
 					<p className="text-sm text-text-secondary max-w-xs mb-5">
-						Webhooks notify external services in real time when content is created, updated, published, or deleted.
+						Webhooks notify external services in real time when content is created, updated,
+						published, or deleted.
 					</p>
 					<button
 						type="button"
@@ -236,8 +260,11 @@ export function WebhookSettings() {
 			{showCreate ? (
 				<div className="border border-border rounded-lg p-4 space-y-3">
 					<div>
-						<label className="block text-xs text-text-secondary mb-1">Endpoint URL</label>
+						<label htmlFor="webhook-url" className="block text-xs text-text-secondary mb-1">
+							Endpoint URL
+						</label>
 						<input
+							id="webhook-url"
 							type="url"
 							value={newUrl}
 							onChange={(e) => setNewUrl(e.target.value)}
@@ -246,7 +273,9 @@ export function WebhookSettings() {
 						/>
 					</div>
 					<div>
-						<label className="block text-xs text-text-secondary mb-1.5">Events (leave empty for all)</label>
+						<div className="block text-xs text-text-secondary mb-1.5">
+							Events (leave empty for all)
+						</div>
 						<div className="flex flex-wrap gap-1.5">
 							{EVENT_TYPES.map((event) => (
 								<button

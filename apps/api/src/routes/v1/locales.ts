@@ -1,11 +1,12 @@
 import { content, projects } from '@innolope/db'
-import type { FastifyInstance } from 'fastify'
 import { eq, sql } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
+import { getProject } from '../../plugins/project.js'
 
 export async function localeRoutes(app: FastifyInstance) {
 	// Get available locales (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const pid = request.project!.id
+		const pid = getProject(request).id
 
 		// Get project settings for configured locales
 		const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
@@ -34,11 +35,21 @@ export async function localeRoutes(app: FastifyInstance) {
 			const items = await app.db
 				.select()
 				.from(content)
-				.where(sql`${content.projectId} = ${request.project!.id} AND ${content.slug} = ${request.params.slug}`)
+				.where(
+					sql`${content.projectId} = ${getProject(request).id} AND ${content.slug} = ${request.params.slug}`,
+				)
 
-			const translations: Record<string, { id: string; locale: string; status: string; updatedAt: string }> = {}
+			const translations: Record<
+				string,
+				{ id: string; locale: string; status: string; updatedAt: string }
+			> = {}
 			for (const item of items) {
-				translations[item.locale] = { id: item.id, locale: item.locale, status: item.status, updatedAt: item.updatedAt.toISOString() }
+				translations[item.locale] = {
+					id: item.id,
+					locale: item.locale,
+					status: item.status,
+					updatedAt: item.updatedAt.toISOString(),
+				}
 			}
 
 			return translations
@@ -55,7 +66,7 @@ export async function localeRoutes(app: FastifyInstance) {
 				draft: sql<number>`count(*) filter (where ${content.status} = 'draft')`,
 			})
 			.from(content)
-			.where(eq(content.projectId, request.project!.id))
+			.where(eq(content.projectId, getProject(request).id))
 			.groupBy(content.locale)
 	})
 }

@@ -8,7 +8,7 @@ export async function schedulingRoutes(app: FastifyInstance) {
 	app.post(
 		'/:id/schedule',
 		{ preHandler: [app.requireProject('editor'), app.requireLicense('scheduling')] },
-		async (request, reply) => {
+		async (_request, reply) => {
 			return reply.status(501).send({ message: 'Content scheduling coming soon' })
 		},
 	)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
 
@@ -23,8 +23,10 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 	const [selected, setSelected] = useState<Version | null>(null)
 	const [reverting, setReverting] = useState(false)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: currentVersion intentionally triggers a refetch after a revert creates a new version.
 	useEffect(() => {
-		api.get<Version[]>(`/api/v1/content/${contentId}/versions`)
+		api
+			.get<Version[]>(`/api/v1/content/${contentId}/versions`)
 			.then(setVersions)
 			.catch(() => {})
 			.finally(() => setLoading(false))
@@ -46,7 +48,8 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 	}
 
 	if (loading) return <p className="text-text-secondary text-xs">Loading versions...</p>
-	if (versions.length === 0) return <p className="text-text-secondary text-xs">No previous versions.</p>
+	if (versions.length === 0)
+		return <p className="text-text-secondary text-xs">No previous versions.</p>
 
 	return (
 		<div className="space-y-2">

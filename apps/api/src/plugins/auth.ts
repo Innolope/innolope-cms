@@ -2,16 +2,24 @@ import { createHash, randomUUID } from 'node:crypto'
 import { apiKeys, refreshTokens, users } from '@innolope/db'
 import type { UserRole } from '@innolope/types'
 import bcrypt from 'bcrypt'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 import { jwtVerify, SignJWT } from 'jose'
 
-interface AuthUser {
+export interface AuthUser {
 	id: string
 	email: string
 	name: string
 	role: UserRole
+}
+
+/** Returns the authenticated user set by the `authenticate` preHandler. Throws if absent. */
+export function getUser(request: FastifyRequest): AuthUser {
+	if (!request.user) {
+		throw new Error('getUser() called on an unauthenticated request — missing auth preHandler')
+	}
+	return request.user
 }
 
 interface ApiKeyAuth {
@@ -200,8 +208,9 @@ export async function revokeAllUserRefreshTokens(
 export async function verifyJwt(token: string): Promise<AuthUser | null> {
 	try {
 		const { payload } = await jwtVerify(token, getJwtSecret())
+		if (typeof payload.sub !== 'string') return null
 		return {
-			id: payload.sub!,
+			id: payload.sub,
 			email: payload.email as string,
 			name: payload.name as string,
 			role: payload.role as UserRole,

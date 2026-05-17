@@ -1,6 +1,21 @@
-import { projects, projectMembers, users } from '@innolope/db'
-import type { FastifyInstance } from 'fastify'
-import { eq, and, sql } from 'drizzle-orm'
+import { projectMembers, projects, users } from '@innolope/db'
+import { and, eq, sql } from 'drizzle-orm'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { getUser } from '../../plugins/auth.js'
+import { getProject } from '../../plugins/project.js'
+
+/**
+ * Reject if the URL `:id` doesn't match the project authorized by `requireProject`.
+ * `requireProject` resolves the project from the X-Project-Id header / API key, not
+ * the route param — without this guard a caller authorized for one project could
+ * act on another by passing a different `:id`.
+ */
+async function assertProjectParam(request: FastifyRequest, reply: FastifyReply) {
+	const paramId = (request.params as { id?: string }).id
+	if (paramId && paramId !== getProject(request).id) {
+		return reply.status(404).send({ error: 'Project not found' })
+	}
+}
 
 function sanitizeProject(project: typeof projects.$inferSelect, role?: string) {
 	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
@@ -25,7 +40,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			})
 			.from(projectMembers)
 			.innerJoin(projects, eq(projects.id, projectMembers.projectId))
-			.where(eq(projectMembers.userId, request.user!.id))
+			.where(eq(projectMembers.userId, getUser(request).id))
 
 		return memberships.map((m) => sanitizeProject(m.project, m.role))
 	})
@@ -33,12 +48,12 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Get project by ID
 	app.get<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.requireProject('viewer')] },
+		{ preHandler: [app.requireProject('viewer'), assertProjectParam] },
 		async (request) => {
 			const [project] = await app.db
 				.select()
 				.from(projects)
-				.where(eq(projects.id, request.project!.id))
+				.where(eq(projects.id, getProject(request).id))
 				.limit(1)
 
 			return sanitizeProject(project, request.projectRole)
@@ -55,7 +70,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			const [{ count }] = await app.db
 				.select({ count: sql<number>`count(*)` })
 				.from(projectMembers)
-				.where(eq(projectMembers.userId, request.user!.id))
+				.where(eq(projectMembers.userId, getUser(request).id))
 			if (Number(count) >= maxProjects) {
 				return reply.status(403).send({
 					error: `Free plan limited to ${maxProjects} project${maxProjects > 1 ? 's' : ''}. Upgrade for more.`,
@@ -69,14 +84,14 @@ export async function projectRoutes(app: FastifyInstance) {
 			.values({
 				name,
 				slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-				ownerId: request.user!.id,
+				ownerId: getUser(request).id,
 			})
 			.returning()
 
 		// Add creator as owner member
 		await app.db.insert(projectMembers).values({
 			projectId: project.id,
-			userId: request.user!.id,
+			userId: getUser(request).id,
 			role: 'owner',
 		})
 
@@ -86,7 +101,7 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Update project
 	app.put<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.requireProject('admin')] },
+		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
 			const { name, slug, settings } = request.body as {
 				name?: string
@@ -94,7 +109,11 @@ export async function projectRoutes(app: FastifyInstance) {
 				settings?: Record<string, unknown>
 			}
 
-			const [current] = await app.db.select().from(projects).where(eq(projects.id, request.project!.id)).limit(1)
+			const [current] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
 			if (!current) return reply.status(404).send({ error: 'Project not found' })
 
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
@@ -105,7 +124,11 @@ export async function projectRoutes(app: FastifyInstance) {
 				const nextSettings = { ...currentSettings, ...settings }
 				const currentExternalDb = currentSettings.externalDb as Record<string, unknown> | undefined
 				const nextExternalDb = nextSettings.externalDb as Record<string, unknown> | undefined
-				if (currentExternalDb?.connectionString && nextExternalDb && !nextExternalDb.connectionString) {
+				if (
+					currentExternalDb?.connectionString &&
+					nextExternalDb &&
+					!nextExternalDb.connectionString
+				) {
 					nextSettings.externalDb = {
 						...nextExternalDb,
 						connectionString: currentExternalDb.connectionString,
@@ -117,7 +140,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			const [updated] = await app.db
 				.update(projects)
 				.set(updates)
-				.where(eq(projects.id, request.project!.id))
+				.where(eq(projects.id, getProject(request).id))
 				.returning()
 
 			return sanitizeProject(updated, request.projectRole)
@@ -127,9 +150,9 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Delete project (owner only)
 	app.delete<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.requireProject('owner')] },
+		{ preHandler: [app.requireProject('owner'), assertProjectParam] },
 		async (request, reply) => {
-			await app.db.delete(projects).where(eq(projects.id, request.project!.id))
+			await app.db.delete(projects).where(eq(projects.id, request.params.id))
 			return reply.status(204).send()
 		},
 	)
@@ -137,7 +160,7 @@ export async function projectRoutes(app: FastifyInstance) {
 	// List project members
 	app.get<{ Params: { id: string } }>(
 		'/:id/members',
-		{ preHandler: [app.requireProject('viewer')] },
+		{ preHandler: [app.requireProject('viewer'), assertProjectParam] },
 		async (request) => {
 			const members = await app.db
 				.select({
@@ -159,18 +182,14 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Add member
 	app.post<{ Params: { id: string } }>(
 		'/:id/members',
-		{ preHandler: [app.requireProject('admin')] },
+		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
 			const { email, role = 'viewer' } = request.body as {
 				email: string
 				role?: 'owner' | 'admin' | 'editor' | 'viewer'
 			}
 
-			const [user] = await app.db
-				.select()
-				.from(users)
-				.where(eq(users.email, email))
-				.limit(1)
+			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
 
 			if (!user) {
 				return reply.status(404).send({ error: 'User not found. They must register first.' })
@@ -180,10 +199,12 @@ export async function projectRoutes(app: FastifyInstance) {
 			const existing = await app.db
 				.select()
 				.from(projectMembers)
-				.where(and(eq(projectMembers.projectId, request.params.id), eq(projectMembers.userId, user.id)))
+				.where(
+					and(eq(projectMembers.projectId, request.params.id), eq(projectMembers.userId, user.id)),
+				)
 				.limit(1)
 
-			let member
+			let member: typeof projectMembers.$inferSelect | undefined
 			if (existing.length > 0) {
 				;[member] = await app.db
 					.update(projectMembers)
@@ -204,7 +225,7 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Update member role
 	app.put<{ Params: { id: string; userId: string } }>(
 		'/:id/members/:userId',
-		{ preHandler: [app.requireProject('admin')] },
+		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
 			const { role } = request.body as { role: 'owner' | 'admin' | 'editor' | 'viewer' }
 
@@ -227,7 +248,7 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Remove member
 	app.delete<{ Params: { id: string; userId: string } }>(
 		'/:id/members/:userId',
-		{ preHandler: [app.requireProject('admin')] },
+		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
 			// Can't remove the owner
 			const [member] = await app.db

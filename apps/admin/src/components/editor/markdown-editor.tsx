@@ -1,10 +1,10 @@
-import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
-import TurndownService from 'turndown'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import TurndownService from 'turndown'
 import { ImagePickerModal, type ImageSelection } from './image-picker-modal'
 
 const turndown = new TurndownService({
@@ -40,8 +40,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		content: content ? htmlFromMarkdown(content) : '',
 		editorProps: {
 			attributes: {
-				class:
-					'max-w-none min-h-[400px] focus:outline-none px-4 py-3 text-text',
+				class: 'max-w-none min-h-[400px] focus:outline-none px-4 py-3 text-text',
 			},
 		},
 		onUpdate: ({ editor }) => {
@@ -93,7 +92,14 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 							{ type: 'text', text: ' on ' },
 							{
 								type: 'text',
-								marks: [{ type: 'link', attrs: { href: 'https://unsplash.com/?utm_source=innolope_cms&utm_medium=referral' } }],
+								marks: [
+									{
+										type: 'link',
+										attrs: {
+											href: 'https://unsplash.com/?utm_source=innolope_cms&utm_medium=referral',
+										},
+									},
+								],
 								text: 'Unsplash',
 							},
 						],
@@ -173,18 +179,11 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 				/>
 				<div className="w-px bg-border mx-1" />
 				<ToolbarBtn active={false} onClick={addImage} label="Image" />
-				<ToolbarBtn
-					active={editor.isActive('link')}
-					onClick={addLink}
-					label="Link"
-				/>
+				<ToolbarBtn active={editor.isActive('link')} onClick={addLink} label="Link" />
 			</div>
 			<EditorContent editor={editor} />
 			{showImagePicker && (
-				<ImagePickerModal
-					onSelect={handleImageSelect}
-					onClose={() => setShowImagePicker(false)}
-				/>
+				<ImagePickerModal onSelect={handleImageSelect} onClose={() => setShowImagePicker(false)} />
 			)}
 		</div>
 	)
@@ -206,7 +205,9 @@ function ToolbarBtn({
 			type="button"
 			onClick={onClick}
 			className={`px-2 py-1 rounded text-xs transition-colors ${
-				active ? 'bg-btn-primary text-btn-primary-text' : 'text-text-muted hover:bg-surface hover:text-text-secondary'
+				active
+					? 'bg-btn-primary text-btn-primary-text'
+					: 'text-text-muted hover:bg-surface hover:text-text-secondary'
 			} ${className}`}
 		>
 			{label}
@@ -232,7 +233,14 @@ function htmlFromMarkdown(md: string): string {
 	html = html
 		.split('\n\n')
 		.map((block) => {
-			if (block.startsWith('<h') || block.startsWith('<img') || block.startsWith('<ul') || block.startsWith('<ol') || block.startsWith('<blockquote') || block.startsWith('<pre')) {
+			if (
+				block.startsWith('<h') ||
+				block.startsWith('<img') ||
+				block.startsWith('<ul') ||
+				block.startsWith('<ol') ||
+				block.startsWith('<blockquote') ||
+				block.startsWith('<pre')
+			) {
 				return block
 			}
 			if (block.trim()) return `<p>${block.replace(/\n/g, '<br />')}</p>`

@@ -36,8 +36,8 @@ function writeToUrl(filters: FilterMap) {
 		if (typeof val === 'string') {
 			if (val !== '') url.searchParams.set(PREFIX + id, val)
 		} else {
-			if (val.from) url.searchParams.set(PREFIX + id + '.from', val.from)
-			if (val.to) url.searchParams.set(PREFIX + id + '.to', val.to)
+			if (val.from) url.searchParams.set(`${PREFIX + id}.from`, val.from)
+			if (val.to) url.searchParams.set(`${PREFIX + id}.to`, val.to)
 		}
 	}
 	window.history.replaceState({}, '', url.toString())
@@ -70,7 +70,11 @@ export function useUrlFilters() {
 		(id: string, value: FilterValue | undefined) => {
 			setFilters((prev) => {
 				const out = { ...prev }
-				if (value === undefined || value === '' || (typeof value === 'object' && !value.from && !value.to)) {
+				if (
+					value === undefined ||
+					value === '' ||
+					(typeof value === 'object' && !value.from && !value.to)
+				) {
 					delete out[id]
 				} else {
 					out[id] = value

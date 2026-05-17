@@ -1,31 +1,28 @@
-import type { FastifyInstance } from 'fastify'
-import { and, eq } from 'drizzle-orm'
 import { ssoConnections, userIdentities } from '@innolope/db'
+import { and, eq } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
+import { getUser } from '../../plugins/auth.js'
 
 /** /api/v1/auth/me/identities — list/unlink SSO identities for the current user. */
 export async function meIdentitiesRoutes(app: FastifyInstance) {
-	app.get(
-		'/',
-		{ preHandler: [app.authenticate, app.requireLicense('sso')] },
-		async (request) => {
-			const rows = await app.db
-				.select({
-					id: userIdentities.id,
-					connectionId: userIdentities.connectionId,
-					provider: userIdentities.provider,
-					email: userIdentities.email,
-					lastLoginAt: userIdentities.lastLoginAt,
-					createdAt: userIdentities.createdAt,
-					connectionName: ssoConnections.name,
-					connectionSlug: ssoConnections.slug,
-					projectId: ssoConnections.projectId,
-				})
-				.from(userIdentities)
-				.leftJoin(ssoConnections, eq(userIdentities.connectionId, ssoConnections.id))
-				.where(eq(userIdentities.userId, request.user!.id))
-			return rows
-		},
-	)
+	app.get('/', { preHandler: [app.authenticate, app.requireLicense('sso')] }, async (request) => {
+		const rows = await app.db
+			.select({
+				id: userIdentities.id,
+				connectionId: userIdentities.connectionId,
+				provider: userIdentities.provider,
+				email: userIdentities.email,
+				lastLoginAt: userIdentities.lastLoginAt,
+				createdAt: userIdentities.createdAt,
+				connectionName: ssoConnections.name,
+				connectionSlug: ssoConnections.slug,
+				projectId: ssoConnections.projectId,
+			})
+			.from(userIdentities)
+			.leftJoin(ssoConnections, eq(userIdentities.connectionId, ssoConnections.id))
+			.where(eq(userIdentities.userId, getUser(request).id))
+		return rows
+	})
 
 	// Unlink
 	app.delete<{ Params: { id: string } }>(
@@ -37,7 +34,7 @@ export async function meIdentitiesRoutes(app: FastifyInstance) {
 				.from(userIdentities)
 				.where(eq(userIdentities.id, request.params.id))
 				.limit(1)
-			if (!identity || identity.userId !== request.user!.id) {
+			if (!identity || identity.userId !== getUser(request).id) {
 				return reply.status(404).send({ error: 'Not found' })
 			}
 
@@ -54,15 +51,17 @@ export async function meIdentitiesRoutes(app: FastifyInstance) {
 				const [user] = await app.db
 					.select({ passwordHash: users.passwordHash })
 					.from(users)
-					.where(eq(users.id, request.user!.id))
+					.where(eq(users.id, getUser(request).id))
 					.limit(1)
 				const otherIdentities = await app.db
 					.select({ id: userIdentities.id })
 					.from(userIdentities)
-					.where(and(eq(userIdentities.userId, request.user!.id)))
+					.where(and(eq(userIdentities.userId, getUser(request).id)))
 				const hasOtherWay = Boolean(user?.passwordHash) || otherIdentities.length > 1
 				if (!hasOtherWay) {
-					return reply.status(400).send({ error: 'Cannot unlink the only login method under an enforced SSO connection.' })
+					return reply.status(400).send({
+						error: 'Cannot unlink the only login method under an enforced SSO connection.',
+					})
 				}
 			}
 
@@ -70,7 +69,7 @@ export async function meIdentitiesRoutes(app: FastifyInstance) {
 
 			app.events.emit({
 				type: 'auth:sso_unlinked',
-				data: { userId: request.user!.id, connectionId: identity.connectionId },
+				data: { userId: getUser(request).id, connectionId: identity.connectionId },
 				timestamp: new Date().toISOString(),
 			})
 			return reply.status(204).send()

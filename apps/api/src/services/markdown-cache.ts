@@ -4,12 +4,15 @@ interface CollectionField {
 	required?: boolean
 	localized?: boolean
 }
-import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
+
+import type { content, contentVersions, Database } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
+import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
 
 const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
 type ContentStatus = 'draft' | 'pending_review' | 'published' | 'archived'
-type SyncOptions = { batchSize?: number; userId?: string; versionTable?: any }
+type ContentTable = typeof content
+type SyncOptions = { batchSize?: number; userId?: string; versionTable?: typeof contentVersions }
 type CachedContentValues = {
 	projectId: string
 	collectionId: string
@@ -61,9 +64,7 @@ export function documentToMarkdown(
 		.map(([k, v]) => `${k}: ${formatYamlValue(v)}`)
 		.join('\n')
 
-	const markdown = frontmatter
-		? `---\n${frontmatter}\n---\n\n${bodyContent}`
-		: bodyContent
+	const markdown = frontmatter ? `---\n${frontmatter}\n---\n\n${bodyContent}` : bodyContent
 
 	return { markdown, metadata }
 }
@@ -72,7 +73,8 @@ export function documentToMarkdown(
 function findBodyField(doc: ExternalDocument, _fields: CollectionField[]): string | null {
 	const bodyNames = ['content', 'body', 'description', 'text', 'markdown', 'html']
 	for (const name of bodyNames) {
-		if (doc[name] && typeof doc[name] === 'string' && (doc[name] as string).length > 100) return name
+		if (doc[name] && typeof doc[name] === 'string' && (doc[name] as string).length > 100)
+			return name
 	}
 	let longest = ''
 	let longestKey: string | null = null
@@ -96,27 +98,30 @@ function formatYamlValue(value: unknown): string {
 	}
 	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
 	if (value instanceof Date) return value.toISOString()
-	if (Array.isArray(value)) return `[${value.map(v => formatYamlValue(v)).join(', ')}]`
+	if (Array.isArray(value)) return `[${value.map((v) => formatYamlValue(v)).join(', ')}]`
 	return JSON.stringify(value)
 }
 
 /** Generate a slug from document metadata or ID */
 export function generateSlugFromDoc(metadata: Record<string, unknown>, externalId: string): string {
-	const title = (metadata.title || metadata.name || metadata.slug) as string | undefined
+	const raw = metadata.title ?? metadata.name ?? metadata.slug
+	const title = typeof raw === 'string' ? raw : typeof raw === 'number' ? String(raw) : undefined
 	if (title) {
-		return title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '')
-			.slice(0, 80) || externalId
+		return (
+			title
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, '-')
+				.replace(/^-|-$/g, '')
+				.slice(0, 80) || externalId
+		)
 	}
 	return externalId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
 }
 
 /** Populate markdown cache for all documents in an external collection */
 export async function populateMarkdownCache(
-	db: { insert: Function; select: Function; update: Function },
-	contentTable: unknown,
+	db: Database,
+	contentTable: ContentTable,
 	adapter: ExternalDbAdapter,
 	collection: {
 		id: string
@@ -132,8 +137,8 @@ export async function populateMarkdownCache(
 
 /** Refresh cached CMS rows from an external collection. External documents are the source of truth. */
 export async function syncMarkdownCache(
-	db: { insert: Function; select: Function; update: Function },
-	contentTable: any,
+	db: Database,
+	contentTable: ContentTable,
 	adapter: ExternalDbAdapter,
 	collection: {
 		id: string
@@ -156,18 +161,21 @@ export async function syncMarkdownCache(
 			const { values, slug } = buildCachedContentValues(doc, collection, opts)
 
 			try {
-				const [existing] = await (db.select as Function)()
+				const [existing] = await db
+					.select()
 					.from(contentTable)
-					.where(and(
-						eq(contentTable.projectId, collection.projectId),
-						eq(contentTable.collectionId, collection.id),
-						eq(contentTable.externalId, doc._id),
-					))
+					.where(
+						and(
+							eq(contentTable.projectId, collection.projectId),
+							eq(contentTable.collectionId, collection.id),
+							eq(contentTable.externalId, doc._id),
+						),
+					)
 					.limit(1)
 
 				if (existing) {
 					if (opts.versionTable) {
-						await (db.insert as Function)(opts.versionTable).values({
+						await db.insert(opts.versionTable).values({
 							contentId: existing.id,
 							version: existing.version,
 							markdown: existing.markdown,
@@ -175,12 +183,13 @@ export async function syncMarkdownCache(
 							createdBy: opts.userId || null,
 						})
 					}
-					await (db.update as Function)(contentTable)
+					await db
+						.update(contentTable)
 						.set({ ...values, version: (existing.version || 1) + 1 })
 						.where(eq(contentTable.id, existing.id))
 					updated++
 				} else {
-					await (db.insert as Function)(contentTable).values({
+					await db.insert(contentTable).values({
 						...values,
 						slug: `${slug}-${doc._id.slice(-6)}`,
 					})
@@ -199,8 +208,8 @@ export async function syncMarkdownCache(
 
 /** Compare cached CMS rows with the external source before applying a sync. */
 export async function previewMarkdownCacheSync(
-	db: { select: Function },
-	contentTable: any,
+	db: Database,
+	contentTable: ContentTable,
 	adapter: ExternalDbAdapter,
 	collection: {
 		id: string
@@ -222,13 +231,16 @@ export async function previewMarkdownCacheSync(
 
 		for (const doc of docs) {
 			const { values, slug } = buildCachedContentValues(doc, collection, {})
-			const [existing] = await (db.select as Function)()
+			const [existing] = await db
+				.select()
 				.from(contentTable)
-				.where(and(
-					eq(contentTable.projectId, collection.projectId),
-					eq(contentTable.collectionId, collection.id),
-					eq(contentTable.externalId, doc._id),
-				))
+				.where(
+					and(
+						eq(contentTable.projectId, collection.projectId),
+						eq(contentTable.collectionId, collection.id),
+						eq(contentTable.externalId, doc._id),
+					),
+				)
 				.limit(1)
 
 			if (!existing) {
@@ -351,7 +363,10 @@ function buildCachedContentValues(
 	}
 }
 
-function diffCachedContent(existing: Record<string, unknown>, next: CachedContentValues): SyncChange[] {
+function diffCachedContent(
+	existing: Record<string, unknown>,
+	next: CachedContentValues,
+): SyncChange[] {
 	const changes: SyncChange[] = []
 	pushChange(changes, 'status', existing.status, next.status)
 	pushChange(changes, 'markdown', existing.markdown, next.markdown)
@@ -370,7 +385,8 @@ function pushChange(changes: SyncChange[], field: string, local: unknown, extern
 
 function stableValue(value: unknown): string {
 	if (value instanceof Date) return value.toISOString()
-	if (value && typeof value === 'object') return JSON.stringify(value, Object.keys(value as Record<string, unknown>).sort())
+	if (value && typeof value === 'object')
+		return JSON.stringify(value, Object.keys(value as Record<string, unknown>).sort())
 	return String(value ?? '')
 }
 

@@ -299,7 +299,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const { currentProject, refreshProjects } = useAuth()
 	const { refreshCollections } = useCollections()
 	const navigate = useNavigate()
-	const license = useLicense()
+	const _license = useLicense()
 	const toast = useToast()
 
 	const needsDbSelectFor = (type: string) => type === 'mongodb' || type === 'firebase'
@@ -378,22 +378,25 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	if (needsDbSelect) stepLabels.push('Confirm DB')
 	stepLabels.push(tableWord)
 
-	const setStep = (n: number) => {
-		setStepLocal(n)
-		const stepName =
-			n === 0
-				? null
-				: n === 1
-					? 'connection'
-					: n === 2
-						? needsDbSelect
-							? 'select-db'
-							: 'tables'
-						: n === 3
-							? 'tables'
-							: null
-		updateUrlStep(stepName)
-	}
+	const setStep = useCallback(
+		(n: number) => {
+			setStepLocal(n)
+			const stepName =
+				n === 0
+					? null
+					: n === 1
+						? 'connection'
+						: n === 2
+							? needsDbSelect
+								? 'select-db'
+								: 'tables'
+							: n === 3
+								? 'tables'
+								: null
+			updateUrlStep(stepName)
+		},
+		[needsDbSelect],
+	)
 
 	const selectDbType = (value: string) => {
 		setDbType(value)
@@ -490,7 +493,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				if (!isStale()) setTesting(false)
 			}
 		},
-		[currentProject, dbType, needsDbSelect, toast],
+		[currentProject, dbType, needsDbSelect, toast, setStep],
 	)
 
 	// Debounced effect: auto-test 800ms after user stops typing
@@ -667,7 +670,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		}
 	}
 
-	const selectedOption = DB_OPTIONS.find((o) => o.value === dbType)!
+	const selectedOption = DB_OPTIONS.find((o) => o.value === dbType) ?? DB_OPTIONS[0]
 
 	// ─── Step 0: Select database type ─────────────────────────────────────
 	if (step === 0) {
@@ -729,9 +732,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				)}
 
 				<div>
-					<label className="block text-xs text-text-secondary mb-2">
+					<div className="block text-xs text-text-secondary mb-2">
 						{hasExternalDb ? 'Change database source' : 'Select database source'}
-					</label>
+					</div>
 					<div className="grid grid-cols-3 gap-3">
 						{DB_OPTIONS.map((opt) => (
 							<button
@@ -805,9 +808,15 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 					{/* Input */}
 					<div>
-						<label className="block text-xs text-text-secondary mb-1.5">{help.label}</label>
+						<label
+							htmlFor="db-connection-string"
+							className="block text-xs text-text-secondary mb-1.5"
+						>
+							{help.label}
+						</label>
 						{isFirebase ? (
 							<textarea
+								id="db-connection-string"
 								value={connectionString}
 								onChange={(e) => {
 									setConnectionString(e.target.value)
@@ -819,6 +828,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							/>
 						) : (
 							<input
+								id="db-connection-string"
 								type="password"
 								value={connectionString}
 								onChange={(e) => {
@@ -841,7 +851,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						</p>
 						<ol className="space-y-1.5">
 							{help.instructions.map((line, i) => (
-								<li key={i} className="flex gap-2 text-sm text-text-muted">
+								<li key={line} className="flex gap-2 text-sm text-text-muted">
 									<span className="text-text-secondary font-medium shrink-0">{i + 1}.</span>
 									{line}
 								</li>
@@ -904,7 +914,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					<StepIndicator steps={stepLabels} current={2} />
 
 					<div>
-						<label className="block text-xs text-text-secondary mb-2">Select a database</label>
+						<div className="block text-xs text-text-secondary mb-2">Select a database</div>
 						<p className="text-sm text-text-muted mb-3">
 							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this
 							server. Choose which one to connect.
@@ -1014,10 +1024,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					) : tables.length > 0 ? (
 						<div>
 							<div className="flex items-center justify-between mb-3">
-								<label className="text-xs text-text-secondary">
+								<div className="text-xs text-text-secondary">
 									{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to
 									manage as CMS collections
-								</label>
+								</div>
 							</div>
 							<div className="flex items-center gap-4 mb-3">
 								<div className="flex items-center gap-2 text-xs text-text-secondary">

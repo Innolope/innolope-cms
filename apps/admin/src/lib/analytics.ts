@@ -17,7 +17,7 @@ export function initAnalytics() {
 
 	window.dataLayer = window.dataLayer || []
 	window.gtag = function gtag() {
-		// GA requires the literal `arguments` object, not a spread copy.
+		// biome-ignore lint/complexity/noArguments: GA's gtag relies on the live `arguments` object.
 		window.dataLayer.push(arguments)
 	}
 	window.gtag('js', new Date())

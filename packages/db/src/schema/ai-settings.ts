@@ -8,10 +8,7 @@ export const aiSettings = pgTable('ai_settings', {
 		.references(() => projects.id, { onDelete: 'cascade' })
 		.unique(),
 	defaultModel: text().notNull().default('gemini-3.1-flash-lite'),
-	providers: jsonb()
-		.$type<AiProviderConfig[]>()
-		.notNull()
-		.default([]),
+	providers: jsonb().$type<AiProviderConfig[]>().notNull().default([]),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 })

@@ -1,11 +1,13 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import type { CollectionField } from '@innolope/config'
 import { collections, content, projects } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
+import { getProject } from '../../plugins/project.js'
 import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
 /** Block connection strings targeting private/internal networks (SSRF protection). */
@@ -302,7 +304,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			const [project] = await app.db
 				.select()
 				.from(projects)
-				.where(eq(projects.id, request.project!.id))
+				.where(eq(projects.id, getProject(request).id))
 				.limit(1)
 			if (!project) return reply.status(404).send({ error: 'Project not found' })
 			const savedExternalDb = getSavedExternalDb(project)
@@ -647,7 +649,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 			const [project] = await app.db
 				.select()
 				.from(projects)
-				.where(eq(projects.id, request.project!.id))
+				.where(eq(projects.id, getProject(request).id))
 				.limit(1)
 
 			if (!project) return reply.status(404).send({ error: 'Project not found' })
@@ -678,8 +680,11 @@ export async function databaseRoutes(app: FastifyInstance) {
 			// Update project settings
 			const [updated] = await app.db
 				.update(projects)
-				.set({ settings: settings as any, updatedAt: new Date() })
-				.where(eq(projects.id, request.project!.id))
+				.set({
+					settings: settings as unknown as (typeof projects.$inferInsert)['settings'],
+					updatedAt: new Date(),
+				})
+				.where(eq(projects.id, getProject(request).id))
 				.returning()
 
 			// Create collection records for selected tables
@@ -718,7 +723,10 @@ export async function databaseRoutes(app: FastifyInstance) {
 						.select({ id: collections.id })
 						.from(collections)
 						.where(
-							and(eq(collections.name, table.name), eq(collections.projectId, request.project!.id)),
+							and(
+								eq(collections.name, table.name),
+								eq(collections.projectId, getProject(request).id),
+							),
 						)
 						.limit(1)
 
@@ -728,7 +736,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 						.filter((c) => c.name !== '_id' && c.name !== 'id')
 						.map((c) => ({
 							name: c.name,
-							type: (FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)) as any,
+							type: (FIELD_TYPES.has(c.type)
+								? c.type
+								: mapColumnType(c.type)) as CollectionField['type'],
 							required: false,
 							localized: false,
 							...(c.relationTo && { relationTo: c.relationTo }),
@@ -748,7 +758,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					const [created] = await app.db
 						.insert(collections)
 						.values({
-							projectId: request.project!.id,
+							projectId: getProject(request).id,
 							name: table.name,
 							label: tableNameToLabel(table.name),
 							description: `Imported from ${type}`,
@@ -768,8 +778,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 				for (const table of tables) {
 					for (const col of table.columns) {
 						if (col.relationTo && !selectedNames.has(col.relationTo)) {
-							if (!missingRelations.has(table.name)) missingRelations.set(table.name, new Set())
-							missingRelations.get(table.name)!.add(col.relationTo)
+							let relations = missingRelations.get(table.name)
+							if (!relations) {
+								relations = new Set()
+								missingRelations.set(table.name, relations)
+							}
+							relations.add(col.relationTo)
 						}
 					}
 				}

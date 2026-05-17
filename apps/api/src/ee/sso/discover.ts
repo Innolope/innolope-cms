@@ -1,6 +1,6 @@
-import type { FastifyInstance } from 'fastify'
-import { and, eq, sql } from 'drizzle-orm'
 import { ssoConnections } from '@innolope/db'
+import { and, eq, sql } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
 
 /**
  * Public email-domain discovery endpoint for SSO.
@@ -37,14 +37,12 @@ export async function ssoDiscoverRoutes(app: FastifyInstance) {
 				})
 				.from(ssoConnections)
 				.where(
-					and(
-						eq(ssoConnections.enabled, true),
-						sql`${domain} = ANY(${ssoConnections.domains})`,
-					),
+					and(eq(ssoConnections.enabled, true), sql`${domain} = ANY(${ssoConnections.domains})`),
 				)
 				.limit(1)
 
-			if (!connection) return reply.status(404).send({ error: 'No SSO connection for this email domain' })
+			if (!connection)
+				return reply.status(404).send({ error: 'No SSO connection for this email domain' })
 			return connection
 		},
 	)

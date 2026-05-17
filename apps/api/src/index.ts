@@ -1,5 +1,5 @@
-import * as Sentry from '@sentry/node'
 import { envSchema } from '@innolope/config'
+import * as Sentry from '@sentry/node'
 import { buildApp } from './app.js'
 
 // Initialize Sentry (does nothing if SENTRY_DSN is not set)
@@ -15,7 +15,7 @@ if (process.env.SENTRY_DSN) {
 const env = envSchema.safeParse(process.env)
 if (!env.success) {
 	const missing = env.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`)
-	console.error('Invalid environment variables:\n' + missing.join('\n'))
+	console.error(`Invalid environment variables:\n${missing.join('\n')}`)
 	if (process.env.NODE_ENV === 'production') process.exit(1)
 }
 

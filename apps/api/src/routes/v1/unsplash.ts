@@ -1,5 +1,7 @@
-import type { FastifyInstance } from 'fastify'
 import { media } from '@innolope/db'
+import type { FastifyInstance } from 'fastify'
+import { getUser } from '../../plugins/auth.js'
+import { getProject } from '../../plugins/project.js'
 
 const UNSPLASH_API = 'https://api.unsplash.com'
 
@@ -16,8 +18,7 @@ interface UnsplashPhoto {
 }
 
 export async function unsplashRoutes(app: FastifyInstance) {
-	const getAccessKey = () =>
-		process.env.UNSPLASH_ACCESS_KEY || null
+	const getAccessKey = () => process.env.UNSPLASH_ACCESS_KEY || null
 
 	// Check if Unsplash is configured
 	app.get('/status', { preHandler: [app.requireProject('viewer')] }, async () => {
@@ -25,55 +26,63 @@ export async function unsplashRoutes(app: FastifyInstance) {
 	})
 
 	// Search photos
-	app.get('/search', { preHandler: [app.requireProject('viewer'), app.requireLicense('media-integrations')] }, async (request, reply) => {
-		const accessKey = getAccessKey()
-		if (!accessKey) {
-			return reply.status(503).send({ error: 'Unsplash not configured' })
-		}
+	app.get(
+		'/search',
+		{ preHandler: [app.requireProject('viewer'), app.requireLicense('media-integrations')] },
+		async (request, reply) => {
+			const accessKey = getAccessKey()
+			if (!accessKey) {
+				return reply.status(503).send({ error: 'Unsplash not configured' })
+			}
 
-		const { q, page = 1, per_page = 20 } = request.query as {
-			q: string
-			page?: number
-			per_page?: number
-		}
+			const {
+				q,
+				page = 1,
+				per_page = 20,
+			} = request.query as {
+				q: string
+				page?: number
+				per_page?: number
+			}
 
-		if (!q || !q.trim()) {
-			return reply.status(400).send({ error: 'Query parameter "q" is required' })
-		}
+			if (!q?.trim()) {
+				return reply.status(400).send({ error: 'Query parameter "q" is required' })
+			}
 
-		const params = new URLSearchParams({
-			query: q,
-			page: String(page),
-			per_page: String(Math.min(Number(per_page), 30)),
-		})
-
-		const res = await fetch(`${UNSPLASH_API}/search/photos?${params}`, {
-			headers: {
-				Authorization: `Client-ID ${accessKey}`,
-				'Accept-Version': 'v1',
-			},
-		})
-
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({}))
-			return reply.status(res.status).send({
-				error: `Unsplash API error: ${(err as { errors?: string[] }).errors?.[0] || res.statusText}`,
+			const params = new URLSearchParams({
+				query: q,
+				page: String(page),
+				per_page: String(Math.min(Number(per_page), 30)),
 			})
-		}
 
-		const data = (await res.json()) as {
-			total: number
-			total_pages: number
-			results: UnsplashPhoto[]
-		}
+			const res = await fetch(`${UNSPLASH_API}/search/photos?${params}`, {
+				headers: {
+					Authorization: `Client-ID ${accessKey}`,
+					'Accept-Version': 'v1',
+				},
+			})
 
-		return {
-			total: data.total,
-			totalPages: data.total_pages,
-			page: Number(page),
-			results: data.results.map(normalizePhoto),
-		}
-	})
+			if (!res.ok) {
+				const err = await res.json().catch(() => ({}))
+				return reply.status(res.status).send({
+					error: `Unsplash API error: ${(err as { errors?: string[] }).errors?.[0] || res.statusText}`,
+				})
+			}
+
+			const data = (await res.json()) as {
+				total: number
+				total_pages: number
+				results: UnsplashPhoto[]
+			}
+
+			return {
+				total: data.total,
+				totalPages: data.total_pages,
+				page: Number(page),
+				results: data.results.map(normalizePhoto),
+			}
+		},
+	)
 
 	// Track download (required by Unsplash API guidelines)
 	app.post<{ Params: { id: string } }>(
@@ -141,7 +150,7 @@ export async function unsplashRoutes(app: FastifyInstance) {
 			const [created] = await app.db
 				.insert(media)
 				.values({
-					projectId: request.project!.id,
+					projectId: getProject(request).id,
 					type: 'image',
 					filename: result.filename,
 					mimeType: 'image/jpeg',
@@ -157,7 +166,7 @@ export async function unsplashRoutes(app: FastifyInstance) {
 						authorUrl: photo.user.links.html,
 						unsplashUrl: `https://unsplash.com/photos/${photo.id}`,
 					},
-					createdBy: request.user!.id,
+					createdBy: getUser(request).id,
 				})
 				.returning()
 

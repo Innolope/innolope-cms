@@ -1,8 +1,8 @@
-import type { FastifyInstance } from 'fastify'
-import { and, eq, lt } from 'drizzle-orm'
-import { ssoAuthStates, ssoConnections, ssoReplayCache } from '@innolope/db'
+import { ssoAuthStates, type ssoConnections, ssoReplayCache } from '@innolope/db'
 import { SAML } from '@node-saml/node-saml'
+import { eq, lt } from 'drizzle-orm'
 import { XMLParser } from 'fast-xml-parser'
+import type { FastifyInstance } from 'fastify'
 import { completeSsoLogin, extractProfile, SsoError } from '../../services/sso-login.js'
 import { newNonce, sanitizeNext, signState, verifyState } from '../../services/sso-state.js'
 import { loadConnectionBySlug } from './oidc.js'
@@ -26,7 +26,7 @@ function spEntityId(): string {
  */
 function buildSaml(
 	connection: typeof ssoConnections.$inferSelect,
-	opts: { allowUnencryptedAssertions?: boolean } = {},
+	_opts: { allowUnencryptedAssertions?: boolean } = {},
 ): SAML {
 	if (!connection.samlSsoUrl || !connection.samlEntityId) {
 		throw new SsoError('saml_config_incomplete', 400, 'SAML connection missing entityId or SSO URL')
@@ -96,7 +96,9 @@ function extractResponseIdFromXml(body: { SAMLResponse?: string }): string | nul
 		const xml = Buffer.from(body.SAMLResponse, 'base64').toString('utf8')
 		const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 		const parsed = parser.parse(xml) as Record<string, unknown>
-		const resp = (parsed['samlp:Response'] || parsed.Response || parsed['saml2p:Response']) as Record<string, unknown> | undefined
+		const resp = (parsed['samlp:Response'] || parsed.Response || parsed['saml2p:Response']) as
+			| Record<string, unknown>
+			| undefined
 		const id = resp?.['@_ID']
 		return typeof id === 'string' ? id : null
 	} catch {
@@ -110,7 +112,9 @@ function extractInResponseTo(body: { SAMLResponse?: string }): string | null {
 		const xml = Buffer.from(body.SAMLResponse, 'base64').toString('utf8')
 		const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 		const parsed = parser.parse(xml) as Record<string, unknown>
-		const resp = (parsed['samlp:Response'] || parsed.Response || parsed['saml2p:Response']) as Record<string, unknown> | undefined
+		const resp = (parsed['samlp:Response'] || parsed.Response || parsed['saml2p:Response']) as
+			| Record<string, unknown>
+			| undefined
 		const inResponseTo = resp?.['@_InResponseTo']
 		return typeof inResponseTo === 'string' ? inResponseTo : null
 	} catch {
@@ -196,7 +200,9 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 					data: { connectionId: connection.id, reason: 'idp_initiated_disabled' },
 					timestamp: new Date().toISOString(),
 				})
-				return reply.status(400).send({ error: 'IdP-initiated SAML is not allowed for this connection' })
+				return reply
+					.status(400)
+					.send({ error: 'IdP-initiated SAML is not allowed for this connection' })
 			}
 
 			// Replay cache: use the Response.ID (must be unique)
@@ -244,7 +250,9 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 			}
 
 			const profileRaw = parsed.profile as unknown as Record<string, unknown>
-			const subject = (profileRaw?.nameID as string | undefined) ?? (profileRaw?.['urn:oid:0.9.2342.19200300.100.1.1'] as string | undefined)
+			const subject =
+				(profileRaw?.nameID as string | undefined) ??
+				(profileRaw?.['urn:oid:0.9.2342.19200300.100.1.1'] as string | undefined)
 			if (!subject) {
 				return reply.status(400).send({ error: 'SAML assertion missing NameID' })
 			}

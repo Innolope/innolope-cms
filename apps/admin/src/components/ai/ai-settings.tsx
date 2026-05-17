@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
-import { SaveBar } from '../save-bar'
 import { Dropdown } from '../dropdown'
+import { SaveBar } from '../save-bar'
 
 interface ProviderStatus {
 	provider: string
@@ -42,14 +42,19 @@ export function AiSettingsPanel() {
 	const initialKeys = useRef<Record<string, string>>({})
 
 	useEffect(() => {
-		api.get<AiSettingsData>('/api/v1/ai/settings').then((data) => {
-			setSettings(data)
-			setDefaultModel(data.defaultModel)
-			initialModel.current = data.defaultModel
-		}).catch(() => {})
+		api
+			.get<AiSettingsData>('/api/v1/ai/settings')
+			.then((data) => {
+				setSettings(data)
+				setDefaultModel(data.defaultModel)
+				initialModel.current = data.defaultModel
+			})
+			.catch(() => {})
 	}, [])
 
-	const dirty = defaultModel !== initialModel.current || JSON.stringify(keys) !== JSON.stringify(initialKeys.current)
+	const dirty =
+		defaultModel !== initialModel.current ||
+		JSON.stringify(keys) !== JSON.stringify(initialKeys.current)
 
 	const save = async () => {
 		setSaving(true)
@@ -90,7 +95,7 @@ export function AiSettingsPanel() {
 	return (
 		<div className="space-y-6">
 			<div>
-				<label className="block text-sm font-medium mb-2">Default Model</label>
+				<div className="block text-sm font-medium mb-2">Default Model</div>
 				<Dropdown
 					value={defaultModel}
 					onChange={setDefaultModel}
@@ -105,7 +110,7 @@ export function AiSettingsPanel() {
 
 			{!settings.cloudMode && (
 				<div>
-					<label className="block text-sm font-medium mb-3">Provider API Keys</label>
+					<div className="block text-sm font-medium mb-3">Provider API Keys</div>
 					<p className="text-xs text-text-secondary mb-4">
 						Add your own API keys to enable AI features. Keys are stored encrypted per project.
 					</p>
@@ -121,15 +126,13 @@ export function AiSettingsPanel() {
 									<input
 										type="password"
 										value={keys[provider] || ''}
-										onChange={(e) =>
-											setKeys({ ...keys, [provider]: e.target.value })
+										onChange={(e) => setKeys({ ...keys, [provider]: e.target.value })}
+										placeholder={
+											isConnected ? 'Connected (enter new key to replace)' : 'Paste API key...'
 										}
-										placeholder={isConnected ? 'Connected (enter new key to replace)' : 'Paste API key...'}
 										className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 									/>
-									{isConnected && (
-										<span className="text-xs text-text shrink-0">Connected</span>
-									)}
+									{isConnected && <span className="text-xs text-text shrink-0">Connected</span>}
 								</div>
 							)
 						})}
@@ -139,14 +142,21 @@ export function AiSettingsPanel() {
 
 			{settings.cloudMode && (
 				<p className="text-sm text-text-secondary">
-					AI providers are managed by Innolope Cloud. All major models are available. Select your preferred default model above.
+					AI providers are managed by Innolope Cloud. All major models are available. Select your
+					preferred default model above.
 				</p>
 			)}
 
-			<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={() => {
-				setDefaultModel(initialModel.current)
-				setKeys({ ...initialKeys.current })
-			}} />
+			<SaveBar
+				dirty={dirty}
+				saving={saving}
+				saved={saved}
+				onSave={save}
+				onReset={() => {
+					setDefaultModel(initialModel.current)
+					setKeys({ ...initialKeys.current })
+				}}
+			/>
 		</div>
 	)
 }

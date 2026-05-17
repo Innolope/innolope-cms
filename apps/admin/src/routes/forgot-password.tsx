@@ -42,7 +42,8 @@ function ForgotPassword() {
 							<span className="text-xl">✉️</span>
 						</div>
 						<p className="text-sm text-text-muted">
-							If an account exists for <strong>{email}</strong>, you'll receive a reset link shortly.
+							If an account exists for <strong>{email}</strong>, you'll receive a reset link
+							shortly.
 						</p>
 						<Link
 							to="/login"
@@ -54,8 +55,11 @@ function ForgotPassword() {
 				) : (
 					<form onSubmit={handleSubmit} className="space-y-4">
 						<div>
-							<label className="block text-xs text-text-secondary mb-1.5">Email</label>
+							<label htmlFor="fp-email" className="block text-xs text-text-secondary mb-1.5">
+								Email
+							</label>
 							<input
+								id="fp-email"
 								type="email"
 								value={email}
 								onChange={(e) => setEmail(e.target.value)}

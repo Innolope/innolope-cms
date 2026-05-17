@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
 import { useToast } from '../lib/toast'
 
@@ -30,20 +30,21 @@ function ReviewQueue() {
 	const [page, setPage] = useState(1)
 	const [loading, setLoading] = useState(true)
 
-	const fetchQueue = () => {
+	const fetchQueue = useCallback(() => {
 		setLoading(true)
-		api.get<ReviewResponse>(`/api/v1/content/review-queue?page=${page}&limit=25`)
+		api
+			.get<ReviewResponse>(`/api/v1/content/review-queue?page=${page}&limit=25`)
 			.then((res) => {
 				setItems(res.data)
 				setTotal(res.pagination.total)
 			})
 			.catch(() => {})
 			.finally(() => setLoading(false))
-	}
+	}, [page])
 
 	useEffect(() => {
 		fetchQueue()
-	}, [page])
+	}, [fetchQueue])
 
 	const approve = async (id: string) => {
 		try {
@@ -103,9 +104,7 @@ function ReviewQueue() {
 											{(item.metadata?.title as string) || item.slug}
 										</Link>
 									</td>
-									<td className="px-4 py-3 text-text-secondary font-mono text-xs">
-										{item.slug}
-									</td>
+									<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
 									<td className="px-4 py-3 text-text-secondary">
 										{new Date(item.updatedAt).toLocaleDateString()}
 									</td>

@@ -1,6 +1,8 @@
 import { media } from '@innolope/db'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { eq, and, desc, sql } from 'drizzle-orm'
+import { getUser } from '../../plugins/auth.js'
+import { getProject } from '../../plugins/project.js'
 
 export async function mediaRoutes(app: FastifyInstance) {
 	// Media config — returns which env vars are set (booleans only, never actual values)
@@ -22,9 +24,13 @@ export async function mediaRoutes(app: FastifyInstance) {
 
 	// List media (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const { page = 1, limit = 25, type } = request.query as { page?: number; limit?: number; type?: string }
+		const {
+			page = 1,
+			limit = 25,
+			type,
+		} = request.query as { page?: number; limit?: number; type?: string }
 		const offset = (Number(page) - 1) * Number(limit)
-		const pid = request.project!.id
+		const pid = getProject(request).id
 
 		const conditions = [eq(media.projectId, pid)]
 		if (type) conditions.push(eq(media.type, type as 'image' | 'video' | 'file'))
@@ -32,14 +38,25 @@ export async function mediaRoutes(app: FastifyInstance) {
 		const where = and(...conditions)
 
 		const [items, countResult] = await Promise.all([
-			app.db.select().from(media).where(where).orderBy(desc(media.createdAt)).limit(Number(limit)).offset(offset),
+			app.db
+				.select()
+				.from(media)
+				.where(where)
+				.orderBy(desc(media.createdAt))
+				.limit(Number(limit))
+				.offset(offset),
 			app.db.select({ count: sql<number>`count(*)` }).from(media).where(where),
 		])
 
 		const total = Number(countResult[0].count)
 		return {
 			data: items,
-			pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / Number(limit)) },
+			pagination: {
+				page: Number(page),
+				limit: Number(limit),
+				total,
+				totalPages: Math.ceil(total / Number(limit)),
+			},
 		}
 	})
 
@@ -60,14 +77,14 @@ export async function mediaRoutes(app: FastifyInstance) {
 		const [created] = await app.db
 			.insert(media)
 			.values({
-				projectId: request.project!.id,
+				projectId: getProject(request).id,
 				type,
 				filename: result.filename,
 				mimeType: file.mimetype,
 				size: result.size,
 				url: result.url,
 				externalId: result.id,
-				createdBy: request.user!.id,
+				createdBy: getUser(request).id,
 			})
 			.returning()
 
@@ -75,16 +92,20 @@ export async function mediaRoutes(app: FastifyInstance) {
 	})
 
 	// Delete media (admin+, project-scoped)
-	app.delete<{ Params: { id: string } }>('/:id', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
-		const [item] = await app.db
-			.select()
-			.from(media)
-			.where(and(eq(media.id, request.params.id), eq(media.projectId, request.project!.id)))
-			.limit(1)
+	app.delete<{ Params: { id: string } }>(
+		'/:id',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const [item] = await app.db
+				.select()
+				.from(media)
+				.where(and(eq(media.id, request.params.id), eq(media.projectId, getProject(request).id)))
+				.limit(1)
 
-		if (!item) return reply.status(404).send({ error: 'Media not found' })
-		if (item.externalId) await app.media.delete(item.externalId)
-		await app.db.delete(media).where(eq(media.id, request.params.id))
-		return reply.status(204).send()
-	})
+			if (!item) return reply.status(404).send({ error: 'Media not found' })
+			if (item.externalId) await app.media.delete(item.externalId)
+			await app.db.delete(media).where(eq(media.id, request.params.id))
+			return reply.status(204).send()
+		},
+	)
 }

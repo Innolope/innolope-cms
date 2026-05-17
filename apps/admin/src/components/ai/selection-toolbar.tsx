@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 interface SelectionToolbarProps {
 	containerRef: React.RefObject<HTMLElement | null>
@@ -52,10 +52,7 @@ export function SelectionToolbar({ containerRef, onAction, fieldName }: Selectio
 			style={{ left: position.x, top: position.y }}
 		>
 			<div className="flex items-center gap-0.5 bg-surface border border-border-strong rounded-lg shadow-xl px-1 py-1 animate-in fade-in slide-in-from-bottom-1 duration-150">
-				<ToolbarButton
-					label="✨ AI"
-					onClick={() => onAction('custom', selectedText, fieldName)}
-				/>
+				<ToolbarButton label="✨ AI" onClick={() => onAction('custom', selectedText, fieldName)} />
 				<Divider />
 				<ToolbarButton
 					label="Rewrite"
@@ -69,10 +66,7 @@ export function SelectionToolbar({ containerRef, onAction, fieldName }: Selectio
 					label="Fix"
 					onClick={() => onAction('fix-grammar', selectedText, fieldName)}
 				/>
-				<ToolbarButton
-					label="SEO"
-					onClick={() => onAction('seo', selectedText, fieldName)}
-				/>
+				<ToolbarButton label="SEO" onClick={() => onAction('seo', selectedText, fieldName)} />
 			</div>
 		</div>
 	)

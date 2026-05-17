@@ -376,14 +376,28 @@ function StatsCustomizeModal({
 	onClose: () => void
 }) {
 	const visibleSet = new Set(visibleStats)
+
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onClose()
+		}
+		document.addEventListener('keydown', onKeyDown)
+		return () => document.removeEventListener('keydown', onKeyDown)
+	}, [onClose])
+
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-			onClick={onClose}
-		>
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+			<button
+				type="button"
+				aria-label="Close dialog"
+				className="absolute inset-0 -z-10 cursor-default"
+				onClick={onClose}
+			/>
 			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label="Customize statistics"
 				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md p-6"
-				onClick={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center justify-between mb-2">
 					<h3 className="font-semibold text-text">Customize Statistics</h3>
@@ -454,7 +468,7 @@ function StatsCustomizeModal({
 }
 
 function EmptyDashboard() {
-	const navigate = useNavigate()
+	const _navigate = useNavigate()
 	const toast = useToast()
 	const [step, setStepState] = useState<'choose' | 'connect-db' | 'upload'>(() => {
 		const params = new URLSearchParams(window.location.search)
@@ -651,8 +665,9 @@ function EmptyDashboard() {
 								Choose Files
 							</button>
 						</div>
-						<div
-							className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex flex-col items-center justify-center cursor-pointer"
+						<button
+							type="button"
+							className="border-2 border-dashed border-border rounded-lg py-16 px-6 w-full text-text-secondary text-sm hover:border-text-muted transition-colors flex flex-col items-center justify-center cursor-pointer"
 							onClick={() => fileInputRef.current?.click()}
 							onDragOver={(e) => {
 								e.preventDefault()
@@ -686,7 +701,7 @@ function EmptyDashboard() {
 								<line x1="12" y1="3" x2="12" y2="15" />
 							</svg>
 							Drop .md, .json, or .jsonl files here or click to browse
-						</div>
+						</button>
 					</div>
 				</div>
 				<input

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
 
 interface ChatMessage {
@@ -24,10 +24,12 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 	const bottomRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLTextAreaElement>(null)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs to scroll to the newest message.
 	useEffect(() => {
 		bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
 	}, [messages])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs to refocus the input when the target field changes.
 	useEffect(() => {
 		inputRef.current?.focus()
 	}, [targetField])
@@ -116,9 +118,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 						{msg.role === 'user' ? (
 							<div className="inline-block bg-surface-alt rounded-lg px-3 py-2 text-sm max-w-[85%] text-left">
 								{msg.field && (
-									<span className="text-[10px] text-text-secondary block mb-1">
-										{msg.field}
-									</span>
+									<span className="text-[10px] text-text-secondary block mb-1">{msg.field}</span>
 								)}
 								{msg.text}
 							</div>
@@ -127,12 +127,8 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 								<div className="bg-surface rounded-lg px-3 py-3 text-sm border border-border">
 									{msg.field && (
 										<div className="flex items-center justify-between mb-2">
-											<span className="text-[10px] text-text-secondary">
-												{msg.field}
-											</span>
-											<span className="text-[10px] text-text-muted">
-												{msg.model}
-											</span>
+											<span className="text-[10px] text-text-secondary">{msg.field}</span>
+											<span className="text-[10px] text-text-muted">{msg.model}</span>
 										</div>
 									)}
 									<pre className="whitespace-pre-wrap text-text-secondary text-sm leading-relaxed font-sans">
@@ -143,7 +139,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 									<div className="flex gap-2">
 										<button
 											type="button"
-											onClick={() => onApply(msg.field!, msg.text)}
+											onClick={() => msg.field && onApply(msg.field, msg.text)}
 											className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover transition-colors"
 										>
 											Apply to {msg.field}

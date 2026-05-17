@@ -1,21 +1,25 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { api } from '../lib/api-client'
-import { useCollections } from '../lib/collections'
-import { MarkdownEditor } from '../components/editor/markdown-editor'
-import { VersionPanel } from '../components/versions/version-panel'
+import { useEffect, useRef, useState } from 'react'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
-import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gate'
-import { useToast } from '../lib/toast'
 import { Dropdown } from '../components/dropdown'
-import { RelationField } from '../components/editor/relation-field'
+import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { PillInput } from '../components/editor/pill-input'
+import { RelationField } from '../components/editor/relation-field'
+import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
+import { VersionPanel } from '../components/versions/version-panel'
+import { api } from '../lib/api-client'
+import { useCollections } from '../lib/collections'
+import { useToast } from '../lib/toast'
 
 /** Normalize a stored value (array or comma string) to a string array. */
 function toStringArray(v: unknown): string[] {
 	if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean)
-	if (typeof v === 'string' && v.trim()) return v.split(',').map((s) => s.trim()).filter(Boolean)
+	if (typeof v === 'string' && v.trim())
+		return v
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean)
 	return []
 }
 
@@ -61,7 +65,11 @@ function parseFrontmatter(md: string): { body: string; meta: Record<string, unkn
 		else if (typeof val === 'string' && val && !Number.isNaN(Number(val))) val = Number(val)
 		// Parse arrays
 		else if (typeof val === 'string' && val.startsWith('[') && val.endsWith(']')) {
-			try { val = JSON.parse(val) } catch { /* keep as string */ }
+			try {
+				val = JSON.parse(val)
+			} catch {
+				/* keep as string */
+			}
 		}
 		meta[key] = val
 	}
@@ -103,7 +111,7 @@ function CollectionContentEditor() {
 	const aiLicensed = hasFeature(license, 'ai-assistant')
 	const [showAi, setShowAi] = useState(false)
 	const [aiTargetField, setAiTargetField] = useState<string | null>(null)
-	const [aiSelectedText, setAiSelectedText] = useState<string | null>(null)
+	const [aiSelectedText, _setAiSelectedText] = useState<string | null>(null)
 	const editorContainerRef = useRef<HTMLDivElement>(null)
 
 	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
@@ -113,7 +121,8 @@ function CollectionContentEditor() {
 	// Load content
 	useEffect(() => {
 		if (!isNew && contentId && collection) {
-			api.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}`)
+			api
+				.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}`)
 				.then((item) => {
 					const { body, meta } = parseFrontmatter(item.markdown)
 					const mergedMeta = { ...meta, ...item.metadata }
@@ -143,7 +152,11 @@ function CollectionContentEditor() {
 							const draft = JSON.parse(raw) as { markdown: string; title: string; savedAt: number }
 							// Show restore prompt if draft is newer than content (within 24 hours)
 							const ageMs = Date.now() - draft.savedAt
-							if (ageMs < 24 * 60 * 60 * 1000 && (draft.markdown !== body.trim() || draft.title !== ((mergedMeta.title as string) || ''))) {
+							if (
+								ageMs < 24 * 60 * 60 * 1000 &&
+								(draft.markdown !== body.trim() ||
+									draft.title !== ((mergedMeta.title as string) || ''))
+							) {
 								setShowDraftRestore(true)
 							} else {
 								localStorage.removeItem(draftKey)
@@ -204,11 +217,17 @@ function CollectionContentEditor() {
 	}
 
 	const generateSlug = (text: string) =>
-		text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+		text
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '')
 
 	const save = async () => {
 		if (!collection) return
-		if (isReadOnly) { toast('This collection is read-only', 'error'); return }
+		if (isReadOnly) {
+			toast('This collection is read-only', 'error')
+			return
+		}
 		setSaving(true)
 		try {
 			const metadata = {
@@ -227,10 +246,17 @@ function CollectionContentEditor() {
 				refreshCollections()
 				navigate({ to: `/collections/${slug}/${created.id}` })
 			} else {
-				await api.put(`/api/v1/content/${contentId}`, { slug: contentSlug, markdown, metadata, status })
+				await api.put(`/api/v1/content/${contentId}`, {
+					slug: contentSlug,
+					markdown,
+					metadata,
+					status,
+				})
 			}
 			setDirty(false)
-			try { localStorage.removeItem(draftKey) } catch {}
+			try {
+				localStorage.removeItem(draftKey)
+			} catch {}
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
@@ -296,7 +322,11 @@ function CollectionContentEditor() {
 			<div className="flex-1 overflow-auto p-8" ref={editorContainerRef}>
 				{/* Breadcrumb */}
 				<div className="flex items-center gap-2 text-sm text-text-muted mb-4">
-					<button type="button" onClick={() => navigate({ to: `/collections/${slug}` })} className="hover:text-text transition-colors">
+					<button
+						type="button"
+						onClick={() => navigate({ to: `/collections/${slug}` })}
+						className="hover:text-text transition-colors"
+					>
 						{collection?.label || slug}
 					</button>
 					<span>/</span>
@@ -311,10 +341,24 @@ function CollectionContentEditor() {
 				{/* Draft restore banner */}
 				{showDraftRestore && (
 					<div className="flex items-center justify-between px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border">
-						<span className="text-sm text-text-secondary">You have unsaved changes from a previous session.</span>
+						<span className="text-sm text-text-secondary">
+							You have unsaved changes from a previous session.
+						</span>
 						<div className="flex gap-2">
-							<button type="button" onClick={restoreDraft} className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover">Restore</button>
-							<button type="button" onClick={dismissDraft} className="px-3 py-1 text-text-muted hover:text-text text-xs">Dismiss</button>
+							<button
+								type="button"
+								onClick={restoreDraft}
+								className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
+							>
+								Restore
+							</button>
+							<button
+								type="button"
+								onClick={dismissDraft}
+								className="px-3 py-1 text-text-muted hover:text-text text-xs"
+							>
+								Dismiss
+							</button>
 						</div>
 					</div>
 				)}
@@ -323,7 +367,11 @@ function CollectionContentEditor() {
 				<input
 					type="text"
 					value={title}
-					onChange={(e) => { setTitle(e.target.value); setDirty(true); if (isNew) setContentSlug(generateSlug(e.target.value)) }}
+					onChange={(e) => {
+						setTitle(e.target.value)
+						setDirty(true)
+						if (isNew) setContentSlug(generateSlug(e.target.value))
+					}}
 					placeholder="Enter title"
 					disabled={isReadOnly}
 					className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
@@ -331,7 +379,19 @@ function CollectionContentEditor() {
 
 				{isReadOnly && (
 					<div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-surface-alt text-xs text-text-muted">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						>
+							<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+							<path d="M7 11V7a5 5 0 0110 0v4" />
+						</svg>
 						{isLive
 							? 'This is live data from the external database. Sync the collection to cache it locally and enable editing.'
 							: 'This content is read-only. The external database connection is configured as read-only.'}
@@ -340,13 +400,21 @@ function CollectionContentEditor() {
 
 				<MarkdownEditor
 					content={markdown}
-					onChange={(v) => { if (!isReadOnly) { setMarkdown(v); setDirty(true) } }}
+					onChange={(v) => {
+						if (!isReadOnly) {
+							setMarkdown(v)
+							setDirty(true)
+						}
+					}}
 				/>
 
 				{editorContainerRef.current && aiSelectedText && (
 					<SelectionToolbar
 						containerRef={editorContainerRef as React.RefObject<HTMLElement>}
-						onAction={(action: string, _selectedText: string, _fieldName: string) => { setAiTargetField('markdown'); setShowAi(true) }}
+						onAction={(_action: string, _selectedText: string, _fieldName: string) => {
+							setAiTargetField('markdown')
+							setShowAi(true)
+						}}
 						fieldName="markdown"
 					/>
 				)}
@@ -366,16 +434,44 @@ function CollectionContentEditor() {
 						</button>
 					)}
 					{!isNew && !isReadOnly && status === 'draft' && reviewWorkflowsLicensed && (
-						<button type="button" onClick={submitForReview} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Submit</button>
+						<button
+							type="button"
+							onClick={submitForReview}
+							disabled={saving}
+							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							Submit
+						</button>
 					)}
 					{!isNew && !isReadOnly && status === 'pending_review' && reviewWorkflowsLicensed && (
 						<>
-							<button type="button" onClick={approveContent} disabled={saving} className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50">Approve</button>
-							<button type="button" onClick={rejectContent} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Reject</button>
+							<button
+								type="button"
+								onClick={approveContent}
+								disabled={saving}
+								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								Approve
+							</button>
+							<button
+								type="button"
+								onClick={rejectContent}
+								disabled={saving}
+								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+							>
+								Reject
+							</button>
 						</>
 					)}
 					{!isNew && !isReadOnly && status !== 'published' && !reviewWorkflowsLicensed && (
-						<button type="button" onClick={publish} disabled={saving} className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50">Publish</button>
+						<button
+							type="button"
+							onClick={publish}
+							disabled={saving}
+							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							Publish
+						</button>
 					)}
 				</div>
 
@@ -386,7 +482,10 @@ function CollectionContentEditor() {
 							<input
 								type="text"
 								value={contentSlug}
-								onChange={(e) => { setContentSlug(e.target.value); setDirty(true) }}
+								onChange={(e) => {
+									setContentSlug(e.target.value)
+									setDirty(true)
+								}}
 								className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
 							/>
 						</Field>
@@ -394,7 +493,10 @@ function CollectionContentEditor() {
 						<Field label="Status">
 							<Dropdown
 								value={status}
-								onChange={(v) => { setStatus(v); setDirty(true) }}
+								onChange={(v) => {
+									setStatus(v)
+									setDirty(true)
+								}}
 								options={[
 									{ value: 'draft', label: 'Draft' },
 									{ value: 'pending_review', label: 'Pending Review' },
@@ -410,7 +512,10 @@ function CollectionContentEditor() {
 				<Field label="Tags">
 					<PillInput
 						value={tags}
-						onChange={(v) => { setTags(v); setDirty(true) }}
+						onChange={(v) => {
+							setTags(v)
+							setDirty(true)
+						}}
 						placeholder="Add a tag and press Enter"
 						disabled={isReadOnly}
 					/>
@@ -418,15 +523,21 @@ function CollectionContentEditor() {
 
 				{/* Dynamic schema fields (both internal and external) */}
 				{collection?.fields
-					?.filter(f => f.name !== 'title' && f.name !== 'content' && f.name !== 'body' && f.name !== 'tags')
-					.map(f => (
+					?.filter(
+						(f) =>
+							f.name !== 'title' && f.name !== 'content' && f.name !== 'body' && f.name !== 'tags',
+					)
+					.map((f) => (
 						<Field key={f.name} label={f.name}>
 							{f.type === 'boolean' ? (
 								<label className="flex items-center gap-2 text-sm">
 									<input
 										type="checkbox"
 										checked={!!(extraFields[f.name] ?? false)}
-										onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.checked })); setDirty(true) }}
+										onChange={(e) => {
+											setExtraFields((prev) => ({ ...prev, [f.name]: e.target.checked }))
+											setDirty(true)
+										}}
 										disabled={isReadOnly}
 										className="rounded"
 									/>
@@ -436,7 +547,13 @@ function CollectionContentEditor() {
 								<input
 									type="number"
 									value={String(extraFields[f.name] ?? '')}
-									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value ? Number(e.target.value) : '' })); setDirty(true) }}
+									onChange={(e) => {
+										setExtraFields((prev) => ({
+											...prev,
+											[f.name]: e.target.value ? Number(e.target.value) : '',
+										}))
+										setDirty(true)
+									}}
 									disabled={isReadOnly}
 									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 								/>
@@ -444,7 +561,13 @@ function CollectionContentEditor() {
 								<input
 									type="date"
 									value={toDateInputValue(extraFields[f.name])}
-									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value ? new Date(e.target.value).toISOString() : '' })); setDirty(true) }}
+									onChange={(e) => {
+										setExtraFields((prev) => ({
+											...prev,
+											[f.name]: e.target.value ? new Date(e.target.value).toISOString() : '',
+										}))
+										setDirty(true)
+									}}
 									disabled={isReadOnly}
 									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 								/>
@@ -453,83 +576,111 @@ function CollectionContentEditor() {
 									value={String(extraFields[f.name] ?? '')}
 									relationTo={f.relationTo}
 									disabled={isReadOnly}
-									onChange={(v) => { setExtraFields(prev => ({ ...prev, [f.name]: v })); setDirty(true) }}
+									onChange={(v) => {
+										setExtraFields((prev) => ({ ...prev, [f.name]: v }))
+										setDirty(true)
+									}}
 								/>
 							) : f.type === 'array' ? (
 								<PillInput
 									value={toStringArray(extraFields[f.name])}
-									onChange={(v) => { setExtraFields(prev => ({ ...prev, [f.name]: v })); setDirty(true) }}
+									onChange={(v) => {
+										setExtraFields((prev) => ({ ...prev, [f.name]: v }))
+										setDirty(true)
+									}}
 									disabled={isReadOnly}
 								/>
 							) : (
 								<input
 									type="text"
 									value={String(extraFields[f.name] ?? '')}
-									onChange={(e) => { setExtraFields(prev => ({ ...prev, [f.name]: e.target.value })); setDirty(true) }}
+									onChange={(e) => {
+										setExtraFields((prev) => ({ ...prev, [f.name]: e.target.value }))
+										setDirty(true)
+									}}
 									disabled={isReadOnly}
 									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 								/>
 							)}
 						</Field>
-					))
-				}
+					))}
 
 				{/* Additional fields — fields in metadata not in the schema */}
 				{(() => {
-					const schemaNames = new Set(collection?.fields.map(f => f.name) ?? [])
+					const schemaNames = new Set(collection?.fields.map((f) => f.name) ?? [])
 					schemaNames.add('title')
-					if (!isExternal) { schemaNames.add('tags') }
-					const additionalEntries = Object.entries(extraFields).filter(([key]) => !schemaNames.has(key))
+					if (!isExternal) {
+						schemaNames.add('tags')
+					}
+					const additionalEntries = Object.entries(extraFields).filter(
+						([key]) => !schemaNames.has(key),
+					)
 					if (additionalEntries.length === 0) return null
 					return (
-					<div>
-						<button
-							type="button"
-							onClick={() => setShowExtraFields(!showExtraFields)}
-							className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text transition-colors w-full"
-						>
-							<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-								className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
-							><polyline points="9 18 15 12 9 6" /></svg>
-							Additional fields ({additionalEntries.length})
-						</button>
-						{showExtraFields && (
-							<div className="mt-2 space-y-2">
-								{additionalEntries.map(([key, val]) => (
-									<div key={key}>
-										<label className="block text-[10px] text-text-muted mb-0.5 font-mono">{key}</label>
-										<input
-											type="text"
-											value={String(val ?? '')}
-											onChange={(e) => {
-												setExtraFields(prev => ({ ...prev, [key]: e.target.value }))
-												setDirty(true)
+						<div>
+							<button
+								type="button"
+								onClick={() => setShowExtraFields(!showExtraFields)}
+								className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text transition-colors w-full"
+							>
+								<svg
+									width="10"
+									height="10"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
+								>
+									<polyline points="9 18 15 12 9 6" />
+								</svg>
+								Additional fields ({additionalEntries.length})
+							</button>
+							{showExtraFields && (
+								<div className="mt-2 space-y-2">
+									{additionalEntries.map(([key, val]) => (
+										<div key={key}>
+											<label
+												htmlFor={`meta-field-${key}`}
+												className="block text-[10px] text-text-muted mb-0.5 font-mono"
+											>
+												{key}
+											</label>
+											<input
+												id={`meta-field-${key}`}
+												type="text"
+												value={String(val ?? '')}
+												onChange={(e) => {
+													setExtraFields((prev) => ({ ...prev, [key]: e.target.value }))
+													setDirty(true)
+												}}
+												disabled={isReadOnly}
+												className="w-full px-2 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60"
+											/>
+										</div>
+									))}
+									{!isReadOnly && (
+										<button
+											type="button"
+											onClick={() => {
+												const key = prompt('Field name:')
+												if (key?.trim()) {
+													setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
+													setDirty(true)
+													setShowExtraFields(true)
+												}
 											}}
-											disabled={isReadOnly}
-											className="w-full px-2 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60"
-										/>
-									</div>
-								))}
-								{!isReadOnly && (
-									<button
-										type="button"
-										onClick={() => {
-											const key = prompt('Field name:')
-											if (key?.trim()) {
-												setExtraFields(prev => ({ ...prev, [key.trim()]: '' }))
-												setDirty(true)
-												setShowExtraFields(true)
-											}
-										}}
-										className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
-									>
-										+ Add field
-									</button>
-								)}
-							</div>
-						)}
-					</div>
-				)
+											className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+										>
+											+ Add field
+										</button>
+									)}
+								</div>
+							)}
+						</div>
+					)
 				})()}
 
 				{/* Add field button when no extra fields exist yet */}
@@ -539,7 +690,7 @@ function CollectionContentEditor() {
 						onClick={() => {
 							const key = prompt('Field name:')
 							if (key?.trim()) {
-								setExtraFields(prev => ({ ...prev, [key.trim()]: '' }))
+								setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
 								setDirty(true)
 								setShowExtraFields(true)
 							}
@@ -571,7 +722,10 @@ function CollectionContentEditor() {
 						contentId={contentId}
 						currentVersion={version}
 						onRevert={() => {
-							api.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(`/api/v1/content/${contentId}`)
+							api
+								.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(
+									`/api/v1/content/${contentId}`,
+								)
 								.then((item) => {
 									const { body, meta } = parseFrontmatter(item.markdown)
 									setMarkdown(body.trim())
@@ -600,7 +754,10 @@ function CollectionContentEditor() {
 				<AiChatPanel
 					targetField={aiTargetField}
 					selectedText={aiSelectedText}
-					onApply={(_field: string, text: string) => { setMarkdown((prev) => `${prev}\n\n${text}`); setDirty(true) }}
+					onApply={(_field: string, text: string) => {
+						setMarkdown((prev) => `${prev}\n\n${text}`)
+						setDirty(true)
+					}}
 					onClose={() => setShowAi(false)}
 				/>
 			)}
@@ -610,9 +767,10 @@ function CollectionContentEditor() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
-		<div>
-			<label className="block text-xs text-text-secondary mb-1.5">{label}</label>
+		// biome-ignore lint/a11y/noLabelWithoutControl: generic field wrapper — the control is passed in as children and rendered inside this label.
+		<label className="block">
+			<span className="block text-xs text-text-secondary mb-1.5">{label}</span>
 			{children}
-		</div>
+		</label>
 	)
 }

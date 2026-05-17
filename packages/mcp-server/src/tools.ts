@@ -24,8 +24,7 @@ export function getToolDefinitions() {
 		},
 		{
 			name: 'get_content',
-			description:
-				'Get a single content item by ID. Returns full markdown content and metadata.',
+			description: 'Get a single content item by ID. Returns full markdown content and metadata.',
 			inputSchema: {
 				type: 'object' as const,
 				properties: {
@@ -94,8 +93,7 @@ export function getToolDefinitions() {
 		},
 		{
 			name: 'search_content',
-			description:
-				'Search content by keyword across all markdown content and metadata.',
+			description: 'Search content by keyword across all markdown content and metadata.',
 			inputSchema: {
 				type: 'object' as const,
 				properties: {
@@ -140,9 +138,7 @@ export async function handleToolCall(
 		}
 
 		case 'create_content': {
-			const created = await client.createContent(
-				args as Parameters<typeof client.createContent>[0],
-			)
+			const created = await client.createContent(args as Parameters<typeof client.createContent>[0])
 			return `Content created successfully.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}`
 		}
 

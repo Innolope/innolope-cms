@@ -1,6 +1,6 @@
-import type { FastifyInstance } from 'fastify'
-import { content, aiSettings } from '@innolope/db'
+import { aiSettings, content } from '@innolope/db'
 import { eq, sql } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
 import type { AiProviderConfig } from './ai.js'
 
 export function chunkText(text: string, maxChunkSize = 500): string[] {
@@ -54,7 +54,7 @@ export async function generateEmbeddings(
 		throw new Error(`OpenAI embeddings API error ${response.status}: ${err}`)
 	}
 
-	const data = await response.json() as { data: Array<{ embedding: number[] }> }
+	const data = (await response.json()) as { data: Array<{ embedding: number[] }> }
 	return data.data.map((d) => d.embedding)
 }
 
@@ -107,7 +107,8 @@ export function initAutoEmbedding(app: FastifyInstance) {
 			const projectResult = await app.db.execute(
 				sql`SELECT settings FROM projects WHERE id = ${projectId}`,
 			)
-			const settings = (projectResult as unknown as Array<{ settings: Record<string, unknown> }>)[0]?.settings
+			const settings = (projectResult as unknown as Array<{ settings: Record<string, unknown> }>)[0]
+				?.settings
 			if (!settings?.autoEmbed) return
 
 			// Get AI providers for this project

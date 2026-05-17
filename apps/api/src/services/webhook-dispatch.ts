@@ -1,7 +1,7 @@
-import type { FastifyInstance } from 'fastify'
-import { webhooks, webhookDeliveries } from '@innolope/db'
-import { eq, and, sql, lte } from 'drizzle-orm'
 import { createHmac } from 'node:crypto'
+import { webhookDeliveries, webhooks } from '@innolope/db'
+import { and, eq, lte, sql } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
 
 export function initWebhookDispatcher(app: FastifyInstance) {
 	if (!app.db) return
@@ -22,13 +22,16 @@ export function initWebhookDispatcher(app: FastifyInstance) {
 				if (subscribedEvents.length > 0 && !subscribedEvents.includes(event.type)) continue
 
 				// Create delivery record and dispatch
-				const [delivery] = await app.db.insert(webhookDeliveries).values({
-					webhookId: webhook.id,
-					event: event.type,
-					payload: { type: event.type, data: event.data, timestamp: event.timestamp },
-					status: 'pending',
-					attempts: 0,
-				}).returning()
+				const [delivery] = await app.db
+					.insert(webhookDeliveries)
+					.values({
+						webhookId: webhook.id,
+						event: event.type,
+						payload: { type: event.type, data: event.data, timestamp: event.timestamp },
+						status: 'pending',
+						attempts: 0,
+					})
+					.returning()
 
 				// Fire-and-forget delivery
 				dispatchDelivery(app, webhook, delivery).catch((err) => {

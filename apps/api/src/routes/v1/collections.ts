@@ -1,11 +1,15 @@
+import type { CollectionField } from '@innolope/config'
 import { collections, content, contentVersions, projects } from '@innolope/db'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { eq, and, sql, asc } from 'drizzle-orm'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
+import { getProject } from '../../plugins/project.js'
 import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
 
 function getExternalDbConfig(project: typeof projects.$inferSelect | undefined) {
-	const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as Record<string, unknown> | undefined
+	const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as
+		| Record<string, unknown>
+		| undefined
 	if (!extDb?.type || !extDb?.connectionString) return null
 	return {
 		type: extDb.type as string,
@@ -17,12 +21,15 @@ function getExternalDbConfig(project: typeof projects.$inferSelect | undefined) 
 export async function collectionRoutes(app: FastifyInstance) {
 	// List collections (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		return app.db.select().from(collections).where(eq(collections.projectId, request.project!.id))
+		return app.db
+			.select()
+			.from(collections)
+			.where(eq(collections.projectId, getProject(request).id))
 	})
 
 	// List collections with content counts (viewer+, project-scoped)
 	app.get('/with-counts', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const pid = request.project!.id
+		const pid = getProject(request).id
 		const results = await app.db
 			.select({
 				id: collections.id,
@@ -50,13 +57,20 @@ export async function collectionRoutes(app: FastifyInstance) {
 		{ preHandler: [app.requireProject('viewer')], constraints: {} },
 		async (request, reply) => {
 			// Skip non-UUID params (handled by other routes)
-			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.id)) {
+			if (
+				!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.id)
+			) {
 				return reply.status(404).send({ error: 'Collection not found' })
 			}
 			const [item] = await app.db
 				.select()
 				.from(collections)
-				.where(and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)))
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
 				.limit(1)
 
 			if (!item) return reply.status(404).send({ error: 'Collection not found' })
@@ -65,75 +79,99 @@ export async function collectionRoutes(app: FastifyInstance) {
 	)
 
 	// Preview external source-of-truth changes before overwriting the local cache.
-	app.get<{ Params: { id: string } }>('/:id/sync-preview', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const [collection] = await app.db
-			.select()
-			.from(collections)
-			.where(and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)))
-			.limit(1)
+	app.get<{ Params: { id: string } }>(
+		'/:id/sync-preview',
+		{ preHandler: [app.requireProject('editor')] },
+		async (request, reply) => {
+			const [collection] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
 
-		if (!collection) return reply.status(404).send({ error: 'Collection not found' })
-		if (collection.source !== 'external' || !collection.externalTable) {
-			return reply.status(400).send({ error: 'Collection is not backed by an external database' })
-		}
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			if (collection.source !== 'external' || !collection.externalTable) {
+				return reply.status(400).send({ error: 'Collection is not backed by an external database' })
+			}
 
-		const [project] = await app.db
-			.select()
-			.from(projects)
-			.where(eq(projects.id, request.project!.id))
-			.limit(1)
-		const extDb = getExternalDbConfig(project)
-		if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			const extDb = getExternalDbConfig(project)
+			if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
 
-		const adapter = createExternalDbAdapter(extDb)
-		await adapter.connect()
-		try {
-			return await previewMarkdownCacheSync(app.db as any, content, adapter, {
-				id: collection.id,
-				projectId: collection.projectId,
-				externalTable: collection.externalTable,
-				fields: collection.fields,
-			})
-		} finally {
-			await adapter.disconnect()
-		}
-	})
+			const adapter = createExternalDbAdapter(extDb)
+			await adapter.connect()
+			try {
+				return await previewMarkdownCacheSync(app.db, content, adapter, {
+					id: collection.id,
+					projectId: collection.projectId,
+					externalTable: collection.externalTable,
+					fields: collection.fields,
+				})
+			} finally {
+				await adapter.disconnect()
+			}
+		},
+	)
 
 	// Refresh local content cache from the external source of truth (editor+, project-scoped)
-	app.post<{ Params: { id: string } }>('/:id/sync', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const [collection] = await app.db
-			.select()
-			.from(collections)
-			.where(and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)))
-			.limit(1)
+	app.post<{ Params: { id: string } }>(
+		'/:id/sync',
+		{ preHandler: [app.requireProject('editor')] },
+		async (request, reply) => {
+			const [collection] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
 
-		if (!collection) return reply.status(404).send({ error: 'Collection not found' })
-		if (collection.source !== 'external' || !collection.externalTable) {
-			return reply.status(400).send({ error: 'Collection is not backed by an external database' })
-		}
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			if (collection.source !== 'external' || !collection.externalTable) {
+				return reply.status(400).send({ error: 'Collection is not backed by an external database' })
+			}
 
-		const [project] = await app.db
-			.select()
-			.from(projects)
-			.where(eq(projects.id, request.project!.id))
-			.limit(1)
-		const extDb = getExternalDbConfig(project)
-		if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			const extDb = getExternalDbConfig(project)
+			if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
 
-		const adapter = createExternalDbAdapter(extDb)
-		await adapter.connect()
-		try {
-			const result = await syncMarkdownCache(app.db as any, content, adapter, {
-				id: collection.id,
-				projectId: collection.projectId,
-				externalTable: collection.externalTable,
-				fields: collection.fields,
-			}, { userId: request.user?.id, versionTable: contentVersions })
-			return result
-		} finally {
-			await adapter.disconnect()
-		}
-	})
+			const adapter = createExternalDbAdapter(extDb)
+			await adapter.connect()
+			try {
+				const result = await syncMarkdownCache(
+					app.db,
+					content,
+					adapter,
+					{
+						id: collection.id,
+						projectId: collection.projectId,
+						externalTable: collection.externalTable,
+						fields: collection.fields,
+					},
+					{ userId: request.user?.id, versionTable: contentVersions },
+				)
+				return result
+			} finally {
+				await adapter.disconnect()
+			}
+		},
+	)
 
 	// Create collection (admin+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
@@ -147,11 +185,11 @@ export async function collectionRoutes(app: FastifyInstance) {
 		const [created] = await app.db
 			.insert(collections)
 			.values({
-				projectId: request.project!.id,
+				projectId: getProject(request).id,
 				name,
 				label,
 				description,
-				fields: (fields || []) as any,
+				fields: (fields || []) as CollectionField[],
 			})
 			.returning()
 
@@ -179,7 +217,12 @@ export async function collectionRoutes(app: FastifyInstance) {
 			const [updated] = await app.db
 				.update(collections)
 				.set(updates)
-				.where(and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)))
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
 				.returning()
 
 			if (!updated) return reply.status(404).send({ error: 'Collection not found' })
@@ -192,9 +235,14 @@ export async function collectionRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			await app.db.delete(collections).where(
-				and(eq(collections.id, request.params.id), eq(collections.projectId, request.project!.id)),
-			)
+			await app.db
+				.delete(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
 			return reply.status(204).send()
 		},
 	)

@@ -1,13 +1,13 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { api } from '../lib/api-client'
-import { MarkdownEditor } from '../components/editor/markdown-editor'
-import { VersionPanel } from '../components/versions/version-panel'
+import { useEffect, useRef, useState } from 'react'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
-import { useLicense, hasFeature, UpgradePrompt } from '../components/license-gate'
-import { useToast } from '../lib/toast'
 import { Dropdown } from '../components/dropdown'
+import { MarkdownEditor } from '../components/editor/markdown-editor'
+import { hasFeature, useLicense } from '../components/license-gate'
+import { VersionPanel } from '../components/versions/version-panel'
+import { api } from '../lib/api-client'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/content/$id')({
 	component: ContentEditor,
@@ -64,13 +64,16 @@ function ContentEditor() {
 		setShowAi(true)
 		if (action !== 'custom') {
 			// Auto-trigger the action via the chat panel
-			api.post<{ text: string; field: string }>('/api/v1/ai/complete', {
-				field: fieldName,
-				selectedText,
-				action,
-			}).then((result) => {
-				// Chat panel will show the result via its own state
-			}).catch(() => {})
+			api
+				.post<{ text: string; field: string }>('/api/v1/ai/complete', {
+					field: fieldName,
+					selectedText,
+					action,
+				})
+				.then((_result) => {
+					// Chat panel will show the result via its own state
+				})
+				.catch(() => {})
 		}
 	}
 
@@ -94,14 +97,16 @@ function ContentEditor() {
 
 	useEffect(() => {
 		// Fetch collections for the dropdown
-		api.get<{ id: string; name: string; slug: string }[]>('/api/v1/collections')
+		api
+			.get<{ id: string; name: string; slug: string }[]>('/api/v1/collections')
 			.then(setCollections)
 			.catch(() => {})
 	}, [])
 
 	useEffect(() => {
 		if (!isNew) {
-			api.get<ContentItem>(`/api/v1/content/${id}`)
+			api
+				.get<ContentItem>(`/api/v1/content/${id}`)
 				.then((item) => {
 					setMarkdown(item.markdown)
 					setTitle((item.metadata?.title as string) || '')
@@ -110,9 +115,7 @@ function ContentEditor() {
 					setCollectionId(item.collectionId)
 					setVersion(item.version)
 					setTags(
-						Array.isArray(item.metadata?.tags)
-							? (item.metadata.tags as string[]).join(', ')
-							: '',
+						Array.isArray(item.metadata?.tags) ? (item.metadata.tags as string[]).join(', ') : '',
 					)
 				})
 				.catch(() => navigate({ to: '/dashboard' }))
@@ -132,7 +135,10 @@ function ContentEditor() {
 		try {
 			const metadata: Record<string, unknown> = { title }
 			if (tags.trim()) {
-				metadata.tags = tags.split(',').map((t) => t.trim()).filter(Boolean)
+				metadata.tags = tags
+					.split(',')
+					.map((t) => t.trim())
+					.filter(Boolean)
 			}
 
 			if (isNew) {
@@ -216,9 +222,7 @@ function ContentEditor() {
 	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
 
 	if (loading) {
-		return (
-			<div className="p-8 text-text-secondary text-sm">Loading...</div>
-		)
+		return <div className="p-8 text-text-secondary text-sm">Loading...</div>
 	}
 
 	return (
@@ -245,6 +249,7 @@ function ContentEditor() {
 						placeholder="Article title"
 						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-text-faint"
 					/>
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: focus-tracking wrapper for the body editor, not an interactive control. */}
 					<div className="relative" onFocus={() => setAiTargetField('body')}>
 						{aiLicensed && (
 							<SelectionToolbar
@@ -255,7 +260,10 @@ function ContentEditor() {
 						)}
 						<MarkdownEditor
 							content={markdown}
-							onChange={(md) => { setMarkdown(md); setDirty(true) }}
+							onChange={(md) => {
+								setMarkdown(md)
+								setDirty(true)
+							}}
 							placeholder="Write your content in markdown..."
 						/>
 					</div>
@@ -410,9 +418,10 @@ function ContentEditor() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
-		<div>
-			<label className="block text-xs text-text-secondary mb-1.5">{label}</label>
+		// biome-ignore lint/a11y/noLabelWithoutControl: generic field wrapper — the control is passed in as children and rendered inside this label.
+		<label className="block">
+			<span className="block text-xs text-text-secondary mb-1.5">{label}</span>
 			{children}
-		</div>
+		</label>
 	)
 }

@@ -39,7 +39,7 @@ function buildHeaders(options?: RequestInit): Record<string, string> {
 		if (csrf) headers['X-CSRF-Token'] = csrf
 	}
 
-	if (!(options?.body instanceof FormData)) {
+	if (options?.body !== undefined && !(options.body instanceof FormData)) {
 		headers['Content-Type'] = 'application/json'
 	}
 	return headers

@@ -126,8 +126,11 @@ function LoginPage() {
 				<form onSubmit={handleSubmit} className="space-y-4">
 					{mode === 'setup' && (
 						<div>
-							<label className="block text-xs text-text-secondary mb-1.5">Your name</label>
+							<label htmlFor="login-name" className="block text-xs text-text-secondary mb-1.5">
+								Your name
+							</label>
 							<input
+								id="login-name"
 								type="text"
 								value={name}
 								onChange={(e) => setName(e.target.value)}
@@ -139,8 +142,11 @@ function LoginPage() {
 						</div>
 					)}
 					<div>
-						<label className="block text-xs text-text-secondary mb-1.5">Email</label>
+						<label htmlFor="login-email" className="block text-xs text-text-secondary mb-1.5">
+							Email
+						</label>
 						<input
+							id="login-email"
 							type="email"
 							value={email}
 							onChange={(e) => {
@@ -156,8 +162,11 @@ function LoginPage() {
 					</div>
 					{!(ssoDiscovery?.enforceSso && mode === 'login') && (
 						<div>
-							<label className="block text-xs text-text-secondary mb-1.5">Password</label>
+							<label htmlFor="login-password" className="block text-xs text-text-secondary mb-1.5">
+								Password
+							</label>
 							<input
+								id="login-password"
 								type="password"
 								value={password}
 								onChange={(e) => setPassword(e.target.value)}

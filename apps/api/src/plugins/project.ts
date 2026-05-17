@@ -1,5 +1,5 @@
-import { projects, projectMembers } from '@innolope/db'
-import { eq, and } from 'drizzle-orm'
+import { projectMembers, projects } from '@innolope/db'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
 
@@ -24,10 +24,21 @@ declare module 'fastify' {
 	}
 }
 
+export type ProjectContext = { id: string; slug: string; name: string }
+
+/** Returns the project context set by the `requireProject` preHandler. Throws if absent. */
+export function getProject(request: FastifyRequest): ProjectContext {
+	if (!request.project) {
+		throw new Error(
+			'getProject() called without project context — missing requireProject preHandler',
+		)
+	}
+	return request.project
+}
+
 export const projectPlugin = fp(async (app: FastifyInstance) => {
 	const requireProject =
-		(minRole: ProjectRole) =>
-		async (request: FastifyRequest, reply: FastifyReply) => {
+		(minRole: ProjectRole) => async (request: FastifyRequest, reply: FastifyReply) => {
 			// First authenticate the user
 			await app.authenticate(request, reply)
 			if (reply.sent) return
@@ -72,7 +83,8 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 
 			if (!projectId) {
 				return reply.status(400).send({
-					error: 'Project context required. Set X-Project-Id header or use a project-scoped API key.',
+					error:
+						'Project context required. Set X-Project-Id header or use a project-scoped API key.',
 				})
 			}
 
@@ -92,10 +104,7 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 				.select()
 				.from(projectMembers)
 				.where(
-					and(
-						eq(projectMembers.projectId, projectId),
-						eq(projectMembers.userId, request.user.id),
-					),
+					and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, request.user.id)),
 				)
 				.limit(1)
 

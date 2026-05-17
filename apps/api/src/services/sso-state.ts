@@ -1,5 +1,5 @@
-import { SignJWT, jwtVerify } from 'jose'
 import { randomBytes } from 'node:crypto'
+import { jwtVerify, SignJWT } from 'jose'
 
 function getSecret(): Uint8Array {
 	const secret = process.env.AUTH_SECRET

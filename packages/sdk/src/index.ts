@@ -1,9 +1,9 @@
 export { InnolopeCMS } from './client.js'
 export type {
+	Collection,
 	Content,
 	ContentListParams,
 	ContentListResponse,
-	MediaItem,
-	Collection,
 	LocaleInfo,
+	MediaItem,
 } from './types.js'

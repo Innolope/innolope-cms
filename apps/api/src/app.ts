@@ -132,7 +132,7 @@ export async function buildApp() {
 		if (/^\/api\/v1\/auth\/sso\/[^/]+\/saml\/acs$/.test(path)) return
 		if (path.startsWith('/api/v1/scim/')) return
 
-		const cookieToken = request.cookies['innolope_csrf']
+		const cookieToken = request.cookies.innolope_csrf
 		const headerToken = request.headers['x-csrf-token'] as string | undefined
 		if (!cookieToken || !headerToken || cookieToken !== headerToken) {
 			return reply.status(403).send({ error: 'CSRF token missing or invalid' })

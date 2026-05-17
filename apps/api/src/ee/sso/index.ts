@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import { ssoAdminRoutes } from './admin.js'
 import { ssoDiscoverRoutes } from './discover.js'
+import { ssoInitiateRoutes } from './initiate.js'
+import { meIdentitiesRoutes } from './me-identities.js'
 import { ssoOidcRoutes } from './oidc.js'
 import { ssoSamlRoutes } from './saml.js'
-import { ssoInitiateRoutes } from './initiate.js'
-import { ssoAdminRoutes } from './admin.js'
-import { meIdentitiesRoutes } from './me-identities.js'
 
 /**
  * Mounted at /api/v1/auth/sso. Routes:
@@ -21,4 +21,4 @@ export async function ssoRoutes(app: FastifyInstance) {
 	await app.register(ssoSamlRoutes)
 }
 
-export { ssoAdminRoutes, meIdentitiesRoutes }
+export { meIdentitiesRoutes, ssoAdminRoutes }

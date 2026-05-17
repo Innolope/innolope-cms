@@ -1,9 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import type { CmsEvent } from '../../plugins/events.js'
+import { getProject } from '../../plugins/project.js'
 
 export async function streamRoutes(app: FastifyInstance) {
 	// SSE endpoint for real-time updates
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
+		reply.hijack()
+
 		reply.raw.writeHead(200, {
 			'Content-Type': 'text/event-stream',
 			'Cache-Control': 'no-cache',
@@ -14,7 +17,7 @@ export async function streamRoutes(app: FastifyInstance) {
 		// Send initial ping
 		reply.raw.write(`event: ping\ndata: ${JSON.stringify({ connected: true })}\n\n`)
 
-		const projectId = request.project!.id
+		const projectId = getProject(request).id
 
 		// Subscribe to events — only forward events for this project
 		const unsubscribe = app.events.subscribe((event: CmsEvent) => {
@@ -29,9 +32,14 @@ export async function streamRoutes(app: FastifyInstance) {
 		}, 30000)
 
 		// Cleanup on disconnect
-		request.raw.on('close', () => {
+		let cleaned = false
+		const cleanup = () => {
+			if (cleaned) return
+			cleaned = true
 			unsubscribe()
 			clearInterval(heartbeat)
-		})
+		}
+		request.raw.on('close', cleanup)
+		reply.raw.on('close', cleanup)
 	})
 }

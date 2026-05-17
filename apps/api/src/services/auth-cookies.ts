@@ -1,7 +1,7 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
 import { randomUUID } from 'node:crypto'
-import { createJwt, createRefreshToken } from '../plugins/auth.js'
 import type { UserRole } from '@innolope/types'
+import type { FastifyInstance, FastifyReply } from 'fastify'
+import { createJwt, createRefreshToken } from '../plugins/auth.js'
 
 const IS_PROD = process.env.NODE_ENV === 'production'
 
@@ -48,7 +48,12 @@ export async function setAuthCookies(
 		name: user.name,
 		role: user.role as UserRole,
 	})
-	const { rawToken: refreshToken } = await createRefreshToken(db, user.id, undefined, opts.authMethod ?? 'password')
+	const { rawToken: refreshToken } = await createRefreshToken(
+		db,
+		user.id,
+		undefined,
+		opts.authMethod ?? 'password',
+	)
 	const csrfToken = randomUUID()
 
 	reply.setCookie('innolope_token', accessToken, ACCESS_COOKIE_OPTIONS)

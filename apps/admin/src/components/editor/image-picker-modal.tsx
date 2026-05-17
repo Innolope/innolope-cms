@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { UnsplashPicker } from '../media/unsplash-picker'
 
 export interface ImageSelection {
@@ -29,11 +29,27 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 		onClose()
 	}
 
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onClose()
+		}
+		document.addEventListener('keydown', onKeyDown)
+		return () => document.removeEventListener('keydown', onKeyDown)
+	}, [onClose])
+
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+			<button
+				type="button"
+				aria-label="Close dialog"
+				className="absolute inset-0 -z-10 cursor-default"
+				onClick={onClose}
+			/>
 			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label="Insert image"
 				className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
-				onClick={(e) => e.stopPropagation()}
 			>
 				{/* Header */}
 				<div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -79,8 +95,11 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 					{tab === 'url' && (
 						<div className="space-y-4">
 							<div>
-								<label className="block text-xs text-text-secondary mb-1.5">Image URL</label>
+								<label htmlFor="img-url" className="block text-xs text-text-secondary mb-1.5">
+									Image URL
+								</label>
 								<input
+									id="img-url"
 									type="url"
 									value={url}
 									onChange={(e) => setUrl(e.target.value)}
@@ -91,8 +110,11 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 								/>
 							</div>
 							<div>
-								<label className="block text-xs text-text-secondary mb-1.5">Alt text (optional)</label>
+								<label htmlFor="img-alt" className="block text-xs text-text-secondary mb-1.5">
+									Alt text (optional)
+								</label>
 								<input
+									id="img-alt"
 									type="text"
 									value={alt}
 									onChange={(e) => setAlt(e.target.value)}
@@ -131,9 +153,7 @@ function TabButton({
 			type="button"
 			onClick={onClick}
 			className={`px-4 py-2.5 text-xs font-medium transition-colors ${
-				active
-					? 'text-text border-b-2 border-text'
-					: 'text-text-secondary hover:text-text-muted'
+				active ? 'text-text border-b-2 border-text' : 'text-text-secondary hover:text-text-muted'
 			}`}
 		>
 			{children}

@@ -1,3 +1,5 @@
+import type { Sql } from 'postgres'
+
 export interface ExternalDocument {
 	_id: string
 	[key: string]: unknown
@@ -54,19 +56,27 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return Number(stats.size) || 0
 	}
 
-	async findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]> {
-		const docs = await this.db().collection(table)
+	async findAll(
+		table: string,
+		opts?: { limit?: number; offset?: number },
+	): Promise<ExternalDocument[]> {
+		const docs = await this.db()
+			.collection(table)
 			.find()
 			.skip(opts?.offset ?? 0)
 			.limit(opts?.limit ?? 100)
 			.toArray()
-		return docs.map(d => ({ ...d, _id: String(d._id) }))
+		return docs.map((d) => ({ ...d, _id: String(d._id) }))
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
 		const { ObjectId } = await import('mongodb')
 		let query: Record<string, unknown>
-		try { query = { _id: new ObjectId(id) } } catch { query = { _id: id } }
+		try {
+			query = { _id: new ObjectId(id) }
+		} catch {
+			query = { _id: id }
+		}
 		const doc = await this.db().collection(table).findOne(query)
 		if (!doc) return null
 		return { ...doc, _id: String(doc._id) }
@@ -77,10 +87,18 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return { ...data, _id: String(result.insertedId) }
 	}
 
-	async update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument> {
+	async update(
+		table: string,
+		id: string,
+		data: Record<string, unknown>,
+	): Promise<ExternalDocument> {
 		const { ObjectId } = await import('mongodb')
 		let filter: Record<string, unknown>
-		try { filter = { _id: new ObjectId(id) } } catch { filter = { _id: id } }
+		try {
+			filter = { _id: new ObjectId(id) }
+		} catch {
+			filter = { _id: id }
+		}
 		const result = await this.db().collection(table).updateOne(filter, { $set: data })
 		if (result.matchedCount === 0) throw new Error(`External row not found: ${id}`)
 		return { ...data, _id: id }
@@ -89,7 +107,11 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 	async delete(table: string, id: string): Promise<void> {
 		const { ObjectId } = await import('mongodb')
 		let filter: Record<string, unknown>
-		try { filter = { _id: new ObjectId(id) } } catch { filter = { _id: id } }
+		try {
+			filter = { _id: new ObjectId(id) }
+		} catch {
+			filter = { _id: id }
+		}
 		await this.db().collection(table).deleteOne(filter)
 	}
 
@@ -97,7 +119,7 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return this.db().collection(table).estimatedDocumentCount()
 	}
 
-	async testWritePermission(table: string): Promise<boolean> {
+	async testWritePermission(_table: string): Promise<boolean> {
 		try {
 			const testCol = this.db().collection(`__innolope_permission_test_${Date.now()}`)
 			await testCol.insertOne({ _test: true })
@@ -112,7 +134,7 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 // ─── PostgreSQL Adapter ──────────────────────────────────────────────────────
 
 export class PostgreSqlAdapter implements ExternalDbAdapter {
-	private client: any = null
+	private client: Sql | null = null
 
 	constructor(private connectionString: string) {}
 
@@ -131,7 +153,7 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		this.client = null
 	}
 
-	private sql(): any {
+	private sql(): Sql {
 		if (!this.client) throw new Error('Not connected')
 		return this.client
 	}
@@ -151,32 +173,39 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		return row?.column_name || 'id'
 	}
 
-	async findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]> {
+	async findAll(
+		table: string,
+		opts?: { limit?: number; offset?: number },
+	): Promise<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
 		const rows = await this.sql()`
 			SELECT * FROM ${this.sql()(table)} ORDER BY ${this.sql()(pk)} LIMIT ${opts?.limit ?? 100} OFFSET ${opts?.offset ?? 0}
 		`
-		return rows.map((r: any) => ({ ...r, _id: String(r[pk]) }))
+		return rows.map((r: Record<string, unknown>) => ({ ...r, _id: String(r[pk]) }))
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
 		const pk = await this.getPrimaryKey(table)
-		const [row] = await this.sql()`SELECT * FROM ${this.sql()(table)} WHERE ${this.sql()(pk)} = ${id} LIMIT 1`
+		const [row] =
+			await this.sql()`SELECT * FROM ${this.sql()(table)} WHERE ${this.sql()(pk)} = ${id} LIMIT 1`
 		if (!row) return null
 		return { ...row, _id: String(row[pk]) }
 	}
 
 	async insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
-		const cols = Object.keys(data)
-		const vals = Object.values(data)
-		const [row] = await this.sql()`INSERT INTO ${this.sql()(table)} (${this.sql()(cols)}) VALUES (${vals}) RETURNING *`
+		const [row] = await this.sql()`INSERT INTO ${this.sql()(table)} ${this.sql()(data)} RETURNING *`
 		return { ...row, _id: String(row[pk]) }
 	}
 
-	async update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument> {
+	async update(
+		table: string,
+		id: string,
+		data: Record<string, unknown>,
+	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
-		const [row] = await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(data)} WHERE ${this.sql()(pk)} = ${id} RETURNING *`
+		const [row] =
+			await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(data)} WHERE ${this.sql()(pk)} = ${id} RETURNING *`
 		if (!row) throw new Error(`External row not found: ${id}`)
 		return { ...row, _id: String(row[pk]) }
 	}
@@ -193,7 +222,8 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 
 	async testWritePermission(table: string): Promise<boolean> {
 		try {
-			const [row] = await this.sql()`SELECT has_table_privilege(current_user, ${table}, 'INSERT') as can_insert`
+			const [row] =
+				await this.sql()`SELECT has_table_privilege(current_user, ${table}, 'INSERT') as can_insert`
 			return row.can_insert === true
 		} catch {
 			return false
@@ -239,18 +269,24 @@ export class MySqlAdapter implements ExternalDbAdapter {
 		return (rows as Array<{ COLUMN_NAME: string }>)[0]?.COLUMN_NAME || 'id'
 	}
 
-	async findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]> {
+	async findAll(
+		table: string,
+		opts?: { limit?: number; offset?: number },
+	): Promise<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
 		const [rows] = await this.db().execute(
 			`SELECT * FROM ${quoteMysqlIdentifier(table)} ORDER BY ${quoteMysqlIdentifier(pk)} LIMIT ? OFFSET ?`,
 			[opts?.limit ?? 100, opts?.offset ?? 0],
 		)
-		return (rows as Array<Record<string, unknown>>).map(r => ({ ...r, _id: String(r[pk]) }))
+		return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, _id: String(r[pk]) }))
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
 		const pk = await this.getPrimaryKey(table)
-		const [rows] = await this.db().execute(`SELECT * FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ? LIMIT 1`, [id])
+		const [rows] = await this.db().execute(
+			`SELECT * FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ? LIMIT 1`,
+			[id],
+		)
 		const arr = rows as Array<Record<string, unknown>>
 		if (arr.length === 0) return null
 		return { ...arr[0], _id: String(arr[0][pk]) }
@@ -258,34 +294,56 @@ export class MySqlAdapter implements ExternalDbAdapter {
 
 	async insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument> {
 		const cols = Object.keys(data).map(quoteMysqlIdentifier).join(', ')
-		const placeholders = Object.keys(data).map(() => '?').join(', ')
-		const [result] = await this.db().execute(`INSERT INTO ${quoteMysqlIdentifier(table)} (${cols}) VALUES (${placeholders})`, Object.values(data) as any[])
+		const placeholders = Object.keys(data)
+			.map(() => '?')
+			.join(', ')
+		const [result] = await this.db().execute(
+			`INSERT INTO ${quoteMysqlIdentifier(table)} (${cols}) VALUES (${placeholders})`,
+			Object.values(data) as (string | number | boolean | Date | null)[],
+		)
 		const insertId = (result as { insertId: number }).insertId
 		return { ...data, _id: String(insertId) }
 	}
 
-	async update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument> {
+	async update(
+		table: string,
+		id: string,
+		data: Record<string, unknown>,
+	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
-		const sets = Object.keys(data).map(c => `${quoteMysqlIdentifier(c)} = ?`).join(', ')
-		const [result] = await this.db().execute(`UPDATE ${quoteMysqlIdentifier(table)} SET ${sets} WHERE ${quoteMysqlIdentifier(pk)} = ?`, [...Object.values(data), id] as any[])
-		if ((result as { affectedRows?: number }).affectedRows === 0) throw new Error(`External row not found: ${id}`)
+		const sets = Object.keys(data)
+			.map((c) => `${quoteMysqlIdentifier(c)} = ?`)
+			.join(', ')
+		const [result] = await this.db().execute(
+			`UPDATE ${quoteMysqlIdentifier(table)} SET ${sets} WHERE ${quoteMysqlIdentifier(pk)} = ?`,
+			[...Object.values(data), id] as (string | number | boolean | Date | null)[],
+		)
+		if ((result as { affectedRows?: number }).affectedRows === 0)
+			throw new Error(`External row not found: ${id}`)
 		return { ...data, _id: id }
 	}
 
 	async delete(table: string, id: string): Promise<void> {
 		const pk = await this.getPrimaryKey(table)
-		await this.db().execute(`DELETE FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ?`, [id])
+		await this.db().execute(
+			`DELETE FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ?`,
+			[id],
+		)
 	}
 
 	async count(table: string): Promise<number> {
-		const [rows] = await this.db().execute(`SELECT COUNT(*) as count FROM ${quoteMysqlIdentifier(table)}`)
+		const [rows] = await this.db().execute(
+			`SELECT COUNT(*) as count FROM ${quoteMysqlIdentifier(table)}`,
+		)
 		return Number((rows as Array<{ count: number }>)[0].count)
 	}
 
 	async testWritePermission(_table: string): Promise<boolean> {
 		try {
 			const [rows] = await this.db().execute(`SHOW GRANTS FOR CURRENT_USER()`)
-			const grants = (rows as Array<Record<string, string>>).map(r => Object.values(r)[0]).join(' ')
+			const grants = (rows as Array<Record<string, string>>)
+				.map((r) => Object.values(r)[0])
+				.join(' ')
 			return grants.includes('ALL PRIVILEGES') || grants.includes('INSERT')
 		} catch {
 			return false

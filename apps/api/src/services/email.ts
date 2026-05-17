@@ -65,7 +65,14 @@ export class SmtpEmailAdapter implements EmailAdapter {
 		secure: boolean
 	}
 
-	constructor(config: { host: string; port: number; user: string; pass: string; from: string; secure?: boolean }) {
+	constructor(config: {
+		host: string
+		port: number
+		user: string
+		pass: string
+		from: string
+		secure?: boolean
+	}) {
 		this.config = { ...config, secure: config.secure ?? config.port === 465 }
 	}
 
@@ -91,7 +98,10 @@ export class SmtpEmailAdapter implements EmailAdapter {
 
 // --- Email Templates ---
 
-export function passwordResetEmail(resetUrl: string, name: string): EmailMessage & { subject: string; html: string; text: string } {
+export function passwordResetEmail(
+	resetUrl: string,
+	name: string,
+): EmailMessage & { subject: string; html: string; text: string } {
 	return {
 		to: '', // filled by caller
 		subject: 'Reset your Innolope CMS password',
@@ -110,7 +120,12 @@ export function passwordResetEmail(resetUrl: string, name: string): EmailMessage
 	}
 }
 
-export function teamInviteEmail(inviteUrl: string, inviterName: string, projectName: string, role: string): EmailMessage & { subject: string; html: string; text: string } {
+export function teamInviteEmail(
+	inviteUrl: string,
+	inviterName: string,
+	projectName: string,
+	role: string,
+): EmailMessage & { subject: string; html: string; text: string } {
 	return {
 		to: '', // filled by caller
 		subject: `${inviterName} invited you to ${projectName} on Innolope CMS`,

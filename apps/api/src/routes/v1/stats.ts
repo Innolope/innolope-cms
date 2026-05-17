@@ -1,22 +1,55 @@
-import { content, media, apiKeys, collections, projectMembers, contentAnalytics } from '@innolope/db'
+import {
+	apiKeys,
+	collections,
+	content,
+	contentAnalytics,
+	media,
+	projectMembers,
+} from '@innolope/db'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { sql, desc, eq, and } from 'drizzle-orm'
+import { getProject } from '../../plugins/project.js'
 
 export async function statsRoutes(app: FastifyInstance) {
 	// Dashboard stats (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const pid = request.project!.id
+		const pid = getProject(request).id
 
-		const [contentCount] = await app.db.select({ count: sql<number>`count(*)` }).from(content).where(eq(content.projectId, pid))
-		const [publishedCount] = await app.db.select({ count: sql<number>`count(*)` }).from(content).where(sql`${content.projectId} = ${pid} AND ${content.status} = 'published'`)
-		const [draftCount] = await app.db.select({ count: sql<number>`count(*)` }).from(content).where(sql`${content.projectId} = ${pid} AND ${content.status} = 'draft'`)
-		const [mediaCount] = await app.db.select({ count: sql<number>`count(*)` }).from(media).where(eq(media.projectId, pid))
-		const [keyCount] = await app.db.select({ count: sql<number>`count(*)` }).from(apiKeys).where(eq(apiKeys.projectId, pid))
-		const [collectionCount] = await app.db.select({ count: sql<number>`count(*)` }).from(collections).where(eq(collections.projectId, pid))
-		const [memberCount] = await app.db.select({ count: sql<number>`count(*)` }).from(projectMembers).where(eq(projectMembers.projectId, pid))
+		const [contentCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(content)
+			.where(eq(content.projectId, pid))
+		const [publishedCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(content)
+			.where(sql`${content.projectId} = ${pid} AND ${content.status} = 'published'`)
+		const [draftCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(content)
+			.where(sql`${content.projectId} = ${pid} AND ${content.status} = 'draft'`)
+		const [mediaCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(media)
+			.where(eq(media.projectId, pid))
+		const [keyCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(apiKeys)
+			.where(eq(apiKeys.projectId, pid))
+		const [collectionCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(collections)
+			.where(eq(collections.projectId, pid))
+		const [memberCount] = await app.db
+			.select({ count: sql<number>`count(*)` })
+			.from(projectMembers)
+			.where(eq(projectMembers.projectId, pid))
 
 		return {
-			content: { total: Number(contentCount.count), published: Number(publishedCount.count), draft: Number(draftCount.count) },
+			content: {
+				total: Number(contentCount.count),
+				published: Number(publishedCount.count),
+				draft: Number(draftCount.count),
+			},
 			media: Number(mediaCount.count),
 			apiKeys: Number(keyCount.count),
 			collections: Number(collectionCount.count),
@@ -27,9 +60,17 @@ export async function statsRoutes(app: FastifyInstance) {
 	// Recent activity (viewer+, project-scoped)
 	app.get('/recent', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		return app.db
-			.select({ id: content.id, slug: content.slug, status: content.status, metadata: content.metadata, version: content.version, updatedAt: content.updatedAt, locale: content.locale })
+			.select({
+				id: content.id,
+				slug: content.slug,
+				status: content.status,
+				metadata: content.metadata,
+				version: content.version,
+				updatedAt: content.updatedAt,
+				locale: content.locale,
+			})
 			.from(content)
-			.where(eq(content.projectId, request.project!.id))
+			.where(eq(content.projectId, getProject(request).id))
 			.orderBy(desc(content.updatedAt))
 			.limit(20)
 	})
@@ -39,22 +80,28 @@ export async function statsRoutes(app: FastifyInstance) {
 		return app.db
 			.select({ locale: content.locale, count: sql<number>`count(*)` })
 			.from(content)
-			.where(eq(content.projectId, request.project!.id))
+			.where(eq(content.projectId, getProject(request).id))
 			.groupBy(content.locale)
 	})
 
 	// API key usage (admin+, project-scoped)
 	app.get('/api-usage', { preHandler: [app.requireProject('admin')] }, async (request) => {
 		return app.db
-			.select({ id: apiKeys.id, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix, lastUsedAt: apiKeys.lastUsedAt, createdAt: apiKeys.createdAt })
+			.select({
+				id: apiKeys.id,
+				name: apiKeys.name,
+				keyPrefix: apiKeys.keyPrefix,
+				lastUsedAt: apiKeys.lastUsedAt,
+				createdAt: apiKeys.createdAt,
+			})
 			.from(apiKeys)
-			.where(eq(apiKeys.projectId, request.project!.id))
+			.where(eq(apiKeys.projectId, getProject(request).id))
 			.orderBy(desc(apiKeys.lastUsedAt))
 	})
 
 	// Content analytics (viewer+, project-scoped)
 	app.get('/analytics', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const pid = request.project!.id
+		const pid = getProject(request).id
 		const thirtyDaysAgo = sql`now() - interval '30 days'`
 
 		const [topContent, topQueries, bySource] = await Promise.all([
@@ -65,11 +112,13 @@ export async function statsRoutes(app: FastifyInstance) {
 					reads: sql<number>`count(*)`,
 				})
 				.from(contentAnalytics)
-				.where(and(
-					eq(contentAnalytics.projectId, pid),
-					sql`${contentAnalytics.event} IN ('api_read', 'mcp_read')`,
-					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
-				))
+				.where(
+					and(
+						eq(contentAnalytics.projectId, pid),
+						sql`${contentAnalytics.event} IN ('api_read', 'mcp_read')`,
+						sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+					),
+				)
 				.groupBy(contentAnalytics.contentId)
 				.orderBy(sql`count(*) desc`)
 				.limit(20),
@@ -83,11 +132,13 @@ export async function statsRoutes(app: FastifyInstance) {
 					misses: sql<number>`count(*) filter (where ${contentAnalytics.event} = 'search_miss')`,
 				})
 				.from(contentAnalytics)
-				.where(and(
-					eq(contentAnalytics.projectId, pid),
-					sql`${contentAnalytics.query} IS NOT NULL`,
-					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
-				))
+				.where(
+					and(
+						eq(contentAnalytics.projectId, pid),
+						sql`${contentAnalytics.query} IS NOT NULL`,
+						sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+					),
+				)
 				.groupBy(contentAnalytics.query)
 				.orderBy(sql`count(*) desc`)
 				.limit(20),
@@ -99,10 +150,12 @@ export async function statsRoutes(app: FastifyInstance) {
 					count: sql<number>`count(*)`,
 				})
 				.from(contentAnalytics)
-				.where(and(
-					eq(contentAnalytics.projectId, pid),
-					sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
-				))
+				.where(
+					and(
+						eq(contentAnalytics.projectId, pid),
+						sql`${contentAnalytics.createdAt} > ${thirtyDaysAgo}`,
+					),
+				)
 				.groupBy(contentAnalytics.source),
 		])
 
@@ -113,9 +166,17 @@ export async function statsRoutes(app: FastifyInstance) {
 			const items = await app.db
 				.select({ id: content.id, slug: content.slug, metadata: content.metadata })
 				.from(content)
-				.where(sql`${content.id} IN (${sql.join(contentIds.map((id) => sql`${id}`), sql`, `)})`)
+				.where(
+					sql`${content.id} IN (${sql.join(
+						contentIds.map((id) => sql`${id}`),
+						sql`, `,
+					)})`,
+				)
 			contentMap = Object.fromEntries(
-				items.map((i) => [i.id, (i.metadata as Record<string, unknown>)?.title as string || i.slug]),
+				items.map((i) => [
+					i.id,
+					((i.metadata as Record<string, unknown>)?.title as string) || i.slug,
+				]),
 			)
 		}
 
@@ -143,26 +204,35 @@ export async function statsRoutes(app: FastifyInstance) {
 
 		const event = String(body.event || '')
 		const source = String(body.source || '')
-		if (!validEvents.includes(event as typeof validEvents[number])) return reply.status(400).send({ error: `event must be one of: ${validEvents.join(', ')}` })
-		if (!validSources.includes(source as typeof validSources[number])) return reply.status(400).send({ error: `source must be one of: ${validSources.join(', ')}` })
+		if (!validEvents.includes(event as (typeof validEvents)[number]))
+			return reply.status(400).send({ error: `event must be one of: ${validEvents.join(', ')}` })
+		if (!validSources.includes(source as (typeof validSources)[number]))
+			return reply.status(400).send({ error: `source must be one of: ${validSources.join(', ')}` })
 
 		const contentId = body.contentId ? String(body.contentId) : null
 		const query = body.query ? String(body.query) : null
 
 		await app.db.insert(contentAnalytics).values({
-			projectId: request.project!.id,
+			projectId: getProject(request).id,
 			contentId,
-			event: event as typeof validEvents[number],
+			event: event as (typeof validEvents)[number],
 			query,
-			source: source as typeof validSources[number],
+			source: source as (typeof validSources)[number],
 		})
 
 		// Forward to PostHog if configured
 		app.posthog?.capture({
-			distinctId: `project_${request.project!.id}`,
-			event: event === 'mcp_read' ? 'cms_mcp_content_read' : event === 'search_hit' ? 'cms_mcp_search_hit' : event === 'search_miss' ? 'cms_mcp_search_miss' : `cms_${event}`,
+			distinctId: `project_${getProject(request).id}`,
+			event:
+				event === 'mcp_read'
+					? 'cms_mcp_content_read'
+					: event === 'search_hit'
+						? 'cms_mcp_search_hit'
+						: event === 'search_miss'
+							? 'cms_mcp_search_miss'
+							: `cms_${event}`,
 			properties: {
-				projectId: request.project!.id,
+				projectId: getProject(request).id,
 				contentId,
 				query,
 				source,
@@ -186,14 +256,14 @@ export async function statsRoutes(app: FastifyInstance) {
 
 		// Forward to PostHog
 		app.posthog?.capture({
-			distinctId: `project_${request.project!.id}`,
+			distinctId: `project_${getProject(request).id}`,
 			event: 'cms_mcp_tool_called',
 			properties: {
 				tool: body.tool,
 				duration_ms: body.durationMs || 0,
 				success: body.success !== false,
 				error: body.error || undefined,
-				project_id: request.project!.id,
+				project_id: getProject(request).id,
 				// Include safe param summaries (no full content/markdown)
 				params: sanitizeMcpParams(body.params),
 				api_key_id: request.apiKeyAuth?.keyId,

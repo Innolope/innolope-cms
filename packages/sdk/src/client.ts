@@ -1,10 +1,10 @@
 import type {
+	Collection,
 	Content,
 	ContentListParams,
 	ContentListResponse,
-	MediaItem,
-	Collection,
 	LocaleInfo,
+	MediaItem,
 } from './types.js'
 
 interface InnolopeConfig {
@@ -119,7 +119,9 @@ export class InnolopeCMS {
 		return this.request<LocaleInfo>('/api/v1/locales')
 	}
 
-	async getTranslations(slug: string): Promise<Record<string, { id: string; locale: string; status: string }>> {
+	async getTranslations(
+		slug: string,
+	): Promise<Record<string, { id: string; locale: string; status: string }>> {
 		return this.request(`/api/v1/locales/translations/${slug}`)
 	}
 

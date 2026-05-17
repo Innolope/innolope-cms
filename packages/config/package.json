@@ -1,23 +1,23 @@
 {
-  "name": "@innolope/config",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "scripts": {
-    "build": "tsc --build",
-    "clean": "rm -rf dist *.tsbuildinfo"
-  },
-  "dependencies": {
-    "zod": "^3.25.17"
-  },
-  "devDependencies": {
-    "typescript": "^6.0.2"
-  }
+	"name": "@innolope/config",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc --build",
+		"clean": "rm -rf dist *.tsbuildinfo"
+	},
+	"dependencies": {
+		"zod": "^3.25.17"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.2"
+	}
 }

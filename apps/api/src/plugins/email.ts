@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
 import {
-	type EmailAdapter,
-	type EmailMessage,
 	ConsoleEmailAdapter,
+	type EmailAdapter,
 	ResendEmailAdapter,
 	SmtpEmailAdapter,
 } from '../services/email.js'

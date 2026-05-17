@@ -12,7 +12,10 @@ export function PillInput({ value, onChange, disabled, placeholder }: PillInputP
 	const [draft, setDraft] = useState('')
 
 	const commit = (raw: string) => {
-		const parts = raw.split(',').map((p) => p.trim()).filter(Boolean)
+		const parts = raw
+			.split(',')
+			.map((p) => p.trim())
+			.filter(Boolean)
 		if (parts.length === 0) return
 		const next = [...value]
 		for (const p of parts) if (!next.includes(p)) next.push(p)
@@ -38,14 +41,16 @@ export function PillInput({ value, onChange, disabled, placeholder }: PillInputP
 						removeAt(value.length - 1)
 					}
 				}}
-				onBlur={() => { if (draft.trim()) commit(draft) }}
+				onBlur={() => {
+					if (draft.trim()) commit(draft)
+				}}
 				className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 			/>
 			{value.length > 0 && (
 				<div className="flex flex-wrap gap-1.5 mt-2">
 					{value.map((item, i) => (
 						<span
-							key={`${item}-${i}`}
+							key={item}
 							className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-alt text-text-secondary text-xs"
 						>
 							{item}

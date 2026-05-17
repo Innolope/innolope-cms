@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { api } from './api-client'
 import { useAuth } from './auth'
 
@@ -86,7 +86,13 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 
 	return (
 		<CollectionsContext.Provider
-			value={{ collections, loading, refreshCollections: fetchCollections, getCollectionByName, getCollectionById }}
+			value={{
+				collections,
+				loading,
+				refreshCollections: fetchCollections,
+				getCollectionByName,
+				getCollectionById,
+			}}
 		>
 			{children}
 		</CollectionsContext.Provider>

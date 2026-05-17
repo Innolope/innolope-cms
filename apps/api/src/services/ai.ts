@@ -7,8 +7,16 @@ export interface AiProviderConfig {
 export const AI_MODELS: Record<string, { provider: string; name: string; modelId: string }> = {
 	// Anthropic — latest as of April 2026
 	'claude-4.6-opus': { provider: 'anthropic', name: 'Claude Opus 4.6', modelId: 'claude-opus-4-6' },
-	'claude-4.6-sonnet': { provider: 'anthropic', name: 'Claude Sonnet 4.6', modelId: 'claude-sonnet-4-6' },
-	'claude-4.5-haiku': { provider: 'anthropic', name: 'Claude Haiku 4.5', modelId: 'claude-haiku-4-5-20251001' },
+	'claude-4.6-sonnet': {
+		provider: 'anthropic',
+		name: 'Claude Sonnet 4.6',
+		modelId: 'claude-sonnet-4-6',
+	},
+	'claude-4.5-haiku': {
+		provider: 'anthropic',
+		name: 'Claude Haiku 4.5',
+		modelId: 'claude-haiku-4-5-20251001',
+	},
 
 	// OpenAI — latest as of April 2026
 	'gpt-5.4': { provider: 'openai', name: 'GPT-5.4', modelId: 'gpt-5.4-2026-03-05' },
@@ -17,9 +25,21 @@ export const AI_MODELS: Record<string, { provider: string; name: string; modelId
 	'gpt-5.4-nano': { provider: 'openai', name: 'GPT-5.4 Nano', modelId: 'gpt-5.4-nano-2026-03-17' },
 
 	// Google — latest as of April 2026
-	'gemini-3.1-pro': { provider: 'google', name: 'Gemini 3.1 Pro', modelId: 'gemini-3.1-pro-preview' },
-	'gemini-3.1-flash-lite': { provider: 'google', name: 'Gemini 3.1 Flash Lite', modelId: 'gemini-3.1-flash-lite-preview' },
-	'gemini-2.5-flash': { provider: 'google', name: 'Gemini 2.5 Flash', modelId: 'gemini-2.5-flash-preview-05-20' },
+	'gemini-3.1-pro': {
+		provider: 'google',
+		name: 'Gemini 3.1 Pro',
+		modelId: 'gemini-3.1-pro-preview',
+	},
+	'gemini-3.1-flash-lite': {
+		provider: 'google',
+		name: 'Gemini 3.1 Flash Lite',
+		modelId: 'gemini-3.1-flash-lite-preview',
+	},
+	'gemini-2.5-flash': {
+		provider: 'google',
+		name: 'Gemini 2.5 Flash',
+		modelId: 'gemini-2.5-flash-preview-05-20',
+	},
 }
 
 export interface AiCompletionRequest {
@@ -58,9 +78,7 @@ export async function complete(
 	const providerConfig = providers.find((p) => p.provider === modelConfig.provider && p.enabled)
 
 	// Cloud mode: use platform keys from env
-	const apiKey = cloudMode
-		? getCloudApiKey(modelConfig.provider)
-		: providerConfig?.apiKey
+	const apiKey = cloudMode ? getCloudApiKey(modelConfig.provider) : providerConfig?.apiKey
 
 	if (!apiKey) {
 		throw new Error(
@@ -123,7 +141,9 @@ async function callAnthropic(
 
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}))
-		throw new Error(`Anthropic API error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`)
+		throw new Error(
+			`Anthropic API error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`,
+		)
 	}
 
 	const data = (await res.json()) as {
@@ -165,7 +185,9 @@ async function callOpenAI(
 
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}))
-		throw new Error(`OpenAI API error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`)
+		throw new Error(
+			`OpenAI API error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`,
+		)
 	}
 
 	const data = (await res.json()) as {
@@ -207,7 +229,9 @@ async function callGoogle(
 
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}))
-		throw new Error(`Google AI error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`)
+		throw new Error(
+			`Google AI error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`,
+		)
 	}
 
 	const data = (await res.json()) as {
@@ -245,7 +269,9 @@ async function callOpenRouter(
 
 	if (!res.ok) {
 		const err = await res.json().catch(() => ({}))
-		throw new Error(`OpenRouter error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`)
+		throw new Error(
+			`OpenRouter error: ${(err as { error?: { message?: string } }).error?.message || res.statusText}`,
+		)
 	}
 
 	const data = (await res.json()) as {

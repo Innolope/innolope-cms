@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+import { COLLECTION_TEMPLATES } from '@innolope/config'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { InnolopeClient } from './api-client.js'
-import { COLLECTION_TEMPLATES } from '@innolope/config'
 
 const apiUrl = process.env.INNOLOPE_API_URL
 const apiKey = process.env.INNOLOPE_API_KEY
@@ -30,10 +30,21 @@ server.tool = ((name: string, ...rest: unknown[]) => {
 		const start = Date.now()
 		try {
 			const result = await handler(...args)
-			client.trackToolCall({ tool: name, durationMs: Date.now() - start, success: true, params: args[0] as Record<string, unknown> })
+			client.trackToolCall({
+				tool: name,
+				durationMs: Date.now() - start,
+				success: true,
+				params: args[0] as Record<string, unknown>,
+			})
 			return result
 		} catch (err) {
-			client.trackToolCall({ tool: name, durationMs: Date.now() - start, success: false, error: err instanceof Error ? err.message : String(err), params: args[0] as Record<string, unknown> })
+			client.trackToolCall({
+				tool: name,
+				durationMs: Date.now() - start,
+				success: false,
+				error: err instanceof Error ? err.message : String(err),
+				params: args[0] as Record<string, unknown>,
+			})
 			throw err
 		}
 	}
@@ -46,7 +57,10 @@ server.tool(
 	'List content items from the CMS with optional filters. Example: list_content({ collectionId: "abc-123", status: "published" }) returns all published items in that collection. Supports pagination via page/limit.',
 	{
 		collectionId: z.string().optional().describe('Filter by collection UUID'),
-		status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional().describe('Filter by status'),
+		status: z
+			.enum(['draft', 'pending_review', 'published', 'archived'])
+			.optional()
+			.describe('Filter by status'),
 		locale: z.string().optional().describe('Filter by locale'),
 		search: z.string().optional().describe('Full-text search query'),
 		page: z.number().optional().describe('Page number (default: 1)'),
@@ -97,9 +111,21 @@ server.tool(
 		metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
 		locale: z.string().optional().describe('Content locale (default: en)'),
 		status: z.enum(['draft', 'published']).optional().describe('Initial status'),
-		createdAt: z.string().datetime().optional().describe('Original creation timestamp (ISO 8601). Defaults to now.'),
-		updatedAt: z.string().datetime().optional().describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
-		publishedAt: z.string().datetime().optional().describe('Original publish timestamp (ISO 8601).'),
+		createdAt: z
+			.string()
+			.datetime()
+			.optional()
+			.describe('Original creation timestamp (ISO 8601). Defaults to now.'),
+		updatedAt: z
+			.string()
+			.datetime()
+			.optional()
+			.describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
+		publishedAt: z
+			.string()
+			.datetime()
+			.optional()
+			.describe('Original publish timestamp (ISO 8601).'),
 	},
 	async (args) => {
 		const created = await client.createContent(args)
@@ -181,7 +207,10 @@ server.tool(
 	'Search content using semantic similarity powered by vector embeddings. Unlike keyword search, this finds conceptually related content even when exact words differ. Requires AI features to be enabled. Example: semantic_search({ query: "how to configure authentication" }) finds content about auth setup even if it uses different terminology.',
 	{
 		query: z.string().describe('Natural language search query'),
-		threshold: z.number().optional().describe('Similarity threshold 0-1 (default: 0.7). Lower = more results'),
+		threshold: z
+			.number()
+			.optional()
+			.describe('Similarity threshold 0-1 (default: 0.7). Lower = more results'),
 		limit: z.number().optional().describe('Max results (default: 10)'),
 		collectionId: z.string().optional().describe('Filter to specific collection UUID'),
 		hybrid: z.boolean().optional().describe('Combine vector + keyword search (default: false)'),
@@ -192,15 +221,23 @@ server.tool(
 			if (result.data.length === 0) {
 				return { content: [{ type: 'text', text: 'No semantically similar content found.' }] }
 			}
-			const items = result.data.map((r) =>
-				`- **${r.title}** (${r.slug}) — similarity: ${(r.similarity * 100).toFixed(1)}%${r.matchedChunk ? `\n  Match: "${r.matchedChunk.slice(0, 150)}..."` : ''}`,
+			const items = result.data.map(
+				(r) =>
+					`- **${r.title}** (${r.slug}) — similarity: ${(r.similarity * 100).toFixed(1)}%${r.matchedChunk ? `\n  Match: "${r.matchedChunk.slice(0, 150)}..."` : ''}`,
 			)
 			return {
-				content: [{ type: 'text', text: `Found ${result.data.length} results:\n\n${items.join('\n\n')}` }],
+				content: [
+					{ type: 'text', text: `Found ${result.data.length} results:\n\n${items.join('\n\n')}` },
+				],
 			}
 		} catch (err) {
 			return {
-				content: [{ type: 'text', text: `Semantic search error: ${err instanceof Error ? err.message : 'Unknown error'}. Make sure AI features are enabled and OpenAI API key is configured.` }],
+				content: [
+					{
+						type: 'text',
+						text: `Semantic search error: ${err instanceof Error ? err.message : 'Unknown error'}. Make sure AI features are enabled and OpenAI API key is configured.`,
+					},
+				],
 			}
 		}
 	},
@@ -213,10 +250,14 @@ server.tool(
 	{},
 	async () => {
 		const collections = await client.listCollections()
-		const summary = collections.map((c) => {
-			const fields = c.fields.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`).join(', ')
-			return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Fields: ${fields || 'None'}`
-		}).join('\n\n')
+		const summary = collections
+			.map((c) => {
+				const fields = c.fields
+					.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`)
+					.join(', ')
+				return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Fields: ${fields || 'None'}`
+			})
+			.join('\n\n')
 		return { content: [{ type: 'text', text: `${collections.length} collections:\n\n${summary}` }] }
 	},
 )
@@ -238,7 +279,9 @@ server.tool(
 	'Filter content by specific metadata field values. More precise than keyword search. Example: query_by_fields({ collectionId: "abc", filters: { category: "pricing" } }) returns only content where metadata.category equals "pricing".',
 	{
 		collectionId: z.string().describe('Collection UUID to query'),
-		filters: z.record(z.unknown()).describe('Metadata field filters, e.g. { category: "pricing", priority: "high" }'),
+		filters: z
+			.record(z.unknown())
+			.describe('Metadata field filters, e.g. { category: "pricing", priority: "high" }'),
 		page: z.number().optional().describe('Page number (default: 1)'),
 		limit: z.number().optional().describe('Items per page (default: 25)'),
 	},
@@ -249,7 +292,9 @@ server.tool(
 			return `- [${item.status}] ${title} (${item.slug}) — id: ${item.id}`
 		})
 		return {
-			content: [{ type: 'text', text: `Found ${result.pagination.total} items:\n${items.join('\n')}` }],
+			content: [
+				{ type: 'text', text: `Found ${result.pagination.total} items:\n${items.join('\n')}` },
+			],
 		}
 	},
 )
@@ -259,22 +304,43 @@ server.tool(
 	'bulk_create',
 	'Create multiple content items in one call. Maximum 50 items. Each item requires slug, collectionId, and markdown. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
 	{
-		items: z.array(z.object({
-			slug: z.string().describe('URL-friendly slug'),
-			collectionId: z.string().describe('Collection UUID'),
-			markdown: z.string().describe('Markdown content'),
-			metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
-			locale: z.string().optional().describe('Locale (default: en)'),
-			status: z.enum(['draft', 'published']).optional().describe('Status (default: draft)'),
-			createdAt: z.string().datetime().optional().describe('Original creation timestamp (ISO 8601). Defaults to now.'),
-			updatedAt: z.string().datetime().optional().describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
-			publishedAt: z.string().datetime().optional().describe('Original publish timestamp (ISO 8601).'),
-		})).describe('Array of content items to create'),
+		items: z
+			.array(
+				z.object({
+					slug: z.string().describe('URL-friendly slug'),
+					collectionId: z.string().describe('Collection UUID'),
+					markdown: z.string().describe('Markdown content'),
+					metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
+					locale: z.string().optional().describe('Locale (default: en)'),
+					status: z.enum(['draft', 'published']).optional().describe('Status (default: draft)'),
+					createdAt: z
+						.string()
+						.datetime()
+						.optional()
+						.describe('Original creation timestamp (ISO 8601). Defaults to now.'),
+					updatedAt: z
+						.string()
+						.datetime()
+						.optional()
+						.describe('Original last-edit timestamp (ISO 8601). Defaults to now.'),
+					publishedAt: z
+						.string()
+						.datetime()
+						.optional()
+						.describe('Original publish timestamp (ISO 8601).'),
+				}),
+			)
+			.describe('Array of content items to create'),
 	},
 	async ({ items }) => {
 		const result = await client.bulkCreateContent(items)
 		return {
-			content: [{ type: 'text', text: `Created ${result.count} items:\n${result.data.map((i) => `- ${i.slug} (${i.id})`).join('\n')}` }],
+			content: [
+				{
+					type: 'text',
+					text: `Created ${result.count} items:\n${result.data.map((i) => `- ${i.slug} (${i.id})`).join('\n')}`,
+				},
+			],
 		}
 	},
 )
@@ -284,13 +350,20 @@ server.tool(
 	'bulk_update',
 	'Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional.',
 	{
-		items: z.array(z.object({
-			id: z.string().describe('Content item UUID'),
-			slug: z.string().optional().describe('New slug'),
-			markdown: z.string().optional().describe('Updated markdown'),
-			metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
-			status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional().describe('New status'),
-		})).describe('Array of content updates'),
+		items: z
+			.array(
+				z.object({
+					id: z.string().describe('Content item UUID'),
+					slug: z.string().optional().describe('New slug'),
+					markdown: z.string().optional().describe('Updated markdown'),
+					metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
+					status: z
+						.enum(['draft', 'pending_review', 'published', 'archived'])
+						.optional()
+						.describe('New status'),
+				}),
+			)
+			.describe('Array of content updates'),
 	},
 	async ({ items }) => {
 		const result = await client.bulkUpdateContent(items)
@@ -312,7 +385,7 @@ server.tool(
 		client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
 
 		// Fetch collection schema to identify relation fields
-		let relations: Record<string, unknown> = {}
+		const relations: Record<string, unknown> = {}
 		try {
 			const col = await client.getCollection(item.collectionId)
 			const relationFields = col.fields.filter((f) => f.type === 'relation')
@@ -322,11 +395,19 @@ server.tool(
 				if (typeof relatedId === 'string') {
 					try {
 						const related = await client.getContent(relatedId)
-						relations[field.name] = { id: related.id, slug: related.slug, title: (related.metadata as Record<string, unknown>)?.title || related.slug }
-					} catch { /* relation target may not exist */ }
+						relations[field.name] = {
+							id: related.id,
+							slug: related.slug,
+							title: (related.metadata as Record<string, unknown>)?.title || related.slug,
+						}
+					} catch {
+						/* relation target may not exist */
+					}
 				}
 			}
-		} catch { /* collection not found */ }
+		} catch {
+			/* collection not found */
+		}
 
 		const title = (item.metadata as Record<string, unknown>)?.title || item.slug
 		const parts = [
@@ -362,7 +443,12 @@ server.tool(
 			return `- [${item.status}] ${title} — v${item.version}, updated ${item.updatedAt}`
 		})
 		return {
-			content: [{ type: 'text', text: `Recent changes (${result.data.length} items):\n${items.join('\n')}` }],
+			content: [
+				{
+					type: 'text',
+					text: `Recent changes (${result.data.length} items):\n${items.join('\n')}`,
+				},
+			],
 		}
 	},
 )
@@ -373,7 +459,10 @@ server.tool(
 	'Export all content from a collection as JSONL. Useful for backup, migration, or processing content in bulk.',
 	{
 		collectionId: z.string().optional().describe('Collection UUID to export (omit for all)'),
-		status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional().describe('Filter by status'),
+		status: z
+			.enum(['draft', 'pending_review', 'published', 'archived'])
+			.optional()
+			.describe('Filter by status'),
 	},
 	async ({ collectionId, status }) => {
 		const result = await client.exportContent({ collectionId, status, format: 'jsonl' })
@@ -393,7 +482,10 @@ server.tool(
 		const submitted = await client.submitForReview(id)
 		return {
 			content: [
-				{ type: 'text', text: `Submitted for review. ID: ${submitted.id}, slug: ${submitted.slug}` },
+				{
+					type: 'text',
+					text: `Submitted for review. ID: ${submitted.id}, slug: ${submitted.slug}`,
+				},
 			],
 		}
 	},
@@ -406,7 +498,9 @@ server.tool(
 	{},
 	async () => {
 		const summary = COLLECTION_TEMPLATES.map((t) => {
-			const fields = t.fields.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`).join(', ')
+			const fields = t.fields
+				.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`)
+				.join(', ')
 			return `**${t.label}** (${t.name})\n  ${t.description}\n  Fields: ${fields}`
 		}).join('\n\n')
 		return { content: [{ type: 'text', text: summary }] }

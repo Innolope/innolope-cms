@@ -1,5 +1,5 @@
-import type { MediaAdapter } from '@innolope/types'
 import multipart from '@fastify/multipart'
+import type { MediaAdapter } from '@innolope/types'
 import fp from 'fastify-plugin'
 import { LocalFsAdapter } from '../adapters/local-fs.js'
 
@@ -8,6 +8,15 @@ declare module 'fastify' {
 		media: MediaAdapter
 		videoAdapter: MediaAdapter | null
 	}
+}
+
+/** Read a required environment variable, failing loudly if the configured adapter needs it. */
+function requireEnv(name: string): string {
+	const value = process.env[name]
+	if (!value) {
+		throw new Error(`${name} is required for the configured media adapter`)
+	}
+	return value
 }
 
 export const mediaPlugin = fp(async (app) => {
@@ -23,13 +32,11 @@ export const mediaPlugin = fp(async (app) => {
 
 	switch (adapterName) {
 		case 'cloudflare': {
-			const { CloudflareImagesAdapter } = await import(
-				'../adapters/cloudflare-images.js'
-			)
+			const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
 			adapter = new CloudflareImagesAdapter({
-				accountId: process.env.CLOUDFLARE_ACCOUNT_ID!,
-				apiToken: process.env.CLOUDFLARE_API_TOKEN!,
-				accountHash: process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH!,
+				accountId: requireEnv('CLOUDFLARE_ACCOUNT_ID'),
+				apiToken: requireEnv('CLOUDFLARE_API_TOKEN'),
+				accountHash: requireEnv('CLOUDFLARE_IMAGES_ACCOUNT_HASH'),
 			})
 			break
 		}

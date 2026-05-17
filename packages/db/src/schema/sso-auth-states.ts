@@ -14,7 +14,9 @@ export const ssoAuthStates = pgTable(
 		nonce: text(),
 		next: text(),
 		// When 'link', complete by attaching identity to linkUserId instead of logging in
-		intent: text({ enum: ['login', 'link', 'test'] }).notNull().default('login'),
+		intent: text({ enum: ['login', 'link', 'test'] })
+			.notNull()
+			.default('login'),
 		linkUserId: uuid(),
 		expiresAt: timestamp({ withTimezone: true }).notNull(),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

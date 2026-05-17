@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
-import { useAuth } from '../lib/auth'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 
 export function ProjectSelector() {
@@ -24,7 +24,10 @@ export function ProjectSelector() {
 
 	const createProject = async () => {
 		if (!newName.trim()) return
-		const slug = newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+		const slug = newName
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '')
 		try {
 			const project = await api.post<{ id: string }>('/api/v1/projects', { name: newName, slug })
 			await refreshProjects()

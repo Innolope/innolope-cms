@@ -1,7 +1,8 @@
-import type { FastifyInstance } from 'fastify'
+import { ssoConnections } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
-import { scimTokens, ssoConnections, userIdentities } from '@innolope/db'
-import { encryptSecret, decryptSecret } from '../../lib/crypto.js'
+import type { FastifyInstance } from 'fastify'
+import { encryptSecret } from '../../lib/crypto.js'
+import { getProject } from '../../plugins/project.js'
 
 type Protocol = 'saml' | 'oidc'
 
@@ -44,7 +45,7 @@ export async function ssoAdminRoutes(app: FastifyInstance) {
 		const rows = await app.db
 			.select()
 			.from(ssoConnections)
-			.where(eq(ssoConnections.projectId, request.project!.id))
+			.where(eq(ssoConnections.projectId, getProject(request).id))
 		return rows.map(redact)
 	})
 
@@ -63,7 +64,7 @@ export async function ssoAdminRoutes(app: FastifyInstance) {
 		const [created] = await app.db
 			.insert(ssoConnections)
 			.values({
-				projectId: request.project!.id,
+				projectId: getProject(request).id,
 				protocol: body.protocol,
 				name: body.name,
 				slug: body.slug,
@@ -102,56 +103,92 @@ export async function ssoAdminRoutes(app: FastifyInstance) {
 		const [row] = await app.db
 			.select()
 			.from(ssoConnections)
-			.where(and(eq(ssoConnections.id, request.params.id), eq(ssoConnections.projectId, request.project!.id)))
+			.where(
+				and(
+					eq(ssoConnections.id, request.params.id),
+					eq(ssoConnections.projectId, getProject(request).id),
+				),
+			)
 			.limit(1)
 		if (!row) return reply.status(404).send({ error: 'Not found' })
 		return redact(row)
 	})
 
 	// Update
-	app.put<{ Params: { id: string }; Body: UpdateBody }>('/:id', { preHandler }, async (request, reply) => {
-		const body = request.body
-		const updates: Record<string, unknown> = { updatedAt: new Date() }
-		const passthrough: (keyof UpdateBody)[] = [
-			'name', 'slug', 'enabled', 'enforceSso', 'allowIdpInitiated', 'domains',
-			'oidcIssuer', 'oidcClientId', 'oidcScopes',
-			'samlEntityId', 'samlSsoUrl', 'samlIdpCertPems', 'samlWantAssertionsSigned', 'samlWantAssertionsEncrypted',
-			'attrEmail', 'attrName', 'attrGroups', 'defaultRole', 'groupRoleMap',
-		]
-		for (const k of passthrough) {
-			if (body[k] !== undefined) updates[k] = body[k]
-		}
-		if (body.oidcClientSecret !== undefined) {
-			updates.oidcClientSecretEnc = body.oidcClientSecret ? encryptSecret(body.oidcClientSecret) : null
-		}
+	app.put<{ Params: { id: string }; Body: UpdateBody }>(
+		'/:id',
+		{ preHandler },
+		async (request, reply) => {
+			const body = request.body
+			const updates: Record<string, unknown> = { updatedAt: new Date() }
+			const passthrough: (keyof UpdateBody)[] = [
+				'name',
+				'slug',
+				'enabled',
+				'enforceSso',
+				'allowIdpInitiated',
+				'domains',
+				'oidcIssuer',
+				'oidcClientId',
+				'oidcScopes',
+				'samlEntityId',
+				'samlSsoUrl',
+				'samlIdpCertPems',
+				'samlWantAssertionsSigned',
+				'samlWantAssertionsEncrypted',
+				'attrEmail',
+				'attrName',
+				'attrGroups',
+				'defaultRole',
+				'groupRoleMap',
+			]
+			for (const k of passthrough) {
+				if (body[k] !== undefined) updates[k] = body[k]
+			}
+			if (body.oidcClientSecret !== undefined) {
+				updates.oidcClientSecretEnc = body.oidcClientSecret
+					? encryptSecret(body.oidcClientSecret)
+					: null
+			}
 
-		const [updated] = await app.db
-			.update(ssoConnections)
-			.set(updates)
-			.where(and(eq(ssoConnections.id, request.params.id), eq(ssoConnections.projectId, request.project!.id)))
-			.returning()
-		if (!updated) return reply.status(404).send({ error: 'Not found' })
+			const [updated] = await app.db
+				.update(ssoConnections)
+				.set(updates)
+				.where(
+					and(
+						eq(ssoConnections.id, request.params.id),
+						eq(ssoConnections.projectId, getProject(request).id),
+					),
+				)
+				.returning()
+			if (!updated) return reply.status(404).send({ error: 'Not found' })
 
-		app.events.emit({
-			type: 'sso:connection_updated',
-			data: { connectionId: updated.id, projectId: updated.projectId },
-			timestamp: new Date().toISOString(),
-		})
+			app.events.emit({
+				type: 'sso:connection_updated',
+				data: { connectionId: updated.id, projectId: updated.projectId },
+				timestamp: new Date().toISOString(),
+			})
 
-		return redact(updated)
-	})
+			return redact(updated)
+		},
+	)
 
 	// Delete
 	app.delete<{ Params: { id: string } }>('/:id', { preHandler }, async (request, reply) => {
 		const [deleted] = await app.db
 			.delete(ssoConnections)
-			.where(and(eq(ssoConnections.id, request.params.id), eq(ssoConnections.projectId, request.project!.id)))
+			.where(
+				and(
+					eq(ssoConnections.id, request.params.id),
+					eq(ssoConnections.projectId, getProject(request).id),
+				),
+			)
 			.returning({ id: ssoConnections.id })
 		if (!deleted) return reply.status(404).send({ error: 'Not found' })
 
 		app.events.emit({
 			type: 'sso:connection_deleted',
-			data: { connectionId: deleted.id, projectId: request.project!.id },
+			data: { connectionId: deleted.id, projectId: getProject(request).id },
 			timestamp: new Date().toISOString(),
 		})
 		return reply.status(204).send()

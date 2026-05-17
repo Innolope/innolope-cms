@@ -1,9 +1,9 @@
-import { createDb } from './index.js'
-import { users } from './schema/users.js'
-import { projects, projectMembers } from './schema/projects.js'
-import { collections } from './schema/collections.js'
-import { sql } from 'drizzle-orm'
 import bcrypt from 'bcrypt'
+import { sql } from 'drizzle-orm'
+import { createDb } from './index.js'
+import { collections } from './schema/collections.js'
+import { projectMembers, projects } from './schema/projects.js'
+import { users } from './schema/users.js'
 
 export async function seed(databaseUrl: string) {
 	const db = createDb(databaseUrl)
@@ -93,7 +93,9 @@ export async function seed(databaseUrl: string) {
 
 const url = process.env.DATABASE_URL
 if (url) {
-	seed(url).catch(console.error).finally(() => process.exit(0))
+	seed(url)
+		.catch(console.error)
+		.finally(() => process.exit(0))
 } else {
 	console.error('DATABASE_URL not set')
 	process.exit(1)
