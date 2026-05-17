@@ -19,31 +19,41 @@ function requireEnv(name: string): string {
 	return value
 }
 
-export const mediaPlugin = fp(async (app) => {
-	await app.register(multipart, {
-		limits: {
-			fileSize: 50 * 1024 * 1024, // 50MB
-		},
-	})
+/** The configured media adapter name (`MEDIA_ADAPTER` env, default `local`). */
+export function mediaAdapterName(): string {
+	return process.env.MEDIA_ADAPTER || 'local'
+}
 
-	// Select adapter based on environment
-	const adapterName = process.env.MEDIA_ADAPTER || 'local'
-	let adapter: MediaAdapter
-
-	switch (adapterName) {
+/** Build the media storage adapter from environment configuration. */
+export async function createMediaAdapter(): Promise<MediaAdapter> {
+	switch (mediaAdapterName()) {
 		case 'cloudflare': {
 			const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
-			adapter = new CloudflareImagesAdapter({
+			return new CloudflareImagesAdapter({
 				accountId: requireEnv('CLOUDFLARE_ACCOUNT_ID'),
 				apiToken: requireEnv('CLOUDFLARE_API_TOKEN'),
 				accountHash: requireEnv('CLOUDFLARE_IMAGES_ACCOUNT_HASH'),
 			})
-			break
 		}
 		default:
-			adapter = new LocalFsAdapter()
+			return new LocalFsAdapter()
 	}
+}
 
+/** Max upload size in bytes (`MEDIA_MAX_SIZE` env, default 10MB). */
+export function mediaMaxSize(): number {
+	const parsed = Number(process.env.MEDIA_MAX_SIZE)
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : 10 * 1024 * 1024
+}
+
+export const mediaPlugin = fp(async (app) => {
+	await app.register(multipart, {
+		limits: {
+			fileSize: mediaMaxSize(),
+		},
+	})
+
+	const adapter = await createMediaAdapter()
 	app.decorate('media', adapter)
 
 	// Video adapter (Cloudflare Stream)
@@ -58,5 +68,5 @@ export const mediaPlugin = fp(async (app) => {
 	}
 	app.decorate('videoAdapter', videoAdapter)
 
-	app.log.info(`Media adapter: ${adapterName}`)
+	app.log.info(`Media adapter: ${mediaAdapterName()}`)
 })

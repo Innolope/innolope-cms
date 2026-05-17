@@ -5,6 +5,7 @@ import { hasFeature, LicenseGate, ProBadge, useLicense } from '../components/lic
 import { SaveBar } from '../components/save-bar'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
+import { LicenseSettings } from '../components/settings/license-settings'
 import { MediaSettings } from '../components/settings/media-settings'
 import { SsoSettings } from '../components/settings/sso-settings'
 import { TeamSettings } from '../components/settings/team-settings'
@@ -41,6 +42,7 @@ type SettingsTab =
 	| 'webhooks'
 	| 'media'
 	| 'database'
+	| 'license'
 
 const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
@@ -51,7 +53,8 @@ const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolea
 	{ id: 'ai-models', label: 'AI Models' },
 	{ id: 'search', label: 'Semantic Search', pro: 'ai-assistant' },
 	{ id: 'webhooks', label: 'Webhooks', pro: 'webhooks' },
-	{ id: 'media', label: 'Media', hideInCloud: true },
+	{ id: 'media', label: 'Media' },
+	{ id: 'license', label: 'License', hideInCloud: true },
 ]
 
 function Settings() {
@@ -126,6 +129,9 @@ function Settings() {
 			</div>
 			<div className={tab === 'database' ? '' : 'hidden'}>
 				<DatabaseSettings />
+			</div>
+			<div className={tab === 'license' ? '' : 'hidden'}>
+				<LicenseSettings />
 			</div>
 		</div>
 	)

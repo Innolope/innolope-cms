@@ -66,10 +66,11 @@ function LoginPage() {
 		try {
 			if (mode === 'setup') {
 				await register(trimmedEmail, password, name.trim())
+				navigate({ to: '/onboarding' })
 			} else {
 				await login(trimmedEmail, password)
+				navigate({ to: '/' })
 			}
-			navigate({ to: '/' })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Authentication failed')
 		} finally {

@@ -1,6 +1,6 @@
 import { createRootRoute, Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { LicenseProvider } from '../components/license-gate'
+import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
 import { api } from '../lib/api-client'
 import { AuthProvider, useAuth } from '../lib/auth'
@@ -55,6 +55,8 @@ function AuthGate() {
 
 	if (!user && !isPublicPage) return null
 	if (isPublicPage) return <Outlet />
+	// Onboarding runs right after first-admin registration, before any project exists.
+	if (location.pathname.startsWith('/onboarding')) return <Outlet />
 	if (!currentProject) return <NoProjectView />
 
 	return <AppLayout />
@@ -131,6 +133,8 @@ function NoProjectView() {
 
 function AppLayout() {
 	const { user, logout } = useAuth()
+	const license = useLicense()
+	const mediaLocked = !hasFeature(license, 'media-integrations')
 	const navigate = useNavigate()
 	const [collapsed, setCollapsed] = useState(
 		() => localStorage.getItem('innolope_sidebar') === 'collapsed',
@@ -261,7 +265,7 @@ function AppLayout() {
 							</p>
 							<CollectionNavExpanded />
 							<div className="my-2 border-t border-border" />
-							<NavLink to="/media" label="Media" />
+							<NavLink to="/media" label="Media" proBadge={mediaLocked} />
 							<NavLink to="/settings" label="Project Settings" />
 						</>
 					)}
@@ -373,14 +377,15 @@ function AppLayout() {
 	)
 }
 
-function NavLink({ to, label }: { to: string; label: string }) {
+function NavLink({ to, label, proBadge }: { to: string; label: string; proBadge?: boolean }) {
 	return (
 		<Link
 			to={to}
-			className="block px-3 py-2 rounded-md text-sm text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+			className="flex items-center px-3 py-2 rounded-md text-sm text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
 			activeProps={{ className: 'bg-surface-alt text-text font-medium' }}
 		>
 			{label}
+			{proBadge && <ProBadge />}
 		</Link>
 	)
 }
@@ -422,48 +427,52 @@ function CollectionNavExpanded() {
 
 	return (
 		<div className="space-y-0.5">
-			{collections.map((col) => {
-				const isActive = location.pathname.startsWith(`/collections/${col.name}`)
-				return (
-					<Link
-						key={col.id}
-						to="/collections/$slug"
-						params={{ slug: col.name }}
-						className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-							isActive
-								? 'bg-surface-alt text-text font-medium'
-								: 'text-text-secondary hover:bg-surface-alt hover:text-text'
-						}`}
-					>
-						<span className="truncate flex items-center gap-1.5">
-							{col.source === 'external' && (
-								<svg
-									width="12"
-									height="12"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									className="shrink-0 opacity-50"
-								>
-									<line x1="8" y1="6" x2="21" y2="6" />
-									<line x1="8" y1="12" x2="21" y2="12" />
-									<line x1="8" y1="18" x2="21" y2="18" />
-									<line x1="3" y1="6" x2="3.01" y2="6" />
-									<line x1="3" y1="12" x2="3.01" y2="12" />
-									<line x1="3" y1="18" x2="3.01" y2="18" />
-								</svg>
+			{collections
+				.filter((col) => col.source !== 'media')
+				.map((col) => {
+					const isActive = location.pathname.startsWith(`/collections/${col.name}`)
+					return (
+						<Link
+							key={col.id}
+							to="/collections/$slug"
+							params={{ slug: col.name }}
+							className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+								isActive
+									? 'bg-surface-alt text-text font-medium'
+									: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+							}`}
+						>
+							<span className="truncate flex items-center gap-1.5">
+								{col.source === 'external' && (
+									<svg
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="shrink-0 opacity-50"
+									>
+										<line x1="8" y1="6" x2="21" y2="6" />
+										<line x1="8" y1="12" x2="21" y2="12" />
+										<line x1="8" y1="18" x2="21" y2="18" />
+										<line x1="3" y1="6" x2="3.01" y2="6" />
+										<line x1="3" y1="12" x2="3.01" y2="12" />
+										<line x1="3" y1="18" x2="3.01" y2="18" />
+									</svg>
+								)}
+								{col.label}
+							</span>
+							{col.contentCount > 0 && (
+								<span className="text-[10px] text-text-muted shrink-0 ml-2">
+									{col.contentCount}
+								</span>
 							)}
-							{col.label}
-						</span>
-						{col.contentCount > 0 && (
-							<span className="text-[10px] text-text-muted shrink-0 ml-2">{col.contentCount}</span>
-						)}
-					</Link>
-				)
-			})}
+						</Link>
+					)
+				})}
 			<Link
 				to="/collections/new"
 				className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"
@@ -492,19 +501,21 @@ function CollectionNavCollapsed() {
 
 	return (
 		<div className="space-y-0.5">
-			{collections.map((col) => (
-				<Link
-					key={col.id}
-					to="/collections/$slug"
-					params={{ slug: col.name }}
-					className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
-					title={`${col.label} (${col.contentCount})`}
-				>
-					<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
-						{col.label.charAt(0)}
-					</span>
-				</Link>
-			))}
+			{collections
+				.filter((col) => col.source !== 'media')
+				.map((col) => (
+					<Link
+						key={col.id}
+						to="/collections/$slug"
+						params={{ slug: col.name }}
+						className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+						title={`${col.label} (${col.contentCount})`}
+					>
+						<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
+							{col.label.charAt(0)}
+						</span>
+					</Link>
+				))}
 			<Link
 				to="/collections/new"
 				className="flex items-center justify-center p-2 rounded-md text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"

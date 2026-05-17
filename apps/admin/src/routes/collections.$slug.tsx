@@ -168,6 +168,16 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 	return [...builtins, ...metadataCols]
 }
 
+/** Pull a usable image URL out of a resolved relation/media record, if present. */
+function extractImageUrl(value: unknown): string | null {
+	if (!value || typeof value !== 'object') return null
+	const v = value as Record<string, unknown>
+	if (typeof v.url === 'string') return v.url
+	const meta = v.metadata as Record<string, unknown> | undefined
+	if (meta && typeof meta.url === 'string') return meta.url
+	return null
+}
+
 function renderMetadataValue(value: unknown): ReactNode {
 	if (value === null || value === undefined || value === '')
 		return <span className="text-text-muted">—</span>
@@ -175,8 +185,14 @@ function renderMetadataValue(value: unknown): ReactNode {
 		return <span className="text-text-secondary">{value ? '✓' : '—'}</span>
 	if (Array.isArray(value))
 		return <span className="text-text-secondary text-xs">{value.join(', ')}</span>
-	if (typeof value === 'object')
+	if (typeof value === 'object') {
+		const imgUrl = extractImageUrl(value)
+		if (imgUrl)
+			return (
+				<img src={imgUrl} alt="" className="h-8 w-8 rounded object-cover border border-border" />
+			)
 		return <span className="text-text-muted text-xs italic">[object]</span>
+	}
 	return <span className="text-text-secondary">{String(value)}</span>
 }
 

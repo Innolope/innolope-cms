@@ -1,7 +1,9 @@
 import { media } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import { getUser } from '../../plugins/auth.js'
+import { mediaAdapterName, mediaMaxSize } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
 
 export async function mediaRoutes(app: FastifyInstance) {
@@ -22,8 +24,9 @@ export async function mediaRoutes(app: FastifyInstance) {
 		}
 	})
 
-	// List media (viewer+, project-scoped)
-	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+	// List media (viewer+, project-scoped, Pro feature)
+	// biome-ignore format: keep preHandler list on one line
+	app.get('/', { preHandler: [app.requireProject('viewer'), app.requireLicense('media-integrations')] }, async (request) => {
 		const {
 			page = 1,
 			limit = 25,
@@ -60,12 +63,32 @@ export async function mediaRoutes(app: FastifyInstance) {
 		}
 	})
 
-	// Upload media (editor+, project-scoped)
-	app.post('/upload', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
+	// Upload media (editor+, project-scoped, Pro feature)
+	// biome-ignore format: keep preHandler list on one line
+	app.post('/upload', { preHandler: [app.requireProject('editor'), app.requireLicense('media-integrations')] }, async (request, reply) => {
 		const file = await request.file()
 		if (!file) return reply.status(400).send({ error: 'No file provided' })
 
-		const buffer = await file.toBuffer()
+		if (isRejectedImageMime(file.mimetype)) {
+			return reply.status(400).send({
+				error: `Unsupported image type: ${file.mimetype}. Use JPEG, PNG, WebP, GIF or AVIF.`,
+			})
+		}
+
+		let buffer: Buffer
+		try {
+			buffer = await file.toBuffer()
+		} catch {
+			return reply
+				.status(400)
+				.send({ error: `File exceeds the maximum size of ${mediaMaxSize()} bytes` })
+		}
+		if (file.file.truncated) {
+			return reply
+				.status(400)
+				.send({ error: `File exceeds the maximum size of ${mediaMaxSize()} bytes` })
+		}
+
 		const result = await app.media.upload(buffer, file.filename, file.mimetype)
 
 		const type = file.mimetype.startsWith('image/')
@@ -73,6 +96,8 @@ export async function mediaRoutes(app: FastifyInstance) {
 			: file.mimetype.startsWith('video/')
 				? 'video'
 				: 'file'
+
+		const dimensions = type === 'image' ? getImageDimensions(buffer) : null
 
 		const [created] = await app.db
 			.insert(media)
@@ -83,7 +108,9 @@ export async function mediaRoutes(app: FastifyInstance) {
 				mimeType: file.mimetype,
 				size: result.size,
 				url: result.url,
+				adapter: mediaAdapterName(),
 				externalId: result.id,
+				metadata: dimensions ? { width: dimensions.width, height: dimensions.height } : {},
 				createdBy: getUser(request).id,
 			})
 			.returning()
@@ -91,10 +118,10 @@ export async function mediaRoutes(app: FastifyInstance) {
 		return reply.status(201).send(created)
 	})
 
-	// Delete media (admin+, project-scoped)
+	// Delete media (admin+, project-scoped, Pro feature)
 	app.delete<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.requireProject('admin')] },
+		{ preHandler: [app.requireProject('admin'), app.requireLicense('media-integrations')] },
 		async (request, reply) => {
 			const [item] = await app.db
 				.select()

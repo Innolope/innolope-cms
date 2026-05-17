@@ -11,11 +11,13 @@ function CollectionsLayout() {
 	const navigate = useNavigate()
 	const { collections, loading } = useCollections()
 
-	// Redirect bare /collections to first collection or /collections/new
+	// Redirect bare /collections to first collection or /collections/new.
+	// The `media`-backed collection has its own /media tab, so it is skipped here.
 	useEffect(() => {
 		if (location.pathname === '/collections' && !loading) {
-			if (collections.length > 0) {
-				navigate({ to: `/collections/${collections[0].name}` })
+			const first = collections.find((col) => col.source !== 'media')
+			if (first) {
+				navigate({ to: `/collections/${first.name}` })
 			} else {
 				navigate({ to: '/collections/new' })
 			}

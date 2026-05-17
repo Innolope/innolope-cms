@@ -1,6 +1,6 @@
 import type { CollectionField } from '@innolope/config'
 import { collections, content, contentVersions, projects } from '@innolope/db'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { getProject } from '../../plugins/project.js'
@@ -19,12 +19,16 @@ function getExternalDbConfig(project: typeof projects.$inferSelect | undefined) 
 }
 
 export async function collectionRoutes(app: FastifyInstance) {
-	// List collections (viewer+, project-scoped)
+	// List collections (viewer+, project-scoped).
+	// The `media`-backed collection is an internal relation target — consumers fetch
+	// assets via GET /api/v1/media, so it is excluded from this public list.
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		return app.db
 			.select()
 			.from(collections)
-			.where(eq(collections.projectId, getProject(request).id))
+			.where(
+				and(eq(collections.projectId, getProject(request).id), ne(collections.source, 'media')),
+			)
 	})
 
 	// List collections with content counts (viewer+, project-scoped)
@@ -182,6 +186,12 @@ export async function collectionRoutes(app: FastifyInstance) {
 			fields?: unknown[]
 		}
 
+		if (name === 'media') {
+			return reply
+				.status(400)
+				.send({ error: 'The "media" collection name is reserved by the system' })
+		}
+
 		const [created] = await app.db
 			.insert(collections)
 			.values({
@@ -206,6 +216,24 @@ export async function collectionRoutes(app: FastifyInstance) {
 				label?: string
 				description?: string
 				fields?: unknown[]
+			}
+
+			const [existing] = await app.db
+				.select({ source: collections.source })
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+
+			if (!existing) return reply.status(404).send({ error: 'Collection not found' })
+			if (existing.source === 'media') {
+				return reply
+					.status(400)
+					.send({ error: 'The Media collection is managed by the system and cannot be modified' })
 			}
 
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
@@ -235,6 +263,24 @@ export async function collectionRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
+			const [existing] = await app.db
+				.select({ source: collections.source })
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+
+			if (!existing) return reply.status(404).send({ error: 'Collection not found' })
+			if (existing.source === 'media') {
+				return reply
+					.status(400)
+					.send({ error: 'The Media collection is managed by the system and cannot be deleted' })
+			}
+
 			await app.db
 				.delete(collections)
 				.where(

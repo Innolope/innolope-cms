@@ -35,6 +35,8 @@ export const contentListSchema = z.object({
 	publishedTo: z.string().optional(),
 	// JSON-encoded object of metadata field equality filters: {"author":"x","category":"y"}
 	metadata: z.string().optional(),
+	// Relation hydration depth: 0 = raw ids, >=1 = relation fields resolved to records.
+	depth: z.coerce.number().int().min(0).max(2).default(1),
 })
 
 export const envSchema = z.object({

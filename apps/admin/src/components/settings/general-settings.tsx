@@ -14,6 +14,7 @@ export function GeneralSettings() {
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [showDelete, setShowDelete] = useState(false)
+	const [dangerOpen, setDangerOpen] = useState(false)
 	const initialRef = useRef({ name: '', slug: '', defaultLocale: 'en', locales: 'en' })
 
 	useEffect(() => {
@@ -137,23 +138,34 @@ export function GeneralSettings() {
 
 			{currentProject?.role === 'owner' && (
 				<div className="mt-10 pt-6 border-t border-border">
-					<h3 className="text-sm font-semibold text-danger mb-1">Danger zone</h3>
-					<div className="flex items-center justify-between gap-4 max-w-2xl px-4 py-3 rounded-lg border border-danger/40">
-						<div className="min-w-0">
-							<p className="text-sm text-text font-medium">Delete this workspace</p>
-							<p className="text-xs text-text-muted mt-0.5">
-								Permanently removes the workspace and its CMS content. Your external database and
-								its data are not touched.
-							</p>
+					<button
+						type="button"
+						onClick={() => setDangerOpen((v) => !v)}
+						className="flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text"
+					>
+						<span className={`inline-block transition-transform ${dangerOpen ? 'rotate-90' : ''}`}>
+							&#8250;
+						</span>
+						Danger zone
+					</button>
+					{dangerOpen && (
+						<div className="flex items-center justify-between gap-4 max-w-2xl mt-3 px-4 py-3 rounded-lg border border-border bg-surface-muted">
+							<div className="min-w-0">
+								<p className="text-sm text-text font-medium">Delete this workspace</p>
+								<p className="text-xs text-text-muted mt-0.5">
+									Permanently removes the workspace and its CMS content. Your external database and
+									its data are not touched.
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setShowDelete(true)}
+								className="shrink-0 px-3 py-2 rounded text-sm font-medium border border-danger/50 text-danger hover:bg-danger/10"
+							>
+								Delete workspace
+							</button>
 						</div>
-						<button
-							type="button"
-							onClick={() => setShowDelete(true)}
-							className="shrink-0 px-3 py-2 rounded text-sm font-medium bg-danger text-white hover:opacity-90"
-						>
-							Delete workspace
-						</button>
-					</div>
+					)}
 				</div>
 			)}
 

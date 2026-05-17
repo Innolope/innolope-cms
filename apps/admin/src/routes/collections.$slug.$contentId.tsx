@@ -128,7 +128,7 @@ function CollectionContentEditor() {
 	useEffect(() => {
 		if (!isNew && contentId && collection) {
 			api
-				.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}`)
+				.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}&depth=0`)
 				.then((item) => {
 					const { body, meta } = parseFrontmatter(item.markdown)
 					const mergedMeta = { ...meta, ...item.metadata }

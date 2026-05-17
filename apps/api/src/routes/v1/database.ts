@@ -627,17 +627,24 @@ export async function databaseRoutes(app: FastifyInstance) {
 		'/:id/database',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const { type, connectionString, database, tables, accessMode } = request.body as {
-				type: string | null
-				connectionString: string | null
-				database?: string | null
-				tables?: Array<{
-					name: string
-					columns: { name: string; type: string; relationTo?: string; relationIsArray?: boolean }[]
-					count?: number
-				}>
-				accessMode?: 'read-write' | 'read-only'
-			}
+			const { type, connectionString, database, tables, accessMode, mediaStorage } =
+				request.body as {
+					type: string | null
+					connectionString: string | null
+					database?: string | null
+					tables?: Array<{
+						name: string
+						columns: {
+							name: string
+							type: string
+							relationTo?: string
+							relationIsArray?: boolean
+						}[]
+						count?: number
+					}>
+					accessMode?: 'read-write' | 'read-only'
+					mediaStorage?: Record<string, { adapter: string; pathColumn: string; baseUrl?: string }>
+				}
 
 			if (connectionString) {
 				const ssrfErr3 = await validateConnectionString(connectionString)
@@ -674,6 +681,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 					tables: (tables || []).map((t) => t.name),
 					accessMode:
 						accessMode || (savedExternalDb.accessMode as string | undefined) || 'read-write',
+					// Where an imported media library stores its files (reference-only resolution).
+					// Falls back to the saved value so a re-sync doesn't drop it.
+					mediaStorage:
+						mediaStorage ||
+						(savedExternalDb.mediaStorage as Record<string, unknown> | undefined) ||
+						undefined,
 				}
 			}
 

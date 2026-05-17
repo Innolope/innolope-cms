@@ -19,6 +19,12 @@ export default defineConfig(({ mode }) => {
 					changeOrigin: true,
 					secure: !apiTarget.includes('localhost'),
 				},
+				// Locally-stored media (`/uploads/...`) is served by the API.
+				'/uploads': {
+					target: apiTarget,
+					changeOrigin: true,
+					secure: !apiTarget.includes('localhost'),
+				},
 			},
 		},
 	}

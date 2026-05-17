@@ -22,6 +22,13 @@ export interface ContentListParams {
 	limit?: number
 	sortBy?: 'createdAt' | 'updatedAt' | 'publishedAt'
 	sortOrder?: 'asc' | 'desc'
+	/**
+	 * Relation hydration depth. `0` returns relation fields as raw ids; `>=1` (the API
+	 * default) resolves them to the referenced record. A `relation` field such as an
+	 * article's `featuredImage` is therefore an object (`{ id, url, alt, … }`) at
+	 * depth >= 1, not a bare string.
+	 */
+	depth?: number
 }
 
 export interface ContentListResponse {

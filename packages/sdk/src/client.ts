@@ -60,8 +60,9 @@ export class InnolopeCMS {
 		return this.request<ContentListResponse>(`/api/v1/content${qs ? `?${qs}` : ''}`)
 	}
 
-	async getContentById(id: string): Promise<Content> {
-		return this.request<Content>(`/api/v1/content/${id}`)
+	async getContentById(id: string, params?: { depth?: number }): Promise<Content> {
+		const qs = params?.depth !== undefined ? `?depth=${params.depth}` : ''
+		return this.request<Content>(`/api/v1/content/${id}${qs}`)
 	}
 
 	async getContentBySlug(slug: string, locale?: string): Promise<Content | null> {
@@ -89,6 +90,7 @@ export class InnolopeCMS {
 
 	// Collections
 
+	// Excludes the internal media-backed collection — use getMedia() to fetch assets.
 	async getCollections(): Promise<Collection[]> {
 		return this.request<Collection[]>('/api/v1/collections')
 	}

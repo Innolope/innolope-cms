@@ -4,6 +4,7 @@ import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
 import { useToast } from '../../lib/toast'
+import { Dropdown } from '../dropdown'
 import { useLicense } from '../license-gate'
 import { SaveBar } from '../save-bar'
 
@@ -30,6 +31,50 @@ function relationTargets(table: DetectedTable, allTables: DetectedTable[]): stri
 		}
 	}
 	return [...targets]
+}
+
+// ─── Media-library detection ──────────────────────────────────────────────
+const MEDIA_NAME_RE = /^(media|images?|files?|assets?|uploads?|photos?|gallery|attachments?)s?$/i
+const FILE_REF_RE = /(^|_)(url|src|path|image|photo|file|thumbnail)($|_)/i
+const FILE_META_RE = /(^|_)(mime|mimetype|filename|filesize|size|width|height|alt)($|_)/i
+
+/** Split camelCase so `imageUrl` matches the `_`-delimited column patterns. */
+const splitCamelCol = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+
+/** Heuristic: does this imported table look like a media library? */
+function isMediaTable(table: DetectedTable): boolean {
+	if (MEDIA_NAME_RE.test(table.name)) return true
+	const hasRef = table.columns.some((c) => FILE_REF_RE.test(splitCamelCol(c.name)))
+	const hasMeta = table.columns.some((c) => FILE_META_RE.test(splitCamelCol(c.name)))
+	return hasRef && hasMeta
+}
+
+/** Best guess for the column holding the file path/key. */
+function pickPathColumn(table: DetectedTable): string {
+	const ref = table.columns.find((c) => FILE_REF_RE.test(splitCamelCol(c.name)))
+	return ref?.name || table.columns[0]?.name || ''
+}
+
+interface MediaStorageConfig {
+	enabled: boolean
+	adapter: string
+	pathColumn: string
+	baseUrl: string
+}
+
+const MEDIA_ADAPTER_OPTIONS = [
+	{ value: 'absolute', label: 'Already absolute URLs' },
+	{ value: 'r2', label: 'Cloudflare R2' },
+	{ value: 'cloudflare-images', label: 'Cloudflare Images' },
+	{ value: 's3', label: 'Amazon S3 / S3-compatible' },
+	{ value: 'custom-url', label: 'Custom base URL' },
+]
+
+const MEDIA_BASE_URL_PLACEHOLDER: Record<string, string> = {
+	r2: 'https://pub-xxxx.r2.dev',
+	'cloudflare-images': 'https://imagedelivery.net/<account-hash>',
+	s3: 'https://<bucket>.s3.<region>.amazonaws.com',
+	'custom-url': 'https://cdn.example.com',
 }
 
 const DB_OPTIONS = [
@@ -345,6 +390,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
+	const [mediaConfigs, setMediaConfigs] = useState<Record<string, MediaStorageConfig>>({})
 	const initialDbType = useRef('built-in')
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 	// Monotonic token: each auto-test bumps it; stale in-flight responses are discarded.
@@ -381,6 +427,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const stepLabels = ['Database', 'Connection']
 	if (needsDbSelect) stepLabels.push('Confirm DB')
 	stepLabels.push(tableWord)
+
+	const tableStepIndex = needsDbSelect ? 3 : 2
+	const mediaStepIndex = tableStepIndex + 1
+	const selectedMediaTables = tables.filter((t) => selectedTables.has(t.name) && isMediaTable(t))
+	const hasMediaStep = selectedMediaTables.length > 0
+	if (hasMediaStep) stepLabels.push('Media storage')
 
 	const setStep = useCallback(
 		(n: number) => {
@@ -556,6 +608,23 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		setSaving(true)
 		try {
 			const selectedTableData = tables.filter((t) => selectedTables.has(t.name))
+
+			// Build the per-table media storage map from the wizard's media step.
+			const mediaStorage: Record<
+				string,
+				{ adapter: string; pathColumn: string; baseUrl?: string }
+			> = {}
+			for (const [name, cfg] of Object.entries(mediaConfigs)) {
+				if (!cfg.enabled || !selectedTables.has(name) || !cfg.pathColumn) continue
+				mediaStorage[name] = {
+					adapter: cfg.adapter,
+					pathColumn: cfg.pathColumn,
+					...(cfg.adapter !== 'absolute' && cfg.baseUrl.trim()
+						? { baseUrl: cfg.baseUrl.trim() }
+						: {}),
+				}
+			}
+
 			const result = await api.put<{
 				project: unknown
 				collections: Array<{ name: string }>
@@ -566,6 +635,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				database: selectedDb || null,
 				tables: selectedTableData,
 				accessMode,
+				mediaStorage: Object.keys(mediaStorage).length > 0 ? mediaStorage : undefined,
 			})
 
 			clearWizardState()
@@ -589,6 +659,42 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		} finally {
 			setSaving(false)
 		}
+	}
+
+	// From the tables step: go to the media-storage step when a media library is
+	// detected among the selection, otherwise save directly.
+	const proceedFromTables = () => {
+		if (!hasMediaStep) {
+			save()
+			return
+		}
+		setMediaConfigs((prev) => {
+			const next = { ...prev }
+			for (const t of tables.filter((tt) => selectedTables.has(tt.name))) {
+				if (!next[t.name]) {
+					next[t.name] = {
+						enabled: isMediaTable(t),
+						adapter: 'absolute',
+						pathColumn: pickPathColumn(t),
+						baseUrl: '',
+					}
+				}
+			}
+			return next
+		})
+		setStep(mediaStepIndex)
+	}
+
+	const updateMediaConfig = (name: string, patch: Partial<MediaStorageConfig>) => {
+		setMediaConfigs((prev) => {
+			const current: MediaStorageConfig = prev[name] || {
+				enabled: false,
+				adapter: 'absolute',
+				pathColumn: '',
+				baseUrl: '',
+			}
+			return { ...prev, [name]: { ...current, ...patch } }
+		})
 	}
 
 	// Re-scan the already-connected database and refresh imported collections' field
@@ -651,7 +757,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	}
 
 	const goBack = () => {
-		if (step === 1) {
+		if (step === mediaStepIndex) {
+			setStep(tableStepIndex)
+		} else if (step === 1) {
 			setStep(0)
 			setConnectionString('')
 			setTestResult(null)
@@ -774,12 +882,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 														: 'Refreshing collections…'}
 											</span>
 											<span className="text-xs text-text-muted">
-												Step{' '}
-												{resyncPhase === 'scanning'
-													? 1
-													: resyncPhase === 'importing'
-														? 2
-														: 3}{' '}
+												Step {resyncPhase === 'scanning' ? 1 : resyncPhase === 'importing' ? 2 : 3}{' '}
 												of 3
 											</span>
 										</div>
@@ -1026,7 +1129,6 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	}
 
 	// ─── Tables / Collections step ────────────────────────────────────────
-	const tableStepIndex = needsDbSelect ? 3 : 2
 	if (step === tableStepIndex) {
 		return (
 			<div>
@@ -1036,7 +1138,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					</BackLink>
 				</div>
 				<div className="space-y-5">
-					<StepIndicator steps={stepLabels} current={stepLabels.length - 1} />
+					<StepIndicator steps={stepLabels} current={tableStepIndex} />
 
 					<div className="text-center space-y-1">
 						<div className="flex items-center justify-center gap-2">
@@ -1240,6 +1342,111 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							</label>
 						</div>
 					)}
+
+					<SaveBar
+						dirty={selectedTables.size > 0 || dirty}
+						saving={saving}
+						saved={saved}
+						onSave={proceedFromTables}
+						saveLabel={hasMediaStep ? 'Continue' : 'Save'}
+					/>
+				</div>
+			</div>
+		)
+	}
+
+	// ─── Media storage step ───────────────────────────────────────────────
+	if (step === mediaStepIndex) {
+		const selectedTableList = tables.filter((t) => selectedTables.has(t.name))
+		return (
+			<div>
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>Back to {tableWord.toLowerCase()}</BackLink>
+				</div>
+				<div className="space-y-5">
+					<StepIndicator steps={stepLabels} current={mediaStepIndex} />
+
+					<div className="text-center space-y-1">
+						<h3 className="text-sm font-semibold text-text">Where are your media files stored?</h3>
+						<p className="text-sm text-text-muted">
+							We detected {selectedMediaTables.length} media{' '}
+							{selectedMediaTables.length === 1 ? 'library' : 'libraries'}. Tell us where the files
+							live so the CMS can build working URLs from the stored paths.
+						</p>
+					</div>
+
+					<div className="space-y-3">
+						{selectedTableList.map((t) => {
+							const cfg = mediaConfigs[t.name] || {
+								enabled: isMediaTable(t),
+								adapter: 'absolute',
+								pathColumn: pickPathColumn(t),
+								baseUrl: '',
+							}
+							const columnOptions = t.columns.map((c) => ({ value: c.name, label: c.name }))
+							return (
+								<div key={t.name} className="rounded-lg border border-border p-4">
+									<label className="flex items-center gap-2.5 cursor-pointer">
+										<input
+											type="checkbox"
+											checked={cfg.enabled}
+											onChange={(e) => updateMediaConfig(t.name, { enabled: e.target.checked })}
+											className="rounded"
+										/>
+										<span className="text-sm font-medium text-text">{t.name}</span>
+										{isMediaTable(t) && (
+											<span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted">
+												detected media library
+											</span>
+										)}
+									</label>
+
+									{cfg.enabled && (
+										<div className="mt-3 pl-6 space-y-3">
+											<div>
+												<div className="block text-xs text-text-secondary mb-1">Storage</div>
+												<Dropdown
+													value={cfg.adapter}
+													onChange={(v) => updateMediaConfig(t.name, { adapter: v })}
+													options={MEDIA_ADAPTER_OPTIONS}
+													className="w-full max-w-xs"
+												/>
+											</div>
+											{cfg.adapter !== 'absolute' && (
+												<div>
+													<div className="block text-xs text-text-secondary mb-1">
+														Public base URL
+													</div>
+													<input
+														type="text"
+														value={cfg.baseUrl}
+														onChange={(e) => updateMediaConfig(t.name, { baseUrl: e.target.value })}
+														placeholder={MEDIA_BASE_URL_PLACEHOLDER[cfg.adapter] || 'https://...'}
+														className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+													/>
+													<p className="mt-1 text-[11px] text-text-muted">
+														Prepended to relative paths. Values that are already absolute URLs are
+														left untouched.
+													</p>
+												</div>
+											)}
+											<div>
+												<div className="block text-xs text-text-secondary mb-1">
+													File path column
+												</div>
+												<Dropdown
+													value={cfg.pathColumn}
+													onChange={(v) => updateMediaConfig(t.name, { pathColumn: v })}
+													options={columnOptions}
+													className="w-full max-w-xs"
+												/>
+											</div>
+										</div>
+									)}
+								</div>
+							)
+						})}
+					</div>
 
 					<SaveBar
 						dirty={selectedTables.size > 0 || dirty}

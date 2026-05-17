@@ -1,6 +1,6 @@
 import { createSign, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { decodeLicenseKey, verifySignature } from './license.js'
+import { decodeLicenseKey, evaluateLicense, verifySignature } from './license.js'
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }) as string
@@ -62,5 +62,28 @@ describe('verifySignature', () => {
 	it('returns false when verified against the placeholder public key', () => {
 		// Default key in this build is the community placeholder — it cannot validate anything.
 		expect(verifySignature(samplePayload, sign(samplePayload))).toBe(false)
+	})
+})
+
+describe('evaluateLicense', () => {
+	it('treats a missing key as community tier with no error', () => {
+		expect(evaluateLicense(undefined)).toEqual({ valid: false, payload: null })
+		expect(evaluateLicense(null)).toEqual({ valid: false, payload: null })
+		expect(evaluateLicense('')).toEqual({ valid: false, payload: null })
+	})
+
+	it('rejects a malformed key with a specific error', () => {
+		const result = evaluateLicense('not-a-license')
+		expect(result.valid).toBe(false)
+		expect(result.error).toBe('Invalid license key format.')
+	})
+
+	it('rejects a well-formed key when the build has no real public key', () => {
+		// This (community) build ships the placeholder public key, so even a
+		// structurally valid key cannot be trusted and must not grant features.
+		const key = makeLicenseKey(samplePayload, sign(samplePayload))
+		const result = evaluateLicense(key)
+		expect(result.valid).toBe(false)
+		expect(result.error).toContain('no license public key')
 	})
 })

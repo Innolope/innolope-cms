@@ -64,7 +64,7 @@ export async function seed(databaseUrl: string) {
 				{ name: 'title', type: 'text', required: true, localized: true },
 				{ name: 'excerpt', type: 'text', localized: true },
 				{ name: 'tags', type: 'array' },
-				{ name: 'featuredImage', type: 'text' },
+				{ name: 'featuredImage', type: 'relation', relationTo: 'media' },
 				{ name: 'author', type: 'text' },
 			],
 		})
@@ -88,6 +88,31 @@ export async function seed(databaseUrl: string) {
 		.returning()
 
 	console.log(`Created collection: ${pages.label}`)
+
+	// Create the "Media" collection — a relation target backed by the `media` table.
+	const [mediaCollection] = await db
+		.insert(collections)
+		.values({
+			projectId: project.id,
+			name: 'media',
+			label: 'Media',
+			description: 'Uploaded images and files',
+			source: 'media',
+			accessMode: 'read-write',
+			fields: [
+				{ name: 'url', type: 'text' },
+				{ name: 'filename', type: 'text' },
+				{ name: 'alt', type: 'text' },
+				{ name: 'type', type: 'text' },
+				{ name: 'mimeType', type: 'text' },
+				{ name: 'size', type: 'number' },
+				{ name: 'width', type: 'number' },
+				{ name: 'height', type: 'number' },
+			],
+		})
+		.returning()
+
+	console.log(`Created collection: ${mediaCollection.label}`)
 	console.log('Seed complete.')
 }
 

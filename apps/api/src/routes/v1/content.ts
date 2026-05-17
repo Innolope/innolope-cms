@@ -1,9 +1,18 @@
 import { contentInputSchema, contentListSchema } from '@innolope/config'
-import { collections, content, contentAnalytics, contentVersions, projects } from '@innolope/db'
+import {
+	collections,
+	content,
+	contentAnalytics,
+	contentVersions,
+	media,
+	projects,
+} from '@innolope/db'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
+import { applyMediaStorage, getMediaStorageMap } from '../../lib/media-storage.js'
+import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 
@@ -288,6 +297,39 @@ async function fetchLiveExternalRecord(
 	}
 }
 
+/** Apply imported media-library path resolution to items of an external collection. */
+async function applyExternalMediaStorage(
+	app: FastifyInstance,
+	projectId: string,
+	col: typeof collections.$inferSelect | undefined,
+	items: Array<{ metadata?: Record<string, unknown> }>,
+) {
+	if (!col || col.source !== 'external' || !col.externalTable) return
+	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	applyMediaStorage(items, col.externalTable, getMediaStorageMap(project))
+}
+
+/** Resolve a single content item's `relation` fields in place (default depth 1). */
+async function hydrateRelations(
+	app: FastifyInstance,
+	projectId: string,
+	item: Record<string, unknown>,
+	depthParam: string | number | undefined,
+) {
+	const depth = depthParam === undefined ? 1 : Number(depthParam)
+	if (!Number.isFinite(depth) || depth < 1) return
+	const collectionId = item.collectionId as string | undefined
+	if (!collectionId) return
+	const [col] = await app.db
+		.select()
+		.from(collections)
+		.where(and(eq(collections.id, collectionId), eq(collections.projectId, projectId)))
+		.limit(1)
+	if (!col) return
+	await applyExternalMediaStorage(app, projectId, col, [item])
+	await resolveRelations(app, projectId, [item], col.fields || [], depth)
+}
+
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -311,6 +353,40 @@ export async function contentRoutes(app: FastifyInstance) {
 		} = params
 		const offset = (page - 1) * limit
 		const pid = getProject(request).id
+
+		// When the requested collection is the media-backed collection, serve `media` rows
+		// reshaped as content items (used by relation pickers that point at media).
+		let collection: typeof collections.$inferSelect | undefined
+		if (collectionId) {
+			;[collection] = await app.db
+				.select()
+				.from(collections)
+				.where(and(eq(collections.id, collectionId), eq(collections.projectId, pid)))
+				.limit(1)
+			if (collection?.source === 'media') {
+				const mediaWhere = eq(media.projectId, pid)
+				const [mediaItems, mediaCount] = await Promise.all([
+					app.db
+						.select()
+						.from(media)
+						.where(mediaWhere)
+						.orderBy(desc(media.createdAt))
+						.limit(limit)
+						.offset(offset),
+					app.db.select({ count: sql<number>`count(*)` }).from(media).where(mediaWhere),
+				])
+				const mediaTotal = Number(mediaCount[0].count)
+				return {
+					data: mediaItems.map(mediaRowToContentItem),
+					pagination: {
+						page,
+						limit,
+						total: mediaTotal,
+						totalPages: Math.ceil(mediaTotal / limit),
+					},
+				}
+			}
+		}
 
 		const conditions = [eq(content.projectId, pid)]
 		if (status) conditions.push(eq(content.status, status))
@@ -367,6 +443,10 @@ export async function contentRoutes(app: FastifyInstance) {
 			try {
 				const live = await fetchLiveExternalContent(app, pid, collectionId, { limit, offset })
 				if (live) {
+					if (collection) {
+						await applyExternalMediaStorage(app, pid, collection, live.items)
+						await resolveRelations(app, pid, live.items, collection.fields || [], params.depth)
+					}
 					return {
 						data: live.items,
 						pagination: {
@@ -396,6 +476,17 @@ export async function contentRoutes(app: FastifyInstance) {
 				.catch(() => {})
 		}
 
+		if (collection) {
+			await applyExternalMediaStorage(app, pid, collection, items as Record<string, unknown>[])
+			await resolveRelations(
+				app,
+				pid,
+				items as Record<string, unknown>[],
+				collection.fields || [],
+				params.depth,
+			)
+		}
+
 		return {
 			data: items,
 			pagination: {
@@ -408,7 +499,7 @@ export async function contentRoutes(app: FastifyInstance) {
 	})
 
 	// Get content by slug (viewer+, project-scoped)
-	app.get<{ Params: { slug: string }; Querystring: { locale?: string } }>(
+	app.get<{ Params: { slug: string }; Querystring: { locale?: string; depth?: string } }>(
 		'/by-slug/:slug',
 		{ preHandler: [app.requireProject('viewer')] },
 		async (request, reply) => {
@@ -424,6 +515,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				.where(and(...conditions))
 				.limit(1)
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
+
+			await hydrateRelations(app, getProject(request).id, item, request.query.depth)
 
 			// Track read analytics (fire-and-forget)
 			app.db
@@ -441,7 +534,7 @@ export async function contentRoutes(app: FastifyInstance) {
 	)
 
 	// Get single content by ID (viewer+, project-scoped)
-	app.get<{ Params: { id: string }; Querystring: { collectionId?: string } }>(
+	app.get<{ Params: { id: string }; Querystring: { collectionId?: string; depth?: string } }>(
 		'/:id',
 		{ preHandler: [app.requireProject('viewer')] },
 		async (request, reply) => {
@@ -484,13 +577,18 @@ export async function contentRoutes(app: FastifyInstance) {
 						request.query.collectionId,
 						request.params.id,
 					)
-					if (live) return live
+					if (live) {
+						await hydrateRelations(app, getProject(request).id, live, request.query.depth)
+						return live
+					}
 				} catch (err) {
 					app.log.warn(err, 'Live external record fallback failed')
 				}
 			}
 
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
+
+			await hydrateRelations(app, getProject(request).id, item, request.query.depth)
 
 			// Track read analytics (fire-and-forget)
 			app.db
@@ -1291,6 +1389,24 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			if (!targetCol)
 				return reply.status(404).send({ error: `Related collection not found: ${relationTo}` })
+
+			// Media-backed collection: the `media` row was already created by /media/upload.
+			// Look it up by the uploaded url and return its id as the relation reference.
+			if (targetCol.source === 'media') {
+				const url = values?.url
+				if (typeof url !== 'string' || !url) {
+					return reply.status(400).send({ error: 'url is required for a media relation record' })
+				}
+				const [row] = await app.db
+					.select()
+					.from(media)
+					.where(and(eq(media.projectId, getProject(request).id), eq(media.url, url)))
+					.orderBy(desc(media.createdAt))
+					.limit(1)
+				if (!row) return reply.status(404).send({ error: 'Media not found for the uploaded file' })
+				return reply.status(201).send({ _id: row.id })
+			}
+
 			if (
 				targetCol.source !== 'external' ||
 				targetCol.accessMode !== 'read-write' ||

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
@@ -27,6 +27,7 @@ import { contentRoutes } from './routes/v1/content.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
 import { inviteRoutes } from './routes/v1/invites.js'
+import { licenseRoutes } from './routes/v1/license.js'
 import { localeRoutes } from './routes/v1/locales.js'
 import { mediaRoutes } from './routes/v1/media.js'
 import { passwordResetRoutes } from './routes/v1/password-reset.js'
@@ -181,6 +182,7 @@ export async function buildApp() {
 	await app.register(authRoutes, { prefix: '/api/v1/auth' })
 	await app.register(passwordResetRoutes, { prefix: '/api/v1/auth' })
 	await app.register(inviteRoutes, { prefix: '/api/v1/invites' })
+	await app.register(licenseRoutes, { prefix: '/api/v1/license' })
 
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
@@ -207,6 +209,15 @@ export async function buildApp() {
 	await app.register(scimTokenAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
 	await app.register(meIdentitiesRoutes, { prefix: '/api/v1/auth/me/identities' })
 	await app.register(scimRoutes, { prefix: '/api/v1/scim' })
+
+	// Serve locally-stored media uploaded via the local filesystem adapter.
+	const uploadsPath = resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads')
+	mkdirSync(uploadsPath, { recursive: true })
+	await app.register(fastifyStatic, {
+		root: uploadsPath,
+		prefix: '/uploads/',
+		decorateReply: false,
+	})
 
 	// Serve admin UI static files in production (cloud deployment)
 	const adminDistPath = resolve(process.cwd(), 'apps/admin/dist')

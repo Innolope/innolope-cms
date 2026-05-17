@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dropdown } from '../components/dropdown'
-import { hasFeature, ProBadge, useLicense } from '../components/license-gate'
-import { UnsplashPicker, UnsplashUpgradePreview } from '../components/media/unsplash-picker'
+import { LicenseGate } from '../components/license-gate'
+import { UnsplashPicker } from '../components/media/unsplash-picker'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/media')({
@@ -20,9 +20,17 @@ interface MediaItem {
 	createdAt: string
 }
 
+// The Media library is a Pro feature. The tab stays visible to free users but
+// renders an upgrade prompt instead of the library.
 function MediaLibrary() {
-	const license = useLicense()
-	const unsplashLicensed = hasFeature(license, 'media-integrations')
+	return (
+		<LicenseGate feature="media-integrations" featureLabel="Media Library">
+			<MediaLibraryContent />
+		</LicenseGate>
+	)
+}
+
+function MediaLibraryContent() {
 	const [tab, setTabState] = useState<'uploaded' | 'unsplash'>(() => {
 		const params = new URLSearchParams(window.location.search)
 		return (params.get('tab') as 'uploaded' | 'unsplash') || 'uploaded'
@@ -86,9 +94,7 @@ function MediaLibrary() {
 
 	return (
 		<div className="flex h-full">
-			<div
-				className={`flex-1 p-8 pt-5 flex flex-col ${tab === 'unsplash' && !unsplashLicensed ? 'overflow-hidden pb-0' : 'overflow-auto'}`}
-			>
+			<div className="flex-1 p-8 pt-5 flex flex-col overflow-auto">
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
 						<h2 className="text-2xl font-bold">Media</h2>
@@ -106,7 +112,6 @@ function MediaLibrary() {
 								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
 							>
 								Unsplash
-								{!unsplashLicensed && <ProBadge />}
 							</button>
 						</div>
 					</div>
@@ -142,14 +147,9 @@ function MediaLibrary() {
 					)}
 				</div>
 
-				{/* Unsplash: show picker if licensed, upgrade prompt if not */}
-				{unsplashLicensed ? (
-					<div className={tab === 'unsplash' ? '' : 'hidden'}>
-						<UnsplashPicker onSave={fetchMedia} />
-					</div>
-				) : tab === 'unsplash' ? (
-					<UnsplashUpgradePreview />
-				) : null}
+				<div className={tab === 'unsplash' ? '' : 'hidden'}>
+					<UnsplashPicker onSave={fetchMedia} />
+				</div>
 				{tab === 'uploaded' && (
 					<div className="flex flex-col flex-1">
 						{!ready ? (
