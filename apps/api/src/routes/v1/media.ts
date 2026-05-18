@@ -1,10 +1,15 @@
-import { media } from '@innolope/db'
+import { media, projects } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { cfImageVariants } from '../../lib/cf-images.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import { getUser } from '../../plugins/auth.js'
-import { mediaAdapterName, mediaMaxSize } from '../../plugins/media.js'
+import {
+	effectiveAdapterName,
+	MediaConfigError,
+	mediaMaxSize,
+	resolveMediaAdapter,
+} from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
 
 export async function mediaRoutes(app: FastifyInstance) {
@@ -94,7 +99,22 @@ export async function mediaRoutes(app: FastifyInstance) {
 				.send({ error: `File exceeds the maximum size of ${mediaMaxSize()} bytes` })
 		}
 
-		const result = await app.media.upload(buffer, file.filename, file.mimetype)
+		const [project] = await app.db
+			.select()
+			.from(projects)
+			.where(eq(projects.id, getProject(request).id))
+			.limit(1)
+
+		let result: Awaited<ReturnType<typeof app.media.upload>>
+		try {
+			const adapter = await resolveMediaAdapter(project?.settings)
+			result = await adapter.upload(buffer, file.filename, file.mimetype)
+		} catch (err) {
+			if (err instanceof MediaConfigError) {
+				return reply.status(400).send({ error: err.message })
+			}
+			throw err
+		}
 
 		const type = file.mimetype.startsWith('image/')
 			? 'image'
@@ -113,7 +133,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 				mimeType: file.mimetype,
 				size: result.size,
 				url: result.url,
-				adapter: mediaAdapterName(),
+				adapter: effectiveAdapterName(project?.settings),
 				externalId: result.id,
 				metadata: dimensions ? { width: dimensions.width, height: dimensions.height } : {},
 				createdBy: getUser(request).id,
@@ -169,7 +189,19 @@ export async function mediaRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!item) return reply.status(404).send({ error: 'Media not found' })
-			if (item.externalId) await app.media.delete(item.externalId)
+			if (item.externalId) {
+				const [project] = await app.db
+					.select()
+					.from(projects)
+					.where(eq(projects.id, getProject(request).id))
+					.limit(1)
+				try {
+					const adapter = await resolveMediaAdapter(project?.settings)
+					await adapter.delete(item.externalId)
+				} catch (err) {
+					if (!(err instanceof MediaConfigError)) throw err
+				}
+			}
 			await app.db.delete(media).where(eq(media.id, request.params.id))
 
 			app.events.emit({

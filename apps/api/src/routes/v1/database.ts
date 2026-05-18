@@ -1101,7 +1101,14 @@ export async function databaseRoutes(app: FastifyInstance) {
 			if (publicHits > 0 && privateHits === 0) result = 'public'
 			else if (privateHits > 0) result = 'private'
 
-			return { result, probed, publicHits, privateHits, sampleUrl, provider: detectProvider(sampleUrl) }
+			return {
+				result,
+				probed,
+				publicHits,
+				privateHits,
+				sampleUrl,
+				provider: detectProvider(sampleUrl),
+			}
 		},
 	)
 }

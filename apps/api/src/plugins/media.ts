@@ -1,4 +1,5 @@
 import multipart from '@fastify/multipart'
+import type { ProjectSettings } from '@innolope/db'
 import type { MediaAdapter } from '@innolope/types'
 import fp from 'fastify-plugin'
 import { LocalFsAdapter } from '../adapters/local-fs.js'
@@ -38,6 +39,45 @@ export async function createMediaAdapter(): Promise<MediaAdapter> {
 		default:
 			return new LocalFsAdapter()
 	}
+}
+
+/** Raised when a project's chosen media adapter is missing required credentials. */
+export class MediaConfigError extends Error {}
+
+/**
+ * Build the media adapter for a single project.
+ *
+ * An explicit `MEDIA_ADAPTER` env var is a global operator override; otherwise the
+ * project's own `settings.mediaAdapter` decides. Cloudflare credentials come from the
+ * project settings first, falling back to the server-level `CLOUDFLARE_*` env vars.
+ */
+export async function resolveMediaAdapter(
+	settings: ProjectSettings | undefined,
+): Promise<MediaAdapter> {
+	const name = process.env.MEDIA_ADAPTER || settings?.mediaAdapter || 'local'
+
+	if (name === 'cloudflare') {
+		const cf = settings?.cloudflare ?? {}
+		const accountId = cf.accountId || process.env.CLOUDFLARE_ACCOUNT_ID
+		const apiToken = cf.apiToken || process.env.CLOUDFLARE_API_TOKEN
+		const accountHash = cf.imagesAccountHash || process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH
+		if (!accountId || !apiToken || !accountHash) {
+			throw new MediaConfigError(
+				'Cloudflare Images is selected for this project but credentials are incomplete. ' +
+					'Set them in Settings → Media, or as CLOUDFLARE_* environment variables.',
+			)
+		}
+		const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
+		return new CloudflareImagesAdapter({ accountId, apiToken, accountHash })
+	}
+
+	// `s3` is declared in the ProjectSettings enum but has no adapter yet — fall back.
+	return new LocalFsAdapter()
+}
+
+/** The adapter name persisted on a media row, given a project's settings. */
+export function effectiveAdapterName(settings: ProjectSettings | undefined): string {
+	return process.env.MEDIA_ADAPTER || settings?.mediaAdapter || 'local'
 }
 
 /** Max upload size in bytes (`MEDIA_MAX_SIZE` env, default 10MB). */

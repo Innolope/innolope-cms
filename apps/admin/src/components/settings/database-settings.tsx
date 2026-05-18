@@ -1960,8 +1960,8 @@ function ImportedMediaStorage() {
 				<p className="text-sm text-text font-medium">Imported media storage</p>
 				<p className="text-xs text-text-muted mt-0.5">
 					We check where the files for your imported media{' '}
-					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found
-					below — confirm the host, and add credentials if they're private.
+					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found below
+					— confirm the host, and add credentials if they're private.
 				</p>
 			</div>
 			{mediaCols.map((c) => {
