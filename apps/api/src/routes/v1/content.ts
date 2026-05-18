@@ -78,13 +78,16 @@ function buildExternalData(
 	)
 	if (bodyField && input.markdown !== undefined) data[bodyField] = input.markdown
 
+	// System lifecycle timestamps — only a fallback. If the collection exposes
+	// createdAt/updatedAt/publishedAt as editable fields and the user supplied a
+	// value via metadata, that value (already in `data`) wins.
 	const timestampValues: Record<string, string | Date | null | undefined> = {
 		createdAt: input.createdAt,
 		updatedAt: input.updatedAt,
 		publishedAt: input.publishedAt,
 	}
 	for (const [fieldName, value] of Object.entries(timestampValues)) {
-		if (value !== undefined && fieldNames.has(fieldName)) {
+		if (value !== undefined && fieldNames.has(fieldName) && !(fieldName in data)) {
 			data[fieldName] = coerceExternalFieldValue(
 				fields.find((field) => field.name === fieldName)?.type,
 				value,
