@@ -228,6 +228,12 @@ function CollectionContentEditor() {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '')
 
+	const collectMetadata = () => ({
+		...extraFields,
+		title,
+		tags: tags.map((t) => t.trim()).filter(Boolean),
+	})
+
 	const save = async () => {
 		if (!collection) return
 		if (isReadOnly) {
@@ -236,11 +242,7 @@ function CollectionContentEditor() {
 		}
 		setSaving(true)
 		try {
-			const metadata = {
-				...extraFields,
-				title,
-				tags: tags.map((t) => t.trim()).filter(Boolean),
-			}
+			const metadata = collectMetadata()
 			if (isNew) {
 				const created = await api.post<{ id: string }>('/api/v1/content', {
 					slug: contentSlug || generateSlug(title),
@@ -271,11 +273,27 @@ function CollectionContentEditor() {
 	}
 
 	const publish = async () => {
+		if (!collection) return
+		if (isReadOnly) {
+			toast('This collection is read-only', 'error')
+			return
+		}
 		const prevStatus = status
 		setSaving(true)
 		try {
-			await api.put(`/api/v1/content/${contentId}`, { status: 'published' })
+			// Persist the current editor state alongside the status change — publishing
+			// must not discard unsaved markdown/metadata (e.g. a just-uploaded image).
+			await api.put(`/api/v1/content/${contentId}`, {
+				slug: contentSlug,
+				markdown,
+				metadata: collectMetadata(),
+				status: 'published',
+			})
 			setStatus('published')
+			setDirty(false)
+			try {
+				localStorage.removeItem(draftKey)
+			} catch {}
 		} catch (err) {
 			setStatus(prevStatus)
 			toast(err instanceof Error ? err.message : 'Publish failed', 'error')
