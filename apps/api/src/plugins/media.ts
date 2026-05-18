@@ -45,16 +45,26 @@ export async function createMediaAdapter(): Promise<MediaAdapter> {
 export class MediaConfigError extends Error {}
 
 /**
+ * A non-`local` `MEDIA_ADAPTER` env var is a global operator override. `local` (the
+ * deploy default written by tooling) and an unset value both mean "no override" — the
+ * project's own `settings.mediaAdapter` decides.
+ */
+function envAdapterOverride(): string | undefined {
+	const env = process.env.MEDIA_ADAPTER
+	return env && env !== 'local' ? env : undefined
+}
+
+/**
  * Build the media adapter for a single project.
  *
- * An explicit `MEDIA_ADAPTER` env var is a global operator override; otherwise the
- * project's own `settings.mediaAdapter` decides. Cloudflare credentials come from the
- * project settings first, falling back to the server-level `CLOUDFLARE_*` env vars.
+ * The project's `settings.mediaAdapter` decides, unless a non-`local` `MEDIA_ADAPTER`
+ * env var forces a global override. Cloudflare credentials come from the project
+ * settings first, falling back to the server-level `CLOUDFLARE_*` env vars.
  */
 export async function resolveMediaAdapter(
 	settings: ProjectSettings | undefined,
 ): Promise<MediaAdapter> {
-	const name = process.env.MEDIA_ADAPTER || settings?.mediaAdapter || 'local'
+	const name = envAdapterOverride() || settings?.mediaAdapter || 'local'
 
 	if (name === 'cloudflare') {
 		const cf = settings?.cloudflare ?? {}
@@ -77,7 +87,7 @@ export async function resolveMediaAdapter(
 
 /** The adapter name persisted on a media row, given a project's settings. */
 export function effectiveAdapterName(settings: ProjectSettings | undefined): string {
-	return process.env.MEDIA_ADAPTER || settings?.mediaAdapter || 'local'
+	return envAdapterOverride() || settings?.mediaAdapter || 'local'
 }
 
 /** Max upload size in bytes (`MEDIA_MAX_SIZE` env, default 10MB). */
