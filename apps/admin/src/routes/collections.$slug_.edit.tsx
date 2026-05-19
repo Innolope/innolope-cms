@@ -4,6 +4,7 @@ import { Dropdown } from '../components/dropdown'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
+import { useConfirm } from '../lib/confirm'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/collections/$slug_/edit')({
@@ -24,6 +25,7 @@ function CollectionSchemaEditor() {
 	const { slug } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
+	const confirm = useConfirm()
 	const { currentProject } = useAuth()
 	const { getCollectionByName, refreshCollections } = useCollections()
 	const collection = getCollectionByName(slug)
@@ -103,7 +105,13 @@ function CollectionSchemaEditor() {
 
 	const deleteCollection = async () => {
 		if (!collection) return
-		if (!confirm(`Delete "${name}" and all its content? This cannot be undone.`)) return
+		const ok = await confirm({
+			title: 'Delete collection',
+			message: `Delete "${name}" and all its content? This cannot be undone.`,
+			confirmLabel: 'Delete',
+			danger: true,
+		})
+		if (!ok) return
 		try {
 			await api.delete(`/api/v1/collections/${collection.id}`)
 			await refreshCollections()
@@ -248,7 +256,7 @@ function CollectionSchemaEditor() {
 								<div
 									// biome-ignore lint/suspicious/noArrayIndexKey: field rows have no stable id and the name is mutable, so an index key avoids remounting the row (and losing input focus) on edit.
 									key={i}
-									className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border"
+									className="flex flex-wrap items-center gap-2 p-3 bg-surface rounded-lg border border-border"
 								>
 									<div className="flex flex-col gap-1">
 										<button
@@ -275,7 +283,9 @@ function CollectionSchemaEditor() {
 									/>
 									<Dropdown
 										value={field.type}
-										onChange={(v) => updateField(i, { type: v })}
+										onChange={(v) =>
+											updateField(i, { type: v, ...(v !== 'enum' && { options: undefined }) })
+										}
 										options={FIELD_TYPES.map((t) => ({ value: t, label: t }))}
 										className="w-32 shrink-0"
 									/>
@@ -302,6 +312,22 @@ function CollectionSchemaEditor() {
 									>
 										Remove
 									</button>
+									{field.type === 'enum' && (
+										<input
+											type="text"
+											value={(field.options ?? []).join(', ')}
+											onChange={(e) =>
+												updateField(i, {
+													options: e.target.value
+														.split(',')
+														.map((s) => s.trim())
+														.filter(Boolean),
+												})
+											}
+											placeholder="Dropdown options (comma-separated)"
+											className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
+										/>
+									)}
 								</div>
 							))}
 						</div>

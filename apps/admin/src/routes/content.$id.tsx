@@ -7,6 +7,7 @@ import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { hasFeature, useLicense } from '../components/license-gate'
 import { VersionPanel } from '../components/versions/version-panel'
 import { api } from '../lib/api-client'
+import { usePrompt } from '../lib/confirm'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/content/$id')({
@@ -28,6 +29,7 @@ function ContentEditor() {
 	const { id } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
+	const prompt = usePrompt()
 	const isNew = id === 'new'
 
 	const [markdown, setMarkdown] = useState('')
@@ -207,7 +209,15 @@ function ContentEditor() {
 	}
 
 	const rejectContent = async () => {
-		const reason = prompt('Rejection reason (optional):')
+		const reason = await prompt({
+			title: 'Reject content',
+			message: 'Add an optional reason for rejecting this content.',
+			label: 'Rejection reason',
+			placeholder: 'Optional',
+			multiline: true,
+			confirmLabel: 'Reject',
+		})
+		if (reason === null) return
 		setSaving(true)
 		try {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })

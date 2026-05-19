@@ -10,6 +10,7 @@ import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gat
 import { VersionPanel } from '../components/versions/version-panel'
 import { api } from '../lib/api-client'
 import { useCollections } from '../lib/collections'
+import { usePrompt } from '../lib/confirm'
 import { useToast } from '../lib/toast'
 
 /** Normalize a stored value (array or comma string) to a string array. */
@@ -94,6 +95,7 @@ function CollectionContentEditor() {
 	const { slug, contentId } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
+	const prompt = usePrompt()
 	const { getCollectionByName, refreshCollections } = useCollections()
 	const collection = getCollectionByName(slug)
 	const isNew = contentId === 'new'
@@ -327,7 +329,15 @@ function CollectionContentEditor() {
 	}
 
 	const rejectContent = async () => {
-		const reason = prompt('Rejection reason (optional):')
+		const reason = await prompt({
+			title: 'Reject content',
+			message: 'Add an optional reason for rejecting this content.',
+			label: 'Rejection reason',
+			placeholder: 'Optional',
+			multiline: true,
+			confirmLabel: 'Reject',
+		})
+		if (reason === null) return
 		setSaving(true)
 		try {
 			await api.post(`/api/v1/content/${contentId}/reject`, { reason: reason || undefined })
@@ -611,6 +621,26 @@ function CollectionContentEditor() {
 									}}
 									disabled={isReadOnly}
 								/>
+							) : f.type === 'enum' ? (
+								isReadOnly ? (
+									<input
+										type="text"
+										value={String(extraFields[f.name] ?? '')}
+										disabled
+										className="w-full px-3 py-2 bg-input border border-border rounded text-sm disabled:opacity-60"
+									/>
+								) : (
+									<Dropdown
+										value={String(extraFields[f.name] ?? '')}
+										onChange={(v) => {
+											setExtraFields((prev) => ({ ...prev, [f.name]: v }))
+											setDirty(true)
+										}}
+										options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
+										placeholder="Select..."
+										className="w-full"
+									/>
+								)
 							) : (
 								<input
 									type="text"
@@ -685,8 +715,13 @@ function CollectionContentEditor() {
 									{!isReadOnly && (
 										<button
 											type="button"
-											onClick={() => {
-												const key = prompt('Field name:')
+											onClick={async () => {
+												const key = await prompt({
+													title: 'Add field',
+													label: 'Field name',
+													required: true,
+													confirmLabel: 'Add field',
+												})
 												if (key?.trim()) {
 													setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
 													setDirty(true)
@@ -708,8 +743,13 @@ function CollectionContentEditor() {
 				{Object.keys(extraFields).length === 0 && !isReadOnly && !isNew && (
 					<button
 						type="button"
-						onClick={() => {
-							const key = prompt('Field name:')
+						onClick={async () => {
+							const key = await prompt({
+								title: 'Add field',
+								label: 'Field name',
+								required: true,
+								confirmLabel: 'Add field',
+							})
 							if (key?.trim()) {
 								setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
 								setDirty(true)

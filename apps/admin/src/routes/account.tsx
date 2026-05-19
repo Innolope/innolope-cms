@@ -4,7 +4,9 @@ import { hasFeature, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
+import { useConfirm } from '../lib/confirm'
 import { useTheme } from '../lib/theme'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/account')({
 	component: AccountSettings,
@@ -87,6 +89,8 @@ interface LinkedIdentity {
 }
 
 function SsoIdentitiesSettings() {
+	const toast = useToast()
+	const confirm = useConfirm()
 	const [items, setItems] = useState<LinkedIdentity[]>([])
 	const [loading, setLoading] = useState(true)
 	const [availableConnections, setAvailableConnections] = useState<
@@ -116,12 +120,18 @@ function SsoIdentitiesSettings() {
 	}, [refresh])
 
 	const unlink = async (id: string) => {
-		if (!confirm('Unlink this SSO identity?')) return
+		const ok = await confirm({
+			title: 'Unlink SSO identity',
+			message: 'Unlink this SSO identity?',
+			confirmLabel: 'Unlink',
+			danger: true,
+		})
+		if (!ok) return
 		try {
 			await api.delete(`/api/v1/auth/me/identities/${id}`)
 			await refresh()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to unlink')
+			toast(err instanceof Error ? err.message : 'Failed to unlink', 'error')
 		}
 	}
 

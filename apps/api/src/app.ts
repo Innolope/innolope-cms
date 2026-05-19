@@ -24,6 +24,7 @@ import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { collectionRoutes } from './routes/v1/collections.js'
 import { contentRoutes } from './routes/v1/content.js'
+import { customDomainRoutes } from './routes/v1/custom-domain.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
 import { inviteRoutes } from './routes/v1/invites.js'
@@ -35,6 +36,7 @@ import { projectRoutes } from './routes/v1/projects.js'
 import { semanticSearchRoutes } from './routes/v1/semantic-search.js'
 import { statsRoutes } from './routes/v1/stats.js'
 import { streamRoutes } from './routes/v1/stream.js'
+import { tlsRoutes } from './routes/v1/tls.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { initAutoEmbedding } from './services/embedding.js'
 import { initWebhookDispatcher } from './services/webhook-dispatch.js'
@@ -184,9 +186,13 @@ export async function buildApp() {
 	await app.register(inviteRoutes, { prefix: '/api/v1/invites' })
 	await app.register(licenseRoutes, { prefix: '/api/v1/license' })
 
+	// On-demand TLS authorization endpoint for Caddy (public)
+	await app.register(tlsRoutes, { prefix: '/api/v1/tls' })
+
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
 	await app.register(databaseRoutes, { prefix: '/api/v1/projects' })
+	await app.register(customDomainRoutes, { prefix: '/api/v1/projects' })
 
 	// Project-scoped data routes
 	await app.register(aiRoutes, { prefix: '/api/v1/ai' })

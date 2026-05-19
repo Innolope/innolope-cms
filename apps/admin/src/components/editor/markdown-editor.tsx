@@ -5,6 +5,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import TurndownService from 'turndown'
+import { usePrompt } from '../../lib/confirm'
 import { ImagePickerModal, type ImageSelection } from './image-picker-modal'
 
 const turndown = new TurndownService({
@@ -27,6 +28,7 @@ interface MarkdownEditorProps {
 
 export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEditorProps) {
 	const isInternalUpdate = useRef(false)
+	const prompt = usePrompt()
 
 	const editor = useEditor({
 		extensions: [
@@ -110,12 +112,18 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		[editor],
 	)
 
-	const addLink = useCallback(() => {
-		const url = prompt('Link URL:')
+	const addLink = useCallback(async () => {
+		const url = await prompt({
+			title: 'Add link',
+			label: 'Link URL',
+			placeholder: 'https://example.com',
+			required: true,
+			confirmLabel: 'Add link',
+		})
 		if (url && editor) {
 			editor.chain().focus().setLink({ href: url }).run()
 		}
-	}, [editor])
+	}, [editor, prompt])
 
 	if (!editor) return null
 

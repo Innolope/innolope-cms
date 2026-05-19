@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
 
@@ -54,6 +55,7 @@ const EMPTY: ConnectionDraft = {
 
 export function SsoSettings() {
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [connections, setConnections] = useState<Connection[]>([])
 	const [loading, setLoading] = useState(true)
 	const [editing, setEditing] = useState<ConnectionDraft | null>(null)
@@ -97,10 +99,14 @@ export function SsoSettings() {
 	}
 
 	const remove = async (id: string, name: string) => {
-		const confirmed = window.prompt(
-			`Type "${name}" to delete this SSO connection. This cannot be undone.`,
-		)
-		if (confirmed !== name) return
+		const ok = await confirm({
+			title: 'Delete SSO connection',
+			message: 'This permanently deletes the SSO connection. This cannot be undone.',
+			requireText: name,
+			confirmLabel: 'Delete',
+			danger: true,
+		})
+		if (!ok) return
 		try {
 			await api.delete(`/api/v1/ee/sso/connections/${id}`)
 			await fetchConnections()
@@ -527,6 +533,8 @@ interface ScimTokenRow {
 }
 
 function ScimTokensPanel({ connectionId }: { connectionId: string }) {
+	const toast = useToast()
+	const confirm = useConfirm()
 	const [tokens, setTokens] = useState<ScimTokenRow[]>([])
 	const [loading, setLoading] = useState(true)
 	const [name, setName] = useState('')
@@ -562,14 +570,20 @@ function ScimTokensPanel({ connectionId }: { connectionId: string }) {
 			setName('')
 			await fetchTokens()
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to create token')
+			toast(err instanceof Error ? err.message : 'Failed to create token', 'error')
 		} finally {
 			setCreating(false)
 		}
 	}
 
 	const revoke = async (id: string) => {
-		if (!confirm('Revoke this SCIM token? Active syncs using it will start failing.')) return
+		const ok = await confirm({
+			title: 'Revoke SCIM token',
+			message: 'Revoke this SCIM token? Active syncs using it will start failing.',
+			confirmLabel: 'Revoke',
+			danger: true,
+		})
+		if (!ok) return
 		await api.delete(`/api/v1/ee/sso/connections/${connectionId}/scim-tokens/${id}`)
 		await fetchTokens()
 	}

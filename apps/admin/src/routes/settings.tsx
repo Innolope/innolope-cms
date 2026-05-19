@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { hasFeature, LicenseGate, ProBadge, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
+import { CustomDomainSettings } from '../components/settings/custom-domain-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
 import { LicenseSettings } from '../components/settings/license-settings'
@@ -12,6 +13,7 @@ import { TeamSettings } from '../components/settings/team-settings'
 import { WebhookSettings } from '../components/settings/webhook-settings'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
+import { useConfirm } from '../lib/confirm'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/settings')({
@@ -42,12 +44,14 @@ type SettingsTab =
 	| 'webhooks'
 	| 'media'
 	| 'database'
+	| 'custom-domain'
 	| 'license'
 
 const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'team', label: 'Team' },
 	{ id: 'sso', label: 'SSO', pro: 'sso' },
+	{ id: 'custom-domain', label: 'Custom Domain', pro: 'custom-domain' },
 	{ id: 'database', label: 'Database' },
 	{ id: 'api-keys', label: 'API Keys' },
 	{ id: 'ai-models', label: 'AI Models' },
@@ -129,6 +133,11 @@ function Settings() {
 			</div>
 			<div className={tab === 'database' ? '' : 'hidden'}>
 				<DatabaseSettings />
+			</div>
+			<div className={tab === 'custom-domain' ? '' : 'hidden'}>
+				<LicenseGate feature="custom-domain" featureLabel="Custom Domain">
+					<CustomDomainSettings />
+				</LicenseGate>
 			</div>
 			<div className={tab === 'license' ? '' : 'hidden'}>
 				<LicenseSettings />
@@ -251,6 +260,7 @@ function EmbeddingSettings() {
 
 function ApiKeysContent() {
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [keys, setKeys] = useState<ApiKeyItem[]>([])
 	const [loading, setLoading] = useState(true)
 	const [showCreate, setShowCreate] = useState(false)
@@ -290,7 +300,13 @@ function ApiKeysContent() {
 	}
 
 	const deleteKey = async (id: string) => {
-		if (!confirm('Revoke this API key? This cannot be undone.')) return
+		const ok = await confirm({
+			title: 'Revoke API key',
+			message: 'Revoke this API key? This cannot be undone.',
+			confirmLabel: 'Revoke',
+			danger: true,
+		})
+		if (!ok) return
 		await api.delete(`/api/v1/auth/api-keys/${id}`)
 		fetchKeys()
 	}

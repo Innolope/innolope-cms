@@ -5,6 +5,7 @@ import { ProjectSelector } from '../components/project-selector'
 import { api } from '../lib/api-client'
 import { AuthProvider, useAuth } from '../lib/auth'
 import { CollectionsProvider, useCollections } from '../lib/collections'
+import { ConfirmProvider } from '../lib/confirm'
 import { ThemeProvider } from '../lib/theme'
 import { ToastProvider, useToast } from '../lib/toast'
 
@@ -19,7 +20,9 @@ function RootWithAuth() {
 				<LicenseProvider>
 					<CollectionsProvider>
 						<ToastProvider>
-							<AuthGate />
+							<ConfirmProvider>
+								<AuthGate />
+							</ConfirmProvider>
 						</ToastProvider>
 					</CollectionsProvider>
 				</LicenseProvider>
@@ -29,7 +32,7 @@ function RootWithAuth() {
 }
 
 function AuthGate() {
-	const { user, loading, currentProject } = useAuth()
+	const { user, loading, currentProject, domainLocked, domainProjectName } = useAuth()
 	const navigate = useNavigate()
 	const location = useLocation()
 	const publicPaths = ['/login', '/forgot-password', '/reset-password', '/accept-invite']
@@ -55,11 +58,37 @@ function AuthGate() {
 
 	if (!user && !isPublicPage) return null
 	if (isPublicPage) return <Outlet />
+	// On a custom domain the project is fixed; a signed-in non-member gets no access.
+	if (domainLocked && !currentProject) {
+		return <DomainAccessDeniedView projectName={domainProjectName} />
+	}
 	// Onboarding runs right after first-admin registration, before any project exists.
 	if (location.pathname.startsWith('/onboarding')) return <Outlet />
 	if (!currentProject) return <NoProjectView />
 
 	return <AppLayout />
+}
+
+function DomainAccessDeniedView({ projectName }: { projectName: string | null }) {
+	const { user, logout } = useAuth()
+	return (
+		<div className="min-h-screen bg-bg flex items-center justify-center p-4">
+			<div className="w-full max-w-sm text-center">
+				<h1 className="text-2xl font-bold text-text">No access</h1>
+				<p className="text-text-secondary text-sm mt-2 mb-6">
+					{user?.email} is not a member of {projectName ? `“${projectName}”` : 'this project'}.
+					Ask a project admin for an invite, then sign in again.
+				</p>
+				<button
+					type="button"
+					onClick={logout}
+					className="px-4 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover"
+				>
+					Sign out
+				</button>
+			</div>
+		</div>
+	)
 }
 
 function NoProjectView() {

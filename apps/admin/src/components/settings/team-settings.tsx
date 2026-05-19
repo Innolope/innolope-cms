@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
 
@@ -28,6 +29,7 @@ const ROLE_ORDER: Record<string, number> = { owner: 4, admin: 3, editor: 2, view
 export function TeamSettings() {
 	const { currentProject, user } = useAuth()
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [members, setMembers] = useState<Member[]>([])
 	const [invites, setInvites] = useState<Invite[]>([])
 	const [loading, setLoading] = useState(true)
@@ -87,7 +89,13 @@ export function TeamSettings() {
 
 	const removeMember = async (userId: string, name: string) => {
 		if (!currentProject) return
-		if (!confirm(`Remove ${name} from this project?`)) return
+		const ok = await confirm({
+			title: 'Remove member',
+			message: `Remove ${name} from this project?`,
+			confirmLabel: 'Remove',
+			danger: true,
+		})
+		if (!ok) return
 		try {
 			await api.delete(`/api/v1/projects/${currentProject.id}/members/${userId}`)
 			fetchData()

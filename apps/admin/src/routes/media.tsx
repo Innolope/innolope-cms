@@ -4,6 +4,7 @@ import { Dropdown } from '../components/dropdown'
 import { LicenseGate } from '../components/license-gate'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
 import { api } from '../lib/api-client'
+import { useConfirm } from '../lib/confirm'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -51,6 +52,7 @@ function MediaLibraryContent() {
 	const [altDraft, setAltDraft] = useState('')
 	const [savingAlt, setSavingAlt] = useState(false)
 	const fileRef = useRef<HTMLInputElement>(null)
+	const confirm = useConfirm()
 
 	// Sync the alt-text editor whenever a different media item is opened.
 	useEffect(() => {
@@ -89,7 +91,13 @@ function MediaLibraryContent() {
 	}
 
 	const deleteMedia = async (id: string) => {
-		if (!confirm('Delete this file permanently?')) return
+		const ok = await confirm({
+			title: 'Delete file',
+			message: 'Delete this file permanently? This cannot be undone.',
+			confirmLabel: 'Delete',
+			danger: true,
+		})
+		if (!ok) return
 		await api.delete(`/api/v1/media/${id}`)
 		setSelected(null)
 		fetchMedia()

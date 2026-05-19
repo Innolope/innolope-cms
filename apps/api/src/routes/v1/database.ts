@@ -8,6 +8,7 @@ import postgres from 'postgres'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { getProject } from '../../plugins/project.js'
+import { detectEnumFields } from '../../services/enum-detection.js'
 import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
 /** Block connection strings targeting private/internal networks (SSRF protection). */
@@ -891,6 +892,16 @@ export async function databaseRoutes(app: FastifyInstance) {
 										},
 										{ userId: request.user?.id },
 									)
+
+									// Cached content is now local — upgrade low-cardinality
+									// text fields to enum so they edit as dropdowns.
+									const detected = await detectEnumFields(app.db, content, col.id, col.fields)
+									if (detected !== col.fields) {
+										await app.db
+											.update(collections)
+											.set({ fields: detected, updatedAt: new Date() })
+											.where(eq(collections.id, col.id))
+									}
 								}
 							}
 						} else {

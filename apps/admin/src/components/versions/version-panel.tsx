@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 
 interface Version {
@@ -18,6 +19,7 @@ interface VersionPanelProps {
 
 export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPanelProps) {
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [versions, setVersions] = useState<Version[]>([])
 	const [loading, setLoading] = useState(true)
 	const [selected, setSelected] = useState<Version | null>(null)
@@ -33,8 +35,12 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 	}, [contentId, currentVersion])
 
 	const revert = async (version: number) => {
-		if (!confirm(`Revert to version ${version}? Current content will be saved as a new version.`))
-			return
+		const ok = await confirm({
+			title: 'Revert version',
+			message: `Revert to version ${version}? Current content will be saved as a new version.`,
+			confirmLabel: 'Revert',
+		})
+		if (!ok) return
 		setReverting(true)
 		try {
 			await api.post(`/api/v1/content/${contentId}/revert/${version}`, {})

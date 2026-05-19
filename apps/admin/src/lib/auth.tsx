@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getCsrfToken } from './api-client'
 
 interface User {
@@ -21,6 +21,10 @@ interface AuthState {
 	loading: boolean
 	projects: Project[]
 	currentProject: Project | null
+	/** True when the CMS is reached via a project's custom domain. */
+	domainLocked: boolean
+	/** Name of the project bound to the custom domain, if any. */
+	domainProjectName: string | null
 	login: (email: string, password: string) => Promise<void>
 	register: (email: string, password: string, name: string) => Promise<void>
 	logout: () => void
@@ -37,6 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const [loading, setLoading] = useState(true)
 	const [projects, setProjects] = useState<Project[]>([])
 	const [currentProject, setCurrentProject] = useState<Project | null>(null)
+	const [domainProject, setDomainProject] = useState<{
+		id: string
+		name: string
+		slug: string
+	} | null>(null)
+	// Holds the custom-domain project id synchronously so refreshProjects can lock to it.
+	const domainProjectIdRef = useRef<string | null>(null)
 
 	const apiRequest = useCallback(async (path: string, options?: RequestInit) => {
 		const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -92,6 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			const data = (await apiRequest('/api/v1/projects')) as Project[]
 			setProjects(data)
 
+			// On a custom domain, the project is fixed — never auto-select another.
+			if (domainProjectIdRef.current) {
+				setCurrentProject(data.find((p) => p.id === domainProjectIdRef.current) ?? null)
+				return
+			}
+
 			const savedProjectId = localStorage.getItem('innolope_project')
 			const saved = data.find((p) => p.id === savedProjectId)
 
@@ -110,13 +127,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, [authenticated, apiRequest])
 
 	useEffect(() => {
-		// Check if we have a valid session by calling /me
-		Promise.all([apiRequest('/api/v1/auth/me').then((u) => setUser(u as User)), refreshProjects()])
-			.catch(() => {
+		;(async () => {
+			// Resolve the custom-domain project first so refreshProjects can lock to it.
+			try {
+				const res = await fetch('/api/v1/auth/domain-context')
+				if (res.ok) {
+					const d = (await res.json()) as {
+						projectId: string
+						projectName: string
+						projectSlug: string
+					}
+					domainProjectIdRef.current = d.projectId
+					localStorage.setItem('innolope_project', d.projectId)
+					setDomainProject({ id: d.projectId, name: d.projectName, slug: d.projectSlug })
+				}
+			} catch {
+				/* not a custom domain */
+			}
+
+			// Check if we have a valid session by calling /me
+			try {
+				await Promise.all([
+					apiRequest('/api/v1/auth/me').then((u) => setUser(u as User)),
+					refreshProjects(),
+				])
+			} catch {
 				setAuthenticated(false)
 				setUser(null)
-			})
-			.finally(() => setLoading(false))
+			} finally {
+				setLoading(false)
+			}
+		})()
 	}, [apiRequest, refreshProjects])
 
 	const login = async (email: string, password: string) => {
@@ -143,7 +184,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		} catch {
 			/* best effort */
 		}
-		localStorage.removeItem('innolope_project')
+		// On a custom domain keep the project pinned; elsewhere clear the selection.
+		if (!domainProjectIdRef.current) localStorage.removeItem('innolope_project')
 		setAuthenticated(false)
 		setUser(null)
 		setProjects([])
@@ -151,6 +193,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}
 
 	const switchProject = (projectId: string) => {
+		// The project is fixed when reached via a custom domain.
+		if (domainProjectIdRef.current) return
 		const proj = projects.find((p) => p.id === projectId)
 		if (proj) {
 			setCurrentProject(proj)
@@ -166,6 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				loading,
 				projects,
 				currentProject,
+				domainLocked: domainProject != null,
+				domainProjectName: domainProject?.name ?? null,
 				login,
 				register,
 				logout,

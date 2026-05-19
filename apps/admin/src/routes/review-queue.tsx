@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api-client'
+import { usePrompt } from '../lib/confirm'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/review-queue')({
@@ -25,6 +26,7 @@ interface ReviewResponse {
 
 function ReviewQueue() {
 	const toast = useToast()
+	const prompt = usePrompt()
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
@@ -56,7 +58,15 @@ function ReviewQueue() {
 	}
 
 	const reject = async (id: string) => {
-		const reason = prompt('Rejection reason (optional):')
+		const reason = await prompt({
+			title: 'Reject content',
+			message: 'Add an optional reason for rejecting this content.',
+			label: 'Rejection reason',
+			placeholder: 'Optional',
+			multiline: true,
+			confirmLabel: 'Reject',
+		})
+		if (reason === null) return
 		try {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 			fetchQueue()

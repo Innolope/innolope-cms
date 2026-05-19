@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { apiKeys, users } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import { apiKeys, projectMembers, projects, users } from '@innolope/db'
+import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
 	createJwt,
 	getUser,
@@ -21,8 +21,36 @@ import {
 	REFRESH_COOKIE_OPTIONS,
 	setAuthCookies,
 } from '../../services/auth-cookies.js'
+import { normalizeDomain } from '../../services/domain-verification.js'
+
+/**
+ * If the request arrived on a verified custom domain, return that project.
+ * Used to scope login to a single project when the CMS is reached via a
+ * project's own branded domain.
+ */
+async function projectForRequestHost(
+	app: FastifyInstance,
+	request: FastifyRequest,
+): Promise<{ id: string; name: string; slug: string } | null> {
+	const host = normalizeDomain((request.hostname || '').split(':')[0])
+	if (!host) return null
+	const [project] = await app.db
+		.select({ id: projects.id, name: projects.name, slug: projects.slug })
+		.from(projects)
+		.where(and(eq(projects.customDomain, host), isNotNull(projects.customDomainVerifiedAt)))
+		.limit(1)
+	return project ?? null
+}
 
 export async function authRoutes(app: FastifyInstance) {
+	// Resolve the project bound to the request's custom domain (public).
+	// The admin SPA calls this on load to enter project-locked mode.
+	app.get('/domain-context', async (request, reply) => {
+		const project = await projectForRequestHost(app, request)
+		if (!project) return reply.status(404).send({ error: 'No project for this domain' })
+		return { projectId: project.id, projectName: project.name, projectSlug: project.slug }
+	})
+
 	// Check if setup is needed (public)
 	app.get('/setup-status', async () => {
 		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
@@ -80,6 +108,26 @@ export async function authRoutes(app: FastifyInstance) {
 			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
 			if (!user?.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
 				return reply.status(401).send({ error: 'Invalid credentials' })
+			}
+
+			// On a custom domain, login is scoped to that project — reject non-members.
+			const domainProject = await projectForRequestHost(app, request)
+			if (domainProject) {
+				const [membership] = await app.db
+					.select({ id: projectMembers.id })
+					.from(projectMembers)
+					.where(
+						and(
+							eq(projectMembers.projectId, domainProject.id),
+							eq(projectMembers.userId, user.id),
+						),
+					)
+					.limit(1)
+				if (!membership) {
+					return reply
+						.status(403)
+						.send({ error: `You don't have access to ${domainProject.name}.` })
+				}
 			}
 
 			await setAuthCookies(reply, app.db, user)

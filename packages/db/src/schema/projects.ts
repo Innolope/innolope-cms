@@ -16,6 +16,9 @@ export const projects = pgTable('projects', {
 			defaultLocale: 'en',
 			mediaAdapter: 'local',
 		}),
+	customDomain: text().unique(),
+	customDomainToken: text(),
+	customDomainVerifiedAt: timestamp({ withTimezone: true }),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 })

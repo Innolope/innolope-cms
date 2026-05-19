@@ -14,6 +14,7 @@ export type LicenseFeature =
 	| 'white-label'
 	| 'review-workflows'
 	| 'media-integrations'
+	| 'custom-domain'
 
 export interface LicensePayload {
 	org: string
@@ -75,6 +76,7 @@ const ALL_FEATURES: LicenseFeature[] = [
 	'white-label',
 	'review-workflows',
 	'media-integrations',
+	'custom-domain',
 ]
 
 export function decodeLicenseKey(

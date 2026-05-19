@@ -16,7 +16,7 @@ interface SsoDiscovery {
 }
 
 function LoginPage() {
-	const { user, login, register, loading } = useAuth()
+	const { user, login, register, loading, domainLocked, domainProjectName } = useAuth()
 	const navigate = useNavigate()
 	const [mode, setMode] = useState<'login' | 'setup'>('login')
 	const [email, setEmail] = useState('')
@@ -116,11 +116,15 @@ function LoginPage() {
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<img src="/logo.svg" alt="Innolope CMS" className="w-10 h-10 mx-auto mb-4 " />
-					<h1 className="text-2xl font-bold text-text">Innolope CMS</h1>
+					<h1 className="text-2xl font-bold text-text">
+						{domainLocked && domainProjectName ? domainProjectName : 'Innolope CMS'}
+					</h1>
 					<p className="text-text-secondary text-sm mt-1">
 						{mode === 'setup'
 							? 'Welcome! Set up your Innolope CMS account to get started.'
-							: 'Sign in to your Innolope CMS account'}
+							: domainLocked && domainProjectName
+								? `Sign in to ${domainProjectName}`
+								: 'Sign in to your Innolope CMS account'}
 					</p>
 				</div>
 

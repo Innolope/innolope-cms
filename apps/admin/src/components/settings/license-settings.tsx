@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 import { useLicense } from '../license-gate'
 
@@ -29,6 +30,7 @@ interface LicenseApiInfo {
 export function LicenseSettings() {
 	const license = useLicense()
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [keyInput, setKeyInput] = useState('')
 	const [submitting, setSubmitting] = useState(false)
 	const [error, setError] = useState('')
@@ -54,7 +56,13 @@ export function LicenseSettings() {
 	}
 
 	const remove = async () => {
-		if (!confirm('Remove this license and revert to the Community tier?')) return
+		const ok = await confirm({
+			title: 'Remove license',
+			message: 'Remove this license and revert to the Community tier?',
+			confirmLabel: 'Remove',
+			danger: true,
+		})
+		if (!ok) return
 		setSubmitting(true)
 		try {
 			await api.delete('/api/v1/license')

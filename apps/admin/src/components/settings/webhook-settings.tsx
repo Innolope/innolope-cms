@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../lib/api-client'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 
 interface Webhook {
@@ -34,6 +35,7 @@ const EVENT_TYPES = [
 
 export function WebhookSettings() {
 	const toast = useToast()
+	const confirm = useConfirm()
 	const [hooks, setHooks] = useState<Webhook[]>([])
 	const [loading, setLoading] = useState(true)
 	const [showCreate, setShowCreate] = useState(false)
@@ -81,7 +83,13 @@ export function WebhookSettings() {
 	}
 
 	const deleteHook = async (id: string) => {
-		if (!confirm('Delete this webhook?')) return
+		const ok = await confirm({
+			title: 'Delete webhook',
+			message: 'Delete this webhook?',
+			confirmLabel: 'Delete',
+			danger: true,
+		})
+		if (!ok) return
 		await api.delete(`/api/v1/ee/webhooks/${id}`)
 		fetchHooks()
 	}

@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 
 export function ProjectSelector() {
-	const { projects, currentProject, switchProject, refreshProjects } = useAuth()
+	const { projects, currentProject, switchProject, refreshProjects, domainLocked } = useAuth()
 	const toast = useToast()
 	const [open, setOpen] = useState(false)
 	const containerRef = useRef<HTMLDivElement>(null)
@@ -37,6 +37,17 @@ export function ProjectSelector() {
 		}
 		setCreating(false)
 		setNewName('')
+	}
+
+	// On a custom domain the project is fixed — show a static label, no switcher.
+	if (domainLocked) {
+		return (
+			<div className="px-3 py-2">
+				<p className="text-base font-semibold truncate text-left">
+					{currentProject?.name || 'Project'}
+				</p>
+			</div>
+		)
 	}
 
 	return (

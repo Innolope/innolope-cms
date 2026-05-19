@@ -5,6 +5,7 @@ import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
 import { api } from '../lib/api-client'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
+import { usePrompt } from '../lib/confirm'
 import { absoluteDate, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
@@ -262,6 +263,7 @@ function CollectionContentList() {
 	const { getCollectionByName } = useCollections()
 	const collection = getCollectionByName(slug)
 	const toast = useToast()
+	const prompt = usePrompt()
 	const license = useLicense()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
 
@@ -375,7 +377,15 @@ function CollectionContentList() {
 	}
 
 	const rejectItem = async (id: string) => {
-		const reason = prompt('Rejection reason (optional):')
+		const reason = await prompt({
+			title: 'Reject content',
+			message: 'Add an optional reason for rejecting this content.',
+			label: 'Rejection reason',
+			placeholder: 'Optional',
+			multiline: true,
+			confirmLabel: 'Reject',
+		})
+		if (reason === null) return
 		await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 		fetchReviewQueue()
 	}
