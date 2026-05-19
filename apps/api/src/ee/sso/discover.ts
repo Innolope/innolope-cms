@@ -37,7 +37,10 @@ export async function ssoDiscoverRoutes(app: FastifyInstance) {
 				})
 				.from(ssoConnections)
 				.where(
-					and(eq(ssoConnections.enabled, true), sql`${domain} = ANY(${ssoConnections.domains})`),
+					and(
+						eq(ssoConnections.enabled, true),
+						sql`${domain}::text = ANY(${ssoConnections.domains})`,
+					),
 				)
 				.limit(1)
 

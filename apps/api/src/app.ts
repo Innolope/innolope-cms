@@ -7,6 +7,7 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
+import { ZodError } from 'zod'
 import { auditLogRoutes } from './ee/audit-log.js'
 import { schedulingRoutes } from './ee/scheduling.js'
 import { meIdentitiesRoutes, ssoAdminRoutes, ssoRoutes } from './ee/sso/index.js'
@@ -237,6 +238,22 @@ export async function buildApp() {
 
 	// Global error handler
 	app.setErrorHandler(async (error: Error & { statusCode?: number }, request, reply) => {
+		// Schema validation failures are client errors — surface them as 400, not 500.
+		if (error instanceof ZodError) {
+			app.log.info(
+				{ issues: error.issues, url: request.url, method: request.method },
+				'Request validation failed',
+			)
+			return reply.status(400).send({
+				error: 'Validation failed',
+				statusCode: 400,
+				issues: error.issues.map((issue) => ({
+					path: issue.path.join('.'),
+					message: issue.message,
+				})),
+			})
+		}
+
 		app.log.error({ err: error, url: request.url, method: request.method }, 'Request failed')
 		const statusCode = error.statusCode || 500
 		// Report 5xx errors to Sentry

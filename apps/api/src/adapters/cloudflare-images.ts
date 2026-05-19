@@ -40,7 +40,14 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 		}
 
 		if (!data.success) {
-			throw new Error(`Cloudflare Images upload failed: ${data.errors[0]?.message}`)
+			// A 4xx from Cloudflare means the request/file was bad (e.g. a corrupt or
+			// incomplete image) — that's a client error, so surface it as 400 and keep
+			// it out of Sentry. Anything else (auth, quota, 5xx) is an upstream failure.
+			const clientError = response.status >= 400 && response.status < 500
+			throw Object.assign(
+				new Error(`Cloudflare Images upload failed: ${data.errors[0]?.message}`),
+				{ statusCode: clientError ? 400 : 502 },
+			)
 		}
 
 		return {
