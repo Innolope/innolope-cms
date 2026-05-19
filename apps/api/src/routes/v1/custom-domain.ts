@@ -30,7 +30,13 @@ function domainTarget(): string {
 function domainStatus(project: typeof projects.$inferSelect) {
 	const domain = project.customDomain
 	if (!domain) {
-		return { domain: null, verified: false, verifiedAt: null, dnsRecord: null, target: domainTarget() }
+		return {
+			domain: null,
+			verified: false,
+			verifiedAt: null,
+			dnsRecord: null,
+			target: domainTarget(),
+		}
 	}
 	const verified = project.customDomainVerifiedAt != null
 	return {
@@ -83,7 +89,9 @@ export async function customDomainRoutes(app: FastifyInstance) {
 				.where(and(eq(projects.customDomain, normalized), ne(projects.id, getProject(request).id)))
 				.limit(1)
 			if (conflict) {
-				return reply.status(409).send({ error: 'This domain is already linked to another project.' })
+				return reply
+					.status(409)
+					.send({ error: 'This domain is already linked to another project.' })
 			}
 
 			const [updated] = await app.db

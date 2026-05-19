@@ -76,8 +76,8 @@ function DomainAccessDeniedView({ projectName }: { projectName: string | null })
 			<div className="w-full max-w-sm text-center">
 				<h1 className="text-2xl font-bold text-text">No access</h1>
 				<p className="text-text-secondary text-sm mt-2 mb-6">
-					{user?.email} is not a member of {projectName ? `“${projectName}”` : 'this project'}.
-					Ask a project admin for an invite, then sign in again.
+					{user?.email} is not a member of {projectName ? `“${projectName}”` : 'this project'}. Ask
+					a project admin for an invite, then sign in again.
 				</p>
 				<button
 					type="button"

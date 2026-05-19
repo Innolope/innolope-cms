@@ -117,10 +117,7 @@ export async function authRoutes(app: FastifyInstance) {
 					.select({ id: projectMembers.id })
 					.from(projectMembers)
 					.where(
-						and(
-							eq(projectMembers.projectId, domainProject.id),
-							eq(projectMembers.userId, user.id),
-						),
+						and(eq(projectMembers.projectId, domainProject.id), eq(projectMembers.userId, user.id)),
 					)
 					.limit(1)
 				if (!membership) {
