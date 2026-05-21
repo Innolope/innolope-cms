@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 interface DropdownProps {
 	value: string
 	onChange: (value: string) => void
-	options: { value: string; label: string }[]
+	options: { value: string; label: string; disabled?: boolean }[]
 	className?: string
 	placeholder?: string
 }
@@ -54,14 +54,18 @@ export function Dropdown({ value, onChange, options, className = '', placeholder
 						<button
 							key={opt.value}
 							type="button"
+							disabled={opt.disabled}
 							onClick={() => {
+								if (opt.disabled) return
 								onChange(opt.value)
 								setOpen(false)
 							}}
 							className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-								opt.value === value
-									? 'bg-surface-alt text-text font-medium'
-									: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+								opt.disabled
+									? 'text-text-muted/50 cursor-not-allowed bg-transparent'
+									: opt.value === value
+										? 'bg-surface-alt text-text font-medium'
+										: 'text-text-secondary hover:bg-surface-alt hover:text-text'
 							}`}
 						>
 							{opt.label}

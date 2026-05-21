@@ -15,6 +15,27 @@ interface SsoDiscovery {
 	name: string
 }
 
+/**
+ * Read `?next=` from the URL and reject anything that isn't an internal path.
+ * Guards against open-redirect (e.g. `?next=https://evil.com`) and avoids bouncing
+ * the user right back into the login flow.
+ */
+function safeNextParam(): string {
+	const raw = new URLSearchParams(window.location.search).get('next')
+	if (!raw) return '/'
+	let decoded: string
+	try {
+		decoded = decodeURIComponent(raw)
+	} catch {
+		return '/'
+	}
+	// Must be a path starting with `/`, must not start with `//` (protocol-relative),
+	// and must not be the login flow itself.
+	if (!decoded.startsWith('/') || decoded.startsWith('//')) return '/'
+	if (decoded.startsWith('/login')) return '/'
+	return decoded
+}
+
 function LoginPage() {
 	const { user, login, register, loading, domainLocked, domainProjectName } = useAuth()
 	const navigate = useNavigate()
@@ -27,9 +48,15 @@ function LoginPage() {
 	const [checkingSetup, setCheckingSetup] = useState(true)
 	const [ssoDiscovery, setSsoDiscovery] = useState<SsoDiscovery | null>(null)
 
-	// Redirect if already logged in
+	// Redirect if already logged in — honor `?next=` so deep-link → login → original page works.
 	useEffect(() => {
-		if (!loading && user) navigate({ to: '/' })
+		if (!loading && user) {
+			const next = safeNextParam()
+			// Use a hard navigation: `next` may be any in-app path and we want a clean state
+			// (e.g. cookies/CSRF freshly applied) on the destination.
+			if (next === '/') navigate({ to: '/' })
+			else window.location.href = next
+		}
 	}, [user, loading, navigate])
 
 	// Check if first user needs to be created
@@ -69,7 +96,9 @@ function LoginPage() {
 				navigate({ to: '/onboarding' })
 			} else {
 				await login(trimmedEmail, password)
-				navigate({ to: '/' })
+				const next = safeNextParam()
+				if (next === '/') navigate({ to: '/' })
+				else window.location.href = next
 			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Authentication failed')
@@ -98,7 +127,7 @@ function LoginPage() {
 
 	const startSso = () => {
 		if (!ssoDiscovery) return
-		const next = new URLSearchParams(window.location.search).get('next') || '/'
+		const next = safeNextParam()
 		const initiateUrl = `/api/v1/auth/sso/${encodeURIComponent(ssoDiscovery.slug)}/initiate?next=${encodeURIComponent(next)}`
 		window.location.href = initiateUrl
 	}

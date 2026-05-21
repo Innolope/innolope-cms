@@ -6,6 +6,10 @@ interface ConfirmOptions {
 	title: string
 	message: string
 	confirmLabel?: string
+	/** Override the default "Cancel" label (e.g. "Not now"). */
+	cancelLabel?: string
+	/** Render the cancel control as a low-emphasis underlined link in the bottom-left. */
+	cancelAsLink?: boolean
 	danger?: boolean
 	requireText?: string
 }
@@ -67,6 +71,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 					title={pending.title}
 					message={pending.message}
 					confirmLabel={pending.confirmLabel}
+					cancelLabel={pending.cancelLabel}
+					cancelAsLink={pending.cancelAsLink}
 					danger={pending.danger}
 					requireText={pending.requireText}
 					onConfirm={() => {

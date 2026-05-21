@@ -99,10 +99,28 @@ export function ProBadge() {
 
 export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan?: string }) {
 	return (
-		<div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-			<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mb-4">
-				<span className="text-2xl">✨</span>
-			</div>
+		// `pt-32` pushes the block down so it doesn't crowd the Save button above.
+		<div className="flex flex-col items-center justify-center pt-32 pb-12 px-6 text-center">
+			{/* Outlined "sparkles" icon (Lucide), violet to tie in with the Pro accent.
+			    No background container — the icon sits directly on the panel. */}
+			<svg
+				width="26"
+				height="26"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.75"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				className="text-violet-500 mb-4"
+				aria-hidden="true"
+			>
+				<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+				<path d="M20 3v4" />
+				<path d="M22 5h-4" />
+				<path d="M4 17v2" />
+				<path d="M5 18H3" />
+			</svg>
 			<h3 className="text-lg font-semibold mb-2">{feature}</h3>
 			<p className="text-sm text-text-secondary max-w-sm mb-6">
 				This feature requires an Innolope CMS {plan} license.
@@ -110,11 +128,12 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 					? ' Unlock AI writing, the media library, webhooks, and multiple projects support.'
 					: ' Unlock SSO, audit logs, custom roles, and more.'}
 			</p>
+			{/* Violet gradient (matches ProBadge); `px-4 py-2 rounded` matches the Save button. */}
 			<a
 				href="https://innolope.com/apps/cms#pricing"
 				target="_blank"
 				rel="noopener noreferrer"
-				className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+				className="px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded text-sm font-medium hover:opacity-90 transition-opacity"
 			>
 				View Plans
 			</a>

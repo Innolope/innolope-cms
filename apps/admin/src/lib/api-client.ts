@@ -1,5 +1,23 @@
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
+const LOGIN_PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/accept-invite']
+
+/**
+ * Returns `/login?next=<encoded current path>` for the current location, unless the
+ * user is already on a public/login-adjacent page (in which case `next` is omitted to
+ * avoid redirect loops or accidentally bouncing back to `/login` after sign-in).
+ *
+ * Exported so callers (auth gate, login page) can reuse the same shape.
+ */
+export function loginUrlPreservingNext(): string {
+	const path = `${window.location.pathname}${window.location.search}${window.location.hash}`
+	if (LOGIN_PUBLIC_PATHS.some((p) => window.location.pathname.startsWith(p))) {
+		return '/login'
+	}
+	if (!path || path === '/') return '/login'
+	return `/login?next=${encodeURIComponent(path)}`
+}
+
 function getProjectId(): string | null {
 	return localStorage.getItem('innolope_project')
 }
@@ -68,7 +86,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 		}
 
 		if (!refreshed || response.status === 401) {
-			window.location.href = '/login'
+			window.location.href = loginUrlPreservingNext()
 			throw new Error('Session expired')
 		}
 	}

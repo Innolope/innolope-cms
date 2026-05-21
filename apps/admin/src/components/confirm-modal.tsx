@@ -4,6 +4,15 @@ interface ConfirmModalProps {
 	title: string
 	message: string
 	confirmLabel?: string
+	/** Override the default "Cancel" label (e.g. "Not now", "Later"). */
+	cancelLabel?: string
+	/**
+	 * When true, the cancel control renders as an unobtrusive underlined link at the
+	 * bottom-left of the modal instead of a button next to the confirm. Use this for
+	 * soft "you can ignore this" prompts (e.g. "Not now") where the visual hierarchy
+	 * should push the user toward the confirm action.
+	 */
+	cancelAsLink?: boolean
 	/** Styles the confirm button as destructive (red). */
 	danger?: boolean
 	/** When set, the user must type this exact value before the confirm button enables. */
@@ -16,6 +25,8 @@ export function ConfirmModal({
 	title,
 	message,
 	confirmLabel = 'Confirm',
+	cancelLabel = 'Cancel',
+	cancelAsLink = false,
 	danger = false,
 	requireText,
 	onConfirm,
@@ -45,13 +56,13 @@ export function ConfirmModal({
 				role="dialog"
 				aria-modal="true"
 				aria-label={title}
-				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-sm p-6"
+				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-lg p-8"
 			>
-				<h3 className="font-semibold text-text mb-2">{title}</h3>
-				<p className="text-sm text-text-secondary mb-6">{message}</p>
+				<h3 className="text-lg font-semibold text-text mb-3">{title}</h3>
+				<p className="text-sm text-text-secondary leading-relaxed mb-8">{message}</p>
 				{requireText !== undefined && (
-					<div className="mb-6 -mt-2">
-						<label htmlFor={inputId} className="block text-xs text-text-secondary mb-1.5">
+					<div className="mb-8 -mt-2">
+						<label htmlFor={inputId} className="block text-xs text-text-secondary mb-2">
 							Type <span className="font-mono text-text">{requireText}</span> to confirm
 						</label>
 						<input
@@ -61,26 +72,38 @@ export function ConfirmModal({
 							onChange={(e) => setTyped(e.target.value)}
 							placeholder={requireText}
 							autoFocus
-							className="w-full px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
+							className="w-full px-3 py-2.5 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 						/>
 					</div>
 				)}
-				<div className="flex gap-3 justify-end">
-					<button
-						type="button"
-						onClick={onCancel}
-						className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
-					>
-						Cancel
-					</button>
+				<div
+					className={`flex gap-3 items-center ${cancelAsLink ? 'justify-between' : 'justify-end'}`}
+				>
+					{cancelAsLink ? (
+						<button
+							type="button"
+							onClick={onCancel}
+							className="text-sm text-text-muted underline underline-offset-2 hover:text-text transition-colors"
+						>
+							{cancelLabel}
+						</button>
+					) : (
+						<button
+							type="button"
+							onClick={onCancel}
+							className="px-5 py-2.5 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
+						>
+							{cancelLabel}
+						</button>
+					)}
 					<button
 						type="button"
 						onClick={onConfirm}
 						disabled={blocked}
 						className={
 							danger
-								? 'px-4 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40'
-								: 'px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors disabled:opacity-40'
+								? 'px-5 py-2.5 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40'
+								: 'px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors disabled:opacity-40'
 						}
 					>
 						{confirmLabel}

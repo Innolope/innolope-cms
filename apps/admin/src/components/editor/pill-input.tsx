@@ -48,24 +48,30 @@ export function PillInput({ value, onChange, disabled, placeholder }: PillInputP
 			/>
 			{value.length > 0 && (
 				<div className="flex flex-wrap gap-1.5 mt-2">
-					{value.map((item, i) => (
-						<span
-							key={item}
-							className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-alt text-text-secondary text-xs"
-						>
-							{item}
-							{!disabled && (
-								<button
-									type="button"
-									onClick={() => removeAt(i)}
-									className="text-text-muted hover:text-text leading-none text-sm"
-									aria-label={`Remove ${item}`}
-								>
-									&times;
-								</button>
-							)}
-						</span>
-					))}
+					{value.map((item, i) => {
+						// Defensive: callers should pass string[], but if a non-string slips through
+						// (e.g. an object), render it as JSON rather than the literal "[object Object]".
+						const label = typeof item === 'string' ? item : JSON.stringify(item)
+						return (
+							<span
+								// biome-ignore lint/suspicious/noArrayIndexKey: pill labels can repeat; index is the stable identity here.
+								key={`${i}-${label}`}
+								className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-alt text-text-secondary text-xs"
+							>
+								{label}
+								{!disabled && (
+									<button
+										type="button"
+										onClick={() => removeAt(i)}
+										className="text-text-muted hover:text-text leading-none text-sm"
+										aria-label={`Remove ${label}`}
+									>
+										&times;
+									</button>
+								)}
+							</span>
+						)
+					})}
 				</div>
 			)}
 		</div>

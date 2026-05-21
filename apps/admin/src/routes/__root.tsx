@@ -1,8 +1,10 @@
 import { createRootRoute, Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
+// AuthGate no longer uses navigate (it does a hard redirect for the cross-boundary case),
+// but other components below still import it from the same line above.
 import { useEffect, useState } from 'react'
 import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
-import { api } from '../lib/api-client'
+import { api, loginUrlPreservingNext } from '../lib/api-client'
 import { AuthProvider, useAuth } from '../lib/auth'
 import { CollectionsProvider, useCollections } from '../lib/collections'
 import { ConfirmProvider } from '../lib/confirm'
@@ -33,16 +35,18 @@ function RootWithAuth() {
 
 function AuthGate() {
 	const { user, loading, currentProject, domainLocked, domainProjectName } = useAuth()
-	const navigate = useNavigate()
 	const location = useLocation()
 	const publicPaths = ['/login', '/forgot-password', '/reset-password', '/accept-invite']
 	const isPublicPage = publicPaths.some((p) => location.pathname.startsWith(p))
 
 	useEffect(() => {
 		if (!loading && !user && !isPublicPage) {
-			navigate({ to: '/login' })
+			// Preserve the originally-requested URL so login can return the user there.
+			// Use a hard redirect — TanStack's typed navigate balks at the dynamic `next` query
+			// string we build here, and we're crossing an auth boundary anyway.
+			window.location.href = loginUrlPreservingNext()
 		}
-	}, [user, loading, isPublicPage, navigate])
+	}, [user, loading, isPublicPage])
 
 	if (loading) {
 		return (

@@ -91,12 +91,16 @@ export async function aiRoutes(app: FastifyInstance) {
 				field,
 				selectedText,
 				action,
+				targetLanguage,
+				sourceLanguage,
 				model: requestedModel,
 			} = request.body as {
 				prompt?: string
 				field: string
 				selectedText?: string
 				action?: 'rewrite' | 'shorter' | 'longer' | 'fix-grammar' | 'translate' | 'seo' | 'custom'
+				targetLanguage?: string
+				sourceLanguage?: string
 				model?: string
 			}
 
@@ -135,7 +139,13 @@ export async function aiRoutes(app: FastifyInstance) {
 						userPrompt = `Fix any grammar, spelling, or punctuation errors in the following text. Make minimal changes.\n\n${text}`
 						break
 					case 'translate':
-						userPrompt = `Translate the following text to English. If already in English, translate to the most likely target language based on context.\n\n${text}`
+						if (targetLanguage) {
+							userPrompt = `Translate the following text ${
+								sourceLanguage ? `from ${sourceLanguage} ` : ''
+							}to ${targetLanguage}. Preserve all Markdown formatting, structure, and inline code. Do not translate code, URLs, or proper nouns that should stay unchanged. Output only the translation.\n\n${text}`
+						} else {
+							userPrompt = `Translate the following text to English. If already in English, translate to the most likely target language based on context.\n\n${text}`
+						}
 						break
 					case 'seo':
 						userPrompt = `Optimize the following text for SEO. Improve readability, add relevant keywords naturally, and make it more engaging for search.\n\n${text}`
