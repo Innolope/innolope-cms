@@ -204,7 +204,9 @@ export function CustomDomainSettings() {
 								<p className="text-sm font-medium text-text mb-1">Step 2 — Point the domain</p>
 								<p className="text-xs text-text-muted mb-3">
 									Add a CNAME record so the domain resolves to the CMS. An HTTPS certificate is
-									issued automatically on the first visit.
+									issued automatically on the first visit. If your DNS is on Cloudflare, set this
+									record to <strong>DNS only</strong> (grey cloud) — a proxied record blocks
+									certificate issuance.
 								</p>
 								<CopyField label={`CNAME ${status.domain} →`} value={status.target} />
 							</div>
@@ -235,7 +237,8 @@ export function CustomDomainSettings() {
 							</p>
 							<p className="text-xs text-text-muted">
 								Make sure the CNAME record for <code className="font-mono">{status.domain}</code>{' '}
-								points to <code className="font-mono">{status.target}</code>.
+								points to <code className="font-mono">{status.target}</code>. If your DNS is on
+								Cloudflare, keep this record <strong>DNS only</strong> (grey cloud).
 							</p>
 						</div>
 					)}
