@@ -59,7 +59,19 @@ export async function aiRoutes(app: FastifyInstance) {
 
 		const updates: Record<string, unknown> = { updatedAt: new Date() }
 		if (defaultModel) updates.defaultModel = defaultModel
-		if (providers) updates.providers = providers
+		if (providers) {
+			// The incoming array defines provider membership and priority order. An empty
+			// apiKey means "keep the existing stored key" — the client never receives keys
+			// back, so it cannot re-send them on a reorder or model-only change.
+			const existingProviders = (existing[0]?.providers ?? []) as AiProviderConfig[]
+			updates.providers = providers.map((p) => {
+				if (p.apiKey?.trim()) {
+					return { provider: p.provider, apiKey: p.apiKey, enabled: p.enabled }
+				}
+				const prev = existingProviders.find((e) => e.provider === p.provider)
+				return { provider: p.provider, apiKey: prev?.apiKey ?? '', enabled: p.enabled }
+			})
+		}
 
 		if (existing.length > 0) {
 			const [updated] = await app.db

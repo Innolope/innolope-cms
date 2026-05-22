@@ -147,7 +147,7 @@ function MediaLibraryContent() {
 						</div>
 					</div>
 					{items.length > 0 && (
-						<div className="flex gap-3">
+						<div className="flex items-center gap-2">
 							<Dropdown
 								value={typeFilter}
 								onChange={setTypeFilter}
@@ -157,13 +157,13 @@ function MediaLibraryContent() {
 									{ value: 'video', label: 'Videos' },
 									{ value: 'file', label: 'Files' },
 								]}
-								className="px-3 py-2 bg-input border border-border rounded text-sm"
+								className="w-32"
 							/>
 							<button
 								type="button"
 								onClick={() => fileRef.current?.click()}
 								disabled={uploading}
-								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+								className="px-3 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
 								{uploading ? 'Uploading...' : 'Upload'}
 							</button>
@@ -232,7 +232,7 @@ function MediaLibraryContent() {
 									>
 										{item.type === 'image' ? (
 											<img
-												src={item.variants?.thumbnail || item.url}
+												src={item.variants?.small || item.url}
 												alt={item.alt || item.filename}
 												className="w-full h-full object-cover"
 											/>

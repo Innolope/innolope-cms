@@ -1931,10 +1931,10 @@ function CollapsibleCard({
 				type="button"
 				onClick={() => setOpen((v) => !v)}
 				aria-expanded={open}
-				className="w-full flex items-start gap-2.5 px-4 py-3 text-left"
+				className="w-full flex items-start gap-3 px-4 py-3 text-left"
 			>
 				<span
-					className={`mt-0.5 text-base leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+					className={`w-5 mt-0.5 text-base leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
 				>
 					&#8250;
 				</span>
@@ -1945,7 +1945,7 @@ function CollapsibleCard({
 					)}
 				</span>
 			</button>
-			{open && <div className="px-4 pb-4">{children}</div>}
+			{open && <div className="pl-12 pr-4 pb-4">{children}</div>}
 		</div>
 	)
 }

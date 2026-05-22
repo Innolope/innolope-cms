@@ -1,6 +1,17 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { envSchema } from '@innolope/config'
 import * as Sentry from '@sentry/node'
 import { buildApp } from './app.js'
+
+// Load apps/api/.env in local dev so the API has DATABASE_URL/AUTH_SECRET etc. on
+// every start. This does not rely on a CLI flag — `tsx watch` does not re-apply
+// --env-file on reload. In production the file is absent and env comes from the
+// environment, so this is skipped.
+const envFile = join(import.meta.dirname, '../.env')
+if (existsSync(envFile)) {
+	process.loadEnvFile(envFile)
+}
 
 // Initialize Sentry (does nothing if SENTRY_DSN is not set)
 if (process.env.SENTRY_DSN) {

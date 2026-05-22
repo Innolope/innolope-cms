@@ -584,6 +584,7 @@ function CollectionContentEditor() {
 	const [dirty, setDirty] = useState(false)
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
+	const [loadError, setLoadError] = useState<string | null>(null)
 	const [externalId, setExternalId] = useState<string | null>(null)
 	const [showExtraFields, setShowExtraFields] = useState(false)
 	const license = useLicense()
@@ -605,6 +606,7 @@ function CollectionContentEditor() {
 	// Load content
 	useEffect(() => {
 		if (!isNew && contentId && collection) {
+			setLoadError(null)
 			api
 				.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}&depth=0`)
 				.then((item) => {
@@ -650,7 +652,11 @@ function CollectionContentEditor() {
 						}
 					} catch {}
 				})
-				.catch(() => navigate({ to: `/collections/${slug}` }))
+				.catch((err) => {
+					// Don't silently bounce to the list — a transient 500/network error is
+					// indistinguishable from a real 404 that way. Surface it in place.
+					setLoadError(err instanceof Error ? err.message : 'Failed to load this record')
+				})
 				.finally(() => setLoading(false))
 		}
 	}, [contentId, isNew, navigate, slug, draftKey, collection])
@@ -870,6 +876,38 @@ function CollectionContentEditor() {
 	}
 
 	if (loading) return <div className="p-8 pt-5" />
+
+	if (loadError) {
+		return (
+			<div className="p-8 flex flex-col items-center pt-[15vh] text-center">
+				<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
+					<svg
+						width="28"
+						height="28"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						className="text-text-muted"
+					>
+						<circle cx="12" cy="12" r="10" />
+						<path d="M12 8v4M12 16h.01" />
+					</svg>
+				</div>
+				<h3 className="font-semibold text-text mb-1">Couldn't load this record</h3>
+				<p className="text-sm text-text-secondary max-w-sm mb-5">{loadError}</p>
+				<button
+					type="button"
+					onClick={() => navigate({ to: `/collections/${slug}` })}
+					className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors"
+				>
+					Back to {collection?.label || slug}
+				</button>
+			</div>
+		)
+	}
 
 	// Whether to show the locale switcher: project has 2+ configured locales,
 	// OR any field on this record stores a locale-shaped object (auto-detect),

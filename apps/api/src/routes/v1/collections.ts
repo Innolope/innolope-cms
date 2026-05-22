@@ -88,24 +88,30 @@ export async function collectionRoutes(app: FastifyInstance) {
 		'/:id/import-status',
 		{ preHandler: [app.requireProject('viewer')] },
 		async (request) => {
-			const [job] = await app.db
-				.select({
-					status: importJobs.status,
-					processed: importJobs.processed,
-					total: importJobs.total,
-					error: importJobs.error,
-					updatedAt: importJobs.updatedAt,
-				})
-				.from(importJobs)
-				.where(
-					and(
-						eq(importJobs.collectionId, request.params.id),
-						eq(importJobs.projectId, getProject(request).id),
-					),
-				)
-				.orderBy(desc(importJobs.createdAt))
-				.limit(1)
-			return job ?? null
+			try {
+				const [job] = await app.db
+					.select({
+						status: importJobs.status,
+						processed: importJobs.processed,
+						total: importJobs.total,
+						error: importJobs.error,
+						updatedAt: importJobs.updatedAt,
+					})
+					.from(importJobs)
+					.where(
+						and(
+							eq(importJobs.collectionId, request.params.id),
+							eq(importJobs.projectId, getProject(request).id),
+						),
+					)
+					.orderBy(desc(importJobs.createdAt))
+					.limit(1)
+				return job ?? null
+			} catch (err) {
+				// `import_jobs` may be missing/unreadable — report "no job" instead of 500.
+				app.log.warn(err, 'import-status query failed')
+				return null
+			}
 		},
 	)
 

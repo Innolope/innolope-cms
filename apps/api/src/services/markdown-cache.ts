@@ -361,7 +361,7 @@ export function externalDocToContentItem(
 ): Record<string, unknown> {
 	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
 	const slug = `${generateSlugFromDoc(metadata, doc._id)}-${doc._id.slice(-6)}`
-	const createdAt = toDate(metadata.createdAt)
+	const createdAt = toDate(metadata.createdAt) || objectIdCreatedAt(doc._id)
 	const updatedAt = toDate(metadata.updatedAt)
 	const publishedAt = toDate(metadata.publishedAt)
 
@@ -378,8 +378,10 @@ export function externalDocToContentItem(
 		locale: 'en',
 		version: 1,
 		createdBy: null,
-		createdAt: createdAt || updatedAt || new Date(),
-		updatedAt: updatedAt || new Date(),
+		// Live rows are not persisted — leave timestamps null when the source has
+		// none, so the UI shows "—" instead of a misleading fetch-time "just now".
+		createdAt: createdAt || updatedAt || null,
+		updatedAt: updatedAt || createdAt || null,
 		publishedAt: publishedAt || null,
 		live: true,
 	}
@@ -400,7 +402,7 @@ function buildCachedContentValues(
 	// Simple HTML from markdown (basic conversion)
 	const html = markdownToBasicHtml(markdown)
 
-	const createdAt = toDate(metadata.createdAt)
+	const createdAt = toDate(metadata.createdAt) || objectIdCreatedAt(doc._id)
 	const updatedAt = toDate(metadata.updatedAt)
 	const publishedAt = toDate(metadata.publishedAt)
 
@@ -417,7 +419,8 @@ function buildCachedContentValues(
 			locale: 'en',
 			createdBy: opts.userId || null,
 			...(createdAt ? { createdAt } : {}),
-			updatedAt: updatedAt || new Date(),
+			// Prefer a real source/ObjectId date over the cache write time.
+			updatedAt: updatedAt || createdAt || new Date(),
 			...(publishedAt ? { publishedAt } : {}),
 		},
 	}
@@ -463,4 +466,17 @@ function toDate(value: unknown): Date | undefined {
 		return Number.isNaN(date.getTime()) ? undefined : date
 	}
 	return undefined
+}
+
+/**
+ * Recover a creation date from a MongoDB ObjectId. The first 4 bytes of a 24-hex
+ * ObjectId encode the creation time in seconds — used as a real timestamp fallback
+ * for imported records that carry no explicit date field.
+ */
+function objectIdCreatedAt(id: string): Date | undefined {
+	if (!/^[a-f0-9]{24}$/i.test(id)) return undefined
+	const seconds = Number.parseInt(id.slice(0, 8), 16)
+	if (!Number.isFinite(seconds) || seconds <= 0) return undefined
+	const date = new Date(seconds * 1000)
+	return Number.isNaN(date.getTime()) ? undefined : date
 }

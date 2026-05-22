@@ -51,6 +51,21 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return this.dbInstance
 	}
 
+	/**
+	 * Match a document by `_id` regardless of how it is stored. Imported collections
+	 * vary: some keep `_id` as an ObjectId, others (migrated/seeded data) as a plain
+	 * string. When `id` is ObjectId-shaped we query both forms so a hex string never
+	 * misses a string-typed `_id`.
+	 */
+	private async buildIdFilter(id: string): Promise<Record<string, unknown>> {
+		const { ObjectId } = await import('mongodb')
+		try {
+			return { $or: [{ _id: new ObjectId(id) }, { _id: id }] }
+		} catch {
+			return { _id: id }
+		}
+	}
+
 	async estimateTableSizeBytes(table: string): Promise<number> {
 		const stats = await this.db().command({ collStats: table })
 		return Number(stats.size) || 0
@@ -70,14 +85,9 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
-		const { ObjectId } = await import('mongodb')
-		let query: Record<string, unknown>
-		try {
-			query = { _id: new ObjectId(id) }
-		} catch {
-			query = { _id: id }
-		}
-		const doc = await this.db().collection(table).findOne(query)
+		const doc = await this.db()
+			.collection(table)
+			.findOne(await this.buildIdFilter(id))
 		if (!doc) return null
 		return { ...doc, _id: String(doc._id) }
 	}
@@ -92,27 +102,17 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		id: string,
 		data: Record<string, unknown>,
 	): Promise<ExternalDocument> {
-		const { ObjectId } = await import('mongodb')
-		let filter: Record<string, unknown>
-		try {
-			filter = { _id: new ObjectId(id) }
-		} catch {
-			filter = { _id: id }
-		}
-		const result = await this.db().collection(table).updateOne(filter, { $set: data })
+		const result = await this.db()
+			.collection(table)
+			.updateOne(await this.buildIdFilter(id), { $set: data })
 		if (result.matchedCount === 0) throw new Error(`External row not found: ${id}`)
 		return { ...data, _id: id }
 	}
 
 	async delete(table: string, id: string): Promise<void> {
-		const { ObjectId } = await import('mongodb')
-		let filter: Record<string, unknown>
-		try {
-			filter = { _id: new ObjectId(id) }
-		} catch {
-			filter = { _id: id }
-		}
-		await this.db().collection(table).deleteOne(filter)
+		await this.db()
+			.collection(table)
+			.deleteOne(await this.buildIdFilter(id))
 	}
 
 	async count(table: string): Promise<number> {

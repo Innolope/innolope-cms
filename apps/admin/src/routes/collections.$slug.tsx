@@ -15,6 +15,7 @@ import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
 import { usePrompt } from '../lib/confirm'
+import { isLocaleMap, resolveLocalizedValue } from '../lib/locale-value'
 import { absoluteDate, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
@@ -40,8 +41,9 @@ interface ContentItem {
 	metadata: Record<string, unknown>
 	locale: string
 	version: number
-	createdAt: string
-	updatedAt: string
+	externalId?: string | null
+	createdAt: string | null
+	updatedAt: string | null
 	publishedAt?: string | null
 }
 
@@ -92,26 +94,46 @@ const STATUS_OPTIONS = [
 	{ value: 'archived', label: 'Archived' },
 ]
 
+interface ColumnRenderCtx {
+	slug: string
+	defaultLocale: string
+	locales: string[]
+}
+
 interface ColumnDescriptor {
 	id: string
 	label: string
-	render: (item: ContentItem, ctx: { slug: string }) => ReactNode
+	render: (item: ContentItem, ctx: ColumnRenderCtx) => ReactNode
 }
 
 function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
+	const fields = collection.fields || []
+	const hasTitleField = fields.some((f) => f.name === 'title')
+	const hasNameField = fields.some((f) => f.name === 'name')
+	// The primary column shows the record's title or name; the field it consumes is
+	// excluded from the metadata columns below so it isn't rendered twice.
+	const primaryField = hasTitleField ? 'title' : hasNameField ? 'name' : null
+	const primaryLabel = hasTitleField ? 'Title' : hasNameField ? 'Name' : 'Title'
+
 	const builtins: ColumnDescriptor[] = [
 		{
 			id: 'title',
-			label: 'Title',
-			render: (item, ctx) => (
-				<Link
-					to="/collections/$slug/$contentId"
-					params={{ slug: ctx.slug, contentId: item.id }}
-					className="hover:text-text transition-colors"
-				>
-					{(item.metadata?.title as string) || item.slug}
-				</Link>
-			),
+			label: primaryLabel,
+			render: (item, ctx) => {
+				const label =
+					resolveLocalizedValue(item.metadata?.title, { defaultLocale: ctx.defaultLocale }) ||
+					resolveLocalizedValue(item.metadata?.name, { defaultLocale: ctx.defaultLocale }) ||
+					item.id
+				return (
+					<Link
+						to="/collections/$slug/$contentId"
+						params={{ slug: ctx.slug, contentId: item.id }}
+						className="hover:text-text transition-colors"
+					>
+						{label}
+					</Link>
+				)
+			},
 		},
 		{
 			id: 'slug',
@@ -136,9 +158,10 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 			id: 'updatedAt',
 			label: 'Last edited',
 			render: (item) => {
-				const created = new Date(item.createdAt).getTime()
+				if (!item.updatedAt) return <span className="text-text-muted">—</span>
+				const created = item.createdAt ? new Date(item.createdAt).getTime() : Number.NaN
 				const updated = new Date(item.updatedAt).getTime()
-				const neverEdited = Math.abs(updated - created) < 5_000
+				const neverEdited = Number.isFinite(created) && Math.abs(updated - created) < 5_000
 				return (
 					<span
 						className={neverEdited ? 'text-text-muted italic' : 'text-text-secondary'}
@@ -156,11 +179,14 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 		{
 			id: 'createdAt',
 			label: 'Created',
-			render: (item) => (
-				<span className="text-text-secondary" title={absoluteDate(item.createdAt)}>
-					{relativeTime(item.createdAt)}
-				</span>
-			),
+			render: (item) =>
+				item.createdAt ? (
+					<span className="text-text-secondary" title={absoluteDate(item.createdAt)}>
+						{relativeTime(item.createdAt)}
+					</span>
+				) : (
+					<span className="text-text-muted">—</span>
+				),
 		},
 		{
 			id: 'publishedAt',
@@ -176,11 +202,13 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 		},
 	]
 
-	const metadataCols: ColumnDescriptor[] = (collection.fields || []).map((f) => ({
-		id: `meta:${f.name}`,
-		label: f.name,
-		render: (item) => renderMetadataValue(item.metadata?.[f.name]),
-	}))
+	const metadataCols: ColumnDescriptor[] = fields
+		.filter((f) => f.name !== primaryField)
+		.map((f) => ({
+			id: `meta:${f.name}`,
+			label: f.name,
+			render: (item, ctx) => renderMetadataValue(item.metadata?.[f.name], ctx),
+		}))
 
 	return [...builtins, ...metadataCols]
 }
@@ -195,7 +223,7 @@ function extractImageUrl(value: unknown): string | null {
 	return null
 }
 
-function renderMetadataValue(value: unknown): ReactNode {
+function renderMetadataValue(value: unknown, ctx?: ColumnRenderCtx): ReactNode {
 	if (value === null || value === undefined || value === '')
 		return <span className="text-text-muted">—</span>
 	if (typeof value === 'boolean')
@@ -208,6 +236,11 @@ function renderMetadataValue(value: unknown): ReactNode {
 			return (
 				<img src={imgUrl} alt="" className="h-8 w-8 rounded object-cover border border-border" />
 			)
+		// Localized `{ locale: text }` map — show the interface-language value.
+		if (ctx && isLocaleMap(value, ctx.locales)) {
+			const resolved = resolveLocalizedValue(value, { defaultLocale: ctx.defaultLocale })
+			if (resolved) return <span className="text-text-secondary">{resolved}</span>
+		}
 		return <span className="text-text-muted text-xs italic">[object]</span>
 	}
 	return <span className="text-text-secondary">{String(value)}</span>
@@ -335,9 +368,34 @@ function CollectionContentList() {
 		[collection],
 	)
 
+	// Built-in columns with no real data for this collection — an id-derived slug, or
+	// timestamps that were never set — are dropped so they don't show a meaningless
+	// value or clutter the column picker.
+	const suppressedColumns = useMemo(() => {
+		const set = new Set<string>()
+		if (items.length === 0) return set
+		const isSyntheticSlug = (it: ContentItem) => {
+			const extId = (it.externalId || it.id || '').toLowerCase()
+			if (!extId) return false
+			const s = (it.slug || '').toLowerCase()
+			return s === extId || s === `${extId}-${extId.slice(-6)}`
+		}
+		if (items.every(isSyntheticSlug)) set.add('slug')
+		for (const col of ['updatedAt', 'createdAt', 'publishedAt'] as const) {
+			if (items.every((it) => !it[col])) set.add(col)
+		}
+		return set
+	}, [items])
+
+	const availableColumns: ColumnDescriptor[] = useMemo(
+		() => allColumns.filter((c) => !suppressedColumns.has(c.id)),
+		[allColumns, suppressedColumns],
+	)
+	const availableColumnIds = useMemo(() => availableColumns.map((c) => c.id), [availableColumns])
+
 	const columnConfig = useColumnConfig({
 		collectionId: collection?.id || '__none__',
-		available: allColumns.map((c) => c.id),
+		available: availableColumnIds,
 		defaults: DEFAULT_COLUMNS,
 		pinned: PINNED_COLUMNS,
 	})
@@ -345,15 +403,23 @@ function CollectionContentList() {
 	const visibleColumns: ColumnDescriptor[] = useMemo(
 		() =>
 			columnConfig.visible
-				.map((id) => allColumns.find((c) => c.id === id))
+				.map((id) => availableColumns.find((c) => c.id === id))
 				.filter((c): c is ColumnDescriptor => Boolean(c)),
-		[columnConfig.visible, allColumns],
+		[columnConfig.visible, availableColumns],
 	)
 
 	const columnOptions: ColumnOption[] = useMemo(
-		() => allColumns.map((c) => ({ id: c.id, label: c.label })),
-		[allColumns],
+		() => availableColumns.map((c) => ({ id: c.id, label: c.label })),
+		[availableColumns],
 	)
+
+	const renderCtx: ColumnRenderCtx = useMemo(() => {
+		const s = (currentProject?.settings as Record<string, unknown> | undefined) ?? {}
+		const locales =
+			Array.isArray(s.locales) && s.locales.length > 0 ? (s.locales as string[]) : ['en']
+		const defaultLocale = (s.defaultLocale as string) || locales[0] || 'en'
+		return { slug, defaultLocale, locales }
+	}, [slug, currentProject])
 
 	const [reviewItems, setReviewItems] = useState<ContentItem[]>([])
 	const [reviewTotal, setReviewTotal] = useState(0)
@@ -801,7 +867,7 @@ function CollectionContentList() {
 										>
 											{visibleColumns.map((col) => (
 												<td key={col.id} className="px-4 py-3">
-													{col.render(item, { slug })}
+													{col.render(item, renderCtx)}
 												</td>
 											))}
 										</tr>
@@ -875,9 +941,9 @@ function CollectionContentList() {
 										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
 										<td
 											className="px-4 py-3 text-text-secondary"
-											title={absoluteDate(item.updatedAt)}
+											title={item.updatedAt ? absoluteDate(item.updatedAt) : undefined}
 										>
-											{relativeTime(item.updatedAt)}
+											{item.updatedAt ? relativeTime(item.updatedAt) : '—'}
 										</td>
 										<td className="px-4 py-3 text-right">
 											<div className="flex gap-2 justify-end">

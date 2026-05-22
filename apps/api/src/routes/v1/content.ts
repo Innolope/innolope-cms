@@ -225,17 +225,25 @@ async function loadExternalCollection(
 
 /** True while a background import for this collection is queued or running. */
 async function hasActiveImport(app: FastifyInstance, collectionId: string): Promise<boolean> {
-	const [job] = await app.db
-		.select({ id: importJobs.id })
-		.from(importJobs)
-		.where(
-			and(
-				eq(importJobs.collectionId, collectionId),
-				inArray(importJobs.status, ['pending', 'running']),
-			),
-		)
-		.limit(1)
-	return Boolean(job)
+	try {
+		const [job] = await app.db
+			.select({ id: importJobs.id })
+			.from(importJobs)
+			.where(
+				and(
+					eq(importJobs.collectionId, collectionId),
+					inArray(importJobs.status, ['pending', 'running']),
+				),
+			)
+			.limit(1)
+		return Boolean(job)
+	} catch (err) {
+		// `import_jobs` backs an optional feature — if the table is missing or
+		// unreadable it must not bring down the content list / record lookup.
+		// Degrade to "no active import" so callers fall through to the cache.
+		app.log.warn(err, 'hasActiveImport check failed — assuming no active import')
+		return false
+	}
 }
 
 /** Push a status change to the external DB row, if the collection is an external read-write source. */
@@ -506,14 +514,20 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		if (collection) {
-			await applyExternalMediaStorage(app, pid, collection, items as Record<string, unknown>[])
-			await resolveRelations(
-				app,
-				pid,
-				items as Record<string, unknown>[],
-				collection.fields || [],
-				params.depth,
-			)
+			// Mirror the live-fallback path: a failure resolving relations or media
+			// must degrade to raw rows, not 500 the whole list.
+			try {
+				await applyExternalMediaStorage(app, pid, collection, items as Record<string, unknown>[])
+				await resolveRelations(
+					app,
+					pid,
+					items as Record<string, unknown>[],
+					collection.fields || [],
+					params.depth,
+				)
+			} catch (err) {
+				app.log.warn(err, 'Content list post-processing failed')
+			}
 		}
 
 		return {

@@ -80,7 +80,7 @@ function SettingsSection({
 				className="w-full flex items-start gap-3 py-5 text-left"
 			>
 				<span
-					className={`mt-1 text-lg leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+					className={`w-5 mt-1 text-lg leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
 				>
 					&#8250;
 				</span>
@@ -91,7 +91,7 @@ function SettingsSection({
 					)}
 				</span>
 			</button>
-			{open && <div className="pb-10">{children}</div>}
+			{open && <div className="pb-10 pl-8">{children}</div>}
 		</section>
 	)
 }
