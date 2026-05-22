@@ -51,6 +51,27 @@ export async function presignR2(
 	return signed.url
 }
 
+/** Generate a short-lived presigned PUT URL for uploading an object to Cloudflare R2. */
+export async function presignR2Put(
+	creds: R2Credentials,
+	key: string,
+	ttl = SIGNED_URL_TTL_SECONDS,
+): Promise<string> {
+	const aws = new AwsClient({
+		accessKeyId: creds.accessKeyId,
+		secretAccessKey: creds.secretAccessKey,
+		service: 's3',
+		region: 'auto',
+	})
+	const encodedKey = key.split('/').map(encodeURIComponent).join('/')
+	const url = new URL(
+		`https://${creds.accountId}.r2.cloudflarestorage.com/${creds.bucket}/${encodedKey}`,
+	)
+	url.searchParams.set('X-Amz-Expires', String(ttl))
+	const signed = await aws.sign(url.toString(), { method: 'PUT', aws: { signQuery: true } })
+	return signed.url
+}
+
 /** Generate a short-lived signed delivery URL for a private Cloudflare Images asset. */
 export function signCloudflareImage(
 	creds: ImagesCredentials,

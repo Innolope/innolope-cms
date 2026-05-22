@@ -1,15 +1,18 @@
+import { randomUUID } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import type { CollectionField } from '@innolope/config'
-import { collections, content, projects } from '@innolope/db'
-import { and, eq } from 'drizzle-orm'
+import { collections, content, importJobs, projects } from '@innolope/db'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
+import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
+import { getMediaStorageMap } from '../../lib/media-storage.js'
+import { isWritableImportedStorage, uploadToImportedStorage } from '../../lib/media-upload.js'
+import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
-import { detectEnumFields } from '../../services/enum-detection.js'
-import { populateMarkdownCache } from '../../services/markdown-cache.js'
 
 /** Block connection strings targeting private/internal networks (SSRF protection). */
 export async function validateConnectionString(connStr: string): Promise<string | null> {
@@ -853,7 +856,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 					)
 				}
 
-				// Populate markdown cache if DB is small enough
+				// Queue a background import to fill the markdown cache, if the
+				// selected collections are small enough to cache at all.
 				const cacheLimitMb =
 					Number(process.env.EXTERNAL_DB_CACHE_LIMIT_MB) ||
 					((settings.externalDb as Record<string, unknown>)?.cacheLimitMb as number) ||
@@ -876,45 +880,41 @@ export async function databaseRoutes(app: FastifyInstance) {
 								selectedSizeBytes += await adapter.estimateTableSizeBytes(col.externalTable)
 							}
 						}
+						await adapter.disconnect()
 
 						if (selectedSizeBytes <= cacheLimitBytes) {
+							// Enqueue one background import job per collection. The import
+							// worker fills the cache; meanwhile the collection is browsable
+							// live from the external DB.
 							for (const col of cacheTargets) {
-								if (col.externalTable) {
-									await populateMarkdownCache(
-										app.db,
-										content,
-										adapter,
-										{
-											id: col.id,
-											projectId: col.projectId,
-											externalTable: col.externalTable,
-											fields: col.fields,
-										},
-										{ userId: request.user?.id },
+								if (!col.externalTable) continue
+								const [activeJob] = await app.db
+									.select({ id: importJobs.id })
+									.from(importJobs)
+									.where(
+										and(
+											eq(importJobs.collectionId, col.id),
+											inArray(importJobs.status, ['pending', 'running']),
+										),
 									)
-
-									// Cached content is now local — upgrade low-cardinality
-									// text fields to enum so they edit as dropdowns.
-									const detected = await detectEnumFields(app.db, content, col.id, col.fields)
-									if (detected !== col.fields) {
-										await app.db
-											.update(collections)
-											.set({ fields: detected, updatedAt: new Date() })
-											.where(eq(collections.id, col.id))
-									}
-								}
+									.limit(1)
+								if (activeJob) continue
+								await app.db.insert(importJobs).values({
+									projectId: col.projectId,
+									collectionId: col.id,
+									externalTable: col.externalTable,
+									createdBy: request.user?.id ?? null,
+								})
 							}
 						} else {
 							const sizeMb = Math.round(selectedSizeBytes / 1024 / 1024)
 							warnings.push(
-								`Selected collections total ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be cached on demand.`,
+								`Selected collections total ${sizeMb} MB (limit: ${cacheLimitMb} MB). Content will be served live from the external database instead of cached.`,
 							)
 						}
-
-						await adapter.disconnect()
 					} catch (err) {
 						warnings.push(
-							`Cache population failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+							`Could not queue content import: ${err instanceof Error ? err.message : 'Unknown error'}`,
 						)
 					}
 				}
@@ -987,6 +987,138 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 	// Probe a sample of an imported media library's files to detect whether they are
 	// publicly fetchable or require signed/credentialed access.
+	// Upload a new file into an imported media library's storage, then add a row
+	// to the external collection (and the local cache) so it shows up immediately.
+	app.post<{ Params: { id: string }; Querystring: { collectionId?: string } }>(
+		'/:id/database/media-upload',
+		{ preHandler: [app.requireProject('editor')] },
+		async (request, reply) => {
+			const collectionId = request.query.collectionId
+			if (!collectionId) {
+				return reply.status(400).send({ error: 'collectionId is required' })
+			}
+			const pid = getProject(request).id
+
+			const [col] = await app.db
+				.select()
+				.from(collections)
+				.where(and(eq(collections.id, collectionId), eq(collections.projectId, pid)))
+				.limit(1)
+			if (!col) return reply.status(404).send({ error: 'Collection not found' })
+			if (col.source !== 'external' || !col.externalTable) {
+				return reply
+					.status(400)
+					.send({ error: 'This collection is not backed by an external table' })
+			}
+			if (col.accessMode === 'read-only') {
+				return reply.status(403).send({ error: 'This collection is read-only' })
+			}
+
+			const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+
+			const entry = getMediaStorageMap(project)[col.externalTable]
+			if (!entry) {
+				return reply
+					.status(400)
+					.send({ error: 'No imported media storage is configured for this collection' })
+			}
+			if (!isWritableImportedStorage(entry)) {
+				return reply
+					.status(400)
+					.send({ error: 'This media library uses public URLs and cannot receive uploads' })
+			}
+
+			const file = await request.file()
+			if (!file) return reply.status(400).send({ error: 'No file provided' })
+			if (isRejectedImageMime(file.mimetype)) {
+				return reply.status(400).send({ error: `Unsupported image type: ${file.mimetype}.` })
+			}
+			let buffer: Buffer
+			try {
+				buffer = await file.toBuffer()
+			} catch {
+				return reply.status(400).send({ error: 'File exceeds the maximum upload size' })
+			}
+			if (file.file.truncated) {
+				return reply.status(400).send({ error: 'File exceeds the maximum upload size' })
+			}
+
+			let uploaded: { key: string }
+			try {
+				uploaded = await uploadToImportedStorage(entry, buffer, file.filename, file.mimetype)
+			} catch (err) {
+				const status = (err as { statusCode?: number }).statusCode || 502
+				return reply
+					.status(status)
+					.send({ error: err instanceof Error ? err.message : 'Upload failed' })
+			}
+
+			// Build the external row: the path column plus best-effort meta columns.
+			const splitCamel = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+			const fieldNames = (col.fields || []).map((f) => f.name)
+			const rowData: Record<string, unknown> = { [entry.pathColumn]: uploaded.key }
+			const fillMeta = (re: RegExp, value: unknown) => {
+				if (value == null) return
+				const match = fieldNames.find(
+					(n) => n !== entry.pathColumn && !(n in rowData) && re.test(splitCamel(n)),
+				)
+				if (match) rowData[match] = value
+			}
+			const dims = getImageDimensions(buffer)
+			fillMeta(/(^|_)(mimetype|mime)($|_)/i, file.mimetype)
+			fillMeta(/(^|_)(filename|name)($|_)/i, file.filename)
+			fillMeta(/(^|_)(filesize|size)($|_)/i, buffer.length)
+			if (dims) {
+				fillMeta(/(^|_)width($|_)/i, dims.width)
+				fillMeta(/(^|_)height($|_)/i, dims.height)
+			}
+
+			// Insert into the external table.
+			const ext = getSavedExternalDb(project)
+			let externalId: string | undefined
+			const adapter = createExternalDbAdapter({
+				type: ext.type as string,
+				connectionString: ext.connectionString as string,
+				database: (ext.database as string | undefined) || undefined,
+			})
+			await adapter.connect()
+			try {
+				const inserted = await adapter.insert(col.externalTable, rowData)
+				externalId = (inserted as { _id?: string })?._id
+			} finally {
+				await adapter.disconnect()
+			}
+
+			// Cache locally so the new media appears immediately in the collection list.
+			const base =
+				file.filename
+					.toLowerCase()
+					.replace(/\.[^.]+$/, '')
+					.replace(/[^a-z0-9]+/g, '-')
+					.replace(/^-+|-+$/g, '')
+					.slice(0, 60) || 'media'
+			const slug = `${base}-${randomUUID().slice(0, 8)}`
+			const [created] = await app.db
+				.insert(content)
+				.values({
+					projectId: pid,
+					slug,
+					collectionId: col.id,
+					metadata: rowData,
+					markdown: '',
+					html: '',
+					locale: 'en',
+					status: 'published',
+					createdBy: getUser(request).id,
+					...(externalId && { externalId }),
+				})
+				.returning()
+
+			return reply.status(201).send(created)
+		},
+	)
+
 	app.post<{ Params: { id: string } }>(
 		'/:id/database/media-probe',
 		{ preHandler: [app.requireProject('admin')] },

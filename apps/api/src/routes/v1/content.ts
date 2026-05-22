@@ -4,10 +4,11 @@ import {
 	content,
 	contentAnalytics,
 	contentVersions,
+	importJobs,
 	media,
 	projects,
 } from '@innolope/db'
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
@@ -20,8 +21,8 @@ function sanitizeHtml(html: string): string {
 	return DOMPurify.sanitize(html)
 }
 
-import { createExternalDbAdapter } from '../../adapters/external-db.js'
-import { externalDocToContentItem } from '../../services/markdown-cache.js'
+import { createExternalDbAdapter, type ExternalDocument } from '../../adapters/external-db.js'
+import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
 
 type ExternalDbConfig = {
 	type: string
@@ -222,6 +223,21 @@ async function loadExternalCollection(
 	return { col, extDb }
 }
 
+/** True while a background import for this collection is queued or running. */
+async function hasActiveImport(app: FastifyInstance, collectionId: string): Promise<boolean> {
+	const [job] = await app.db
+		.select({ id: importJobs.id })
+		.from(importJobs)
+		.where(
+			and(
+				eq(importJobs.collectionId, collectionId),
+				inArray(importJobs.status, ['pending', 'running']),
+			),
+		)
+		.limit(1)
+	return Boolean(job)
+}
+
 /** Push a status change to the external DB row, if the collection is an external read-write source. */
 async function syncExternalStatus(
 	app: FastifyInstance,
@@ -279,7 +295,11 @@ async function fetchLiveExternalRecord(
 	projectId: string,
 	collectionId: string,
 	externalId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<{
+	item: Record<string, unknown>
+	doc: ExternalDocument
+	col: typeof collections.$inferSelect
+} | null> {
 	const loaded = await loadExternalCollection(app, projectId, collectionId)
 	if (!loaded) return null
 	const { col, extDb } = loaded
@@ -290,11 +310,12 @@ async function fetchLiveExternalRecord(
 	try {
 		const doc = await adapter.findById(col.externalTable, externalId)
 		if (!doc) return null
-		return externalDocToContentItem(doc, {
+		const item = externalDocToContentItem(doc, {
 			id: col.id,
 			projectId: col.projectId,
 			fields: col.fields || [],
 		})
+		return { item, doc, col }
 	} finally {
 		await adapter.disconnect()
 	}
@@ -440,9 +461,14 @@ export async function contentRoutes(app: FastifyInstance) {
 			app.db.select({ count: sql<number>`count(*)` }).from(content).where(where),
 		])
 
-		// Live fallback: local cache is empty for this external collection — read directly
-		// from the external DB so records stay visible before a Sync runs.
-		if (collectionId && Number(countResult[0].count) === 0) {
+		// Live fallback: read directly from the external DB so the full collection
+		// stays visible — either it has never been cached, or a background import
+		// is still running (the partial cache would otherwise show only a subset).
+		if (
+			collectionId &&
+			(Number(countResult[0].count) === 0 ||
+				(collection?.source === 'external' && (await hasActiveImport(app, collectionId))))
+		) {
 			try {
 				const live = await fetchLiveExternalContent(app, pid, collectionId, { limit, offset })
 				if (live) {
@@ -574,15 +600,27 @@ export async function contentRoutes(app: FastifyInstance) {
 			// Live fallback: not in the local cache — try reading the row directly from the external DB.
 			if (!item && request.query.collectionId) {
 				try {
+					const collectionId = request.query.collectionId
 					const live = await fetchLiveExternalRecord(
 						app,
 						getProject(request).id,
-						request.query.collectionId,
+						collectionId,
 						request.params.id,
 					)
 					if (live) {
-						await hydrateRelations(app, getProject(request).id, live, request.query.depth)
-						return live
+						await hydrateRelations(app, getProject(request).id, live.item, request.query.depth)
+						// Priority caching: while a background import is still running,
+						// promote the visited record into the cache ahead of the queue so
+						// it is editable on the next load. Fire-and-forget so the response
+						// is not delayed.
+						if (await hasActiveImport(app, collectionId)) {
+							cacheMissingDocs(app.db, content, [live.doc], {
+								id: live.col.id,
+								projectId: live.col.projectId,
+								fields: live.col.fields || [],
+							}).catch((err) => app.log.warn(err, 'Priority cache of visited record failed'))
+						}
+						return live.item
 					}
 				} catch (err) {
 					app.log.warn(err, 'Live external record fallback failed')

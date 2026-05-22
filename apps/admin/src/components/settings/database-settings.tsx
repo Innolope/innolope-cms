@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
@@ -75,6 +75,7 @@ interface MediaCreds {
 	bucket: string
 	accountHash: string
 	signingKey: string
+	apiToken: string
 }
 
 const emptyCreds = (): MediaCreds => ({
@@ -84,6 +85,7 @@ const emptyCreds = (): MediaCreds => ({
 	bucket: '',
 	accountHash: '',
 	signingKey: '',
+	apiToken: '',
 })
 
 interface MediaStorageConfig {
@@ -407,6 +409,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		'scanning' | 'importing' | 'finishing' | 'done' | null
 	>(null)
 	const [resyncResult, setResyncResult] = useState<{ count: number } | null>(null)
+	// Tables returned by the re-sync scan, awaiting the user's collection selection.
+	const [resyncTables, setResyncTables] = useState<DetectedTable[] | null>(null)
+	const [resyncSelected, setResyncSelected] = useState<Set<string>>(new Set())
 	const [tableSort, setTableSort] = useState<'name' | 'records'>('name')
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [accessMode, setAccessMode] = useState<'read-write' | 'read-only'>('read-write')
@@ -783,37 +788,70 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		}
 	}
 
-	// Re-scan the already-connected database and refresh imported collections' field
-	// schema (e.g. picks up new date/relation typing). Uses the server-saved connection string.
-	const resyncSchema = async () => {
-		if (!currentProject) return
-		const ext = (currentProject.settings as Record<string, unknown> | undefined)?.externalDb as
+	// External-DB config saved on the project (the connection string never round-trips
+	// to the client, so re-sync reuses the server-stored one).
+	const externalDbSettings = () =>
+		(currentProject?.settings as Record<string, unknown> | undefined)?.externalDb as
 			| Record<string, unknown>
 			| undefined
-		if (!ext?.type) return
+
+	// Re-sync step 1: re-scan the connected database and show its tables so the user
+	// can choose which collections to display.
+	const startResync = async () => {
+		const ext = externalDbSettings()
+		if (!currentProject || !ext?.type) return
 		setResyncing(true)
 		setResyncResult(null)
+		setResyncTables(null)
 		setResyncPhase('scanning')
 		try {
 			const scan = await api.post<{ tables: DetectedTable[] }>(
 				`/api/v1/projects/${currentProject.id}/database/scan`,
 				{ type: ext.type, database: ext.database || undefined },
 			)
-			const importedNames = new Set((ext.tables as string[]) || [])
-			const toImport = new Set(importedNames)
-			// Include related collections so relation fields stay editable.
-			for (const t of scan.tables) {
-				if (importedNames.has(t.name)) {
-					for (const target of relationTargets(t, scan.tables)) toImport.add(target)
-				}
+			const scanned = new Set(scan.tables.map((t) => t.name))
+			// Pre-select the collections already imported (that still exist in the database).
+			const imported = ((ext.tables as string[]) || []).filter((n) => scanned.has(n))
+			setResyncSelected(new Set(imported))
+			setResyncTables(scan.tables)
+			setResyncPhase(null)
+		} catch (err) {
+			setResyncPhase(null)
+			toast(err instanceof Error ? err.message : 'Re-sync failed', 'error')
+		} finally {
+			setResyncing(false)
+		}
+	}
+
+	const toggleResyncTable = (name: string) => {
+		setResyncSelected((prev) => {
+			const next = new Set(prev)
+			if (next.has(name)) next.delete(name)
+			else next.add(name)
+			return next
+		})
+	}
+
+	// Re-sync step 2: import the chosen collections and refresh their field schema
+	// (picks up new date/relation typing). Related tables are pulled in automatically.
+	const confirmResync = async () => {
+		const ext = externalDbSettings()
+		if (!currentProject || !ext?.type || !resyncTables) return
+		const toImport = new Set(resyncSelected)
+		// Include related collections so relation fields stay editable.
+		for (const t of resyncTables) {
+			if (resyncSelected.has(t.name)) {
+				for (const target of relationTargets(t, resyncTables)) toImport.add(target)
 			}
-			const tablesToSave = scan.tables.filter((t) => toImport.has(t.name))
-			if (tablesToSave.length === 0) {
-				setResyncPhase(null)
-				toast('No imported collections found to re-sync', 'error')
-				return
-			}
-			setResyncPhase('importing')
+		}
+		const tablesToSave = resyncTables.filter((t) => toImport.has(t.name))
+		if (tablesToSave.length === 0) {
+			toast('Select at least one collection to display', 'error')
+			return
+		}
+		setResyncing(true)
+		setResyncPhase('importing')
+		try {
 			const result = await api.put<{ collections: Array<{ name: string }>; warnings?: string[] }>(
 				`/api/v1/projects/${currentProject.id}/database`,
 				{
@@ -832,7 +870,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			if (result.warnings?.length) {
 				for (const w of result.warnings) toast(w, 'error')
 			}
-			setResyncResult({ count: result.collections?.length ?? tablesToSave.length })
+			setResyncResult({ count: tablesToSave.length })
+			setResyncTables(null)
 			setResyncPhase('done')
 		} catch (err) {
 			setResyncPhase(null)
@@ -927,7 +966,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							</div>
 							<button
 								type="button"
-								onClick={resyncSchema}
+								onClick={startResync}
 								disabled={resyncing}
 								className="shrink-0 px-3 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 							>
@@ -989,15 +1028,78 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								)}
 							</div>
 						)}
+
+						{resyncTables && !resyncPhase && (
+							<div className="mt-3 pt-3 border-t border-border">
+								<p className="text-xs font-medium text-text-secondary mb-2">
+									Select collections to display
+								</p>
+								{resyncTables.length === 0 ? (
+									<p className="text-xs text-text-muted py-2">
+										No collections found in this database.
+									</p>
+								) : (
+									<div className="max-h-64 overflow-auto">
+										{[...resyncTables]
+											.sort((a, b) => a.name.localeCompare(b.name))
+											.map((t) => (
+												<label
+													key={t.name}
+													className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-surface-alt cursor-pointer"
+												>
+													<input
+														type="checkbox"
+														checked={resyncSelected.has(t.name)}
+														onChange={() => toggleResyncTable(t.name)}
+														className="rounded"
+													/>
+													<span className="text-sm text-text flex-1 min-w-0">
+														{t.name}
+														{relationTargets(t, resyncTables).map((target) => (
+															<span
+																key={target}
+																title={`References ${target} — imported automatically`}
+																className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted"
+															>
+																&rarr; {target}
+															</span>
+														))}
+													</span>
+													<span className="text-xs text-text-muted shrink-0">
+														{t.count ?? '—'} record{t.count === 1 ? '' : 's'}
+													</span>
+												</label>
+											))}
+									</div>
+								)}
+								<div className="mt-3 flex items-center gap-2">
+									<button
+										type="button"
+										onClick={confirmResync}
+										disabled={resyncing || resyncSelected.size === 0}
+										className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+									>
+										Import {resyncSelected.size} collection
+										{resyncSelected.size === 1 ? '' : 's'}
+									</button>
+									<button
+										type="button"
+										onClick={() => setResyncTables(null)}
+										className="text-sm text-text-secondary hover:text-text"
+									>
+										Cancel
+									</button>
+								</div>
+							</div>
+						)}
 					</div>
 				)}
 
 				{connectedOption && <ImportedMediaStorage />}
 
-				<div>
-					<div className="block text-xs text-text-secondary mb-2">
-						{hasExternalDb ? 'Change database source' : 'Select database source'}
-					</div>
+				<CollapsibleCard
+					title={hasExternalDb ? 'Change database source' : 'Select database source'}
+				>
 					<div className="grid grid-cols-3 gap-3">
 						{DB_OPTIONS.map((opt) => (
 							<button
@@ -1025,7 +1127,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							</button>
 						))}
 					</div>
-				</div>
+				</CollapsibleCard>
 
 				{dbType === 'built-in' && (
 					<p className="text-xs text-text-muted">
@@ -1711,6 +1813,19 @@ function MediaStorageCard({
 					) : selectedProvider === 'cloudflare-images' ? (
 						<div className="space-y-2.5">
 							<CredField
+								label="Account ID"
+								value={creds.accountId}
+								onChange={(v) => onChangeCreds({ accountId: v })}
+								saved={config.hasCredentials}
+							/>
+							<CredField
+								label="API token"
+								value={creds.apiToken}
+								onChange={(v) => onChangeCreds({ apiToken: v })}
+								password
+								saved={config.hasCredentials}
+							/>
+							<CredField
 								label="Account hash"
 								value={creds.accountHash}
 								onChange={(v) => onChangeCreds({ accountHash: v })}
@@ -1793,6 +1908,44 @@ function MediaStorageCard({
 					)}
 				</div>
 			)}
+		</div>
+	)
+}
+
+/** Bordered card with a clickable header that collapses its body. Collapsed by default. */
+function CollapsibleCard({
+	title,
+	description,
+	defaultOpen = false,
+	children,
+}: {
+	title: string
+	description?: string
+	defaultOpen?: boolean
+	children: ReactNode
+}) {
+	const [open, setOpen] = useState(defaultOpen)
+	return (
+		<div className="rounded-lg border border-border">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				aria-expanded={open}
+				className="w-full flex items-start gap-2.5 px-4 py-3 text-left"
+			>
+				<span
+					className={`mt-0.5 text-base leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+				>
+					&#8250;
+				</span>
+				<span className="flex-1 min-w-0">
+					<span className="block text-sm text-text font-medium">{title}</span>
+					{description && (
+						<span className="block text-xs text-text-muted mt-0.5">{description}</span>
+					)}
+				</span>
+			</button>
+			{open && <div className="px-4 pb-4">{children}</div>}
 		</div>
 	)
 }
@@ -1954,47 +2107,42 @@ function ImportedMediaStorage() {
 		}
 	}
 
+	const mediaDescription = `We check where the files for your imported media ${mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found below — confirm the host, and add credentials if they're private.`
 	return (
-		<div className="px-4 py-3 rounded-lg border border-border space-y-3">
-			<div>
-				<p className="text-sm text-text font-medium">Imported media storage</p>
-				<p className="text-xs text-text-muted mt-0.5">
-					We check where the files for your imported media{' '}
-					{mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found below
-					— confirm the host, and add credentials if they're private.
-				</p>
+		<CollapsibleCard title="Imported media storage" description={mediaDescription}>
+			<div className="space-y-3">
+				{mediaCols.map((c) => {
+					const cfg = configs[c.name] || {
+						enabled: true,
+						adapter: 'absolute',
+						pathColumn: pickPathField(c.fields),
+						baseUrl: '',
+						access: 'public' as const,
+						credentials: emptyCreds(),
+						hasCredentials: false,
+					}
+					return (
+						<MediaStorageCard
+							key={c.id}
+							name={c.name}
+							label={c.label || c.name}
+							columnNames={c.fields.map((f) => f.name)}
+							config={cfg}
+							probeState={probes[c.name]}
+							onChange={(patch) => update(c.name, patch)}
+							onChangeCreds={(patch) => updateCreds(c.name, patch)}
+							onProbe={() => probe(c.name)}
+						/>
+					)
+				})}
+				<SaveBar
+					dirty={dirty}
+					saving={saving}
+					saved={saved}
+					onSave={save}
+					saveLabel="Save media storage"
+				/>
 			</div>
-			{mediaCols.map((c) => {
-				const cfg = configs[c.name] || {
-					enabled: true,
-					adapter: 'absolute',
-					pathColumn: pickPathField(c.fields),
-					baseUrl: '',
-					access: 'public' as const,
-					credentials: emptyCreds(),
-					hasCredentials: false,
-				}
-				return (
-					<MediaStorageCard
-						key={c.id}
-						name={c.name}
-						label={c.label || c.name}
-						columnNames={c.fields.map((f) => f.name)}
-						config={cfg}
-						probeState={probes[c.name]}
-						onChange={(patch) => update(c.name, patch)}
-						onChangeCreds={(patch) => updateCreds(c.name, patch)}
-						onProbe={() => probe(c.name)}
-					/>
-				)
-			})}
-			<SaveBar
-				dirty={dirty}
-				saving={saving}
-				saved={saved}
-				onSave={save}
-				saveLabel="Save media storage"
-			/>
-		</div>
+		</CollapsibleCard>
 	)
 }

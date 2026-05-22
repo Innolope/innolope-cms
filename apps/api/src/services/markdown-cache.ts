@@ -6,7 +6,7 @@ interface CollectionField {
 }
 
 import type { content, contentVersions, Database } from '@innolope/db'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
 
 /** Postgres `unique_violation` — the row already exists under a colliding slug. */
@@ -211,6 +211,59 @@ export async function syncMarkdownCache(
 	}
 
 	return { created, updated }
+}
+
+/**
+ * Cache the external docs that are not yet in the local `content` table, in a
+ * handful of queries (one existence lookup + one bulk insert per call). Never
+ * overwrites an existing row, so records the user already opened or edited
+ * mid-import are left intact. Idempotent — safe to re-run on the same batch.
+ * Returns the number of rows inserted.
+ */
+export async function cacheMissingDocs(
+	db: Database,
+	contentTable: ContentTable,
+	docs: ExternalDocument[],
+	collection: {
+		id: string
+		projectId: string
+		fields: CollectionField[]
+	},
+	opts: Pick<SyncOptions, 'userId'> = {},
+): Promise<number> {
+	if (docs.length === 0) return 0
+
+	const existing = await db
+		.select({ externalId: contentTable.externalId })
+		.from(contentTable)
+		.where(
+			and(
+				eq(contentTable.projectId, collection.projectId),
+				eq(contentTable.collectionId, collection.id),
+				inArray(
+					contentTable.externalId,
+					docs.map((doc) => doc._id),
+				),
+			),
+		)
+	const cached = new Set(existing.map((row) => row.externalId))
+
+	const rows = docs
+		.filter((doc) => !cached.has(doc._id))
+		.map((doc) => {
+			const { values, slug } = buildCachedContentValues(doc, collection, opts)
+			return { ...values, slug: `${slug}-${doc._id.slice(-6)}` }
+		})
+	if (rows.length === 0) return 0
+
+	// onConflictDoNothing skips the rare colliding slug — and makes a re-run of a
+	// partially-applied batch (after a worker restart) harmless.
+	const inserted = await db
+		.insert(contentTable)
+		.values(rows)
+		.onConflictDoNothing()
+		.returning({ id: contentTable.id })
+	return inserted.length
 }
 
 /** Compare cached CMS rows with the external source before applying a sync. */

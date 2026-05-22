@@ -1,6 +1,6 @@
 import type { CollectionField } from '@innolope/config'
-import { collections, content, contentVersions, projects } from '@innolope/db'
-import { and, asc, eq, ne, sql } from 'drizzle-orm'
+import { collections, content, contentVersions, importJobs, projects } from '@innolope/db'
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import { getProject } from '../../plugins/project.js'
@@ -79,6 +79,33 @@ export async function collectionRoutes(app: FastifyInstance) {
 
 			if (!item) return reply.status(404).send({ error: 'Collection not found' })
 			return item
+		},
+	)
+
+	// Background-import status for a collection (viewer+, project-scoped).
+	// Returns the latest import job, or null when none has ever been queued.
+	app.get<{ Params: { id: string } }>(
+		'/:id/import-status',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request) => {
+			const [job] = await app.db
+				.select({
+					status: importJobs.status,
+					processed: importJobs.processed,
+					total: importJobs.total,
+					error: importJobs.error,
+					updatedAt: importJobs.updatedAt,
+				})
+				.from(importJobs)
+				.where(
+					and(
+						eq(importJobs.collectionId, request.params.id),
+						eq(importJobs.projectId, getProject(request).id),
+					),
+				)
+				.orderBy(desc(importJobs.createdAt))
+				.limit(1)
+			return job ?? null
 		},
 	)
 

@@ -29,6 +29,13 @@
       "when": 1779148178287,
       "tag": "0003_rainy_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779459255923,
+      "tag": "0004_aromatic_whizzer",
+      "breakpoints": true
     }
   ]
 }

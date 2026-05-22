@@ -149,15 +149,15 @@ export function LicenseSettings() {
 					Paste the license key from your Innolope CMS purchase. Keys start with{' '}
 					<code className="text-xs">ink-lic_</code>.
 				</p>
-				<textarea
+				<input
+					type="text"
 					value={keyInput}
 					onChange={(e) => {
 						setKeyInput(e.target.value)
 						setError('')
 					}}
-					rows={3}
 					placeholder="ink-lic_..."
-					className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm font-mono text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong resize-none"
+					className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm font-mono text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
 				/>
 				{error && (
 					<p className="mt-2 text-sm text-danger bg-danger-surface px-3 py-2 rounded">{error}</p>

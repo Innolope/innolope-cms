@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
-import { hasFeature, LicenseGate, ProBadge, useLicense } from '../components/license-gate'
+import { LicenseGate, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
 import { CustomDomainSettings } from '../components/settings/custom-domain-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
@@ -34,38 +34,74 @@ interface NewKeyResponse extends ApiKeyItem {
 	warning: string
 }
 
-type SettingsTab =
-	| 'general'
-	| 'team'
-	| 'sso'
-	| 'api-keys'
-	| 'ai-models'
-	| 'search'
-	| 'webhooks'
-	| 'media'
-	| 'database'
-	| 'custom-domain'
-	| 'license'
+type SettingsTab = 'general' | 'access' | 'ai' | 'storage' | 'developer' | 'license'
 
-const TABS: { id: SettingsTab; label: string; pro?: string; hideInCloud?: boolean }[] = [
+const TABS: { id: SettingsTab; label: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
-	{ id: 'team', label: 'Team' },
-	{ id: 'sso', label: 'SSO', pro: 'sso' },
-	{ id: 'custom-domain', label: 'Custom Domain', pro: 'custom-domain' },
-	{ id: 'database', label: 'Database' },
-	{ id: 'api-keys', label: 'API Keys' },
-	{ id: 'ai-models', label: 'AI Models' },
-	{ id: 'search', label: 'Semantic Search', pro: 'ai-assistant' },
-	{ id: 'webhooks', label: 'Webhooks', pro: 'webhooks' },
-	{ id: 'media', label: 'Media' },
+	{ id: 'access', label: 'Access' },
+	{ id: 'ai', label: 'AI' },
+	{ id: 'storage', label: 'Storage' },
+	{ id: 'developer', label: 'Developer' },
 	{ id: 'license', label: 'License', hideInCloud: true },
 ]
+
+const VALID_TABS = new Set<string>(TABS.map((t) => t.id))
+
+const LEGACY_TABS: Record<string, SettingsTab> = {
+	team: 'access',
+	sso: 'access',
+	'ai-models': 'ai',
+	search: 'ai',
+	database: 'storage',
+	media: 'storage',
+	'api-keys': 'developer',
+	webhooks: 'developer',
+	'custom-domain': 'developer',
+}
+
+function SettingsSection({
+	title,
+	description,
+	defaultOpen = false,
+	children,
+}: {
+	title: string
+	description?: string
+	defaultOpen?: boolean
+	children: ReactNode
+}) {
+	const [open, setOpen] = useState(defaultOpen)
+	return (
+		<section className="[&:not(:first-child)]:border-t border-border">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				aria-expanded={open}
+				className="w-full flex items-start gap-3 py-5 text-left"
+			>
+				<span
+					className={`mt-1 text-lg leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+				>
+					&#8250;
+				</span>
+				<span className="flex-1">
+					<span className="block text-lg font-semibold text-text">{title}</span>
+					{description && (
+						<span className="block text-sm text-text-secondary mt-0.5">{description}</span>
+					)}
+				</span>
+			</button>
+			{open && <div className="pb-10">{children}</div>}
+		</section>
+	)
+}
 
 function Settings() {
 	const license = useLicense()
 	const [tab, setTabState] = useState<SettingsTab>(() => {
-		const params = new URLSearchParams(window.location.search)
-		return (params.get('tab') as SettingsTab) || 'general'
+		const raw = new URLSearchParams(window.location.search).get('tab') || ''
+		if (VALID_TABS.has(raw)) return raw as SettingsTab
+		return LEGACY_TABS[raw] || 'general'
 	})
 
 	const setTab = (t: SettingsTab) => {
@@ -95,7 +131,6 @@ function Settings() {
 						}`}
 					>
 						{t.label}
-						{t.pro && !hasFeature(license, t.pro) && <ProBadge />}
 					</button>
 				))}
 			</div>
@@ -104,40 +139,76 @@ function Settings() {
 			<div className={tab === 'general' ? '' : 'hidden'}>
 				<GeneralSettings />
 			</div>
-			<div className={tab === 'team' ? '' : 'hidden'}>
-				<TeamSettings />
+			<div className={tab === 'access' ? '' : 'hidden'}>
+				<SettingsSection
+					title="Team Members"
+					description="Manage who has access to this project and their roles."
+					defaultOpen
+				>
+					<TeamSettings />
+				</SettingsSection>
+				<SettingsSection
+					title="Single Sign-On (SSO)"
+					description="Let your team sign in with SAML or OIDC."
+				>
+					<LicenseGate feature="sso" featureLabel="Single Sign-On (SAML &amp; OIDC)">
+						<SsoSettings />
+					</LicenseGate>
+				</SettingsSection>
 			</div>
-			<div className={tab === 'sso' ? '' : 'hidden'}>
-				<LicenseGate feature="sso" featureLabel="Single Sign-On (SAML &amp; OIDC)">
-					<SsoSettings />
-				</LicenseGate>
+			<div className={tab === 'ai' ? '' : 'hidden'}>
+				<SettingsSection
+					title="AI Models"
+					description="Configure AI providers and the default model."
+					defaultOpen
+				>
+					<AiSettingsPanel />
+				</SettingsSection>
+				<SettingsSection
+					title="Semantic Search"
+					description="Vector embeddings that power semantic content search."
+				>
+					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
+						<EmbeddingSettings />
+					</LicenseGate>
+				</SettingsSection>
 			</div>
-			<div className={tab === 'api-keys' ? '' : 'hidden'}>
-				<ApiKeysContent />
+			<div className={tab === 'storage' ? '' : 'hidden'}>
+				<SettingsSection
+					title="Database"
+					description="Connect and map an external database."
+					defaultOpen
+				>
+					<DatabaseSettings />
+				</SettingsSection>
+				<SettingsSection
+					title="Media Storage"
+					description="Choose where uploaded media files are stored."
+				>
+					<MediaSettings />
+				</SettingsSection>
 			</div>
-			<div className={tab === 'ai-models' ? '' : 'hidden'}>
-				<AiSettingsPanel />
-			</div>
-			<div className={tab === 'search' ? '' : 'hidden'}>
-				<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
-					<EmbeddingSettings />
-				</LicenseGate>
-			</div>
-			<div className={tab === 'webhooks' ? '' : 'hidden'}>
-				<LicenseGate feature="webhooks" featureLabel="Webhooks">
-					<WebhookSettings />
-				</LicenseGate>
-			</div>
-			<div className={tab === 'media' ? '' : 'hidden'}>
-				<MediaSettings />
-			</div>
-			<div className={tab === 'database' ? '' : 'hidden'}>
-				<DatabaseSettings />
-			</div>
-			<div className={tab === 'custom-domain' ? '' : 'hidden'}>
-				<LicenseGate feature="custom-domain" featureLabel="Custom Domain">
-					<CustomDomainSettings />
-				</LicenseGate>
+			<div className={tab === 'developer' ? '' : 'hidden'}>
+				<SettingsSection
+					title="API Keys"
+					description="Generate and manage keys for the public API."
+					defaultOpen
+				>
+					<ApiKeysContent />
+				</SettingsSection>
+				<SettingsSection title="Webhooks" description="Send events to external services.">
+					<LicenseGate feature="webhooks" featureLabel="Webhooks">
+						<WebhookSettings />
+					</LicenseGate>
+				</SettingsSection>
+				<SettingsSection
+					title="Custom Domain"
+					description="Serve this project from your own domain."
+				>
+					<LicenseGate feature="custom-domain" featureLabel="Custom Domain">
+						<CustomDomainSettings />
+					</LicenseGate>
+				</SettingsSection>
 			</div>
 			<div className={tab === 'license' ? '' : 'hidden'}>
 				<LicenseSettings />

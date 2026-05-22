@@ -44,6 +44,11 @@ export const content = pgTable(
 			table.collectionId,
 			table.status,
 		),
+		index('content_project_collection_external_idx').on(
+			table.projectId,
+			table.collectionId,
+			table.externalId,
+		),
 		index('content_project_status_created_idx').on(table.projectId, table.status, table.createdAt),
 		index('content_project_updated_idx').on(table.projectId, table.updatedAt),
 	],

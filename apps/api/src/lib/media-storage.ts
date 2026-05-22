@@ -17,6 +17,8 @@ export interface MediaStorageCredentials {
 	// Cloudflare Images
 	accountHash?: string
 	signingKey?: string
+	/** API token — required to upload new images (read/signing only needs accountHash + signingKey). */
+	apiToken?: string
 }
 
 export interface MediaStorageEntry {

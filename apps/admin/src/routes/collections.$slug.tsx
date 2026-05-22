@@ -1,9 +1,18 @@
 import { createFileRoute, Link, Outlet, useLocation } from '@tanstack/react-router'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+	type ChangeEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
 import { usePrompt } from '../lib/confirm'
 import { absoluteDate, relativeTime } from '../lib/relative-time'
@@ -40,6 +49,13 @@ interface ContentResponse {
 	data: ContentItem[]
 	pagination: { page: number; limit: number; total: number; totalPages: number }
 	live?: boolean
+}
+
+interface ImportStatus {
+	status: 'pending' | 'running' | 'completed' | 'failed'
+	processed: number
+	total: number | null
+	error: string | null
 }
 
 interface SyncPreviewItem {
@@ -265,7 +281,26 @@ function CollectionContentList() {
 	const toast = useToast()
 	const prompt = usePrompt()
 	const license = useLicense()
+	const { currentProject } = useAuth()
 	const showReviewQueue = hasFeature(license, 'review-workflows')
+	const [uploading, setUploading] = useState(false)
+	const fileInputRef = useRef<HTMLInputElement>(null)
+
+	// An imported media collection backed by writable external storage can receive uploads.
+	const mediaUpload = useMemo(() => {
+		if (!collection || collection.source !== 'external' || collection.accessMode !== 'read-write') {
+			return null
+		}
+		const externalDb = (currentProject?.settings as Record<string, unknown> | undefined)
+			?.externalDb as Record<string, unknown> | undefined
+		const map = externalDb?.mediaStorage as
+			| Record<string, { adapter?: string; hasCredentials?: boolean }>
+			| undefined
+		const entry = map?.[collection.name]
+		if (!entry || (entry.adapter !== 'r2' && entry.adapter !== 'cloudflare-images')) return null
+		if (!entry.hasCredentials) return null
+		return entry
+	}, [collection, currentProject])
 
 	const [tab, setTabState] = useState<'all' | 'review'>(() => {
 		const params = new URLSearchParams(window.location.search)
@@ -280,6 +315,7 @@ function CollectionContentList() {
 
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [isLive, setIsLive] = useState(false)
+	const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
 	const [ready, setReady] = useState(false)
@@ -351,6 +387,47 @@ function CollectionContentList() {
 	useEffect(() => {
 		fetchContent()
 	}, [fetchContent])
+
+	// Poll the background-import status while a job is in progress.
+	useEffect(() => {
+		if (!collection || collection.source !== 'external') {
+			setImportStatus(null)
+			return
+		}
+		let cancelled = false
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const poll = () => {
+			api
+				.get<ImportStatus | null>(`/api/v1/collections/${collection.id}/import-status`)
+				.then((status) => {
+					if (cancelled) return
+					setImportStatus(status)
+					if (status?.status === 'pending' || status?.status === 'running') {
+						timer = setTimeout(poll, 2500)
+					}
+				})
+				.catch(() => {})
+		}
+		poll()
+		return () => {
+			cancelled = true
+			if (timer) clearTimeout(timer)
+		}
+	}, [collection])
+
+	// When the import finishes, refresh the list so it serves from the cache.
+	const prevImportStatus = useRef<string | undefined>(undefined)
+	useEffect(() => {
+		const current = importStatus?.status
+		if (
+			prevImportStatus.current &&
+			prevImportStatus.current !== current &&
+			(current === 'completed' || current === 'failed')
+		) {
+			fetchContent()
+		}
+		prevImportStatus.current = current
+	}, [importStatus, fetchContent])
 
 	const fetchReviewQueue = useCallback(() => {
 		if (!collection) return
@@ -438,7 +515,33 @@ function CollectionContentList() {
 		)
 	}
 
+	const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+		const files = e.target.files
+		if (!files || files.length === 0 || !collection || !currentProject) return
+		setUploading(true)
+		let ok = 0
+		try {
+			for (const file of Array.from(files)) {
+				const form = new FormData()
+				form.append('file', file)
+				await api.upload(
+					`/api/v1/projects/${currentProject.id}/database/media-upload?collectionId=${collection.id}`,
+					form,
+				)
+				ok++
+			}
+			toast(`Uploaded ${ok} file${ok === 1 ? '' : 's'}`, 'success')
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+		} finally {
+			if (ok > 0) fetchContent()
+			setUploading(false)
+			e.target.value = ''
+		}
+	}
+
 	const showToolbar = total > 0 || search || hasActiveFilters
+	const importActive = importStatus?.status === 'pending' || importStatus?.status === 'running'
 
 	return (
 		<div className="p-8 pt-5 flex flex-col h-full">
@@ -487,6 +590,26 @@ function CollectionContentList() {
 							{previewLoading ? 'Checking...' : syncing ? 'Syncing...' : 'Sync'}
 						</button>
 					)}
+					{mediaUpload && (
+						<>
+							<input
+								ref={fileInputRef}
+								type="file"
+								multiple
+								accept={mediaUpload.adapter === 'cloudflare-images' ? 'image/*' : undefined}
+								onChange={handleUpload}
+								className="hidden"
+							/>
+							<button
+								type="button"
+								onClick={() => fileInputRef.current?.click()}
+								disabled={uploading}
+								className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors disabled:opacity-50"
+							>
+								{uploading ? 'Uploading…' : 'Upload'}
+							</button>
+						</>
+					)}
 					<Link
 						to="/collections/$slug/edit"
 						params={{ slug }}
@@ -508,7 +631,54 @@ function CollectionContentList() {
 
 			{tab === 'all' ? (
 				<>
-					{isLive && (
+					{importActive && (
+						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
+							<svg
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="mt-0.5 shrink-0 text-text-muted animate-spin"
+							>
+								<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+							</svg>
+							<span>
+								Importing content from the external database —{' '}
+								{importStatus?.total != null
+									? `${importStatus.processed} of ${importStatus.total} records cached`
+									: `${importStatus?.processed ?? 0} records cached`}
+								. The full collection is browsable now; search, filtering, and editing become
+								available once the import finishes.
+							</span>
+						</div>
+					)}
+					{importStatus?.status === 'failed' && (
+						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
+							<svg
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="mt-0.5 shrink-0 text-text-muted"
+							>
+								<path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+							</svg>
+							<span>
+								Content import did not finish
+								{importStatus.error ? `: ${importStatus.error}` : ''}. Some records may be missing —
+								re-run the import from the database settings, or use Sync.
+							</span>
+						</div>
+					)}
+					{isLive && !importActive && (
 						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
 							<svg
 								width="14"
