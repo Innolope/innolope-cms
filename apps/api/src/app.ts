@@ -256,14 +256,27 @@ export async function buildApp() {
 			})
 		}
 
-		app.log.error({ err: error, url: request.url, method: request.method }, 'Request failed')
+		// Drizzle wraps DB driver errors and its top-level message is just
+		// "Failed query: ..." with the SQL and params — the actual reason
+		// ("column X does not exist", unique-constraint violation, etc.) lives
+		// on `error.cause`. Pull it up so logs and 500 responses show it.
+		const cause = (error as { cause?: unknown }).cause
+		const pgCause =
+			cause && typeof cause === 'object'
+				? (cause as { message?: string; code?: string; detail?: string; hint?: string })
+				: null
+
+		app.log.error(
+			{ err: error, cause: pgCause ?? undefined, url: request.url, method: request.method },
+			'Request failed',
+		)
 		const statusCode = error.statusCode || 500
 		// Report 5xx errors to Sentry
 		if (statusCode >= 500 && process.env.SENTRY_DSN) {
 			try {
 				const Sentry = await import('@sentry/node')
 				Sentry.captureException(error, {
-					extra: { url: request.url, method: request.method },
+					extra: { url: request.url, method: request.method, cause: pgCause ?? undefined },
 				})
 			} catch (e) {
 				app.log.error(e)
@@ -272,6 +285,16 @@ export async function buildApp() {
 		reply.status(statusCode).send({
 			error: statusCode >= 500 ? 'Internal server error' : error.message,
 			statusCode,
+			...(statusCode >= 500 && pgCause?.message
+				? {
+						cause: {
+							message: pgCause.message,
+							...(pgCause.code && { code: pgCause.code }),
+							...(pgCause.detail && { detail: pgCause.detail }),
+							...(pgCause.hint && { hint: pgCause.hint }),
+						},
+					}
+				: {}),
 		})
 	})
 
