@@ -40,7 +40,7 @@ const TABS: { id: SettingsTab; label: string; hideInCloud?: boolean }[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'access', label: 'Access' },
 	{ id: 'ai', label: 'AI' },
-	{ id: 'storage', label: 'Storage' },
+	{ id: 'storage', label: 'Content Storage' },
 	{ id: 'developer', label: 'Developer' },
 	{ id: 'license', label: 'License', hideInCloud: true },
 ]

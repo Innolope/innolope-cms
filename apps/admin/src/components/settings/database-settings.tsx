@@ -1099,6 +1099,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 				<CollapsibleCard
 					title={hasExternalDb ? 'Change database source' : 'Select database source'}
+					defaultOpen={!!onChangeDatabase}
+					borderless={!!onChangeDatabase}
 				>
 					<div className="grid grid-cols-3 gap-3">
 						{DB_OPTIONS.map((opt) => (
@@ -1155,11 +1157,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 		return (
 			<div>
-				{!onChangeDatabase && (
-					<div className="-mt-2 -ml-1 mb-6">
-						<BackLink onClick={goBack}>Change provider</BackLink>
-					</div>
-				)}
+				<div className="-mt-2 -ml-1 mb-6">
+					<BackLink onClick={goBack}>Change provider</BackLink>
+				</div>
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={1} />
 
@@ -1912,26 +1912,28 @@ function MediaStorageCard({
 	)
 }
 
-/** Bordered card with a clickable header that collapses its body. Collapsed by default. */
+/** Collapsible header + body. Defaults to a bordered card; pass `borderless` to render flush. */
 function CollapsibleCard({
 	title,
 	description,
 	defaultOpen = false,
+	borderless = false,
 	children,
 }: {
 	title: string
 	description?: string
 	defaultOpen?: boolean
+	borderless?: boolean
 	children: ReactNode
 }) {
 	const [open, setOpen] = useState(defaultOpen)
 	return (
-		<div className="rounded-lg border border-border">
+		<div className={borderless ? '' : 'rounded-lg border border-border'}>
 			<button
 				type="button"
 				onClick={() => setOpen((v) => !v)}
 				aria-expanded={open}
-				className="w-full flex items-start gap-3 px-4 py-3 text-left"
+				className={`w-full flex items-start gap-3 text-left ${borderless ? 'px-0 py-2' : 'px-4 py-3'}`}
 			>
 				<span
 					className={`w-5 mt-0.5 text-base leading-none text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
@@ -1945,7 +1947,9 @@ function CollapsibleCard({
 					)}
 				</span>
 			</button>
-			{open && <div className="pl-12 pr-4 pb-4">{children}</div>}
+			{open && (
+				<div className={borderless ? 'pl-8 pt-2' : 'pl-12 pr-4 pb-4'}>{children}</div>
+			)}
 		</div>
 	)
 }
