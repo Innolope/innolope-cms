@@ -24,8 +24,13 @@ export const importJobs = pgTable(
 			.default('pending'),
 		// Total external rows to import (null until the worker counts them).
 		total: integer(),
-		// Rows walked so far — also the resume offset if the worker restarts.
+		// Rows walked so far. Used for progress reporting; resumability is driven
+		// by `checkpoint` (keyset position) so concurrent inserts on the source
+		// don't shift rows past the resume point the way OFFSET would.
 		processed: integer().notNull().default(0),
+		// Last source `_id` successfully processed — the worker resumes by
+		// streaming rows with `id > checkpoint` after a restart.
+		checkpoint: text(),
 		error: text(),
 		createdBy: uuid().references(() => users.id),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

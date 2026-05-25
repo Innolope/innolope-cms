@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects.js'
 
 export const aiSettings = pgTable('ai_settings', {
@@ -9,12 +9,25 @@ export const aiSettings = pgTable('ai_settings', {
 		.unique(),
 	defaultModel: text().notNull().default('gemini-3.1-flash-lite'),
 	providers: jsonb().$type<AiProviderConfig[]>().notNull().default([]),
+	fallbackEnabled: boolean().notNull().default(false),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 })
 
+export type AiProviderName =
+	| 'anthropic'
+	| 'openai'
+	| 'google'
+	| 'openrouter'
+	| 'mistral'
+	| 'deepseek'
+	| 'qwen'
+	| 'moonshot'
+	| 'zhipu'
+
 export interface AiProviderConfig {
-	provider: 'anthropic' | 'openai' | 'google' | 'openrouter'
+	id: string
+	provider: AiProviderName
 	apiKey: string
 	enabled: boolean
 }

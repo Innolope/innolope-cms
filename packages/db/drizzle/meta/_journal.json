@@ -36,6 +36,20 @@
       "when": 1779459255923,
       "tag": "0004_aromatic_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779800000000,
+      "tag": "0005_ai_fallback",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780000000000,
+      "tag": "0006_sync_cursor",
+      "breakpoints": true
     }
   ]
 }

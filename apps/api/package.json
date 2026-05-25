@@ -11,6 +11,7 @@
 		"test:watch": "vitest",
 		"migrate:featured-images": "tsx src/scripts/migrate-featured-images.ts",
 		"license:generate": "tsx src/scripts/generate-license.ts",
+		"refresh-popular-models": "tsx scripts/refresh-popular-models.ts",
 		"clean": "rm -rf dist *.tsbuildinfo"
 	},
 	"dependencies": {

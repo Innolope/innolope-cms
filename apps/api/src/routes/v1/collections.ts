@@ -152,6 +152,8 @@ export async function collectionRoutes(app: FastifyInstance) {
 					projectId: collection.projectId,
 					externalTable: collection.externalTable,
 					fields: collection.fields,
+					cursorColumn: collection.cursorColumn,
+					lastSyncedCursor: collection.lastSyncedCursor,
 				})
 			} finally {
 				await adapter.disconnect()
@@ -200,8 +202,14 @@ export async function collectionRoutes(app: FastifyInstance) {
 						projectId: collection.projectId,
 						externalTable: collection.externalTable,
 						fields: collection.fields,
+						cursorColumn: collection.cursorColumn,
+						lastSyncedCursor: collection.lastSyncedCursor,
 					},
-					{ userId: request.user?.id, versionTable: contentVersions },
+					{
+						userId: request.user?.id,
+						versionTable: contentVersions,
+						collectionsTable: collections,
+					},
 				)
 				return result
 			} finally {

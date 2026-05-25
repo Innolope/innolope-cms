@@ -97,12 +97,12 @@ async function runJob(app: FastifyInstance, job: ImportJob) {
 			}
 
 			let processed = job.processed
-			while (true) {
-				const docs = await adapter.findAll(collection.externalTable, {
-					limit: BATCH_SIZE,
-					offset: processed,
-				})
-				if (docs.length === 0) break
+			let checkpoint: string | undefined = job.checkpoint ?? undefined
+			for await (const docs of adapter.streamAll(collection.externalTable, {
+				batchSize: BATCH_SIZE,
+				startAfterId: checkpoint,
+			})) {
+				if (docs.length === 0) continue
 
 				await cacheMissingDocs(
 					app.db,
@@ -113,12 +113,14 @@ async function runJob(app: FastifyInstance, job: ImportJob) {
 				)
 
 				processed += docs.length
+				checkpoint = docs[docs.length - 1]._id
+				// cacheMissingDocs is idempotent (onConflictDoNothing on slug), so a
+				// crash between this insert and the checkpoint commit just re-runs
+				// the same batch on restart — no duplicate rows, no skipped ones.
 				await app.db
 					.update(importJobs)
-					.set({ processed, updatedAt: new Date() })
+					.set({ processed, checkpoint, updatedAt: new Date() })
 					.where(eq(importJobs.id, job.id))
-
-				if (docs.length < BATCH_SIZE) break
 			}
 		} finally {
 			await adapter.disconnect()

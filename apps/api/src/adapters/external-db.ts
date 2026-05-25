@@ -5,11 +5,34 @@ export interface ExternalDocument {
 	[key: string]: unknown
 }
 
+export interface FindAllOpts {
+	limit?: number
+	offset?: number
+	/** Source column to filter on for incremental sync (e.g. `updated_at`). */
+	cursorColumn?: string
+	/** Only return rows where `cursorColumn > cursorAfter`. */
+	cursorAfter?: Date | string | number
+}
+
+export interface StreamAllOpts {
+	/** How many rows to materialize per yielded batch. */
+	batchSize?: number
+	/** Resume keyset: only yield rows with primary key > startAfterId. */
+	startAfterId?: string
+}
+
 export interface ExternalDbAdapter {
 	connect(): Promise<void>
 	disconnect(): Promise<void>
 	estimateTableSizeBytes(table: string): Promise<number>
-	findAll(table: string, opts?: { limit?: number; offset?: number }): Promise<ExternalDocument[]>
+	findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]>
+	/**
+	 * Stream every row in `table` in batches, ordered by primary key. Uses a
+	 * server-side cursor (PG `DECLARE CURSOR`, Mongo native cursor, MySQL row
+	 * stream) so memory stays bounded regardless of table size, and OFFSET drift
+	 * — where rows inserted mid-scan get skipped — can't happen.
+	 */
+	streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]>
 	findById(table: string, id: string): Promise<ExternalDocument | null>
 	insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument>
 	update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument>
@@ -71,17 +94,42 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return Number(stats.size) || 0
 	}
 
-	async findAll(
-		table: string,
-		opts?: { limit?: number; offset?: number },
-	): Promise<ExternalDocument[]> {
-		const docs = await this.db()
-			.collection(table)
-			.find()
-			.skip(opts?.offset ?? 0)
-			.limit(opts?.limit ?? 100)
-			.toArray()
+	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
+		const filter: Record<string, unknown> =
+			opts?.cursorColumn && opts.cursorAfter !== undefined
+				? { [opts.cursorColumn]: { $gt: opts.cursorAfter } }
+				: {}
+		let cursor = this.db().collection(table).find(filter)
+		if (opts?.cursorColumn) cursor = cursor.sort({ [opts.cursorColumn]: 1 })
+		cursor = cursor.skip(opts?.offset ?? 0).limit(opts?.limit ?? 100)
+		const docs = await cursor.toArray()
 		return docs.map((d) => ({ ...d, _id: String(d._id) }))
+	}
+
+	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
+		const batchSize = opts?.batchSize ?? 1000
+		const filter: Record<string, unknown> = {}
+		if (opts?.startAfterId !== undefined) {
+			const { ObjectId } = await import('mongodb')
+			let gt: unknown = opts.startAfterId
+			try {
+				gt = new ObjectId(opts.startAfterId)
+			} catch {
+				// Not an ObjectId — keep the string form so collections with string
+				// `_id` (migrated/seeded data) still get a working keyset filter.
+			}
+			filter._id = { $gt: gt }
+		}
+		const cursor = this.db().collection(table).find(filter).sort({ _id: 1 }).batchSize(batchSize)
+		let buffer: ExternalDocument[] = []
+		for await (const doc of cursor) {
+			buffer.push({ ...doc, _id: String(doc._id) })
+			if (buffer.length >= batchSize) {
+				yield buffer
+				buffer = []
+			}
+		}
+		if (buffer.length > 0) yield buffer
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
@@ -173,15 +221,35 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		return row?.column_name || 'id'
 	}
 
-	async findAll(
-		table: string,
-		opts?: { limit?: number; offset?: number },
-	): Promise<ExternalDocument[]> {
+	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
-		const rows = await this.sql()`
-			SELECT * FROM ${this.sql()(table)} ORDER BY ${this.sql()(pk)} LIMIT ${opts?.limit ?? 100} OFFSET ${opts?.offset ?? 0}
+		const sql = this.sql()
+		const orderCol = opts?.cursorColumn ?? pk
+		const whereClause =
+			opts?.cursorColumn && opts.cursorAfter !== undefined
+				? sql`WHERE ${sql(opts.cursorColumn)} > ${opts.cursorAfter as Date | string | number}`
+				: sql``
+		const rows = await sql`
+			SELECT * FROM ${sql(table)} ${whereClause}
+			ORDER BY ${sql(orderCol)} LIMIT ${opts?.limit ?? 100} OFFSET ${opts?.offset ?? 0}
 		`
 		return rows.map((r: Record<string, unknown>) => ({ ...r, _id: String(r[pk]) }))
+	}
+
+	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
+		const pk = await this.getPrimaryKey(table)
+		const batchSize = opts?.batchSize ?? 1000
+		const sql = this.sql()
+		const whereClause =
+			opts?.startAfterId !== undefined ? sql`WHERE ${sql(pk)} > ${opts.startAfterId}` : sql``
+		// postgres-js `.cursor(n)` opens a server-side cursor in its own
+		// transaction and yields rows in chunks of n — no full materialization.
+		const stream = sql`SELECT * FROM ${sql(table)} ${whereClause} ORDER BY ${sql(pk)}`.cursor(
+			batchSize,
+		)
+		for await (const rows of stream) {
+			yield (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, _id: String(r[pk]) }))
+		}
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
@@ -269,16 +337,54 @@ export class MySqlAdapter implements ExternalDbAdapter {
 		return (rows as Array<{ COLUMN_NAME: string }>)[0]?.COLUMN_NAME || 'id'
 	}
 
-	async findAll(
-		table: string,
-		opts?: { limit?: number; offset?: number },
-	): Promise<ExternalDocument[]> {
+	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
+		const limit = opts?.limit ?? 100
+		const offset = opts?.offset ?? 0
+		const orderCol = opts?.cursorColumn ?? pk
+		const filterArgs: { col: string; after: Date | string | number } | null =
+			opts?.cursorColumn && opts.cursorAfter !== undefined
+				? { col: opts.cursorColumn, after: opts.cursorAfter }
+				: null
+		const where = filterArgs ? `WHERE ${quoteMysqlIdentifier(filterArgs.col)} > ?` : ''
+		const params: (string | number | Date)[] = filterArgs
+			? [filterArgs.after, limit, offset]
+			: [limit, offset]
 		const [rows] = await this.db().execute(
-			`SELECT * FROM ${quoteMysqlIdentifier(table)} ORDER BY ${quoteMysqlIdentifier(pk)} LIMIT ? OFFSET ?`,
-			[opts?.limit ?? 100, opts?.offset ?? 0],
+			`SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${quoteMysqlIdentifier(orderCol)} LIMIT ? OFFSET ?`,
+			params,
 		)
 		return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, _id: String(r[pk]) }))
+	}
+
+	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
+		const pk = await this.getPrimaryKey(table)
+		const batchSize = opts?.batchSize ?? 1000
+		const where = opts?.startAfterId !== undefined ? `WHERE ${quoteMysqlIdentifier(pk)} > ?` : ''
+		const params = opts?.startAfterId !== undefined ? [opts.startAfterId] : []
+		// mysql2's connection.query({...}).stream() returns a Node Readable that
+		// emits one row per tick — bounded memory regardless of row count.
+		const stream = (
+			this.db() as unknown as {
+				query: (config: { sql: string; values?: unknown[] }) => {
+					stream: (opts?: { highWaterMark?: number }) => AsyncIterable<Record<string, unknown>>
+				}
+			}
+		)
+			.query({
+				sql: `SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${quoteMysqlIdentifier(pk)}`,
+				values: params,
+			})
+			.stream({ highWaterMark: batchSize })
+		let buffer: ExternalDocument[] = []
+		for await (const row of stream) {
+			buffer.push({ ...row, _id: String(row[pk]) })
+			if (buffer.length >= batchSize) {
+				yield buffer
+				buffer = []
+			}
+		}
+		if (buffer.length > 0) yield buffer
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {

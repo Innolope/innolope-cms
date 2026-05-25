@@ -5,9 +5,38 @@ interface CollectionField {
 	localized?: boolean
 }
 
-import type { content, contentVersions, Database } from '@innolope/db'
+import type { collections, content, contentVersions, Database } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
+
+/**
+ * Source-table column names checked (in order) when auto-detecting an
+ * incremental-sync watermark. A field qualifies only if it's typed `date` on
+ * the collection — anything else won't be a monotonic source of truth.
+ */
+const CURSOR_COLUMN_CANDIDATES = [
+	'updated_at',
+	'updatedAt',
+	'modifiedAt',
+	'modified_at',
+	'lastModified',
+	'last_modified',
+	'modified',
+	'_ts',
+] as const
+
+/** Pick a date-typed field name to use as the incremental cursor, if one exists. */
+export function detectCursorColumn(fields: CollectionField[]): string | undefined {
+	const dateNames = fields.filter((f) => f.type === 'date').map((f) => f.name)
+	const dateSet = new Set(dateNames)
+	const lowerMap = new Map(dateNames.map((n) => [n.toLowerCase(), n]))
+	for (const cand of CURSOR_COLUMN_CANDIDATES) {
+		if (dateSet.has(cand)) return cand
+		const hit = lowerMap.get(cand.toLowerCase())
+		if (hit) return hit
+	}
+	return undefined
+}
 
 /** Postgres `unique_violation` — the row already exists under a colliding slug. */
 function isUniqueViolation(err: unknown): boolean {
@@ -17,7 +46,24 @@ function isUniqueViolation(err: unknown): boolean {
 const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
 type ContentStatus = 'draft' | 'pending_review' | 'published' | 'archived'
 type ContentTable = typeof content
-type SyncOptions = { batchSize?: number; userId?: string; versionTable?: typeof contentVersions }
+type SyncOptions = {
+	batchSize?: number
+	userId?: string
+	versionTable?: typeof contentVersions
+	/** Required to persist the sync watermark + auto-detected cursor column. */
+	collectionsTable?: typeof collections
+}
+
+export interface SyncCollectionRef {
+	id: string
+	projectId: string
+	externalTable: string
+	fields: CollectionField[]
+	/** Pre-set column name to use as the incremental cursor. Falls back to auto-detect. */
+	cursorColumn?: string | null
+	/** Highest cursor value seen in the previous sync. Filters source-side. */
+	lastSyncedCursor?: Date | null
+}
 type CachedContentValues = {
 	projectId: string
 	collectionId: string
@@ -140,77 +186,179 @@ export async function populateMarkdownCache(
 	return result.created
 }
 
+export interface SyncResult {
+	created: number
+	updated: number
+	/** `incremental` when a prior watermark filtered the scan; `full` otherwise. */
+	mode: 'full' | 'incremental'
+	/** Column used as the cursor for this run; null when no candidate was found. */
+	cursorColumn: string | null
+	/** Highest cursor value seen this run — the next sync should start above this. */
+	newCursor: Date | null
+}
+
 /** Refresh cached CMS rows from an external collection. External documents are the source of truth. */
 export async function syncMarkdownCache(
 	db: Database,
 	contentTable: ContentTable,
 	adapter: ExternalDbAdapter,
-	collection: {
-		id: string
-		projectId: string
-		externalTable: string
-		fields: CollectionField[]
-	},
+	collection: SyncCollectionRef,
 	opts: SyncOptions = {},
-): Promise<{ created: number; updated: number }> {
+): Promise<SyncResult> {
 	const batchSize = opts.batchSize || 100
+	const cursorColumn = collection.cursorColumn ?? detectCursorColumn(collection.fields) ?? null
+	const cursorAfter =
+		cursorColumn && collection.lastSyncedCursor ? collection.lastSyncedCursor : undefined
+	const mode: 'full' | 'incremental' = cursorAfter ? 'incremental' : 'full'
+
 	let offset = 0
 	let created = 0
 	let updated = 0
+	let newCursor: Date | null = collection.lastSyncedCursor ?? null
 
 	while (true) {
-		const docs = await adapter.findAll(collection.externalTable, { limit: batchSize, offset })
+		const docs = await adapter.findAll(collection.externalTable, {
+			limit: batchSize,
+			offset,
+			cursorColumn: cursorColumn ?? undefined,
+			cursorAfter,
+		})
 		if (docs.length === 0) break
 
-		for (const doc of docs) {
-			const { values, slug } = buildCachedContentValues(doc, collection, opts)
-
-			try {
-				const [existing] = await db
-					.select()
-					.from(contentTable)
-					.where(
-						and(
-							eq(contentTable.projectId, collection.projectId),
-							eq(contentTable.collectionId, collection.id),
-							eq(contentTable.externalId, doc._id),
-						),
-					)
-					.limit(1)
-
-				if (existing) {
-					if (opts.versionTable) {
-						await db.insert(opts.versionTable).values({
-							contentId: existing.id,
-							version: existing.version,
-							markdown: existing.markdown,
-							metadata: existing.metadata,
-							createdBy: opts.userId || null,
-						})
-					}
-					await db
-						.update(contentTable)
-						.set({ ...values, version: (existing.version || 1) + 1 })
-						.where(eq(contentTable.id, existing.id))
-					updated++
-				} else {
-					await db.insert(contentTable).values({
-						...values,
-						slug: `${slug}-${doc._id.slice(-6)}`,
-					})
-					created++
-				}
-			} catch (err) {
-				// A duplicate slug is expected and harmless; any other failure must surface
-				// so a sync that cached nothing is not silently reported as a success.
-				if (!isUniqueViolation(err)) throw err
+		if (cursorColumn) {
+			for (const doc of docs) {
+				const seen = toDate(doc[cursorColumn])
+				if (seen && (!newCursor || seen > newCursor)) newCursor = seen
 			}
 		}
 
+		const result = await applySyncBatch(db, contentTable, docs, collection, opts)
+		created += result.created
+		updated += result.updated
+
 		offset += batchSize
+		if (docs.length < batchSize) break
 	}
 
-	return { created, updated }
+	if (opts.collectionsTable) {
+		const updates: Partial<typeof collections.$inferInsert> = {
+			lastSyncedAt: new Date(),
+			updatedAt: new Date(),
+		}
+		if (newCursor) updates.lastSyncedCursor = newCursor
+		// Persist the auto-detected cursor column so future syncs skip detection
+		// and surface the choice to the admin UI.
+		if (cursorColumn && !collection.cursorColumn) updates.cursorColumn = cursorColumn
+		await db
+			.update(opts.collectionsTable)
+			.set(updates)
+			.where(eq(opts.collectionsTable.id, collection.id))
+	}
+
+	return { created, updated, mode, cursorColumn, newCursor }
+}
+
+/**
+ * Apply one batch of source docs to the local cache: one lookup, one bulk
+ * insert for new rows, one bulk versions insert, and parallel updates only for
+ * rows whose materialized state actually changed. Replaces the previous
+ * per-doc SELECT + INSERT/UPDATE loop (200 round-trips per 100-row batch).
+ */
+async function applySyncBatch(
+	db: Database,
+	contentTable: ContentTable,
+	docs: ExternalDocument[],
+	collection: {
+		id: string
+		projectId: string
+		fields: CollectionField[]
+	},
+	opts: SyncOptions,
+): Promise<{ created: number; updated: number }> {
+	if (docs.length === 0) return { created: 0, updated: 0 }
+
+	const externalIds = docs.map((d) => d._id)
+	const existingRows = await db
+		.select()
+		.from(contentTable)
+		.where(
+			and(
+				eq(contentTable.projectId, collection.projectId),
+				eq(contentTable.collectionId, collection.id),
+				inArray(contentTable.externalId, externalIds),
+			),
+		)
+	const existingByExternalId = new Map(
+		existingRows.map((r) => [r.externalId as string, r] as const),
+	)
+
+	const toInsert: Array<CachedContentValues & { slug: string }> = []
+	const toUpdate: Array<{ existing: (typeof existingRows)[number]; next: CachedContentValues }> = []
+
+	for (const doc of docs) {
+		const { values, slug } = buildCachedContentValues(doc, collection, opts)
+		const existing = existingByExternalId.get(doc._id)
+		if (existing) {
+			if (diffCachedContent(existing, values).length > 0) {
+				toUpdate.push({ existing, next: values })
+			}
+		} else {
+			toInsert.push({ ...values, slug: `${slug}-${doc._id.slice(-6)}` })
+		}
+	}
+
+	let createdCount = 0
+	if (toInsert.length > 0) {
+		// onConflictDoNothing absorbs the rare slug race (two docs hash to the
+		// same slug); .returning gives us the accurate post-conflict count.
+		const inserted = await db
+			.insert(contentTable)
+			.values(toInsert)
+			.onConflictDoNothing()
+			.returning({ id: contentTable.id })
+		createdCount = inserted.length
+	}
+
+	if (toUpdate.length > 0 && opts.versionTable) {
+		await db.insert(opts.versionTable).values(
+			toUpdate.map(({ existing }) => ({
+				contentId: existing.id,
+				version: existing.version,
+				markdown: existing.markdown,
+				metadata: existing.metadata,
+				createdBy: opts.userId || null,
+			})),
+		)
+	}
+
+	// Updates can't be merged into a single statement (each row gets distinct
+	// values), so fan them out across the pool in small chunks to stay under
+	// the default connection limit.
+	await runInChunks(toUpdate, 10, async ({ existing, next }) => {
+		try {
+			await db
+				.update(contentTable)
+				.set({ ...next, version: (existing.version || 1) + 1 })
+				.where(eq(contentTable.id, existing.id))
+		} catch (err) {
+			// Slug isn't changed by sync updates so this should be unreachable —
+			// but a metadata-driven slug change would surface as unique_violation
+			// and was tolerated by the previous loop. Preserve that.
+			if (!isUniqueViolation(err)) throw err
+		}
+	})
+
+	return { created: createdCount, updated: toUpdate.length }
+}
+
+async function runInChunks<T>(
+	items: T[],
+	chunkSize: number,
+	fn: (item: T) => Promise<void>,
+): Promise<void> {
+	for (let i = 0; i < items.length; i += chunkSize) {
+		await Promise.all(items.slice(i, i + chunkSize).map(fn))
+	}
 }
 
 /**
@@ -271,37 +419,45 @@ export async function previewMarkdownCacheSync(
 	db: Database,
 	contentTable: ContentTable,
 	adapter: ExternalDbAdapter,
-	collection: {
-		id: string
-		projectId: string
-		externalTable: string
-		fields: CollectionField[]
-	},
+	collection: SyncCollectionRef,
 	opts: { batchSize?: number; limit?: number } = {},
 ): Promise<{ discrepancies: SyncPreviewItem[]; total: number }> {
 	const batchSize = opts.batchSize || 100
 	const limit = opts.limit || 25
+	const cursorColumn = collection.cursorColumn ?? detectCursorColumn(collection.fields) ?? null
+	const cursorAfter =
+		cursorColumn && collection.lastSyncedCursor ? collection.lastSyncedCursor : undefined
 	let offset = 0
 	let total = 0
 	const discrepancies: SyncPreviewItem[] = []
 
 	while (true) {
-		const docs = await adapter.findAll(collection.externalTable, { limit: batchSize, offset })
+		const docs = await adapter.findAll(collection.externalTable, {
+			limit: batchSize,
+			offset,
+			cursorColumn: cursorColumn ?? undefined,
+			cursorAfter,
+		})
 		if (docs.length === 0) break
+
+		const externalIds = docs.map((d) => d._id)
+		const existingRows = await db
+			.select()
+			.from(contentTable)
+			.where(
+				and(
+					eq(contentTable.projectId, collection.projectId),
+					eq(contentTable.collectionId, collection.id),
+					inArray(contentTable.externalId, externalIds),
+				),
+			)
+		const existingByExternalId = new Map(
+			existingRows.map((r) => [r.externalId as string, r] as const),
+		)
 
 		for (const doc of docs) {
 			const { values, slug } = buildCachedContentValues(doc, collection, {})
-			const [existing] = await db
-				.select()
-				.from(contentTable)
-				.where(
-					and(
-						eq(contentTable.projectId, collection.projectId),
-						eq(contentTable.collectionId, collection.id),
-						eq(contentTable.externalId, doc._id),
-					),
-				)
-				.limit(1)
+			const existing = existingByExternalId.get(doc._id)
 
 			if (!existing) {
 				total++
@@ -332,6 +488,7 @@ export async function previewMarkdownCacheSync(
 		}
 
 		offset += batchSize
+		if (docs.length < batchSize) break
 	}
 
 	return { discrepancies, total }

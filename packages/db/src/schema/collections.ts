@@ -15,6 +15,14 @@ export const collections = pgTable(
 		source: text().notNull().default('internal'),
 		externalTable: text(),
 		accessMode: text().default('read-write'),
+		// Wall-clock time the local cache was last refreshed from the source.
+		lastSyncedAt: timestamp({ withTimezone: true }),
+		// High-watermark of the source's cursor column at the end of the last sync;
+		// the next incremental sync pulls only rows with cursorColumn > this value.
+		lastSyncedCursor: timestamp({ withTimezone: true }),
+		// Source-table column used as the incremental cursor (e.g. updated_at).
+		// Null means incremental mode is unavailable for this collection.
+		cursorColumn: text(),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	},

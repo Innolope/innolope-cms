@@ -1,8 +1,33 @@
 import { aiSettings } from '@innolope/db'
+import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { getProject } from '../../plugins/project.js'
-import { AI_MODELS, type AiProviderConfig, complete } from '../../services/ai.js'
+import {
+	AI_MODELS,
+	type AiProviderConfig,
+	complete,
+	fetchAllDynamicModels,
+	PROVIDER_NAMES,
+} from '../../services/ai.js'
+import { popularityRank } from '../../services/popular-models.js'
+
+// Provider display order used when sorting dynamic models. Matches the order
+// users see in the "+ Add provider" menu.
+const PROVIDER_ORDER = new Map(PROVIDER_NAMES.map((p, i) => [p as string, i]))
+
+function sortDynamicModels<
+	T extends { provider: string; modelId: string; name: string },
+>(models: T[]): T[] {
+	return [...models].sort((a, b) => {
+		const provDelta =
+			(PROVIDER_ORDER.get(a.provider) ?? 99) - (PROVIDER_ORDER.get(b.provider) ?? 99)
+		if (provDelta !== 0) return provDelta
+		const popDelta = popularityRank(a.provider, a.modelId) - popularityRank(b.provider, b.modelId)
+		if (popDelta !== 0) return popDelta
+		return a.name.localeCompare(b.name)
+	})
+}
 
 export async function aiRoutes(app: FastifyInstance) {
 	const CLOUD_MODE = !!process.env.CLOUD_MODE
@@ -18,23 +43,54 @@ export async function aiRoutes(app: FastifyInstance) {
 		// List available models based on connected providers
 		const providers = (settings?.providers || []) as AiProviderConfig[]
 		const connectedProviders = CLOUD_MODE
-			? ['anthropic', 'openai', 'google', 'openrouter']
+			? [
+					'anthropic',
+					'openai',
+					'google',
+					'openrouter',
+					'mistral',
+					'deepseek',
+					'qwen',
+					'moonshot',
+					'zhipu',
+				]
 			: providers.filter((p) => p.enabled && p.apiKey).map((p) => p.provider)
 
-		const availableModels = Object.entries(AI_MODELS)
+		const builtIn = Object.entries(AI_MODELS)
 			.filter(([_, m]) => connectedProviders.includes(m.provider))
-			.map(([key, m]) => ({ key, provider: m.provider, name: m.name, modelId: m.modelId }))
+			.map(([key, m]) => ({
+				key,
+				provider: m.provider,
+				name: m.name,
+				modelId: m.modelId,
+				source: 'built-in' as const,
+			}))
+
+		const dynamic = await fetchAllDynamicModels(providers, CLOUD_MODE)
+		const seenModel = new Set(builtIn.map((m) => `${m.provider}:${m.modelId}`))
+		const dynamicUnique = sortDynamicModels(
+			dynamic.filter((m) => !seenModel.has(`${m.provider}:${m.modelId}`)),
+		)
+
+		const availableModels = [...builtIn, ...dynamicUnique]
 
 		return {
 			defaultModel: settings?.defaultModel || 'gemini-3.1-flash-lite',
+			fallbackEnabled: settings?.fallbackEnabled ?? false,
 			providers: CLOUD_MODE
 				? [
-						{ provider: 'anthropic', enabled: true, connected: true },
-						{ provider: 'openai', enabled: true, connected: true },
-						{ provider: 'google', enabled: true, connected: true },
-						{ provider: 'openrouter', enabled: true, connected: true },
+						{ id: 'cloud-anthropic', provider: 'anthropic', enabled: true, connected: true },
+						{ id: 'cloud-openai', provider: 'openai', enabled: true, connected: true },
+						{ id: 'cloud-google', provider: 'google', enabled: true, connected: true },
+						{ id: 'cloud-openrouter', provider: 'openrouter', enabled: true, connected: true },
+						{ id: 'cloud-mistral', provider: 'mistral', enabled: true, connected: true },
+						{ id: 'cloud-deepseek', provider: 'deepseek', enabled: true, connected: true },
+						{ id: 'cloud-qwen', provider: 'qwen', enabled: true, connected: true },
+						{ id: 'cloud-moonshot', provider: 'moonshot', enabled: true, connected: true },
+						{ id: 'cloud-zhipu', provider: 'zhipu', enabled: true, connected: true },
 					]
 				: providers.map((p) => ({
+						id: p.id,
 						provider: p.provider,
 						enabled: p.enabled,
 						connected: !!p.apiKey,
@@ -46,9 +102,10 @@ export async function aiRoutes(app: FastifyInstance) {
 
 	// Update AI settings (admin+, project-scoped)
 	app.put('/settings', { preHandler: [app.requireProject('admin')] }, async (request) => {
-		const { defaultModel, providers } = request.body as {
+		const { defaultModel, providers, fallbackEnabled } = request.body as {
 			defaultModel?: string
-			providers?: AiProviderConfig[]
+			providers?: (Omit<AiProviderConfig, 'id'> & { id?: string })[]
+			fallbackEnabled?: boolean
 		}
 
 		const existing = await app.db
@@ -59,17 +116,20 @@ export async function aiRoutes(app: FastifyInstance) {
 
 		const updates: Record<string, unknown> = { updatedAt: new Date() }
 		if (defaultModel) updates.defaultModel = defaultModel
+		if (typeof fallbackEnabled === 'boolean') updates.fallbackEnabled = fallbackEnabled
 		if (providers) {
 			// The incoming array defines provider membership and priority order. An empty
-			// apiKey means "keep the existing stored key" — the client never receives keys
-			// back, so it cannot re-send them on a reorder or model-only change.
+			// apiKey means "keep the existing stored key for this row" — the client never
+			// receives keys back, so it cannot re-send them on a reorder or model-only change.
+			// Matching by `id` (not `provider`) lets users keep multiple keys for the same provider.
 			const existingProviders = (existing[0]?.providers ?? []) as AiProviderConfig[]
 			updates.providers = providers.map((p) => {
+				const id = p.id ?? randomUUID()
 				if (p.apiKey?.trim()) {
-					return { provider: p.provider, apiKey: p.apiKey, enabled: p.enabled }
+					return { id, provider: p.provider, apiKey: p.apiKey, enabled: p.enabled }
 				}
-				const prev = existingProviders.find((e) => e.provider === p.provider)
-				return { provider: p.provider, apiKey: prev?.apiKey ?? '', enabled: p.enabled }
+				const prev = existingProviders.find((e) => e.id === p.id)
+				return { id, provider: p.provider, apiKey: prev?.apiKey ?? '', enabled: p.enabled }
 			})
 		}
 
@@ -87,7 +147,13 @@ export async function aiRoutes(app: FastifyInstance) {
 			.values({
 				projectId: getProject(request).id,
 				defaultModel: defaultModel || 'gemini-3.1-flash-lite',
-				providers: providers || [],
+				providers: (providers || []).map((p) => ({
+					id: p.id ?? randomUUID(),
+					provider: p.provider,
+					apiKey: p.apiKey || '',
+					enabled: p.enabled,
+				})),
+				fallbackEnabled: fallbackEnabled ?? false,
 			})
 			.returning()
 		return created
@@ -125,6 +191,7 @@ export async function aiRoutes(app: FastifyInstance) {
 
 			const modelKey = requestedModel || settings?.defaultModel || 'gemini-3.1-flash-lite'
 			const providers = (settings?.providers || []) as AiProviderConfig[]
+			const fallbackEnabled = settings?.fallbackEnabled ?? false
 
 			// Build prompt based on action
 			const systemPrompt = `You are an AI writing assistant for a CMS. You help edit and improve content. Respond with ONLY the improved text — no explanations, no markdown code fences, no meta-commentary. Match the formatting style of the input.`
@@ -176,6 +243,7 @@ export async function aiRoutes(app: FastifyInstance) {
 					{ model: modelKey, prompt: userPrompt, systemPrompt, maxTokens: 4096 },
 					providers,
 					CLOUD_MODE,
+					fallbackEnabled,
 				)
 				return {
 					text: result.text,
@@ -208,6 +276,7 @@ export async function aiRoutes(app: FastifyInstance) {
 
 			const modelKey = settings?.defaultModel || 'gemini-3.1-flash-lite'
 			const providers = (settings?.providers || []) as AiProviderConfig[]
+			const fallbackEnabled = settings?.fallbackEnabled ?? false
 
 			const systemPrompt = `You are a CMS schema generator. Given a description of a content collection, output a JSON array of field definitions.
 
@@ -232,6 +301,7 @@ Rules:
 					{ model: modelKey, prompt: description, systemPrompt, maxTokens: 2048 },
 					providers,
 					CLOUD_MODE,
+					fallbackEnabled,
 				)
 
 				// Extract JSON from response (handle potential markdown fences)
@@ -273,73 +343,30 @@ Rules:
 		},
 	)
 
-	// List available models (built-in + OpenRouter dynamic)
+	// List available models (curated catalog + dynamic from each connected provider)
 	app.get('/models', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		const builtIn = Object.entries(AI_MODELS).map(([key, m]) => ({
 			key,
 			provider: m.provider,
 			name: m.name,
 			modelId: m.modelId,
-			source: 'built-in',
+			source: 'built-in' as const,
 		}))
 
-		// Fetch OpenRouter models dynamically
-		let openRouterModels: typeof builtIn = []
 		const [settings] = await app.db
 			.select()
 			.from(aiSettings)
 			.where(eq(aiSettings.projectId, getProject(request).id))
 			.limit(1)
-
 		const providers = (settings?.providers || []) as AiProviderConfig[]
-		const hasOpenRouter =
-			CLOUD_MODE || providers.some((p) => p.provider === 'openrouter' && p.enabled && p.apiKey)
 
-		if (hasOpenRouter) {
-			try {
-				openRouterModels = await fetchOpenRouterModels()
-			} catch {
-				// Silently fail — built-in models still available
-			}
-		}
+		const dynamic = await fetchAllDynamicModels(providers, CLOUD_MODE)
+		// Dedup: built-in wins (has curated display names) for any duplicate provider+modelId.
+		const seen = new Set(builtIn.map((m) => `${m.provider}:${m.modelId}`))
+		const dynamicUnique = sortDynamicModels(
+			dynamic.filter((m) => !seen.has(`${m.provider}:${m.modelId}`)),
+		)
 
-		return [...builtIn, ...openRouterModels]
+		return [...builtIn, ...dynamicUnique]
 	})
-}
-
-// Cache OpenRouter models for 1 hour
-let openRouterCache: {
-	models: { key: string; provider: string; name: string; modelId: string; source: string }[]
-	fetchedAt: number
-} | null = null
-
-async function fetchOpenRouterModels() {
-	if (openRouterCache && Date.now() - openRouterCache.fetchedAt < 3600_000) {
-		return openRouterCache.models
-	}
-
-	const res = await fetch('https://openrouter.ai/api/v1/models')
-	if (!res.ok) return []
-
-	const data = (await res.json()) as {
-		data: { id: string; name: string; pricing: { prompt: string; completion: string } }[]
-	}
-
-	const models = data.data
-		.filter((m) => {
-			// Filter to popular/useful models, skip free and deprecated
-			const promptCost = parseFloat(m.pricing.prompt)
-			return promptCost > 0 && promptCost < 0.1
-		})
-		.slice(0, 50) // Cap at 50 most relevant
-		.map((m) => ({
-			key: `openrouter:${m.id}`,
-			provider: 'openrouter',
-			name: m.name,
-			modelId: m.id,
-			source: 'openrouter' as const,
-		}))
-
-	openRouterCache = { models, fetchedAt: Date.now() }
-	return models
 }
