@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api-client'
 import { useCollections } from '../../lib/collections'
+import { pickTitleField, resolveDisplayTitle } from '../../lib/display-title'
 import { useToast } from '../../lib/toast'
 
 interface RelatedDoc {
@@ -16,8 +17,16 @@ interface RelationFieldProps {
 	onChange: (value: string) => void
 }
 
-const URL_FIELD_PATTERN = /(^|_)(url|src|image|imageurl|photo|path|secure_url|file|thumbnail)($|_)/i
-const LABEL_FIELD_PATTERN = /(^|_)(name|title|label|heading|slug|filename)($|_)/i
+/**
+ * Image/file-URL field detection. The previous version matched a bare `url`
+ * substring, which incorrectly classified `courseUrl` (a website link) as an
+ * image and rendered an "Upload image" button on the Education Courses relation
+ * picker. Now requires an explicit image/photo/thumbnail/file/etc. token; a
+ * plain "url" segment must be paired with image/photo (e.g. `imageUrl`,
+ * `image_url`, `photoUrl`).
+ */
+const URL_FIELD_PATTERN =
+	/(^|_)(image|imageurl|image_url|photo|photourl|photo_url|thumbnail|thumb|avatar|cover|banner|logo|src|secure_url|file|attachment|asset)($|_)/i
 
 /** Split camelCase so `fullPath`/`imageUrl` match the `_`-delimited field patterns. */
 const splitCamel = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
@@ -27,13 +36,6 @@ function pickUrlField(fields: { name: string; type: string }[]): string | undefi
 	return fields
 		.filter((f) => f.type === 'text' || f.type === 'string')
 		.find((f) => URL_FIELD_PATTERN.test(splitCamel(f.name)))?.name
-}
-
-/** Pick the field that best labels a record in a dropdown (name/title/slug/…). */
-function pickLabelField(fields: { name: string; type: string }[]): string | undefined {
-	const named = fields.find((f) => LABEL_FIELD_PATTERN.test(splitCamel(f.name)))
-	if (named) return named.name
-	return fields.find((f) => f.type === 'text' || f.type === 'string')?.name
 }
 
 /** Resolve a possibly-localized ({ en, ua, … }) value to a plain display string. */
@@ -56,11 +58,6 @@ function isImageUrl(value: string): boolean {
 
 function docId(doc: RelatedDoc): string {
 	return doc.externalId || doc.id
-}
-
-function docLabel(doc: RelatedDoc, labelField?: string): string {
-	const raw = labelField ? resolveText(doc.metadata[labelField]) : ''
-	return raw || docId(doc)
 }
 
 function ImagePlaceholderIcon({ className }: { className?: string }) {
@@ -111,11 +108,25 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 	const createInputRef = useRef<HTMLInputElement>(null)
 
 	const urlField = useMemo(() => (related ? pickUrlField(related.fields) : undefined), [related])
+	// Field used both for displaying the row label AND for the inline "create new" form;
+	// honours the collection's pinned titleField when set.
 	const labelField = useMemo(
-		() => (related ? pickLabelField(related.fields) : undefined),
+		() => (related ? (pickTitleField(related) ?? undefined) : undefined),
 		[related],
 	)
 	const canWrite = related?.accessMode === 'read-write'
+
+	/** Resolve a related doc to its display label using the shared resolver. */
+	const docLabel = useCallback(
+		(doc: RelatedDoc): string => {
+			if (!related) return docId(doc)
+			return resolveDisplayTitle(
+				{ id: docId(doc), slug: doc.externalId ?? null, metadata: doc.metadata },
+				related,
+			)
+		},
+		[related],
+	)
 
 	const loadDocs = useCallback(() => {
 		if (!related) return
@@ -222,7 +233,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 						className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
 					>
 						<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
-							{current ? docLabel(current, labelField) : value || `Select ${related.label}…`}
+							{current ? docLabel(current) : value || `Select ${related.label}…`}
 						</span>
 						<svg
 							width="12"
@@ -283,7 +294,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 													className="h-6 w-6 shrink-0 rounded object-cover"
 												/>
 											)}
-											<span className="truncate">{docLabel(doc, labelField)}</span>
+											<span className="truncate">{docLabel(doc)}</span>
 										</button>
 									)
 								})

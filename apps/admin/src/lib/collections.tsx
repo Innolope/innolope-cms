@@ -10,6 +10,16 @@ interface CollectionField {
 	options?: string[]
 	relationTo?: string
 	relationIsArray?: boolean
+	ui?: {
+		widget?: string
+		placeholder?: string
+		helpText?: string
+		rows?: number
+		separator?: 'enter' | 'comma' | 'both'
+		readOnly?: boolean
+		hidden?: boolean
+		subFields?: CollectionField[]
+	}
 }
 
 export interface CollectionWithCount {
@@ -18,8 +28,14 @@ export interface CollectionWithCount {
 	label: string
 	description: string | null
 	fields: CollectionField[]
+	/** Name of the schema field used as the row label in lists + pickers. */
+	titleField?: string | null
 	source: string
 	accessMode: string | null
+	/** Tri-state sidebar visibility. Defaults to 'auto'. */
+	sidebarMode?: 'auto' | 'show' | 'hide'
+	/** Server-computed: another collection references this one via a relation field. */
+	isLinkedTarget?: boolean
 	createdAt: string
 	contentCount: number
 }
@@ -101,4 +117,22 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 
 export function useCollections() {
 	return useContext(CollectionsContext)
+}
+
+/**
+ * Whether a collection should appear in the admin sidebar based on its
+ * `sidebarMode` + `isLinkedTarget`. Hoisted so the sidebar and any other
+ * surface use exactly the same rule.
+ */
+export function isCollectionVisibleInSidebar(col: {
+	source: string
+	sidebarMode?: 'auto' | 'show' | 'hide'
+	isLinkedTarget?: boolean
+}): boolean {
+	if (col.source === 'media') return false
+	const mode = col.sidebarMode ?? 'auto'
+	if (mode === 'hide') return false
+	if (mode === 'show') return true
+	// auto: hide if another collection references this one as a relation target.
+	return !col.isLinkedTarget
 }

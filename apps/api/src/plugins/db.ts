@@ -268,7 +268,23 @@ async function ensureTables(connectionUrl: string) {
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'internal'`
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "externalTable" TEXT`
 	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "accessMode" TEXT DEFAULT 'read-write'`
+	await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "sidebarMode" TEXT NOT NULL DEFAULT 'auto'`
 	await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
+
+	// Per-member collection allowlist (team collaboration scoping).
+	// Absence of rows = full access (modulo project role). Owner/admin ignore the table.
+	await sql`
+		CREATE TABLE IF NOT EXISTS project_member_collections (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			"memberId" UUID NOT NULL REFERENCES project_members(id) ON DELETE CASCADE,
+			"collectionId" UUID NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`
+	await sql`CREATE UNIQUE INDEX IF NOT EXISTS member_collection_idx ON project_member_collections("memberId", "collectionId")`
+
+	// Initial collection scope for invitations. null = unrestricted, [] = none, [...] = subset.
+	await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS "collectionIds" JSONB`
 
 	// SSO: allow SSO-only users to have no password
 	await sql`ALTER TABLE users ALTER COLUMN "passwordHash" DROP NOT NULL`

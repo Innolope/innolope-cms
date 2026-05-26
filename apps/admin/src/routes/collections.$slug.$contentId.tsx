@@ -3,19 +3,20 @@ import { useEffect, useRef, useState } from 'react'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { Dropdown } from '../components/dropdown'
+import { FieldRenderer } from '../components/editor/field-renderer'
 import { JsonField } from '../components/editor/json-field'
 import { LocalizationBar, localeDisplayName } from '../components/editor/localization-bar'
 import { LocalizedTextField } from '../components/editor/localized-text-field'
 import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
-import { RelationField } from '../components/editor/relation-field'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { VersionPanel } from '../components/versions/version-panel'
-import { api } from '../lib/api-client'
+import { ApiError, api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
 import { useConfirm, usePrompt } from '../lib/confirm'
+import { resolveDisplayTitle } from '../lib/display-title'
 import { useToast } from '../lib/toast'
 
 /** Normalize a stored value (array or comma string) to a string array. */
@@ -116,13 +117,6 @@ function parseFrontmatter(md: string): { body: string; meta: Record<string, unkn
 	}
 
 	return { body, meta }
-}
-
-/** Normalize a stored date value to a `yyyy-mm-dd` string for <input type="date">. */
-function toDateInputValue(v: unknown): string {
-	if (!v) return ''
-	const d = new Date(v as string)
-	return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
 }
 
 /**
@@ -305,6 +299,9 @@ function CollectionContentEditor() {
 	const isExternal = collection?.source === 'external'
 	const [isLive, setIsLive] = useState(false)
 	const isReadOnly = (isExternal && collection?.accessMode === 'read-only') || isLive
+	// Admin/owner can mutate the collection schema (e.g. append a new enum option
+	// inline from the dropdown). PATCH /api/v1/collections requires this anyway.
+	const canEditSchema = currentProject?.role === 'owner' || currentProject?.role === 'admin'
 
 	// Project locales — drives the LocalizationBar and the LocalizedTextField dispatch.
 	const projectSettings = (currentProject?.settings as Record<string, unknown> | undefined) ?? {}
@@ -586,6 +583,9 @@ function CollectionContentEditor() {
 	const [loading, setLoading] = useState(!isNew)
 	const [loadError, setLoadError] = useState<string | null>(null)
 	const [externalId, setExternalId] = useState<string | null>(null)
+	// Field-keyed validation errors returned by the API (e.g. Zod issues). Cleared
+	// on every save attempt; populated when the API returns 400 with an issues array.
+	const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 	const [showExtraFields, setShowExtraFields] = useState(false)
 	const license = useLicense()
 	const aiLicensed = hasFeature(license, 'ai-assistant')
@@ -661,10 +661,15 @@ function CollectionContentEditor() {
 		}
 	}, [contentId, isNew, draftKey, collection])
 
-	// Prefill date-typed schema fields with today for new records
+	// Prefill date-typed schema fields with today for new records — but ONLY
+	// when the schema explicitly opts in via `defaultValue: 'today'`. Blanket
+	// prefill (the old behavior) caused fields like `startDate` and the
+	// system-managed `updatedAt` to be silently filled with today, hiding real
+	// user intent and forcing the user to clear/edit each one.
 	useEffect(() => {
 		if (!isNew || !collection) return
-		const dateFields = collection.fields?.filter((f) => f.type === 'date') ?? []
+		const dateFields =
+			collection.fields?.filter((f) => f.type === 'date' && f.defaultValue === 'today') ?? []
 		if (dateFields.length === 0) return
 		setExtraFields((prev) => {
 			const next = { ...prev }
@@ -756,9 +761,33 @@ function CollectionContentEditor() {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '')
 
-	const collectMetadata = () => ({
+	/**
+	 * Resolve the value the form should save as `metadata.title` (and use to
+	 * derive `slug` when blank). Falls back through the collection's pinned
+	 * title field, schema heuristics, then the explicit `title` state.
+	 */
+	const resolveAutoTitle = (): string => {
+		if (title?.trim()) return title.trim()
+		if (!collection) return ''
+		const derived = resolveDisplayTitle(
+			{
+				id: contentId === 'new' ? 'new' : (contentId ?? 'new'),
+				slug: contentSlug || null,
+				metadata: extraFields,
+			},
+			collection,
+			{ defaultLocale },
+		)
+		// resolveDisplayTitle returns the id as a last resort; that's not useful
+		// for save-time autoderive, so reject anything that looks like a UUID/the
+		// placeholder.
+		if (derived === 'new' || /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(derived)) return ''
+		return derived
+	}
+
+	const collectMetadata = (autoTitle: string) => ({
 		...extraFields,
-		title,
+		title: title || autoTitle,
 		tags: tags.map((t) => t.trim()).filter(Boolean),
 	})
 
@@ -769,11 +798,14 @@ function CollectionContentEditor() {
 			return
 		}
 		setSaving(true)
+		setFieldErrors({})
 		try {
-			const metadata = collectMetadata()
+			const autoTitle = resolveAutoTitle()
+			const metadata = collectMetadata(autoTitle)
+			const effectiveSlug = contentSlug || generateSlug(autoTitle || title)
 			if (isNew) {
 				const created = await api.post<{ id: string }>('/api/v1/content', {
-					slug: contentSlug || generateSlug(title),
+					slug: effectiveSlug,
 					collectionId: collection.id,
 					markdown,
 					metadata,
@@ -783,7 +815,7 @@ function CollectionContentEditor() {
 				navigate({ to: `/collections/${slug}/${created.id}` })
 			} else {
 				await api.put(`/api/v1/content/${contentId}`, {
-					slug: contentSlug,
+					slug: effectiveSlug,
 					markdown,
 					metadata,
 					status,
@@ -794,6 +826,17 @@ function CollectionContentEditor() {
 				localStorage.removeItem(draftKey)
 			} catch {}
 		} catch (err) {
+			if (err instanceof ApiError && err.issues.length) {
+				// Map issues into a field→message dict. Strip the `metadata.` prefix
+				// the API uses for schema-field paths so the renderer can match
+				// directly against schema field names.
+				const next: Record<string, string> = {}
+				for (const issue of err.issues) {
+					const path = issue.path.replace(/^metadata\./, '')
+					if (path && !next[path]) next[path] = issue.message
+				}
+				setFieldErrors(next)
+			}
 			toast(err instanceof Error ? err.message : 'Save failed', 'error')
 		} finally {
 			setSaving(false)
@@ -814,7 +857,7 @@ function CollectionContentEditor() {
 			await api.put(`/api/v1/content/${contentId}`, {
 				slug: contentSlug,
 				markdown,
-				metadata: collectMetadata(),
+				metadata: collectMetadata(resolveAutoTitle()),
 				status: 'published',
 			})
 			setStatus('published')
@@ -912,7 +955,11 @@ function CollectionContentEditor() {
 	// Whether to show the locale switcher: project has 2+ configured locales,
 	// OR any field on this record stores a locale-shaped object (auto-detect),
 	// OR the per-collection cache remembers this field as locale-shaped.
-	const visibleSchemaFields = collection?.fields?.filter((f) => !HIDDEN_FIELDS.has(f.name)) ?? []
+	// Drop fields marked `ui.hidden` from the form entirely — this is how
+	// system-managed columns (e.g. `updatedAt`, `viewsCount`) get kept out of
+	// the editor without removing them from the schema.
+	const visibleSchemaFields =
+		collection?.fields?.filter((f) => !HIDDEN_FIELDS.has(f.name) && !f.ui?.hidden) ?? []
 
 	/**
 	 * Treat a field as localized for the purposes of dispatch. Combines three sources:
@@ -979,6 +1026,27 @@ function CollectionContentEditor() {
 				return next
 			})
 		}
+	}
+
+	/**
+	 * Append a new option to an enum field's `options` array via PATCH to the
+	 * parent collection. Used by the dropdown's "+ Add option…" row so editors
+	 * can mint a new enum value without leaving the form. Refreshes the
+	 * collections cache so the new option shows up immediately.
+	 *
+	 * Permission-gated: only owners/admins should ever be passed as the
+	 * dropdown's `onAddOption` (see canEditSchema).
+	 */
+	const addEnumOption = async (fieldName: string, newValue: string) => {
+		if (!collection) throw new Error('No collection')
+		const next = (collection.fields ?? []).map((field) => {
+			if (field.name !== fieldName) return field
+			const existing = field.options ?? []
+			if (existing.includes(newValue)) return field
+			return { ...field, options: [...existing, newValue] }
+		})
+		await api.put(`/api/v1/collections/${collection.id}`, { fields: next })
+		await refreshCollections()
 	}
 
 	// Bulk translate: every localized field (staged in `extraFields`) plus the document
@@ -1099,160 +1167,37 @@ function CollectionContentEditor() {
 		) ?? true
 
 	// Schema field renderer — used by either the central column (form layout) or the
-	// sidebar (article layout). Pulled out so we don't duplicate the dispatch ladder.
+	// sidebar (article layout). Delegates the widget dispatch to FieldRenderer so
+	// every widget honours the same `ui` blob (placeholder, readOnly, separator,
+	// helpText, …) instead of just the text branch.
 	const renderSchemaField = (f: (typeof visibleSchemaFields)[number]) => (
-		<Field key={f.name} label={f.name}>
-			{f.type === 'boolean' ? (
-				<label className="flex items-center gap-2 text-sm">
-					<input
-						type="checkbox"
-						checked={!!(extraFields[f.name] ?? false)}
-						onChange={(e) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: e.target.checked }))
-							setDirty(true)
-						}}
-						disabled={isReadOnly}
-						className="rounded"
-					/>
-					<span className="text-text-secondary">{extraFields[f.name] ? 'Yes' : 'No'}</span>
-				</label>
-			) : f.type === 'number' ? (
-				<input
-					type="number"
-					value={String(extraFields[f.name] ?? '')}
-					onChange={(e) => {
-						setExtraFields((prev) => ({
-							...prev,
-							[f.name]: e.target.value ? Number(e.target.value) : '',
-						}))
-						setDirty(true)
-					}}
-					disabled={isReadOnly}
-					className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
-				/>
-			) : f.type === 'date' ? (
-				<input
-					type="date"
-					value={toDateInputValue(extraFields[f.name])}
-					onChange={(e) => {
-						setExtraFields((prev) => ({
-							...prev,
-							[f.name]: e.target.value ? new Date(e.target.value).toISOString() : '',
-						}))
-						setDirty(true)
-					}}
-					disabled={isReadOnly}
-					className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
-				/>
-			) : f.type === 'relation' ? (
-				<RelationField
-					value={String(extraFields[f.name] ?? '')}
-					relationTo={f.relationTo}
-					disabled={isReadOnly}
-					onChange={(v) => {
-						setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-						setDirty(true)
-					}}
-				/>
-			) : f.type === 'object' ? (
-				isFieldLocalized(f) ? (
-					<LocalizedTextField
-						value={extraFields[f.name]}
-						mode={localeUi.mode}
-						activeLocale={localeUi.activeLocale}
-						leftLocale={localeUi.leftLocale}
-						rightLocale={localeUi.rightLocale}
-						defaultLocale={defaultLocale}
-						onTranslate={
-							canTranslate ? (src, tgt) => handleFieldTranslate(f.name, src, tgt) : undefined
-						}
-						translating={translatingFields.has(f.name) || bulkTranslating}
-						onChange={(v) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-							setDirty(true)
-						}}
-						disabled={isReadOnly}
-					/>
-				) : (
-					<JsonField
-						value={extraFields[f.name]}
-						onChange={(v) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-							setDirty(true)
-						}}
-						disabled={isReadOnly}
-					/>
-				)
-			) : f.type === 'array' ? (
-				isObjectArray(extraFields[f.name]) ? (
-					<ObjectArrayField
-						value={extraFields[f.name]}
-						onChange={(v) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-							setDirty(true)
-						}}
-						disabled={isReadOnly}
-					/>
-				) : (
-					<PillInput
-						value={toStringArray(extraFields[f.name])}
-						onChange={(v) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-							setDirty(true)
-						}}
-						disabled={isReadOnly}
-					/>
-				)
-			) : f.type === 'enum' ? (
-				isReadOnly ? (
-					<input
-						type="text"
-						value={String(extraFields[f.name] ?? '')}
-						disabled
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm disabled:opacity-60"
-					/>
-				) : (
-					<Dropdown
-						value={String(extraFields[f.name] ?? '')}
-						onChange={(v) => {
-							setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-							setDirty(true)
-						}}
-						options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
-						placeholder="Select..."
-						className="w-full"
-					/>
-				)
-			) : isFieldLocalized(f) ? (
-				<LocalizedTextField
-					value={extraFields[f.name]}
-					mode={localeUi.mode}
-					activeLocale={localeUi.activeLocale}
-					leftLocale={localeUi.leftLocale}
-					rightLocale={localeUi.rightLocale}
-					defaultLocale={defaultLocale}
-					onTranslate={
-						canTranslate ? (src, tgt) => handleFieldTranslate(f.name, src, tgt) : undefined
-					}
-					translating={translatingFields.has(f.name) || bulkTranslating}
-					onChange={(v) => {
-						setExtraFields((prev) => ({ ...prev, [f.name]: v }))
-						setDirty(true)
-					}}
-					disabled={isReadOnly}
-				/>
-			) : (
-				<input
-					type="text"
-					value={String(extraFields[f.name] ?? '')}
-					onChange={(e) => {
-						setExtraFields((prev) => ({ ...prev, [f.name]: e.target.value }))
-						setDirty(true)
-					}}
-					disabled={isReadOnly}
-					className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
-				/>
-			)}
+		<Field key={f.name} label={f.name} error={fieldErrors[f.name]} helpText={f.ui?.helpText}>
+			<FieldRenderer
+				field={f}
+				value={extraFields[f.name]}
+				onChange={(v) => {
+					setExtraFields((prev) => ({ ...prev, [f.name]: v }))
+					setDirty(true)
+				}}
+				disabled={isReadOnly || !!f.ui?.readOnly}
+				localized={isFieldLocalized(f)}
+				locale={{
+					mode: localeUi.mode,
+					activeLocale: localeUi.activeLocale,
+					leftLocale: localeUi.leftLocale,
+					rightLocale: localeUi.rightLocale,
+					defaultLocale,
+				}}
+				onTranslate={
+					canTranslate ? (src, tgt) => handleFieldTranslate(f.name, src, tgt) : undefined
+				}
+				translating={translatingFields.has(f.name) || bulkTranslating}
+				onAddEnumOption={
+					canEditSchema && f.type === 'enum'
+						? (newValue) => addEnumOption(f.name, newValue)
+						: undefined
+				}
+			/>
 		</Field>
 	)
 
@@ -1874,12 +1819,28 @@ function CollectionContentEditor() {
 	)
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+	label,
+	children,
+	error,
+	helpText,
+}: {
+	label: string
+	children: React.ReactNode
+	error?: string | null
+	helpText?: string | null
+}) {
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: generic field wrapper — the control is passed in as children and rendered inside this label.
 		<label className="block">
 			<span className="block text-xs text-text-secondary mb-1.5">{label}</span>
 			{children}
+			{helpText && !error && <span className="block text-xs text-text-muted mt-1">{helpText}</span>}
+			{error && (
+				<span className="block text-xs text-red-500 mt-1" role="alert">
+					{error}
+				</span>
+			)}
 		</label>
 	)
 }

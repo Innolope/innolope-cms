@@ -1,3 +1,20 @@
+export interface CollectionFieldUi {
+	/** Widget id — see field-renderer.tsx for the catalog. */
+	widget?: string
+	placeholder?: string
+	helpText?: string
+	/** Number of visible rows when `widget === 'textarea'`. */
+	rows?: number
+	/** Chip-input separator. Defaults to 'enter'. */
+	separator?: 'enter' | 'comma' | 'both'
+	/** Render the field disabled. */
+	readOnly?: boolean
+	/** Hide the field from edit forms entirely. */
+	hidden?: boolean
+	/** Structured sub-fields, used when `widget === 'subform'`. */
+	subFields?: CollectionField[]
+}
+
 export interface CollectionField {
 	name: string
 	type: 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'relation' | 'object' | 'array'
@@ -9,6 +26,8 @@ export interface CollectionField {
 	relationTo?: string
 	/** Whether the relation field holds an array of references. */
 	relationIsArray?: boolean
+	/** Optional UI hints overriding the default widget chosen from `type`. */
+	ui?: CollectionFieldUi
 }
 
 export interface CollectionTemplate {

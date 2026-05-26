@@ -11,15 +11,42 @@ export const Route = createFileRoute('/collections/$slug_/edit')({
 	component: CollectionSchemaEditor,
 })
 
+interface CollectionFieldUi {
+	widget?: string
+	placeholder?: string
+	helpText?: string
+	rows?: number
+	separator?: 'enter' | 'comma' | 'both'
+	readOnly?: boolean
+	hidden?: boolean
+}
+
 interface CollectionField {
 	name: string
 	type: string
 	required?: boolean
 	localized?: boolean
 	options?: string[]
+	ui?: CollectionFieldUi
 }
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'enum', 'relation', 'object', 'array']
+
+/**
+ * Widget catalog — what UI representations are valid for each field type. The
+ * first entry per row is the default. Keep this in sync with `defaultWidgetFor`
+ * + the renderer dispatch in `collections.$slug.$contentId.tsx`.
+ */
+const WIDGETS_BY_TYPE: Record<string, string[]> = {
+	text: ['input', 'textarea', 'dropdown', 'radio', 'richtext', 'slug', 'url', 'markdown'],
+	number: ['input', 'currency', 'range'],
+	boolean: ['checkbox', 'switch'],
+	date: ['date', 'datetime'],
+	enum: ['dropdown', 'radio', 'chips'],
+	array: ['chips', 'list', 'table', 'repeater'],
+	object: ['json', 'subform'],
+	relation: ['picker', 'multiselect'],
+}
 
 function CollectionSchemaEditor() {
 	const { slug } = Route.useParams()
@@ -34,6 +61,12 @@ function CollectionSchemaEditor() {
 	const [collectionName, setCollectionName] = useState('')
 	const [description, setDescription] = useState('')
 	const [fields, setFields] = useState<CollectionField[]>([])
+	// Which schema field this collection uses as the row label in lists + pickers.
+	// `null` = use the smart heuristic (display-title.ts).
+	const [titleField, setTitleField] = useState<string | null>(null)
+	const [sidebarMode, setSidebarMode] = useState<'auto' | 'show' | 'hide'>('auto')
+	// Which field rows have their "Advanced" expander open. Keyed by index.
+	const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(true)
 	const [scanning, setScanning] = useState(false)
@@ -46,12 +79,16 @@ function CollectionSchemaEditor() {
 					label: string
 					description: string | null
 					fields: CollectionField[]
+					titleField?: string | null
+					sidebarMode?: 'auto' | 'show' | 'hide'
 				}>(`/api/v1/collections/${collection.id}`)
 				.then((col) => {
 					setLabel(col.label)
 					setCollectionName(col.name)
 					setDescription(col.description || '')
 					setFields(col.fields)
+					setTitleField(col.titleField ?? null)
+					setSidebarMode(col.sidebarMode ?? 'auto')
 				})
 				.catch(() => navigate({ to: '/dashboard' }))
 				.finally(() => setLoading(false))
@@ -66,6 +103,31 @@ function CollectionSchemaEditor() {
 
 	const updateField = (index: number, updates: Partial<CollectionField>) => {
 		setFields(fields.map((f, i) => (i === index ? { ...f, ...updates } : f)))
+	}
+
+	/** Patch the nested `ui` blob on a field. Pass `null` for a key to clear it. */
+	const updateFieldUi = (index: number, uiUpdates: Partial<CollectionFieldUi>) => {
+		setFields(
+			fields.map((f, i) => {
+				if (i !== index) return f
+				const merged: CollectionFieldUi = { ...(f.ui ?? {}), ...uiUpdates }
+				// Drop keys whose value is null/undefined/'' so we don't bloat the JSONB.
+				for (const k of Object.keys(merged) as (keyof CollectionFieldUi)[]) {
+					const v = merged[k]
+					if (v === null || v === undefined || v === '') delete merged[k]
+				}
+				return { ...f, ui: Object.keys(merged).length ? merged : undefined }
+			}),
+		)
+	}
+
+	const toggleExpanded = (index: number) => {
+		setExpandedRows((prev) => {
+			const next = new Set(prev)
+			if (next.has(index)) next.delete(index)
+			else next.add(index)
+			return next
+		})
 	}
 
 	const removeField = (index: number) => {
@@ -93,6 +155,8 @@ function CollectionSchemaEditor() {
 				name: collectionName,
 				description: description || undefined,
 				fields: validFields,
+				titleField: titleField || null,
+				sidebarMode,
 			})
 			await refreshCollections()
 			navigate({ to: `/collections/${collectionName}` })
@@ -168,6 +232,37 @@ function CollectionSchemaEditor() {
 						placeholder="What this collection is for"
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
+				</Field>
+
+				<Field label="Display title field">
+					<Dropdown
+						value={titleField ?? '__auto__'}
+						onChange={(v) => setTitleField(v === '__auto__' ? null : v)}
+						options={[
+							{ value: '__auto__', label: 'Auto (smart heuristic)' },
+							...fields.filter((f) => f.name.trim()).map((f) => ({ value: f.name, label: f.name })),
+						]}
+					/>
+					<p className="mt-1 text-xs text-text-muted">
+						Used as the row label in list views and reference pickers. Auto picks <code>title</code>{' '}
+						→ <code>name</code> → a name-like field → the first text field.
+					</p>
+				</Field>
+
+				<Field label="Sidebar visibility">
+					<Dropdown
+						value={sidebarMode}
+						onChange={(v) => setSidebarMode(v as 'auto' | 'show' | 'hide')}
+						options={[
+							{ value: 'auto', label: 'Auto (hide when used only as a relation target)' },
+							{ value: 'show', label: 'Always show' },
+							{ value: 'hide', label: 'Always hide (accessible via relations only)' },
+						]}
+					/>
+					<p className="mt-1 text-xs text-text-muted">
+						Auto hides collections that another collection references via a relation field, so
+						lookup-only collections (tags, authors, categories) don't clutter the sidebar.
+					</p>
 				</Field>
 
 				<div>
@@ -284,11 +379,36 @@ function CollectionSchemaEditor() {
 									<Dropdown
 										value={field.type}
 										onChange={(v) =>
-											updateField(i, { type: v, ...(v !== 'enum' && { options: undefined }) })
+											updateField(i, {
+												type: v,
+												// Clear options when leaving enum
+												...(v !== 'enum' && { options: undefined }),
+												// Clear an incompatible widget when the type changes
+												...(field.ui?.widget &&
+													!(WIDGETS_BY_TYPE[v] ?? []).includes(field.ui.widget) && {
+														ui: { ...field.ui, widget: undefined },
+													}),
+											})
 										}
 										options={FIELD_TYPES.map((t) => ({ value: t, label: t }))}
 										className="w-32 shrink-0"
 									/>
+									{(WIDGETS_BY_TYPE[field.type] ?? []).length > 1 && (
+										<Dropdown
+											value={field.ui?.widget ?? WIDGETS_BY_TYPE[field.type]?.[0] ?? ''}
+											onChange={(v) =>
+												updateFieldUi(i, {
+													// store undefined when picking the default so we don't bloat JSON
+													widget: v === WIDGETS_BY_TYPE[field.type]?.[0] ? undefined : v,
+												})
+											}
+											options={(WIDGETS_BY_TYPE[field.type] ?? []).map((w, idx) => ({
+												value: w,
+												label: idx === 0 ? `${w} (default)` : w,
+											}))}
+											className="w-32 shrink-0"
+										/>
+									)}
 									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
 											type="checkbox"
@@ -305,6 +425,15 @@ function CollectionSchemaEditor() {
 										/>{' '}
 										i18n
 									</label>
+									<button
+										type="button"
+										onClick={() => toggleExpanded(i)}
+										className="text-text-secondary hover:text-text text-xs px-2"
+										aria-expanded={expandedRows.has(i)}
+										title={expandedRows.has(i) ? 'Hide advanced' : 'Show advanced'}
+									>
+										…
+									</button>
 									<button
 										type="button"
 										onClick={() => removeField(i)}
@@ -327,6 +456,92 @@ function CollectionSchemaEditor() {
 											placeholder="Dropdown options (comma-separated)"
 											className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
 										/>
+									)}
+									{expandedRows.has(i) && (
+										<div className="w-full mt-2 pt-2 border-t border-border space-y-2">
+											<label className="block text-xs text-text-secondary">
+												Placeholder
+												<input
+													type="text"
+													value={field.ui?.placeholder ?? ''}
+													onChange={(e) =>
+														updateFieldUi(i, { placeholder: e.target.value || undefined })
+													}
+													placeholder="Shown inside the empty input"
+													className="mt-1 w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
+												/>
+											</label>
+											<label className="block text-xs text-text-secondary">
+												Help text
+												<input
+													type="text"
+													value={field.ui?.helpText ?? ''}
+													onChange={(e) =>
+														updateFieldUi(i, { helpText: e.target.value || undefined })
+													}
+													placeholder="Short hint shown below the input"
+													className="mt-1 w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
+												/>
+											</label>
+											{field.type === 'text' && field.ui?.widget === 'textarea' && (
+												<label className="block text-xs text-text-secondary">
+													Rows
+													<input
+														type="number"
+														min={1}
+														max={40}
+														value={field.ui?.rows ?? ''}
+														onChange={(e) =>
+															updateFieldUi(i, {
+																rows: e.target.value ? Number(e.target.value) : undefined,
+															})
+														}
+														className="mt-1 w-24 px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
+													/>
+												</label>
+											)}
+											{field.type === 'array' && (
+												<div className="block text-xs text-text-secondary">
+													<span>Chip separator</span>
+													<Dropdown
+														value={field.ui?.separator ?? 'enter'}
+														onChange={(v) =>
+															updateFieldUi(i, {
+																separator:
+																	v === 'enter' ? undefined : (v as 'enter' | 'comma' | 'both'),
+															})
+														}
+														options={[
+															{ value: 'enter', label: 'Enter only (default)' },
+															{ value: 'comma', label: 'Enter or comma' },
+														]}
+														className="mt-1 w-48"
+													/>
+												</div>
+											)}
+											<div className="flex flex-wrap gap-3">
+												<label className="flex items-center gap-1 text-xs text-text-secondary">
+													<input
+														type="checkbox"
+														checked={field.ui?.readOnly || false}
+														onChange={(e) =>
+															updateFieldUi(i, { readOnly: e.target.checked || undefined })
+														}
+													/>{' '}
+													Read-only (system-managed)
+												</label>
+												<label className="flex items-center gap-1 text-xs text-text-secondary">
+													<input
+														type="checkbox"
+														checked={field.ui?.hidden || false}
+														onChange={(e) =>
+															updateFieldUi(i, { hidden: e.target.checked || undefined })
+														}
+													/>{' '}
+													Hidden from form
+												</label>
+											</div>
+										</div>
 									)}
 								</div>
 							))}

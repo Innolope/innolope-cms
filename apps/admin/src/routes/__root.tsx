@@ -6,7 +6,11 @@ import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components
 import { ProjectSelector } from '../components/project-selector'
 import { api, loginUrlPreservingNext } from '../lib/api-client'
 import { AuthProvider, useAuth } from '../lib/auth'
-import { CollectionsProvider, useCollections } from '../lib/collections'
+import {
+	CollectionsProvider,
+	isCollectionVisibleInSidebar,
+	useCollections,
+} from '../lib/collections'
 import { ConfirmProvider } from '../lib/confirm'
 import { ThemeProvider } from '../lib/theme'
 import { ToastProvider, useToast } from '../lib/toast'
@@ -460,52 +464,48 @@ function CollectionNavExpanded() {
 
 	return (
 		<div className="space-y-0.5">
-			{collections
-				.filter((col) => col.source !== 'media')
-				.map((col) => {
-					const isActive = location.pathname.startsWith(`/collections/${col.name}`)
-					return (
-						<Link
-							key={col.id}
-							to="/collections/$slug"
-							params={{ slug: col.name }}
-							className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-								isActive
-									? 'bg-surface-alt text-text font-medium'
-									: 'text-text-secondary hover:bg-surface-alt hover:text-text'
-							}`}
-						>
-							<span className="truncate flex items-center gap-1.5">
-								{col.source === 'external' && (
-									<svg
-										width="12"
-										height="12"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										className="shrink-0 opacity-50"
-									>
-										<line x1="8" y1="6" x2="21" y2="6" />
-										<line x1="8" y1="12" x2="21" y2="12" />
-										<line x1="8" y1="18" x2="21" y2="18" />
-										<line x1="3" y1="6" x2="3.01" y2="6" />
-										<line x1="3" y1="12" x2="3.01" y2="12" />
-										<line x1="3" y1="18" x2="3.01" y2="18" />
-									</svg>
-								)}
-								{col.label}
-							</span>
-							{col.contentCount > 0 && (
-								<span className="text-[10px] text-text-muted shrink-0 ml-2">
-									{col.contentCount}
-								</span>
+			{collections.filter(isCollectionVisibleInSidebar).map((col) => {
+				const isActive = location.pathname.startsWith(`/collections/${col.name}`)
+				return (
+					<Link
+						key={col.id}
+						to="/collections/$slug"
+						params={{ slug: col.name }}
+						className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+							isActive
+								? 'bg-surface-alt text-text font-medium'
+								: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+						}`}
+					>
+						<span className="truncate flex items-center gap-1.5">
+							{col.source === 'external' && (
+								<svg
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									className="shrink-0 opacity-50"
+								>
+									<line x1="8" y1="6" x2="21" y2="6" />
+									<line x1="8" y1="12" x2="21" y2="12" />
+									<line x1="8" y1="18" x2="21" y2="18" />
+									<line x1="3" y1="6" x2="3.01" y2="6" />
+									<line x1="3" y1="12" x2="3.01" y2="12" />
+									<line x1="3" y1="18" x2="3.01" y2="18" />
+								</svg>
 							)}
-						</Link>
-					)
-				})}
+							{col.label}
+						</span>
+						{col.contentCount > 0 && (
+							<span className="text-[10px] text-text-muted shrink-0 ml-2">{col.contentCount}</span>
+						)}
+					</Link>
+				)
+			})}
 			<Link
 				to="/collections/new"
 				className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"
@@ -534,21 +534,19 @@ function CollectionNavCollapsed() {
 
 	return (
 		<div className="space-y-0.5">
-			{collections
-				.filter((col) => col.source !== 'media')
-				.map((col) => (
-					<Link
-						key={col.id}
-						to="/collections/$slug"
-						params={{ slug: col.name }}
-						className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
-						title={`${col.label} (${col.contentCount})`}
-					>
-						<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
-							{col.label.charAt(0)}
-						</span>
-					</Link>
-				))}
+			{collections.filter(isCollectionVisibleInSidebar).map((col) => (
+				<Link
+					key={col.id}
+					to="/collections/$slug"
+					params={{ slug: col.name }}
+					className="flex items-center justify-center p-2 rounded-md text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+					title={`${col.label} (${col.contentCount})`}
+				>
+					<span className="text-xs font-semibold uppercase w-5 h-5 flex items-center justify-center">
+						{col.label.charAt(0)}
+					</span>
+				</Link>
+			))}
 			<Link
 				to="/collections/new"
 				className="flex items-center justify-center p-2 rounded-md text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"

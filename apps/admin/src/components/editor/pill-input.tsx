@@ -1,24 +1,40 @@
 import { useState } from 'react'
 
+/** When this many separator characters get added to commit. Default is Enter-only. */
+export type PillSeparator = 'enter' | 'comma' | 'both'
+
 interface PillInputProps {
 	value: string[]
 	onChange: (value: string[]) => void
 	disabled?: boolean
 	placeholder?: string
+	/**
+	 * What triggers committing a pill from the draft input.
+	 *  - 'enter' (default): only Enter commits. Commas stay in the value — safe
+	 *    for labels like "Handling stereotypes, biases, hallucination".
+	 *  - 'comma': Enter or comma commit. Faster bulk entry for tag-like fields.
+	 *  - 'both': alias for 'comma'.
+	 */
+	separator?: PillSeparator
 }
 
-/** Text input that turns entries into removable pills on Enter or comma. */
-export function PillInput({ value, onChange, disabled, placeholder }: PillInputProps) {
+/** Text input that turns entries into removable pills. */
+export function PillInput({
+	value,
+	onChange,
+	disabled,
+	placeholder,
+	separator = 'enter',
+}: PillInputProps) {
 	const [draft, setDraft] = useState('')
+	const splitsOnComma = separator !== 'enter'
 
 	const commit = (raw: string) => {
-		const parts = raw
-			.split(',')
-			.map((p) => p.trim())
-			.filter(Boolean)
-		if (parts.length === 0) return
+		const parts = splitsOnComma ? raw.split(',') : [raw]
+		const cleaned = parts.map((p) => p.trim()).filter(Boolean)
+		if (cleaned.length === 0) return
 		const next = [...value]
-		for (const p of parts) if (!next.includes(p)) next.push(p)
+		for (const p of cleaned) if (!next.includes(p)) next.push(p)
 		onChange(next)
 		setDraft('')
 	}
@@ -34,7 +50,7 @@ export function PillInput({ value, onChange, disabled, placeholder }: PillInputP
 				placeholder={placeholder || 'Type and press Enter'}
 				onChange={(e) => setDraft(e.target.value)}
 				onKeyDown={(e) => {
-					if (e.key === 'Enter' || e.key === ',') {
+					if (e.key === 'Enter' || (splitsOnComma && e.key === ',')) {
 						e.preventDefault()
 						commit(draft)
 					} else if (e.key === 'Backspace' && draft === '' && value.length > 0) {

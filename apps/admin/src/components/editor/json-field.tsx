@@ -40,8 +40,18 @@ export function JsonField({ value, onChange, disabled, compact }: JsonFieldProps
 		}
 	}, [value])
 
-	const commit = () => {
-		const trimmed = text.trim()
+	/**
+	 * Parse `text` and propagate to the parent.
+	 *
+	 * Called on every keystroke (so a Save click never loses unblurred JSON — see
+	 * the bug where typed values were silently dropped because commit only fired
+	 * on blur), AND on blur as a safety net. We tolerate partial/invalid JSON
+	 * mid-typing by surfacing the parse error inline without clobbering the
+	 * last known-good value: parent state stays at the previous parse-success
+	 * until the user either fixes the JSON or clears the field entirely.
+	 */
+	const commit = (raw: string) => {
+		const trimmed = raw.trim()
 		if (trimmed === '') {
 			setError(null)
 			lastExternalRef.current = ''
@@ -78,8 +88,11 @@ export function JsonField({ value, onChange, disabled, compact }: JsonFieldProps
 				ref={textareaRef}
 				value={text}
 				disabled={disabled}
-				onChange={(e) => setText(e.target.value)}
-				onBlur={commit}
+				onChange={(e) => {
+					setText(e.target.value)
+					commit(e.target.value)
+				}}
+				onBlur={(e) => commit(e.target.value)}
 				rows={rows}
 				spellCheck={false}
 				className={`w-full px-3 py-2 bg-input border ${

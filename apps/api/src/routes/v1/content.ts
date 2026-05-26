@@ -12,6 +12,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
+import { checkCollectionAccess, loadMemberCollectionAccess } from '../../lib/collection-access.js'
 import { applyMediaStorage, getMediaStorageMap } from '../../lib/media-storage.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
@@ -364,8 +365,12 @@ async function hydrateRelations(
 
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
-	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
 		const params = contentListSchema.parse(request.query)
+		if (params.collectionId) {
+			const access = await checkCollectionAccess(request, params.collectionId, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+		}
 		const {
 			page,
 			limit,
@@ -423,6 +428,23 @@ export async function contentRoutes(app: FastifyInstance) {
 		const conditions = [eq(content.projectId, pid)]
 		if (status) conditions.push(eq(content.status, status))
 		if (collectionId) conditions.push(eq(content.collectionId, collectionId))
+		// When the caller has no specific collectionId filter and is a restricted
+		// editor/viewer, narrow the list to only their allowed collections so they
+		// don't see content from collections they cannot access.
+		if (
+			!collectionId &&
+			request.projectRole !== 'owner' &&
+			request.projectRole !== 'admin' &&
+			request.membershipId
+		) {
+			const access = await loadMemberCollectionAccess(app.db, request.membershipId)
+			if (!access.unrestricted) {
+				if (access.allowedIds.size === 0) {
+					return { data: [], pagination: { page, limit, total: 0, totalPages: 0 } }
+				}
+				conditions.push(inArray(content.collectionId, Array.from(access.allowedIds)))
+			}
+		}
 		if (locale) conditions.push(eq(content.locale, locale))
 		if (search) {
 			conditions.push(
@@ -643,6 +665,9 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
 
+			const access = await checkCollectionAccess(request, item.collectionId, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+
 			await hydrateRelations(app, getProject(request).id, item, request.query.depth)
 
 			// Track read analytics (fire-and-forget)
@@ -663,6 +688,8 @@ export async function contentRoutes(app: FastifyInstance) {
 	// Create content (editor+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
 		const input = contentInputSchema.parse(request.body)
+		const writeAccess = await checkCollectionAccess(request, input.collectionId, 'write')
+		if (!writeAccess.ok) return reply.status(writeAccess.status).send({ error: writeAccess.error })
 		const html = sanitizeHtml(await marked(input.markdown))
 		const [col] = await app.db
 			.select()
@@ -775,6 +802,17 @@ export async function contentRoutes(app: FastifyInstance) {
 			return reply.status(400).send({ error: 'items array is required' })
 		if (items.length > 50)
 			return reply.status(400).send({ error: 'Maximum 50 items per bulk create' })
+
+		// Enforce per-collection write access across the batch (cheap dedupe by id).
+		{
+			const seen = new Set<string>()
+			for (const item of items) {
+				if (seen.has(item.collectionId)) continue
+				seen.add(item.collectionId)
+				const access = await checkCollectionAccess(request, item.collectionId, 'write')
+				if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			}
+		}
 
 		const insertedExternalRows: Array<{
 			col: typeof collections.$inferSelect
@@ -908,6 +946,7 @@ export async function contentRoutes(app: FastifyInstance) {
 
 		const updated = await app.db.transaction(async (tx) => {
 			const results = []
+			const accessChecked = new Set<string>()
 			for (const item of items) {
 				const [current] = await tx
 					.select()
@@ -915,6 +954,11 @@ export async function contentRoutes(app: FastifyInstance) {
 					.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
 					.limit(1)
 				if (!current) throw httpError(`Content not found: ${item.id}`, 404)
+				if (!accessChecked.has(current.collectionId)) {
+					accessChecked.add(current.collectionId)
+					const access = await checkCollectionAccess(request, current.collectionId, 'write')
+					if (!access.ok) throw httpError(access.error, access.status)
+				}
 
 				const [col] = await tx
 					.select()
@@ -1065,6 +1109,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!current) return reply.status(404).send({ error: 'Content not found' })
+
+			const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write')
+			if (!writeAccess.ok) {
+				return reply.status(writeAccess.status).send({ error: writeAccess.error })
+			}
 
 			const [col] = await app.db
 				.select()

@@ -16,6 +16,8 @@ declare module 'fastify' {
 	interface FastifyRequest {
 		project?: { id: string; slug: string; name: string }
 		projectRole?: ProjectRole
+		/** projectMembers.id for the authenticated user in the current project. */
+		membershipId?: string
 	}
 	interface FastifyInstance {
 		requireProject: (
@@ -121,6 +123,7 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 
 			request.project = { id: project.id, slug: project.slug, name: project.name }
 			request.projectRole = membership.role as ProjectRole
+			request.membershipId = membership.id
 		}
 
 	app.decorate('requireProject', requireProject)

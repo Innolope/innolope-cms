@@ -4,6 +4,7 @@ import { useAuth } from '../../lib/auth'
 import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
+import { CollectionAccessPicker } from './collection-access-picker'
 
 interface Member {
 	id: string
@@ -12,6 +13,8 @@ interface Member {
 	createdAt: string
 	userName: string
 	userEmail: string
+	/** null ⇒ unrestricted (full access); array ⇒ scoped to these collection ids. */
+	collectionIds: string[] | null
 }
 
 interface Invite {
@@ -21,6 +24,7 @@ interface Invite {
 	createdAt: string
 	expiresAt: string
 	accepted: boolean
+	collectionIds: string[] | null
 }
 
 const ROLES = ['viewer', 'editor', 'admin'] as const
@@ -35,8 +39,12 @@ export function TeamSettings() {
 	const [loading, setLoading] = useState(true)
 	const [email, setEmail] = useState('')
 	const [role, setRole] = useState<string>('viewer')
+	const [inviteCollectionIds, setInviteCollectionIds] = useState<string[] | null>(null)
 	const [sending, setSending] = useState(false)
 	const [sent, setSent] = useState('')
+	const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+	const [editingScope, setEditingScope] = useState<string[] | null>(null)
+	const [savingScope, setSavingScope] = useState(false)
 
 	const isAdmin = currentProject && ROLE_ORDER[currentProject.role] >= ROLE_ORDER.admin
 
@@ -65,15 +73,38 @@ export function TeamSettings() {
 		if (!email.trim()) return
 		setSending(true)
 		try {
-			await api.post('/api/v1/invites', { email, role })
+			// admin/viewer/editor roles all accept a scope; the API ignores it for admin.
+			await api.post('/api/v1/invites', {
+				email,
+				role,
+				collectionIds: inviteCollectionIds,
+			})
 			setSent(email)
 			setEmail('')
+			setInviteCollectionIds(null)
 			setTimeout(() => setSent(''), 3000)
 			fetchData()
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to send invite', 'error')
 		} finally {
 			setSending(false)
+		}
+	}
+
+	const saveMemberScope = async (userId: string) => {
+		if (!currentProject) return
+		setSavingScope(true)
+		try {
+			await api.put(`/api/v1/projects/${currentProject.id}/members/${userId}/collections`, {
+				collectionIds: editingScope,
+			})
+			setEditingMemberId(null)
+			setEditingScope(null)
+			fetchData()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to update access', 'error')
+		} finally {
+			setSavingScope(false)
 		}
 	}
 
@@ -112,40 +143,97 @@ export function TeamSettings() {
 			<div>
 				<h4 className="text-sm font-medium mb-3">Members</h4>
 				<div className="space-y-2">
-					{members.map((m) => (
-						<div
-							key={m.id}
-							className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
-						>
-							<div className="min-w-0">
-								<p className="text-sm truncate">{m.userName}</p>
-								<p className="text-xs text-text-muted truncate">{m.userEmail}</p>
-							</div>
-							<div className="flex items-center gap-2 ml-3 shrink-0">
-								{isAdmin && m.role !== 'owner' && m.userId !== user?.id ? (
-									<Dropdown
-										value={m.role}
-										onChange={(v) => updateRole(m.userId, v)}
-										options={ROLES.map((r) => ({ value: r, label: r }))}
-										className="px-2 py-1 bg-input border border-border rounded text-xs focus:outline-none"
-									/>
-								) : (
-									<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border">
-										{m.role}
-									</span>
+					{members.map((m) => {
+						const isOwnerOrAdmin = m.role === 'owner' || m.role === 'admin'
+						const scopeLabel = isOwnerOrAdmin
+							? 'Full access'
+							: m.collectionIds === null
+								? 'All collections'
+								: `${m.collectionIds.length} collection${m.collectionIds.length === 1 ? '' : 's'}`
+						const isEditingThis = editingMemberId === m.id
+						return (
+							<div key={m.id} className="rounded-lg bg-surface-alt">
+								<div className="flex items-center justify-between py-2 px-3">
+									<div className="min-w-0">
+										<p className="text-sm truncate">{m.userName}</p>
+										<p className="text-xs text-text-muted truncate">{m.userEmail}</p>
+										<p className="text-[11px] text-text-muted mt-0.5">{scopeLabel}</p>
+									</div>
+									<div className="flex items-center gap-2 ml-3 shrink-0">
+										{isAdmin && m.role !== 'owner' && m.userId !== user?.id ? (
+											<Dropdown
+												value={m.role}
+												onChange={(v) => updateRole(m.userId, v)}
+												options={ROLES.map((r) => ({ value: r, label: r }))}
+												className="px-2 py-1 bg-input border border-border rounded text-xs focus:outline-none"
+											/>
+										) : (
+											<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border">
+												{m.role}
+											</span>
+										)}
+										{isAdmin && m.role !== 'owner' && m.userId !== user?.id && (
+											<>
+												<button
+													type="button"
+													onClick={() => {
+														if (isEditingThis) {
+															setEditingMemberId(null)
+															setEditingScope(null)
+														} else {
+															setEditingMemberId(m.id)
+															setEditingScope(m.collectionIds)
+														}
+													}}
+													className="text-xs text-text-secondary hover:text-text"
+												>
+													{isEditingThis ? 'Cancel' : 'Edit access'}
+												</button>
+												<button
+													type="button"
+													onClick={() => removeMember(m.userId, m.userName)}
+													className="text-danger text-xs hover:opacity-80"
+												>
+													Remove
+												</button>
+											</>
+										)}
+									</div>
+								</div>
+								{isEditingThis && (
+									<div className="border-t border-border px-3 py-3 space-y-3">
+										<CollectionAccessPicker
+											value={editingScope}
+											onChange={setEditingScope}
+											disabled={isOwnerOrAdmin}
+										/>
+										{!isOwnerOrAdmin && (
+											<div className="flex justify-end gap-2">
+												<button
+													type="button"
+													onClick={() => {
+														setEditingMemberId(null)
+														setEditingScope(null)
+													}}
+													className="px-3 py-1 text-xs text-text-secondary hover:text-text"
+												>
+													Cancel
+												</button>
+												<button
+													type="button"
+													onClick={() => saveMemberScope(m.userId)}
+													disabled={savingScope}
+													className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+												>
+													{savingScope ? 'Saving...' : 'Save access'}
+												</button>
+											</div>
+										)}
+									</div>
 								)}
-								{isAdmin && m.role !== 'owner' && m.userId !== user?.id && (
-									<button
-										type="button"
-										onClick={() => removeMember(m.userId, m.userName)}
-										className="text-danger text-xs hover:opacity-80"
-									>
-										Remove
-									</button>
-								)}
 							</div>
-						</div>
-					))}
+						)
+					})}
 				</div>
 			</div>
 
@@ -154,22 +242,32 @@ export function TeamSettings() {
 				<div>
 					<h4 className="text-sm font-medium mb-3">Pending Invites</h4>
 					<div className="space-y-2">
-						{invites.map((inv) => (
-							<div
-								key={inv.id}
-								className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
-							>
-								<div className="min-w-0">
-									<p className="text-sm truncate">{inv.email}</p>
-									<p className="text-xs text-text-muted">
-										Expires {new Date(inv.expiresAt).toLocaleDateString()}
-									</p>
+						{invites.map((inv) => {
+							const scopeLabel =
+								inv.role === 'admin'
+									? 'Full access'
+									: inv.collectionIds === null
+										? 'All collections'
+										: `${inv.collectionIds.length} collection${
+												inv.collectionIds.length === 1 ? '' : 's'
+											}`
+							return (
+								<div
+									key={inv.id}
+									className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-alt"
+								>
+									<div className="min-w-0">
+										<p className="text-sm truncate">{inv.email}</p>
+										<p className="text-xs text-text-muted">
+											Expires {new Date(inv.expiresAt).toLocaleDateString()} · {scopeLabel}
+										</p>
+									</div>
+									<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border shrink-0 ml-3">
+										{inv.role}
+									</span>
 								</div>
-								<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border shrink-0 ml-3">
-									{inv.role}
-								</span>
-							</div>
-						))}
+							)
+						})}
 					</div>
 				</div>
 			)}
@@ -201,6 +299,14 @@ export function TeamSettings() {
 						>
 							{sending ? 'Sending...' : 'Send Invite'}
 						</button>
+					</div>
+					<div className="mt-3 p-3 rounded-lg border border-border bg-surface">
+						<p className="text-xs font-medium text-text-secondary mb-2">Collection access</p>
+						<CollectionAccessPicker
+							value={inviteCollectionIds}
+							onChange={setInviteCollectionIds}
+							disabled={role === 'admin'}
+						/>
 					</div>
 					{sent && <p className="text-xs text-text-secondary mt-2">Invite sent to {sent}</p>}
 				</div>

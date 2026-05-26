@@ -2,6 +2,45 @@ const API_BASE = import.meta.env.VITE_API_URL || ''
 
 const LOGIN_PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/accept-invite']
 
+/** One Zod / Fastify-validation issue surfaced from the API. */
+export interface ApiErrorIssue {
+	/** Dotted path to the offending field, e.g. `slug` or `metadata.title`. */
+	path: string
+	/** Human-readable validation message. */
+	message: string
+}
+
+/** Shape of the JSON body returned by the API for any non-2xx response. */
+export interface ApiErrorPayload {
+	error?: string
+	statusCode?: number
+	issues?: ApiErrorIssue[]
+}
+
+/**
+ * Thrown by `api.*` helpers on non-2xx responses. Callers can inspect `status`
+ * and `issues` to surface field-level errors next to inputs instead of showing
+ * a generic toast.
+ */
+export class ApiError extends Error {
+	readonly status: number
+	readonly issues: ApiErrorIssue[]
+
+	constructor(status: number, payload: ApiErrorPayload) {
+		const issues = Array.isArray(payload.issues) ? payload.issues : []
+		const baseMsg = payload.error || (status >= 500 ? 'Server error' : 'Request failed')
+		// Surface the first field issue in the message so a caller that only
+		// reads `error.message` (e.g. a generic toast) still gets useful info.
+		const message = issues.length
+			? `${baseMsg}: ${issues[0].path ? `${issues[0].path}: ` : ''}${issues[0].message}`
+			: baseMsg
+		super(message)
+		this.name = 'ApiError'
+		this.status = status
+		this.issues = issues
+	}
+}
+
 /**
  * Returns `/login?next=<encoded current path>` for the current location, unless the
  * user is already on a public/login-adjacent page (in which case `next` is omitted to
@@ -92,8 +131,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 	}
 
 	if (!response.ok) {
-		const error = await response.json().catch(() => ({ error: response.statusText }))
-		throw new Error((error as { error: string }).error || 'Request failed')
+		const payload = await response.json().catch(() => ({ error: response.statusText }))
+		throw new ApiError(response.status, payload as ApiErrorPayload)
 	}
 
 	if (response.status === 204) return undefined as T

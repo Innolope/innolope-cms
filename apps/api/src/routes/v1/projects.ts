@@ -1,5 +1,5 @@
-import { projectMembers, projects, users } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
+import { projectMemberCollections, projectMembers, projects, users } from '@innolope/db'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -217,7 +217,30 @@ export async function projectRoutes(app: FastifyInstance) {
 				.innerJoin(users, eq(users.id, projectMembers.userId))
 				.where(eq(projectMembers.projectId, request.params.id))
 
-			return members
+			// Annotate each member with their collection allowlist.
+			// `collectionIds: null` ⇒ unrestricted; an array ⇒ scoped to those ids.
+			// Owner/admin always report null (the table is ignored for them at access time).
+			const memberIds = members.map((m) => m.id)
+			const scopeRows = memberIds.length
+				? await app.db
+						.select({
+							memberId: projectMemberCollections.memberId,
+							collectionId: projectMemberCollections.collectionId,
+						})
+						.from(projectMemberCollections)
+						.where(inArray(projectMemberCollections.memberId, memberIds))
+				: []
+			const byMember = new Map<string, string[]>()
+			for (const row of scopeRows) {
+				const arr = byMember.get(row.memberId) ?? []
+				arr.push(row.collectionId)
+				byMember.set(row.memberId, arr)
+			}
+			return members.map((m) => ({
+				...m,
+				collectionIds:
+					m.role === 'owner' || m.role === 'admin' ? null : (byMember.get(m.id) ?? null),
+			}))
 		},
 	)
 
@@ -284,6 +307,51 @@ export async function projectRoutes(app: FastifyInstance) {
 
 			if (!updated) return reply.status(404).send({ error: 'Member not found' })
 			return updated
+		},
+	)
+
+	// Replace a member's collection allowlist. `collectionIds: null` ⇒ unrestricted
+	// (clears all rows). `collectionIds: []` ⇒ no access. `collectionIds: [...]` ⇒
+	// scoped to that set. Owner/admin always have full access regardless of rows.
+	app.put<{ Params: { id: string; userId: string } }>(
+		'/:id/members/:userId/collections',
+		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
+		async (request, reply) => {
+			const { collectionIds } = request.body as { collectionIds: string[] | null }
+
+			const [member] = await app.db
+				.select({ id: projectMembers.id, role: projectMembers.role })
+				.from(projectMembers)
+				.where(
+					and(
+						eq(projectMembers.projectId, request.params.id),
+						eq(projectMembers.userId, request.params.userId),
+					),
+				)
+				.limit(1)
+			if (!member) return reply.status(404).send({ error: 'Member not found' })
+
+			// Clear the existing scope first — simplest correct semantics for a full replace.
+			await app.db
+				.delete(projectMemberCollections)
+				.where(eq(projectMemberCollections.memberId, member.id))
+
+			if (Array.isArray(collectionIds) && collectionIds.length > 0) {
+				await app.db
+					.insert(projectMemberCollections)
+					.values(collectionIds.map((cid) => ({ memberId: member.id, collectionId: cid })))
+					.onConflictDoNothing()
+			}
+
+			return {
+				memberId: member.id,
+				collectionIds:
+					member.role === 'owner' || member.role === 'admin'
+						? null
+						: Array.isArray(collectionIds)
+							? collectionIds
+							: null,
+			}
 		},
 	)
 

@@ -15,6 +15,7 @@ import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
 import { usePrompt } from '../lib/confirm'
+import { pickTitleField, resolveDisplayTitle } from '../lib/display-title'
 import { isLocaleMap, resolveLocalizedValue } from '../lib/locale-value'
 import { absoluteDate, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
@@ -108,22 +109,20 @@ interface ColumnDescriptor {
 
 function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 	const fields = collection.fields || []
-	const hasTitleField = fields.some((f) => f.name === 'title')
-	const hasNameField = fields.some((f) => f.name === 'name')
-	// The primary column shows the record's title or name; the field it consumes is
-	// excluded from the metadata columns below so it isn't rendered twice.
-	const primaryField = hasTitleField ? 'title' : hasNameField ? 'name' : null
-	const primaryLabel = hasTitleField ? 'Title' : hasNameField ? 'Name' : 'Title'
+	// Whichever field acts as the row label — either the user-pinned `titleField`
+	// on the collection, or the heuristic pick over the schema. We exclude this
+	// field from the metadata columns below so it isn't rendered twice.
+	const primaryField = pickTitleField(collection)
+	const primaryLabel = primaryField === 'name' ? 'Name' : 'Title'
 
 	const builtins: ColumnDescriptor[] = [
 		{
 			id: 'title',
 			label: primaryLabel,
 			render: (item, ctx) => {
-				const label =
-					resolveLocalizedValue(item.metadata?.title, { defaultLocale: ctx.defaultLocale }) ||
-					resolveLocalizedValue(item.metadata?.name, { defaultLocale: ctx.defaultLocale }) ||
-					item.id
+				const label = resolveDisplayTitle(item, collection, {
+					defaultLocale: ctx.defaultLocale,
+				})
 				return (
 					<Link
 						to="/collections/$slug/$contentId"
