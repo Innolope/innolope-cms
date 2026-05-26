@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { Dropdown } from '../components/dropdown'
@@ -26,6 +27,7 @@ interface ContentItem {
 }
 
 function ContentEditor() {
+	const { t } = useTranslation()
 	const { id } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
@@ -164,7 +166,7 @@ function ContentEditor() {
 				setDirty(false)
 			}
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Save failed', 'error')
+			toast(err instanceof Error ? err.message : t('content.errors.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -178,7 +180,7 @@ function ContentEditor() {
 			setStatus('published')
 		} catch (err) {
 			setStatus(prevStatus)
-			toast(err instanceof Error ? err.message : 'Publish failed', 'error')
+			toast(err instanceof Error ? err.message : t('content.errors.publishFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -190,7 +192,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/submit-for-review`, {})
 			setStatus('pending_review')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Submit failed', 'error')
+			toast(err instanceof Error ? err.message : t('content.errors.submitFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -202,7 +204,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/approve`, {})
 			setStatus('published')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Approve failed', 'error')
+			toast(err instanceof Error ? err.message : t('content.errors.approveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -210,12 +212,12 @@ function ContentEditor() {
 
 	const rejectContent = async () => {
 		const reason = await prompt({
-			title: 'Reject content',
-			message: 'Add an optional reason for rejecting this content.',
-			label: 'Rejection reason',
-			placeholder: 'Optional',
+			title: t('content.reject.title'),
+			message: t('content.reject.message'),
+			label: t('content.reject.reasonLabel'),
+			placeholder: t('content.reject.reasonPlaceholder'),
 			multiline: true,
-			confirmLabel: 'Reject',
+			confirmLabel: t('content.reject.confirm'),
 		})
 		if (reason === null) return
 		setSaving(true)
@@ -223,7 +225,7 @@ function ContentEditor() {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 			setStatus('draft')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Reject failed', 'error')
+			toast(err instanceof Error ? err.message : t('content.errors.rejectFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -232,7 +234,7 @@ function ContentEditor() {
 	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
 
 	if (loading) {
-		return <div className="p-8 text-text-secondary text-sm">Loading...</div>
+		return <div className="p-8 text-text-secondary text-sm">{t('common.loading')}</div>
 	}
 
 	return (
@@ -256,7 +258,7 @@ function ContentEditor() {
 							if (isNew) setSlug(generateSlug(e.target.value))
 						}}
 						onFocus={() => setAiTargetField('title')}
-						placeholder="Article title"
+						placeholder={t('content.titlePlaceholder')}
 						className="w-full text-3xl font-bold bg-transparent border-none focus:outline-none mb-6 placeholder:text-text-faint"
 					/>
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: focus-tracking wrapper for the body editor, not an interactive control. */}
@@ -274,7 +276,7 @@ function ContentEditor() {
 								setMarkdown(md)
 								setDirty(true)
 							}}
-							placeholder="Write your content in markdown..."
+							placeholder={t('content.bodyPlaceholder')}
 						/>
 					</div>
 					{/* AI sparkle button */}
@@ -286,7 +288,7 @@ function ContentEditor() {
 								setAiTargetField('body')
 							}}
 							className="fixed bottom-6 right-6 w-10 h-10 bg-surface text-text rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-40 border border-border"
-							title="Open AI Assistant"
+							title={t('content.openAiAssistant')}
 						>
 							<span className="text-lg">✨</span>
 						</button>
@@ -303,7 +305,7 @@ function ContentEditor() {
 						disabled={saving}
 						className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
-						{saving ? 'Saving...' : 'Save'}
+						{saving ? t('content.saving') : t('content.save')}
 					</button>
 					{!isNew && status === 'draft' && reviewWorkflowsLicensed && (
 						<button
@@ -312,7 +314,7 @@ function ContentEditor() {
 							disabled={saving}
 							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 						>
-							Submit
+							{t('content.submit')}
 						</button>
 					)}
 					{!isNew && status === 'pending_review' && reviewWorkflowsLicensed && (
@@ -323,7 +325,7 @@ function ContentEditor() {
 								disabled={saving}
 								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								Approve
+								{t('content.approve')}
 							</button>
 							<button
 								type="button"
@@ -331,7 +333,7 @@ function ContentEditor() {
 								disabled={saving}
 								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 							>
-								Reject
+								{t('content.reject.button')}
 							</button>
 						</>
 					)}
@@ -342,12 +344,12 @@ function ContentEditor() {
 							disabled={saving}
 							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 						>
-							Publish
+							{t('content.publish')}
 						</button>
 					)}
 				</div>
 
-				<Field label="Slug">
+				<Field label={t('content.fields.slug')}>
 					<input
 						type="text"
 						value={slug}
@@ -356,38 +358,38 @@ function ContentEditor() {
 					/>
 				</Field>
 
-				<Field label="Status">
+				<Field label={t('content.fields.status')}>
 					<Dropdown
 						value={status}
 						onChange={setStatus}
 						options={[
-							{ value: 'draft', label: 'Draft' },
-							{ value: 'pending_review', label: 'Pending Review' },
-							{ value: 'published', label: 'Published' },
-							{ value: 'archived', label: 'Archived' },
+							{ value: 'draft', label: t('content.statusOptions.draft') },
+							{ value: 'pending_review', label: t('content.statusOptions.pendingReview') },
+							{ value: 'published', label: t('content.statusOptions.published') },
+							{ value: 'archived', label: t('content.statusOptions.archived') },
 						]}
 						className="w-full"
 					/>
 				</Field>
 
-				<Field label="Collection">
+				<Field label={t('content.fields.collection')}>
 					<Dropdown
 						value={collectionId}
 						onChange={setCollectionId}
 						options={[
-							{ value: '', label: 'Select collection' },
+							{ value: '', label: t('content.selectCollection') },
 							...collections.map((c) => ({ value: c.id, label: c.name })),
 						]}
 						className="w-full"
 					/>
 				</Field>
 
-				<Field label="Tags">
+				<Field label={t('content.fields.tags')}>
 					<input
 						type="text"
 						value={tags}
 						onChange={(e) => setTags(e.target.value)}
-						placeholder="tag1, tag2, tag3"
+						placeholder={t('content.tagsPlaceholder')}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
@@ -406,7 +408,7 @@ function ContentEditor() {
 								})
 							}}
 						/>
-						<p className="text-xs text-text-secondary mt-3">ID: {id}</p>
+						<p className="text-xs text-text-secondary mt-3">{t('content.id', { id })}</p>
 					</div>
 				)}
 			</div>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useCollections } from '../../lib/collections'
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
  * needs to check them when the member should be able to edit them directly.
  */
 export function CollectionAccessPicker({ value, onChange, disabled }: Props) {
+	const { t } = useTranslation()
 	const { collections } = useCollections()
 	const mode: 'all' | 'specific' = value === null ? 'all' : 'specific'
 	const selected = new Set(value ?? [])
@@ -33,9 +35,7 @@ export function CollectionAccessPicker({ value, onChange, disabled }: Props) {
 
 	if (disabled) {
 		return (
-			<p className="text-xs text-text-muted">
-				Full access (this role grants access to all collections).
-			</p>
+			<p className="text-xs text-text-muted">{t('settings.collectionAccess.fullAccessNote')}</p>
 		)
 	}
 
@@ -44,7 +44,7 @@ export function CollectionAccessPicker({ value, onChange, disabled }: Props) {
 			<div className="flex gap-4 text-sm">
 				<label className="flex items-center gap-2 cursor-pointer">
 					<input type="radio" checked={mode === 'all'} onChange={() => onChange(null)} />
-					<span>All collections</span>
+					<span>{t('settings.collectionAccess.allCollections')}</span>
 				</label>
 				<label className="flex items-center gap-2 cursor-pointer">
 					<input
@@ -52,7 +52,7 @@ export function CollectionAccessPicker({ value, onChange, disabled }: Props) {
 						checked={mode === 'specific'}
 						onChange={() => onChange(value ?? [])}
 					/>
-					<span>Specific collections</span>
+					<span>{t('settings.collectionAccess.specificCollections')}</span>
 				</label>
 			</div>
 
@@ -72,26 +72,25 @@ export function CollectionAccessPicker({ value, onChange, disabled }: Props) {
 											: 'bg-surface text-text-secondary border-border hover:bg-surface-alt'
 									}`}
 									title={
-										col.isLinkedTarget
-											? 'Auto-readable via relations — only grant if the user must edit it directly.'
-											: undefined
+										col.isLinkedTarget ? t('settings.collectionAccess.linkedTooltip') : undefined
 									}
 								>
 									{col.label}
 									{col.isLinkedTarget && (
-										<span className="ml-1 opacity-60 text-[10px] uppercase">linked</span>
+										<span className="ml-1 opacity-60 text-[10px] uppercase">
+											{t('settings.collectionAccess.linkedBadge')}
+										</span>
 									)}
 								</button>
 							)
 						})}
 						{pickable.length === 0 && (
-							<p className="text-xs text-text-muted">No collections in this project yet.</p>
+							<p className="text-xs text-text-muted">
+								{t('settings.collectionAccess.noCollections')}
+							</p>
 						)}
 					</div>
-					<p className="text-xs text-text-muted">
-						Linked collections (used as relation targets) are readable automatically through
-						relations — grant them only if the user should be able to manage records directly.
-					</p>
+					<p className="text-xs text-text-muted">{t('settings.collectionAccess.linkedHelp')}</p>
 				</div>
 			)}
 		</div>

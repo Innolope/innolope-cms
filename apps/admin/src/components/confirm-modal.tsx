@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 
 interface ConfirmModalProps {
 	title: string
@@ -24,17 +25,20 @@ interface ConfirmModalProps {
 export function ConfirmModal({
 	title,
 	message,
-	confirmLabel = 'Confirm',
-	cancelLabel = 'Cancel',
+	confirmLabel,
+	cancelLabel,
 	cancelAsLink = false,
 	danger = false,
 	requireText,
 	onConfirm,
 	onCancel,
 }: ConfirmModalProps) {
+	const { t } = useTranslation()
 	const inputId = useId()
 	const [typed, setTyped] = useState('')
 	const blocked = requireText !== undefined && typed !== requireText
+	const resolvedConfirmLabel = confirmLabel ?? t('common.confirm')
+	const resolvedCancelLabel = cancelLabel ?? t('common.cancel')
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -48,7 +52,7 @@ export function ConfirmModal({
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<button
 				type="button"
-				aria-label="Close dialog"
+				aria-label={t('common.closeDialog')}
 				className="absolute inset-0 -z-10 cursor-default"
 				onClick={onCancel}
 			/>
@@ -63,7 +67,11 @@ export function ConfirmModal({
 				{requireText !== undefined && (
 					<div className="mb-8 -mt-2">
 						<label htmlFor={inputId} className="block text-xs text-text-secondary mb-2">
-							Type <span className="font-mono text-text">{requireText}</span> to confirm
+							<Trans
+								i18nKey="confirm.typeToConfirm"
+								values={{ text: requireText }}
+								components={{ code: <span className="font-mono text-text" /> }}
+							/>
 						</label>
 						<input
 							id={inputId}
@@ -85,7 +93,7 @@ export function ConfirmModal({
 							onClick={onCancel}
 							className="text-sm text-text-muted underline underline-offset-2 hover:text-text transition-colors"
 						>
-							{cancelLabel}
+							{resolvedCancelLabel}
 						</button>
 					) : (
 						<button
@@ -93,7 +101,7 @@ export function ConfirmModal({
 							onClick={onCancel}
 							className="px-5 py-2.5 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
 						>
-							{cancelLabel}
+							{resolvedCancelLabel}
 						</button>
 					)}
 					<button
@@ -106,7 +114,7 @@ export function ConfirmModal({
 								: 'px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors disabled:opacity-40'
 						}
 					>
-						{confirmLabel}
+						{resolvedConfirmLabel}
 					</button>
 				</div>
 			</div>

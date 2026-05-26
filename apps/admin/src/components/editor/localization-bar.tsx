@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import i18n from '../../lib/i18n'
 import { Dropdown } from '../dropdown'
 
 /**
@@ -14,7 +16,7 @@ const NON_STANDARD_LOCALE_NAMES: Record<string, string> = {
 
 export function localeDisplayName(code: string): string {
 	try {
-		const ui = typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en'
+		const ui = i18n.language || 'en'
 		const dn = new Intl.DisplayNames([ui], { type: 'language' })
 		const result = dn.of(code)
 		// `Intl.DisplayNames.of` echoes the input back uppercased when unknown
@@ -88,6 +90,7 @@ export function LocalizationBar({
 	onTranslate,
 	translating,
 }: LocalizationBarProps) {
+	const { t } = useTranslation()
 	// Show full language names ("English", "Ukrainian") localized to the UI language,
 	// not bare codes. Codes are still the underlying value passed via onChange.
 	const baseOptions = locales.map((l) => ({ value: l, label: localeDisplayName(l) }))
@@ -105,7 +108,7 @@ export function LocalizationBar({
 		// not a card, against the central content area.
 		<div className="inline-flex items-stretch gap-2">
 			<span className="self-center text-[11px] text-text-muted font-mono uppercase shrink-0">
-				Locale
+				{t('editor.localizationBar.locale')}
 			</span>
 			{/* Dropdowns wrapper. Animates between two widths:
 			    - single mode: w-[8.4rem] (one dropdown, 20% wider than the original 7rem)
@@ -155,7 +158,7 @@ export function LocalizationBar({
 				<ModeButton
 					active={mode === 'single'}
 					onClick={() => onModeChange('single')}
-					label="Single locale"
+					label={t('editor.localizationBar.singleLocale')}
 				>
 					<svg
 						width="14"
@@ -173,7 +176,7 @@ export function LocalizationBar({
 				<ModeButton
 					active={mode === 'compare'}
 					onClick={() => onModeChange('compare')}
-					label="Compare locales side-by-side"
+					label={t('editor.localizationBar.compareLocales')}
 				>
 					<svg
 						width="14"
@@ -206,7 +209,10 @@ export function LocalizationBar({
 						type="button"
 						onClick={onTranslate}
 						disabled={translating || leftLocale === rightLocale}
-						title={`Translate ${leftLocale.toUpperCase()} → ${rightLocale.toUpperCase()} with AI`}
+						title={t('editor.localizationBar.translateWithAiTitle', {
+							source: leftLocale.toUpperCase(),
+							target: rightLocale.toUpperCase(),
+						})}
 						className="flex items-center gap-1.5 px-2.5 rounded bg-input border border-border text-xs font-medium text-text-secondary whitespace-nowrap transition-colors hover:text-text hover:bg-surface-alt disabled:opacity-40 disabled:hover:bg-input disabled:hover:text-text-secondary"
 					>
 						{translating ? (
@@ -243,7 +249,9 @@ export function LocalizationBar({
 								<path d="M14 18h6" />
 							</svg>
 						)}
-						{translating ? 'Translating…' : 'Translate'}
+						{translating
+							? t('editor.localizationBar.translating')
+							: t('editor.localizationBar.translate')}
 					</button>
 				</div>
 			)}

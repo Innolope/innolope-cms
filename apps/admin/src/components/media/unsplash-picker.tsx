@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useToast } from '../../lib/toast'
 
@@ -85,6 +86,7 @@ const SAMPLE_PHOTOS = [
 ]
 
 export function UnsplashUpgradePreview() {
+	const { t } = useTranslation()
 	return (
 		<div className="relative overflow-hidden">
 			<input
@@ -126,10 +128,9 @@ export function UnsplashUpgradePreview() {
 							<polyline points="21 15 16 10 5 21" />
 						</svg>
 					</div>
-					<h3 className="text-lg font-semibold mb-2">Unsplash Integration</h3>
+					<h3 className="text-lg font-semibold mb-2">{t('media.unsplash.integrationTitle')}</h3>
 					<p className="text-sm text-text-secondary max-w-sm mb-6">
-						This feature requires an Innolope CMS Pro license. Unlock AI writing, webhooks, and
-						multiple projects support.
+						{t('media.unsplash.upgradeDescription')}
 					</p>
 					<a
 						href="https://innolope.com/apps/cms#pricing"
@@ -137,7 +138,7 @@ export function UnsplashUpgradePreview() {
 						rel="noopener noreferrer"
 						className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 					>
-						View Plans
+						{t('media.unsplash.viewPlans')}
 					</a>
 				</div>
 			</div>
@@ -146,6 +147,7 @@ export function UnsplashUpgradePreview() {
 }
 
 export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const [query, setQuery] = useState('')
 	const [photos, setPhotos] = useState<UnsplashPhoto[]>([])
@@ -211,10 +213,16 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 		try {
 			await api.post(`/api/v1/unsplash/save/${photo.id}`, {})
 			setSavedIds((prev) => new Set(prev).add(photo.id))
-			toast(`Saved "${photo.alt || 'photo'}" by ${photo.author}`, 'success')
+			toast(
+				t('media.unsplash.savedToast', {
+					alt: photo.alt || t('media.unsplash.photoFallback'),
+					author: photo.author,
+				}),
+				'success',
+			)
 			onSave?.()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save photo', 'error')
+			toast(err instanceof Error ? err.message : t('media.unsplash.savePhotoFailed'), 'error')
 		} finally {
 			setSavingIds((prev) => {
 				const next = new Set(prev)
@@ -225,13 +233,15 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 	}
 
 	if (enabled === null)
-		return <p className="text-text-secondary text-sm p-4">Checking Unsplash...</p>
+		return <p className="text-text-secondary text-sm p-4">{t('media.unsplash.checking')}</p>
 	if (!enabled) {
 		return (
 			<div className="p-8 text-center text-text-secondary text-sm">
-				<p>Unsplash not configured.</p>
+				<p>{t('media.unsplash.notConfigured')}</p>
 				<p className="text-xs mt-1">
-					Set <code className="bg-surface-alt px-1 rounded">UNSPLASH_ACCESS_KEY</code> to enable.
+					{t('media.unsplash.setEnvVarPrefix')}{' '}
+					<code className="bg-surface-alt px-1 rounded">UNSPLASH_ACCESS_KEY</code>{' '}
+					{t('media.unsplash.setEnvVarSuffix')}
 				</p>
 			</div>
 		)
@@ -243,18 +253,20 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 				type="text"
 				value={query}
 				onChange={(e) => handleInput(e.target.value)}
-				placeholder="Search Unsplash photos..."
+				placeholder={t('media.unsplash.searchPlaceholder')}
 				className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm focus:outline-none focus:border-border-strong"
 				autoFocus
 			/>
 
 			{photos.length === 0 && !loading && query && (
-				<p className="text-text-secondary text-sm text-center py-4">No photos found.</p>
+				<p className="text-text-secondary text-sm text-center py-4">
+					{t('media.unsplash.noPhotosFound')}
+				</p>
 			)}
 
 			{photos.length === 0 && !loading && !query && (
 				<p className="text-text-secondary text-sm text-center py-4">
-					Search free photos on Unsplash.
+					{t('media.unsplash.searchFreePhotos')}
 				</p>
 			)}
 
@@ -303,7 +315,7 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 										? 'bg-white/90 text-green-600 opacity-100'
 										: 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-black/70'
 								} disabled:cursor-default`}
-								title={isSaved ? 'Saved to library' : 'Save to library'}
+								title={isSaved ? t('media.unsplash.savedToLibrary') : t('media.unsplash.saveToLibrary')}
 							>
 								{isSaving ? (
 									<svg width="16" height="16" viewBox="0 0 16 16" className="animate-spin">
@@ -372,13 +384,13 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 					onClick={loadMore}
 					className="w-full py-2 text-xs text-text-secondary hover:text-text-muted transition-colors"
 				>
-					Load more
+					{t('media.unsplash.loadMore')}
 				</button>
 			)}
 
 			{photos.length > 0 && (
 				<p className="text-[10px] text-text-faint text-center">
-					Photos by{' '}
+					{t('media.unsplash.photosByPrefix')}{' '}
 					<a
 						href="https://unsplash.com"
 						target="_blank"

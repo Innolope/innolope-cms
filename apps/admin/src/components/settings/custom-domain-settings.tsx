@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useConfirm } from '../../lib/confirm'
@@ -18,6 +19,7 @@ interface DomainStatus {
 }
 
 function CopyField({ label, value }: { label: string; value: string }) {
+	const { t } = useTranslation()
 	const [copied, setCopied] = useState(false)
 	return (
 		<div>
@@ -35,7 +37,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 					}}
 					className="px-3 py-2 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover shrink-0"
 				>
-					{copied ? 'Copied' : 'Copy'}
+					{copied ? t('settings.customDomain.copied') : t('settings.customDomain.copy')}
 				</button>
 			</div>
 		</div>
@@ -43,6 +45,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 }
 
 export function CustomDomainSettings() {
+	const { t } = useTranslation()
 	const { currentProject } = useAuth()
 	const toast = useToast()
 	const confirm = useConfirm()
@@ -59,11 +62,11 @@ export function CustomDomainSettings() {
 		try {
 			setStatus(await api.get<DomainStatus>(`/api/v1/projects/${projectId}/custom-domain`))
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to load custom domain', 'error')
+			toast(err instanceof Error ? err.message : t('settings.customDomain.loadFailed'), 'error')
 		} finally {
 			setLoading(false)
 		}
-	}, [projectId, toast])
+	}, [projectId, toast, t])
 
 	useEffect(() => {
 		load()
@@ -79,7 +82,7 @@ export function CustomDomainSettings() {
 			setStatus(next)
 			setDomainInput('')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save domain', 'error')
+			toast(err instanceof Error ? err.message : t('settings.customDomain.saveFailed'), 'error')
 		} finally {
 			setBusy(false)
 		}
@@ -94,9 +97,9 @@ export function CustomDomainSettings() {
 				{},
 			)
 			setStatus(next)
-			if (next.verified) toast('Domain verified', 'success')
+			if (next.verified) toast(t('settings.customDomain.verifiedToast'), 'success')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Verification failed', 'error')
+			toast(err instanceof Error ? err.message : t('settings.customDomain.verifyFailed'), 'error')
 		} finally {
 			setBusy(false)
 		}
@@ -105,9 +108,9 @@ export function CustomDomainSettings() {
 	const remove = async () => {
 		if (!projectId) return
 		const ok = await confirm({
-			title: 'Remove custom domain',
-			message: 'Remove this custom domain? The CMS will no longer be reachable there.',
-			confirmLabel: 'Remove',
+			title: t('settings.customDomain.removeConfirmTitle'),
+			message: t('settings.customDomain.removeConfirmMessage'),
+			confirmLabel: t('settings.customDomain.removeConfirmLabel'),
 			danger: true,
 		})
 		if (!ok) return
@@ -116,29 +119,29 @@ export function CustomDomainSettings() {
 			await api.delete(`/api/v1/projects/${projectId}/custom-domain`)
 			await load()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to remove domain', 'error')
+			toast(err instanceof Error ? err.message : t('settings.customDomain.removeFailed'), 'error')
 		} finally {
 			setBusy(false)
 		}
 	}
 
 	if (loading || !status) {
-		return <p className="text-text-secondary text-sm">Loading...</p>
+		return <p className="text-text-secondary text-sm">{t('common.loading')}</p>
 	}
 
 	return (
 		<div className="space-y-5">
 			<p className="text-sm text-text-secondary max-w-xl">
-				Link your own domain so your team signs in to this project at a branded URL (e.g.{' '}
-				<code className="font-mono text-xs">cms.yourcompany.com</code>). The domain is tied to this
-				project — anyone visiting it lands directly on this project's sign-in.
+				{t('settings.customDomain.intro1')}{' '}
+				<code className="font-mono text-xs">cms.yourcompany.com</code>
+				{t('settings.customDomain.intro2')}
 			</p>
 
 			{/* No domain — add one */}
 			{!status.domain && (
 				<div className="space-y-2">
 					<label htmlFor="cd-domain" className="block text-xs text-text-secondary">
-						Domain
+						{t('settings.customDomain.domain')}
 					</label>
 					<div className="flex gap-2 max-w-md">
 						<input
@@ -156,7 +159,7 @@ export function CustomDomainSettings() {
 							disabled={busy || !domainInput.trim()}
 							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 						>
-							Add domain
+							{t('settings.customDomain.addDomain')}
 						</button>
 					</div>
 				</div>
@@ -170,9 +173,11 @@ export function CustomDomainSettings() {
 							<p className="text-sm font-medium text-text font-mono truncate">{status.domain}</p>
 							<p className="text-xs mt-0.5">
 								{status.verified ? (
-									<span className="text-success">Verified &amp; live</span>
+									<span className="text-success">{t('settings.customDomain.verifiedAndLive')}</span>
 								) : (
-									<span className="text-warning">Pending verification</span>
+									<span className="text-warning">
+										{t('settings.customDomain.pendingVerification')}
+									</span>
 								)}
 							</p>
 						</div>
@@ -182,33 +187,45 @@ export function CustomDomainSettings() {
 							disabled={busy}
 							className="shrink-0 px-3 py-1.5 rounded text-sm font-medium border border-danger/50 text-danger hover:bg-danger/10 disabled:opacity-50"
 						>
-							Remove
+							{t('settings.customDomain.remove')}
 						</button>
 					</div>
 
 					{!status.verified && (
 						<div className="max-w-xl space-y-4 rounded-lg border border-border bg-surface-muted p-4">
 							<div>
-								<p className="text-sm font-medium text-text mb-1">Step 1 — Verify ownership</p>
+								<p className="text-sm font-medium text-text mb-1">
+									{t('settings.customDomain.step1Title')}
+								</p>
 								<p className="text-xs text-text-muted mb-3">
-									Add this TXT record at your DNS provider to prove you own the domain.
+									{t('settings.customDomain.step1Desc')}
 								</p>
 								{status.dnsRecord && (
 									<div className="space-y-2">
-										<CopyField label="TXT record name" value={status.dnsRecord.name} />
-										<CopyField label="TXT record value" value={status.dnsRecord.value} />
+										<CopyField
+											label={t('settings.customDomain.txtRecordName')}
+											value={status.dnsRecord.name}
+										/>
+										<CopyField
+											label={t('settings.customDomain.txtRecordValue')}
+											value={status.dnsRecord.value}
+										/>
 									</div>
 								)}
 							</div>
 							<div>
-								<p className="text-sm font-medium text-text mb-1">Step 2 — Point the domain</p>
-								<p className="text-xs text-text-muted mb-3">
-									Add a CNAME record so the domain resolves to the CMS. An HTTPS certificate is
-									issued automatically on the first visit. If your DNS is on Cloudflare, set this
-									record to <strong>DNS only</strong> (grey cloud) — a proxied record blocks
-									certificate issuance.
+								<p className="text-sm font-medium text-text mb-1">
+									{t('settings.customDomain.step2Title')}
 								</p>
-								<CopyField label={`CNAME ${status.domain} →`} value={status.target} />
+								<p className="text-xs text-text-muted mb-3">
+									{t('settings.customDomain.step2Desc1')}{' '}
+									<strong>{t('settings.customDomain.dnsOnly')}</strong>
+									{t('settings.customDomain.step2Desc2')}
+								</p>
+								<CopyField
+									label={t('settings.customDomain.cnameLabel', { domain: status.domain })}
+									value={status.target}
+								/>
 							</div>
 							<button
 								type="button"
@@ -216,7 +233,9 @@ export function CustomDomainSettings() {
 								disabled={busy}
 								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								{busy ? 'Checking...' : 'Verify domain'}
+								{busy
+									? t('settings.customDomain.checking')
+									: t('settings.customDomain.verifyDomain')}
 							</button>
 						</div>
 					)}
@@ -224,7 +243,7 @@ export function CustomDomainSettings() {
 					{status.verified && (
 						<div className="max-w-xl rounded-lg border border-border bg-surface-muted p-4 space-y-2">
 							<p className="text-sm text-text">
-								Your team can now sign in to this project at{' '}
+								{t('settings.customDomain.signInAt')}{' '}
 								<a
 									href={`https://${status.domain}`}
 									target="_blank"
@@ -236,9 +255,13 @@ export function CustomDomainSettings() {
 								.
 							</p>
 							<p className="text-xs text-text-muted">
-								Make sure the CNAME record for <code className="font-mono">{status.domain}</code>{' '}
-								points to <code className="font-mono">{status.target}</code>. If your DNS is on
-								Cloudflare, keep this record <strong>DNS only</strong> (grey cloud).
+								{t('settings.customDomain.cnameReminder1')}{' '}
+								<code className="font-mono">{status.domain}</code>{' '}
+								{t('settings.customDomain.cnameReminder2')}{' '}
+								<code className="font-mono">{status.target}</code>
+								{t('settings.customDomain.cnameReminder3')}{' '}
+								<strong>{t('settings.customDomain.dnsOnly')}</strong>
+								{t('settings.customDomain.cnameReminder4')}
 							</p>
 						</div>
 					)}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { FilterMap, FilterValue } from '../lib/use-url-filters'
 
 export type FilterDescriptor =
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
+	const { t } = useTranslation()
 	const [pickerOpen, setPickerOpen] = useState(false)
 	const [editing, setEditing] = useState<string | null>(null) // chip currently being edited
 	const pickerRef = useRef<HTMLDivElement>(null)
@@ -82,7 +84,7 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 						<line x1="12" y1="5" x2="12" y2="19" />
 						<line x1="5" y1="12" x2="19" y2="12" />
 					</svg>
-					Add filter
+					{t('filterBar.addFilter')}
 				</button>
 				{pickerOpen && inactive.length > 0 && (
 					<div className="absolute left-0 top-full mt-1 w-48 bg-surface border border-border-strong rounded-lg shadow-xl z-50 overflow-hidden py-1">
@@ -106,7 +108,7 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 					onClick={onClearAll}
 					className="text-xs text-text-muted hover:text-text px-1"
 				>
-					Clear all
+					{t('filterBar.clearAll')}
 				</button>
 			)}
 		</div>
@@ -124,6 +126,7 @@ interface ChipProps {
 }
 
 function FilterChip({ desc, value, isEditing, onOpen, onClose, onChange, onRemove }: ChipProps) {
+	const { t } = useTranslation()
 	const ref = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
@@ -152,7 +155,7 @@ function FilterChip({ desc, value, isEditing, onOpen, onClose, onChange, onRemov
 					type="button"
 					onClick={onRemove}
 					className="px-1.5 border-l border-border text-text-muted hover:text-text hover:bg-border/50"
-					title="Remove filter"
+					title={t('filterBar.removeFilter')}
 				>
 					<svg
 						width="10"
@@ -188,6 +191,7 @@ function FilterEditor({
 	value: FilterValue
 	onChange: (v: FilterValue) => void
 }) {
+	const { t } = useTranslation()
 	if (desc.type === 'enum') {
 		return (
 			<div className="max-h-60 overflow-y-auto">
@@ -215,7 +219,7 @@ function FilterEditor({
 				autoFocus
 				value={typeof value === 'string' ? value : ''}
 				onChange={(e) => onChange(e.target.value)}
-				placeholder={`Filter by ${desc.label.toLowerCase()}…`}
+				placeholder={t('filterBar.filterByPlaceholder', { label: desc.label.toLowerCase() })}
 				className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 			/>
 		)
@@ -224,7 +228,7 @@ function FilterEditor({
 	return (
 		<div className="flex flex-col gap-2">
 			<label className="flex items-center gap-2 text-xs text-text-secondary">
-				<span className="w-10">From</span>
+				<span className="w-10">{t('filterBar.from')}</span>
 				<input
 					type="date"
 					value={range.from || ''}
@@ -233,7 +237,7 @@ function FilterEditor({
 				/>
 			</label>
 			<label className="flex items-center gap-2 text-xs text-text-secondary">
-				<span className="w-10">To</span>
+				<span className="w-10">{t('filterBar.to')}</span>
 				<input
 					type="date"
 					value={range.to || ''}

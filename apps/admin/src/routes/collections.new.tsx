@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { hasFeature, ProBadge, useLicense } from '../components/license-gate'
 import { api } from '../lib/api-client'
@@ -20,6 +21,8 @@ interface CollectionField {
 }
 
 interface CollectionTemplate {
+	/** Translation key suffix under `collections.new.templates.*` for label/description. */
+	id: string
 	label: string
 	name: string
 	description: string
@@ -68,12 +71,12 @@ function sanitizeFieldName(header: string): string {
 	)
 }
 
-function inferFieldsFromJSON(input: string): { fields: CollectionField[]; error?: string } {
+function inferFieldsFromJSON(input: string): { fields: CollectionField[]; errorKey?: string } {
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(input)
 	} catch {
-		return { fields: [], error: 'Invalid JSON.' }
+		return { fields: [], errorKey: 'collections.new.errors.invalidJson' }
 	}
 
 	let objects: Record<string, unknown>[]
@@ -81,16 +84,17 @@ function inferFieldsFromJSON(input: string): { fields: CollectionField[]; error?
 		objects = parsed.filter(
 			(item) => typeof item === 'object' && item !== null && !Array.isArray(item),
 		) as Record<string, unknown>[]
-		if (objects.length === 0) return { fields: [], error: 'Expected an array of objects.' }
+		if (objects.length === 0)
+			return { fields: [], errorKey: 'collections.new.errors.expectedArrayOfObjects' }
 	} else if (typeof parsed === 'object' && parsed !== null) {
 		objects = [parsed as Record<string, unknown>]
 	} else {
-		return { fields: [], error: 'Expected a JSON object or array of objects.' }
+		return { fields: [], errorKey: 'collections.new.errors.expectedObjectOrArray' }
 	}
 
 	const allKeys = new Set<string>()
 	for (const obj of objects) for (const k of Object.keys(obj)) allKeys.add(k)
-	if (allKeys.size === 0) return { fields: [], error: 'No fields found.' }
+	if (allKeys.size === 0) return { fields: [], errorKey: 'collections.new.errors.noFieldsFound' }
 
 	const fields: CollectionField[] = []
 	for (const key of allKeys) {
@@ -142,13 +146,14 @@ function coerceCSVValue(val: string): unknown {
 	return val
 }
 
-function inferFieldsFromCSV(input: string): { fields: CollectionField[]; error?: string } {
+function inferFieldsFromCSV(input: string): { fields: CollectionField[]; errorKey?: string } {
 	const raw = input.replace(/^\uFEFF/, '')
 	const lines = raw.split(/\r?\n/).filter((l) => l.trim())
-	if (lines.length === 0) return { fields: [], error: 'Please paste some CSV data.' }
+	if (lines.length === 0)
+		return { fields: [], errorKey: 'collections.new.errors.pasteCsv' }
 	const headers = parseCSVLine(lines[0])
 	if (headers.length === 0 || headers.every((h) => !h.trim()))
-		return { fields: [], error: 'Could not detect headers.' }
+		return { fields: [], errorKey: 'collections.new.errors.noHeaders' }
 	const dataRows = lines.slice(1).map((l) => parseCSVLine(l))
 	const fields: CollectionField[] = []
 	const seen = new Set<string>()
@@ -176,7 +181,7 @@ function inferFieldsFromCSV(input: string): { fields: CollectionField[]; error?:
 	return { fields }
 }
 
-function inferFieldsFromYAML(input: string): { fields: CollectionField[]; error?: string } {
+function inferFieldsFromYAML(input: string): { fields: CollectionField[]; errorKey?: string } {
 	const fmMatch = input.match(/^---\s*\n([\s\S]*?)\n---/)
 	const yaml = fmMatch ? fmMatch[1] : input
 	const fields: CollectionField[] = []
@@ -194,7 +199,7 @@ function inferFieldsFromYAML(input: string): { fields: CollectionField[]; error?
 		fields.push({ name, type, required: false, localized: false })
 	}
 	if (fields.length === 0)
-		return { fields: [], error: 'No fields detected. Use key: value format.' }
+		return { fields: [], errorKey: 'collections.new.errors.noFieldsYaml' }
 	return { fields }
 }
 
@@ -202,6 +207,7 @@ function inferFieldsFromYAML(input: string): { fields: CollectionField[]; error?
 
 const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 	{
+		id: 'seoArticle',
 		label: 'SEO Article',
 		name: 'seo-article',
 		description: 'Content optimized for search engines with full SEO and Open Graph metadata',
@@ -222,6 +228,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'knowledgeBase',
 		label: 'Knowledge Base',
 		name: 'knowledge-base',
 		description: 'Structured articles for AI agent retrieval and customer self-service',
@@ -239,6 +246,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'faq',
 		label: 'FAQ',
 		name: 'faq',
 		description: 'Question-answer pairs optimized for AI-powered support agents',
@@ -251,6 +259,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'productCatalog',
 		label: 'Product Catalog',
 		name: 'product-catalog',
 		description: 'Structured product data for AI-driven recommendations and search',
@@ -270,6 +279,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'documentation',
 		label: 'Documentation',
 		name: 'documentation',
 		description: 'Technical docs with section ordering for developer-facing AI assistants',
@@ -284,6 +294,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'crm',
 		label: 'CRM',
 		name: 'crm',
 		description: 'Customer contacts and deals for AI-assisted sales workflows',
@@ -303,6 +314,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'apiReference',
 		label: 'API Reference',
 		name: 'api-reference',
 		description: 'Endpoint documentation for API-aware AI agents and developer tools',
@@ -323,6 +335,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'changelog',
 		label: 'Changelog',
 		name: 'changelog',
 		description: 'Version history and release notes for product updates',
@@ -340,6 +353,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'blog',
 		label: 'Blog',
 		name: 'blog',
 		description: 'Articles and posts with SEO metadata for content marketing',
@@ -359,6 +373,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'jobBoard',
 		label: 'Job Board',
 		name: 'job-board',
 		description: 'Open positions with structured requirements for recruiting agents',
@@ -378,6 +393,7 @@ const COLLECTION_TEMPLATES: CollectionTemplate[] = [
 		],
 	},
 	{
+		id: 'events',
 		label: 'Events',
 		name: 'events',
 		description: 'Webinars, meetups, and conferences with scheduling and registration data',
@@ -477,6 +493,7 @@ function ScreenLayout({
 // ─── Component ───────────────────────────────────────────────────────────────
 
 function NewCollectionPage() {
+	const { t } = useTranslation()
 	const navigate = useNavigate()
 	const toast = useToast()
 	const license = useLicense()
@@ -533,7 +550,7 @@ function NewCollectionPage() {
 
 	const save = async () => {
 		if (!label.trim()) {
-			toast('Label is required', 'error')
+			toast(t('collections.new.errors.labelRequired'), 'error')
 			return
 		}
 		const validFields = fields.filter((f) => f.name.trim())
@@ -549,7 +566,7 @@ function NewCollectionPage() {
 			await refreshCollections()
 			navigate({ to: `/collections/${finalName}` })
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Save failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.new.errors.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -580,9 +597,9 @@ function NewCollectionPage() {
 				goToConfigureWithFields(
 					result.fields.map((f) => ({ ...f, type: VALID_TYPES.has(f.type) ? f.type : 'text' })),
 				)
-			else setAiError('No fields generated. Try a more detailed description.')
+			else setAiError(t('collections.new.errors.aiNoFields'))
 		} catch (err) {
-			setAiError(err instanceof Error ? err.message : 'Failed to generate schema')
+			setAiError(err instanceof Error ? err.message : t('collections.new.errors.aiGenerateFailed'))
 		} finally {
 			setAiLoading(false)
 		}
@@ -591,8 +608,8 @@ function NewCollectionPage() {
 	const _parseJSON = () => {
 		setImportError('')
 		const result = inferFieldsFromJSON(jsonText.trim())
-		if (result.error) {
-			setImportError(result.error)
+		if (result.errorKey) {
+			setImportError(t(result.errorKey))
 			return
 		}
 		goToConfigureWithFields(result.fields)
@@ -601,8 +618,8 @@ function NewCollectionPage() {
 	const _parseCSV = () => {
 		setImportError('')
 		const result = inferFieldsFromCSV(csvText.trim())
-		if (result.error) {
-			setImportError(result.error)
+		if (result.errorKey) {
+			setImportError(t(result.errorKey))
 			return
 		}
 		goToConfigureWithFields(result.fields)
@@ -614,7 +631,7 @@ function NewCollectionPage() {
 		const reader = new FileReader()
 		reader.onload = () => {
 			const text = reader.result as string
-			let result: { fields: CollectionField[]; error?: string }
+			let result: { fields: CollectionField[]; errorKey?: string }
 			if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
 				setCsvText(text)
 				result = inferFieldsFromCSV(text)
@@ -630,8 +647,8 @@ function NewCollectionPage() {
 				setJsonText(text)
 				result = inferFieldsFromJSON(text)
 			}
-			if (result.error) {
-				setImportError(result.error)
+			if (result.errorKey) {
+				setImportError(t(result.errorKey))
 				return
 			}
 			goToConfigureWithFields(result.fields)
@@ -651,8 +668,8 @@ function NewCollectionPage() {
 		}[] = [
 			{
 				id: 'template',
-				title: 'Choose Template',
-				desc: 'Pick from pre-built collection schemas',
+				title: t('collections.new.methods.template.title'),
+				desc: t('collections.new.methods.template.desc'),
 				icon: (
 					<>
 						<rect x="3" y="3" width="7" height="7" />
@@ -664,8 +681,8 @@ function NewCollectionPage() {
 			},
 			{
 				id: 'import-file',
-				title: 'Import from File',
-				desc: 'Upload a CSV, JSON, or Markdown file',
+				title: t('collections.new.methods.importFile.title'),
+				desc: t('collections.new.methods.importFile.desc'),
 				icon: (
 					<>
 						<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -675,8 +692,8 @@ function NewCollectionPage() {
 			},
 			{
 				id: 'import-paste',
-				title: 'Import with Paste',
-				desc: 'Paste JSON, CSV, or Markdown data',
+				title: t('collections.new.methods.importPaste.title'),
+				desc: t('collections.new.methods.importPaste.desc'),
 				icon: (
 					<>
 						<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" />
@@ -686,8 +703,8 @@ function NewCollectionPage() {
 			},
 			{
 				id: 'ai-generate',
-				title: 'AI Generate',
-				desc: 'Describe and auto-create fields',
+				title: t('collections.new.methods.aiGenerate.title'),
+				desc: t('collections.new.methods.aiGenerate.desc'),
 				icon: (
 					<>
 						<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -697,8 +714,8 @@ function NewCollectionPage() {
 			},
 			{
 				id: 'manual',
-				title: 'Manual Input',
-				desc: 'Define fields one by one',
+				title: t('collections.new.methods.manual.title'),
+				desc: t('collections.new.methods.manual.desc'),
 				icon: (
 					<>
 						<line x1="12" y1="5" x2="12" y2="19" />
@@ -710,8 +727,8 @@ function NewCollectionPage() {
 		if (collections.length > 0) {
 			methods.push({
 				id: 'copy-existing' as Screen,
-				title: 'Copy from Existing',
-				desc: 'Duplicate an existing collection schema',
+				title: t('collections.new.methods.copyExisting.title'),
+				desc: t('collections.new.methods.copyExisting.desc'),
 				icon: (
 					<>
 						<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -723,10 +740,10 @@ function NewCollectionPage() {
 
 		return (
 			<ScreenLayout
-				backLabel="Back to dashboard"
+				backLabel={t('collections.new.backToDashboard')}
 				onBack={() => navigate({ to: '/dashboard' })}
-				title="New Collection"
-				subtitle="How would you like to define your collection?"
+				title={t('collections.new.title')}
+				subtitle={t('collections.new.subtitle')}
 			>
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{methods.map((m) => (
@@ -777,7 +794,7 @@ function NewCollectionPage() {
 							<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
 							<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
 						</svg>
-						Content will be stored in the built-in Innolope CMS database.
+						{t('collections.new.builtinDbNote')}
 					</div>
 				)}
 			</ScreenLayout>
@@ -788,14 +805,14 @@ function NewCollectionPage() {
 	if (screen === 'template') {
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="Choose a Template"
-				subtitle="Pick a pre-built schema to get started quickly."
+				title={t('collections.new.template.title')}
+				subtitle={t('collections.new.template.subtitle')}
 			>
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-					{COLLECTION_TEMPLATES.map((t) => (
-						<TemplateCard key={t.name} template={t} onSelect={applyTemplate} />
+					{COLLECTION_TEMPLATES.map((tpl) => (
+						<TemplateCard key={tpl.name} template={tpl} onSelect={applyTemplate} />
 					))}
 					<button
 						type="button"
@@ -816,8 +833,12 @@ function NewCollectionPage() {
 							<line x1="12" y1="5" x2="12" y2="19" />
 							<line x1="5" y1="12" x2="19" y2="12" />
 						</svg>
-						<h3 className="font-semibold text-text-secondary mb-1">Blank Collection</h3>
-						<p className="text-xs text-text-muted">Define your own schema from scratch</p>
+						<h3 className="font-semibold text-text-secondary mb-1">
+							{t('collections.new.template.blankTitle')}
+						</h3>
+						<p className="text-xs text-text-muted">
+							{t('collections.new.template.blankDesc')}
+						</p>
 					</button>
 				</div>
 			</ScreenLayout>
@@ -828,10 +849,10 @@ function NewCollectionPage() {
 	if (screen === 'import-file') {
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="Import from File"
-				subtitle="Upload a CSV or JSON file to auto-detect fields."
+				title={t('collections.new.importFile.title')}
+				subtitle={t('collections.new.importFile.subtitle')}
 				maxWidth="max-w-2xl"
 			>
 				<div className="space-y-6">
@@ -866,7 +887,7 @@ function NewCollectionPage() {
 							<polyline points="17 8 12 3 7 8" />
 							<line x1="12" y1="3" x2="12" y2="15" />
 						</svg>
-						Drop .csv, .json, .yaml, or .md files here or click to browse
+						{t('collections.new.importFile.dropHint')}
 					</button>
 					<input
 						ref={fileInputRef}
@@ -887,34 +908,34 @@ function NewCollectionPage() {
 			setImportError('')
 			if (importTab === 'json') {
 				if (!jsonText.trim()) {
-					setImportError('Paste some JSON data first.')
+					setImportError(t('collections.new.errors.pasteJsonFirst'))
 					return
 				}
 				const result = inferFieldsFromJSON(jsonText.trim())
-				if (result.error) {
-					setImportError(result.error)
+				if (result.errorKey) {
+					setImportError(t(result.errorKey))
 					return
 				}
 				goToConfigureWithFields(result.fields)
 			} else if (importTab === 'csv') {
 				if (!csvText.trim()) {
-					setImportError('Paste some CSV data first.')
+					setImportError(t('collections.new.errors.pasteCsvFirst'))
 					return
 				}
 				const result = inferFieldsFromCSV(csvText.trim())
-				if (result.error) {
-					setImportError(result.error)
+				if (result.errorKey) {
+					setImportError(t(result.errorKey))
 					return
 				}
 				goToConfigureWithFields(result.fields)
 			} else {
 				if (!mdText.trim()) {
-					setImportError('Paste some YAML data first.')
+					setImportError(t('collections.new.errors.pasteYamlFirst'))
 					return
 				}
 				const result = inferFieldsFromYAML(mdText.trim())
-				if (result.error) {
-					setImportError(result.error)
+				if (result.errorKey) {
+					setImportError(t(result.errorKey))
 					return
 				}
 				goToConfigureWithFields(result.fields)
@@ -927,25 +948,25 @@ function NewCollectionPage() {
 		]
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="Import with Paste"
-				subtitle="Paste data to auto-detect collection fields."
+				title={t('collections.new.importPaste.title')}
+				subtitle={t('collections.new.importPaste.subtitle')}
 				maxWidth="max-w-2xl"
 			>
 				<div className="space-y-5">
 					<div className="flex border-b border-border">
-						{tabs.map((t) => (
+						{tabs.map((tab) => (
 							<button
-								key={t.id}
+								key={tab.id}
 								type="button"
 								onClick={() => {
-									setImportTab(t.id)
+									setImportTab(tab.id)
 									setImportError('')
 								}}
-								className={`flex-1 px-5 py-2.5 text-sm font-medium -mb-px transition-colors ${importTab === t.id ? 'border-b-2 border-text text-text' : 'text-text-secondary hover:text-text'}`}
+								className={`flex-1 px-5 py-2.5 text-sm font-medium -mb-px transition-colors ${importTab === tab.id ? 'border-b-2 border-text text-text' : 'text-text-secondary hover:text-text'}`}
 							>
-								{t.label}
+								{tab.label}
 							</button>
 						))}
 					</div>
@@ -965,8 +986,7 @@ function NewCollectionPage() {
 								className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong resize-y"
 							/>
 							<p className="text-xs text-text-muted mt-1.5">
-								Object keys become field names. Types are inferred from values. Arrays of objects
-								are also supported.
+								{t('collections.new.importPaste.jsonHint')}
 							</p>
 						</div>
 					)}
@@ -984,7 +1004,7 @@ function NewCollectionPage() {
 								className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong resize-y"
 							/>
 							<p className="text-xs text-text-muted mt-1.5">
-								First row is used as headers. Column types are inferred from data values.
+								{t('collections.new.importPaste.csvHint')}
 							</p>
 						</div>
 					)}
@@ -1004,7 +1024,7 @@ function NewCollectionPage() {
 								className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong resize-y"
 							/>
 							<p className="text-xs text-text-muted mt-1.5">
-								Each key: value pair becomes a field. Also supports frontmatter (--- delimited).
+								{t('collections.new.importPaste.yamlHint')}
 							</p>
 						</div>
 					)}
@@ -1016,7 +1036,7 @@ function NewCollectionPage() {
 							onClick={parsePastedData}
 							className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
 						>
-							Detect Fields
+							{t('collections.new.importPaste.detectFields')}
 						</button>
 					</div>
 				</div>
@@ -1028,10 +1048,10 @@ function NewCollectionPage() {
 	if (screen === 'ai-generate') {
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="AI Generate"
-				subtitle="Describe your collection and we'll create the schema."
+				title={t('collections.new.aiGenerate.title')}
+				subtitle={t('collections.new.aiGenerate.subtitle')}
 				maxWidth="max-w-2xl"
 			>
 				{hasFeature(license, 'ai-assistant') ? (
@@ -1041,13 +1061,13 @@ function NewCollectionPage() {
 								htmlFor="ai-collection-prompt"
 								className="block text-xs text-text-secondary mb-1.5"
 							>
-								Describe your collection and the fields it should have
+								{t('collections.new.aiGenerate.promptLabel')}
 							</label>
 							<textarea
 								id="ai-collection-prompt"
 								value={aiPrompt}
 								onChange={(e) => setAiPrompt(e.target.value)}
-								placeholder="e.g. A product catalog with name, price, SKU, category, description, stock count, and whether it's featured"
+								placeholder={t('collections.new.aiGenerate.promptPlaceholder')}
 								rows={5}
 								className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong resize-y"
 							/>
@@ -1063,17 +1083,17 @@ function NewCollectionPage() {
 								{aiLoading && (
 									<div className="w-3.5 h-3.5 border-2 border-btn-primary-text border-t-transparent rounded-full animate-spin" />
 								)}
-								{aiLoading ? 'Generating...' : 'Generate Schema'}
+								{aiLoading ? t('collections.new.aiGenerate.generating') : t('collections.new.aiGenerate.generate')}
 							</button>
 						</div>
 					</div>
 				) : (
 					<div className="text-center py-8">
 						<p className="text-sm text-text-secondary mb-2">
-							AI schema generation requires the AI Assistant feature.
+							{t('collections.new.aiGenerate.requiresFeature')}
 						</p>
 						<p className="text-xs text-text-muted">
-							Upgrade to Pro to unlock AI-powered schema creation.
+							{t('collections.new.aiGenerate.upgradePrompt')}
 						</p>
 					</div>
 				)}
@@ -1085,10 +1105,10 @@ function NewCollectionPage() {
 	if (screen === 'copy-existing') {
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="Copy from Existing"
-				subtitle="Duplicate an existing collection's schema."
+				title={t('collections.new.copyExisting.title')}
+				subtitle={t('collections.new.copyExisting.subtitle')}
 			>
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{collections.map((col) => (
@@ -1114,7 +1134,11 @@ function NewCollectionPage() {
 									</div>
 								))}
 								{col.fields.length > 5 && (
-									<p className="text-[10px] text-white/40">+{col.fields.length - 5} more</p>
+									<p className="text-[10px] text-white/40">
+										{t('collections.new.copyExisting.moreFields', {
+											count: col.fields.length - 5,
+										})}
+									</p>
 								)}
 							</div>
 						</button>
@@ -1128,14 +1152,14 @@ function NewCollectionPage() {
 	if (screen === 'manual') {
 		return (
 			<ScreenLayout
-				backLabel="Back to methods"
+				backLabel={t('collections.new.backToMethods')}
 				onBack={() => setScreen('method')}
-				title="Manual Input"
-				subtitle="Define your collection fields one by one."
+				title={t('collections.new.manual.title')}
+				subtitle={t('collections.new.manual.subtitle')}
 				maxWidth="max-w-3xl"
 			>
 				<div className="space-y-5">
-					<Field label="Label">
+					<Field label={t('collections.new.fields.label')}>
 						<input
 							type="text"
 							value={label}
@@ -1143,11 +1167,11 @@ function NewCollectionPage() {
 								setLabel(e.target.value)
 								setName(generateName(e.target.value))
 							}}
-							placeholder="e.g. Articles, Products, FAQ"
+							placeholder={t('collections.new.fields.labelPlaceholder')}
 							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 						/>
 					</Field>
-					<Field label="Name">
+					<Field label={t('collections.new.fields.name')}>
 						<input
 							type="text"
 							value={name}
@@ -1155,12 +1179,12 @@ function NewCollectionPage() {
 							className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 						/>
 					</Field>
-					<Field label="Description">
+					<Field label={t('collections.new.fields.description')}>
 						<input
 							type="text"
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
-							placeholder="What this collection is for"
+							placeholder={t('collections.new.fields.descriptionPlaceholder')}
 							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 						/>
 					</Field>
@@ -1178,7 +1202,7 @@ function NewCollectionPage() {
 							disabled={saving}
 							className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 						>
-							{saving ? 'Saving...' : 'Create Collection'}
+							{saving ? t('collections.new.saving') : t('collections.new.createCollection')}
 						</button>
 					</div>
 				</div>
@@ -1189,14 +1213,14 @@ function NewCollectionPage() {
 	// ─── Screen: Configure (review & save) ───────────────────────────────────
 	return (
 		<ScreenLayout
-			backLabel="Back to methods"
+			backLabel={t('collections.new.backToMethods')}
 			onBack={() => setScreen('method')}
-			title="Review & Create"
-			subtitle={`${fields.length} field${fields.length !== 1 ? 's' : ''} detected. Review and adjust before creating.`}
+			title={t('collections.new.configure.title')}
+			subtitle={t('collections.new.configure.subtitle', { count: fields.length })}
 			maxWidth="max-w-3xl"
 		>
 			<div className="space-y-5">
-				<Field label="Label">
+				<Field label={t('collections.new.fields.label')}>
 					<input
 						type="text"
 						value={label}
@@ -1204,11 +1228,11 @@ function NewCollectionPage() {
 							setLabel(e.target.value)
 							if (!name) setName(generateName(e.target.value))
 						}}
-						placeholder="e.g. Articles, Products, FAQ"
+						placeholder={t('collections.new.fields.labelPlaceholder')}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
-				<Field label="Name">
+				<Field label={t('collections.new.fields.name')}>
 					<input
 						type="text"
 						value={name}
@@ -1216,12 +1240,12 @@ function NewCollectionPage() {
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
-				<Field label="Description">
+				<Field label={t('collections.new.fields.description')}>
 					<input
 						type="text"
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
-						placeholder="What this collection is for"
+						placeholder={t('collections.new.fields.descriptionPlaceholder')}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
@@ -1239,7 +1263,7 @@ function NewCollectionPage() {
 						disabled={saving}
 						className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
-						{saving ? 'Saving...' : 'Create Collection'}
+						{saving ? t('collections.new.saving') : t('collections.new.createCollection')}
 					</button>
 				</div>
 			</div>
@@ -1262,21 +1286,22 @@ function FieldEditor({
 	removeField: (i: number) => void
 	moveField: (i: number, d: -1 | 1) => void
 }) {
+	const { t } = useTranslation()
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-3">
-				<div className="text-sm font-medium">Fields</div>
+				<div className="text-sm font-medium">{t('collections.new.fieldEditor.title')}</div>
 				<button
 					type="button"
 					onClick={addField}
 					className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
 				>
-					+ Add Field
+					{t('collections.new.fieldEditor.addField')}
 				</button>
 			</div>
 			{fields.length === 0 ? (
 				<p className="text-text-secondary text-sm">
-					No fields yet. Every collection gets markdown content by default.
+					{t('collections.new.fieldEditor.emptyHint')}
 				</p>
 			) : (
 				<div className="divide-y divide-border">
@@ -1303,7 +1328,7 @@ function FieldEditor({
 								type="text"
 								value={field.name}
 								onChange={(e) => updateField(i, { name: e.target.value })}
-								placeholder="Field name"
+								placeholder={t('collections.new.fieldEditor.fieldNamePlaceholder')}
 								className="w-60 shrink-0 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none"
 							/>
 							<Dropdown
@@ -1319,7 +1344,7 @@ function FieldEditor({
 									onChange={(e) => updateField(i, { required: e.target.checked })}
 									className="rounded"
 								/>{' '}
-								Required
+								{t('collections.new.fieldEditor.required')}
 							</label>
 							<label className="flex items-center gap-1.5 text-xs text-text-secondary shrink-0 ml-8">
 								<input
@@ -1328,7 +1353,7 @@ function FieldEditor({
 									onChange={(e) => updateField(i, { localized: e.target.checked })}
 									className="rounded"
 								/>{' '}
-								i18n
+								{t('collections.new.fieldEditor.i18n')}
 							</label>
 							<button
 								type="button"
@@ -1366,10 +1391,16 @@ function TemplateCard({
 	template: CollectionTemplate
 	onSelect: (t: CollectionTemplate) => void
 }) {
+	const { t } = useTranslation()
 	const [expanded, setExpanded] = useState(false)
 	const hasMore = template.fields.length > MAX_VISIBLE_FIELDS
 	const visibleFields = expanded ? template.fields : template.fields.slice(0, MAX_VISIBLE_FIELDS)
 	const hiddenCount = template.fields.length - MAX_VISIBLE_FIELDS
+	// Fall back to inline label/description when no translation key exists for this template id.
+	const labelKey = `collections.new.templates.${template.id}.label`
+	const descKey = `collections.new.templates.${template.id}.description`
+	const label = t(labelKey, { defaultValue: template.label })
+	const description = t(descKey, { defaultValue: template.description })
 
 	return (
 		<button
@@ -1378,8 +1409,8 @@ function TemplateCard({
 			onClick={() => onSelect(template)}
 			className="rounded-xl bg-zinc-800 dark:bg-zinc-700 p-6 text-left hover:bg-zinc-700 dark:hover:bg-zinc-600 active:translate-x-px active:translate-y-px transition-all flex flex-col"
 		>
-			<h3 className="font-semibold text-white mb-1">{template.label}</h3>
-			<p className="text-xs text-white/70">{template.description}</p>
+			<h3 className="font-semibold text-white mb-1">{label}</h3>
+			<p className="text-xs text-white/70">{description}</p>
 			<div className="bg-white/10 rounded-lg p-3 space-y-1 w-full mt-3">
 				{visibleFields.map((f) => (
 					<div key={f.name} className="flex items-center justify-between text-[10px] font-mono">
@@ -1407,7 +1438,9 @@ function TemplateCard({
 						tabIndex={0}
 						className="text-[10px] text-white/40 hover:text-white/60 pt-1 cursor-pointer transition-colors"
 					>
-						{expanded ? 'Show less' : `+${hiddenCount} more fields`}
+						{expanded
+							? t('collections.new.templates.showLess')
+							: t('collections.new.templates.showMore', { count: hiddenCount })}
 					</div>
 				)}
 			</div>

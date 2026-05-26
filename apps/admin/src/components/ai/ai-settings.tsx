@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
@@ -79,6 +80,7 @@ function GripIcon() {
 }
 
 function AddProviderMenu({ onAdd }: { onAdd: (provider: string) => void }) {
+	const { t } = useTranslation()
 	const [open, setOpen] = useState(false)
 	const ref = useRef<HTMLDivElement>(null)
 
@@ -98,7 +100,7 @@ function AddProviderMenu({ onAdd }: { onAdd: (provider: string) => void }) {
 				onClick={() => setOpen(!open)}
 				className="px-3 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover transition-colors"
 			>
-				+ Add provider
+				{t('ai.settings.addProvider')}
 			</button>
 			{open && (
 				<div className="absolute left-0 top-full mt-1 min-w-44 bg-surface border border-border-strong rounded-lg shadow-xl z-50 overflow-hidden">
@@ -122,6 +124,7 @@ function AddProviderMenu({ onAdd }: { onAdd: (provider: string) => void }) {
 }
 
 export function AiSettingsPanel() {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
 	const [settings, setSettings] = useState<AiSettingsData | null>(null)
@@ -184,7 +187,7 @@ export function AiSettingsPanel() {
 			const updated = await api.get<AiSettingsData>('/api/v1/ai/settings')
 			loadFrom(updated)
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('ai.settings.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -211,11 +214,15 @@ export function AiSettingsPanel() {
 
 	const removeRow = async (row: ProviderRow) => {
 		const ok = await confirm({
-			title: `Remove ${PROVIDER_LABELS[row.provider]}?`,
+			title: t('ai.settings.removeProviderTitle', { provider: PROVIDER_LABELS[row.provider] }),
 			message: row.connected
-				? `This removes this ${PROVIDER_LABELS[row.provider]} key. The stored API key is deleted when you save.`
-				: `This removes this ${PROVIDER_LABELS[row.provider]} provider row.`,
-			confirmLabel: 'Remove',
+				? t('ai.settings.removeProviderConnectedMessage', {
+						provider: PROVIDER_LABELS[row.provider],
+					})
+				: t('ai.settings.removeProviderMessage', {
+						provider: PROVIDER_LABELS[row.provider],
+					}),
+			confirmLabel: t('ai.settings.remove'),
 			danger: true,
 		})
 		if (ok) setRows((prev) => prev.filter((r) => r.id !== row.id))
@@ -234,16 +241,17 @@ export function AiSettingsPanel() {
 		})
 	}
 
-	if (!settings) return <p className="text-text-secondary text-sm">Loading AI settings...</p>
+	if (!settings)
+		return <p className="text-text-secondary text-sm">{t('ai.settings.loading')}</p>
 
 	const modelOptions =
 		settings.availableModels.length > 0
 			? settings.availableModels.map((m) => ({ value: m.key, label: m.name }))
-			: [{ value: '', label: 'No models available — connect a provider below' }]
+			: [{ value: '', label: t('ai.settings.noModels') }]
 
 	const defaultModelField = (
 		<div className="shrink-0">
-			<div className="block text-sm font-medium mb-2">Default Model</div>
+			<div className="block text-sm font-medium mb-2">{t('ai.settings.defaultModel')}</div>
 			<Dropdown
 				value={defaultModel}
 				onChange={setDefaultModel}
@@ -257,10 +265,7 @@ export function AiSettingsPanel() {
 		return (
 			<div className="space-y-6">
 				{defaultModelField}
-				<p className="text-sm text-text-secondary">
-					AI providers are managed by Innolope Cloud. All major models are available. Select your
-					preferred default model above.
-				</p>
+				<p className="text-sm text-text-secondary">{t('ai.settings.cloudIntro')}</p>
 				<SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} onReset={reset} />
 			</div>
 		)
@@ -272,18 +277,16 @@ export function AiSettingsPanel() {
 		const total = sameProviderCount(provider)
 		const n = (providerSeen.get(provider) ?? 0) + 1
 		providerSeen.set(provider, n)
-		return total > 1 ? `${PROVIDER_LABELS[provider]} #${n}` : PROVIDER_LABELS[provider]
+		return total > 1
+			? t('ai.settings.providerLabelNumbered', { label: PROVIDER_LABELS[provider], n })
+			: PROVIDER_LABELS[provider]
 	}
 
 	return (
 		<div className="space-y-6">
 			<div>
-				<div className="block text-sm font-medium mb-3">Provider API Keys</div>
-				<p className="text-xs text-text-secondary mb-4">
-					Add your own API keys to enable AI features. Keys are stored encrypted per project. You
-					can add the same provider multiple times to rotate between API keys; rows are tried
-					top-to-bottom.
-				</p>
+				<div className="block text-sm font-medium mb-3">{t('ai.settings.providerApiKeys')}</div>
+				<p className="text-xs text-text-secondary mb-4">{t('ai.settings.providerApiKeysHelp')}</p>
 				<div className="flex gap-8 items-start">
 					<div className="flex-1 min-w-0 space-y-2">
 						{rows.map((row, i) => (
@@ -308,7 +311,7 @@ export function AiSettingsPanel() {
 										dragIndex.current = null
 										setDragOverIndex(null)
 									}}
-									title="Drag to reorder"
+									title={t('ai.settings.dragToReorder')}
 									className="shrink-0 cursor-grab text-text-muted hover:text-text"
 								>
 									<GripIcon />
@@ -321,15 +324,21 @@ export function AiSettingsPanel() {
 									value={row.apiKey}
 									onChange={(e) => updateKey(row.id, e.target.value)}
 									placeholder={
-										row.connected ? 'Connected (enter new key to replace)' : 'Paste API key...'
+										row.connected
+											? t('ai.settings.connectedReplace')
+											: t('ai.settings.pasteApiKey')
 									}
 									className="flex-1 min-w-0 px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 								/>
-								{row.connected && <span className="text-xs text-text shrink-0">Connected</span>}
+								{row.connected && (
+									<span className="text-xs text-text shrink-0">
+										{t('ai.settings.connected')}
+									</span>
+								)}
 								<button
 									type="button"
 									onClick={() => removeRow(row)}
-									title="Remove provider"
+									title={t('ai.settings.removeProvider')}
 									className="shrink-0 w-7 h-7 flex items-center justify-center text-text-muted hover:text-text rounded hover:bg-surface-alt transition-colors"
 								>
 									<svg
@@ -362,10 +371,9 @@ export function AiSettingsPanel() {
 					className="mt-0.5 w-4 h-4 shrink-0 accent-text"
 				/>
 				<span className="text-sm">
-					<span className="font-medium">Fall back to other providers on rate limit or error</span>
+					<span className="font-medium">{t('ai.settings.fallbackTitle')}</span>
 					<span className="block text-xs text-text-secondary mt-0.5">
-						If the selected model's provider returns a 429 or 5xx, try the next enabled provider in
-						the list (using that provider's default model).
+						{t('ai.settings.fallbackHelp')}
 					</span>
 				</span>
 			</label>

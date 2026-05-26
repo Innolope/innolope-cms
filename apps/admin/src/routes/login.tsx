@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../lib/auth'
 
 export const Route = createFileRoute('/login')({
@@ -37,6 +38,7 @@ function safeNextParam(): string {
 }
 
 function LoginPage() {
+	const { t } = useTranslation()
 	const { user, login, register, loading, domainLocked, domainProjectName } = useAuth()
 	const navigate = useNavigate()
 	const [mode, setMode] = useState<'login' | 'setup'>('login')
@@ -76,16 +78,16 @@ function LoginPage() {
 
 		const trimmedEmail = email.trim()
 		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-			setError('Enter a valid email address.')
+			setError(t('login.errors.invalidEmail'))
 			return
 		}
 		if (mode === 'setup' && !name.trim()) {
-			setError('Enter your name.')
+			setError(t('login.errors.enterName'))
 			return
 		}
 		const passwordRequired = mode === 'setup' || !ssoDiscovery?.enforceSso
 		if (passwordRequired && password.length < 8) {
-			setError('Password must be at least 8 characters.')
+			setError(t('login.errors.passwordTooShort'))
 			return
 		}
 
@@ -101,7 +103,7 @@ function LoginPage() {
 				else window.location.href = next
 			}
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Authentication failed')
+			setError(err instanceof Error ? err.message : t('login.errors.authFailed'))
 		} finally {
 			setSubmitting(false)
 		}
@@ -135,7 +137,7 @@ function LoginPage() {
 	if (loading || checkingSetup) {
 		return (
 			<div className="min-h-screen bg-bg flex items-center justify-center text-text-secondary">
-				Loading...
+				{t('common.loading')}
 			</div>
 		)
 	}
@@ -150,10 +152,10 @@ function LoginPage() {
 					</h1>
 					<p className="text-text-secondary text-sm mt-1">
 						{mode === 'setup'
-							? 'Welcome! Set up your Innolope CMS account to get started.'
+							? t('login.subtitle.setup')
 							: domainLocked && domainProjectName
-								? `Sign in to ${domainProjectName}`
-								: 'Sign in to your Innolope CMS account'}
+								? t('login.subtitle.signInToProject', { name: domainProjectName })
+								: t('login.subtitle.signIn')}
 					</p>
 				</div>
 
@@ -161,7 +163,7 @@ function LoginPage() {
 					{mode === 'setup' && (
 						<div>
 							<label htmlFor="login-name" className="block text-xs text-text-secondary mb-1.5">
-								Your name
+								{t('login.fields.yourName')}
 							</label>
 							<input
 								id="login-name"
@@ -170,14 +172,14 @@ function LoginPage() {
 								onChange={(e) => setName(e.target.value)}
 								required
 								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-								placeholder="Inna Lope"
+								placeholder={t('login.placeholders.name')}
 								autoFocus
 							/>
 						</div>
 					)}
 					<div>
 						<label htmlFor="login-email" className="block text-xs text-text-secondary mb-1.5">
-							Email
+							{t('login.fields.email')}
 						</label>
 						<input
 							id="login-email"
@@ -190,14 +192,14 @@ function LoginPage() {
 							onBlur={onEmailBlur}
 							required
 							className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-							placeholder="admin@example.com"
+							placeholder={t('login.placeholders.email')}
 							autoFocus={mode === 'login'}
 						/>
 					</div>
 					{!(ssoDiscovery?.enforceSso && mode === 'login') && (
 						<div>
 							<label htmlFor="login-password" className="block text-xs text-text-secondary mb-1.5">
-								Password
+								{t('login.fields.password')}
 							</label>
 							<input
 								id="login-password"
@@ -207,7 +209,7 @@ function LoginPage() {
 								required={!ssoDiscovery?.enforceSso}
 								minLength={8}
 								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-								placeholder="Min 8 characters"
+								placeholder={t('login.placeholders.password')}
 							/>
 						</div>
 					)}
@@ -222,7 +224,7 @@ function LoginPage() {
 							onClick={startSso}
 							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
-							Continue with {ssoDiscovery.name}
+							{t('login.continueWithSso', { name: ssoDiscovery.name })}
 						</button>
 					) : (
 						<button
@@ -231,14 +233,14 @@ function LoginPage() {
 							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
 							{submitting
-								? 'Please wait...'
+								? t('login.pleaseWait')
 								: mode === 'setup'
-									? 'Create Admin Account'
-									: 'Sign In'}
+									? t('login.createAdminAccount')
+									: t('login.signIn')}
 						</button>
 					)}
 					{ssoDiscovery && !ssoDiscovery.enforceSso && mode === 'login' && (
-						<p className="text-xs text-center text-text-muted">or use your password below</p>
+						<p className="text-xs text-center text-text-muted">{t('login.orUsePassword')}</p>
 					)}
 				</form>
 				{mode === 'login' && (
@@ -246,7 +248,7 @@ function LoginPage() {
 						to="/forgot-password"
 						className="block text-center text-xs text-text-secondary hover:text-text-muted mt-4 transition-colors"
 					>
-						Forgot password?
+						{t('login.forgotPassword')}
 					</Link>
 				)}
 			</div>

@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api-client'
 
 interface LicenseInfo {
@@ -90,14 +91,16 @@ export function LicenseGate({
 }
 
 export function ProBadge() {
+	const { t } = useTranslation()
 	return (
 		<span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded">
-			Pro
+			{t('licenseGate.proBadge')}
 		</span>
 	)
 }
 
 export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan?: string }) {
+	const { t } = useTranslation()
 	return (
 		// `pt-32` pushes the block down so it doesn't crowd the Save button above.
 		<div className="flex flex-col items-center justify-center pt-32 pb-12 px-6 text-center">
@@ -123,10 +126,8 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 			</svg>
 			<h3 className="text-lg font-semibold mb-2">{feature}</h3>
 			<p className="text-sm text-text-secondary max-w-sm mb-6">
-				This feature requires an Innolope CMS {plan} license.
-				{plan === 'Pro'
-					? ' Unlock AI writing, the media library, webhooks, and multiple projects support.'
-					: ' Unlock SSO, audit logs, custom roles, and more.'}
+				{t('licenseGate.requiresLicense', { plan })}
+				{plan === 'Pro' ? ` ${t('licenseGate.proUnlocks')}` : ` ${t('licenseGate.enterpriseUnlocks')}`}
 			</p>
 			{/* Violet gradient (matches ProBadge); `px-4 py-2 rounded` matches the Save button. */}
 			<a
@@ -135,7 +136,7 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 				rel="noopener noreferrer"
 				className="px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded text-sm font-medium hover:opacity-90 transition-opacity"
 			>
-				View Plans
+				{t('licenseGate.viewPlans')}
 			</a>
 		</div>
 	)

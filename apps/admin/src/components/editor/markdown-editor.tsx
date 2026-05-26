@@ -4,6 +4,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import TurndownService from 'turndown'
 import { usePrompt } from '../../lib/confirm'
 import { ImagePickerModal, type ImageSelection } from './image-picker-modal'
@@ -27,6 +28,7 @@ interface MarkdownEditorProps {
 }
 
 export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEditorProps) {
+	const { t } = useTranslation()
 	const isInternalUpdate = useRef(false)
 	const prompt = usePrompt()
 
@@ -37,7 +39,9 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 			}),
 			Image.configure({ inline: false, allowBase64: true }),
 			Link.configure({ openOnClick: false }),
-			Placeholder.configure({ placeholder: placeholder || 'Start writing...' }),
+			Placeholder.configure({
+				placeholder: placeholder || t('editor.markdownEditor.placeholder'),
+			}),
 		],
 		content: content ? htmlFromMarkdown(content) : '',
 		editorProps: {
@@ -114,16 +118,16 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 
 	const addLink = useCallback(async () => {
 		const url = await prompt({
-			title: 'Add link',
-			label: 'Link URL',
+			title: t('editor.markdownEditor.addLink'),
+			label: t('editor.markdownEditor.linkUrl'),
 			placeholder: 'https://example.com',
 			required: true,
-			confirmLabel: 'Add link',
+			confirmLabel: t('editor.markdownEditor.addLink'),
 		})
 		if (url && editor) {
 			editor.chain().focus().setLink({ href: url }).run()
 		}
-	}, [editor, prompt])
+	}, [editor, prompt, t])
 
 	if (!editor) return null
 
@@ -168,7 +172,7 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 				<ToolbarBtn
 					active={editor.isActive('bulletList')}
 					onClick={() => editor.chain().focus().toggleBulletList().run()}
-					label="List"
+					label={t('editor.markdownEditor.toolbar.bulletList')}
 				/>
 				<ToolbarBtn
 					active={editor.isActive('orderedList')}
@@ -178,16 +182,24 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 				<ToolbarBtn
 					active={editor.isActive('blockquote')}
 					onClick={() => editor.chain().focus().toggleBlockquote().run()}
-					label="Quote"
+					label={t('editor.markdownEditor.toolbar.quote')}
 				/>
 				<ToolbarBtn
 					active={editor.isActive('codeBlock')}
 					onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-					label="Code"
+					label={t('editor.markdownEditor.toolbar.code')}
 				/>
 				<div className="w-px bg-border mx-1" />
-				<ToolbarBtn active={false} onClick={addImage} label="Image" />
-				<ToolbarBtn active={editor.isActive('link')} onClick={addLink} label="Link" />
+				<ToolbarBtn
+					active={false}
+					onClick={addImage}
+					label={t('editor.markdownEditor.toolbar.image')}
+				/>
+				<ToolbarBtn
+					active={editor.isActive('link')}
+					onClick={addLink}
+					label={t('editor.markdownEditor.toolbar.link')}
+				/>
 			</div>
 			<EditorContent editor={editor} />
 			{showImagePicker && (

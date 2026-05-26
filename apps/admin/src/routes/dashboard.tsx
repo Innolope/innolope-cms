@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { api } from '../lib/api-client'
@@ -32,14 +33,14 @@ interface RecentItem {
 type StatId = 'total' | 'published' | 'draft' | 'media' | 'apiKeys' | 'collections' | 'members'
 type StatTarget = { to: string; search?: Record<string, string> }
 
-const ALL_STATS: { id: StatId; label: string; to: string }[] = [
-	{ id: 'total', label: 'Total Content', to: '/collections' },
-	{ id: 'published', label: 'Published', to: '/collections' },
-	{ id: 'draft', label: 'Drafts', to: '/collections' },
-	{ id: 'media', label: 'Media Files', to: '/media' },
-	{ id: 'apiKeys', label: 'API Keys', to: '/settings' },
-	{ id: 'collections', label: 'Collections', to: '/collections' },
-	{ id: 'members', label: 'Members', to: '/settings' },
+const ALL_STATS: { id: StatId; to: string }[] = [
+	{ id: 'total', to: '/collections' },
+	{ id: 'published', to: '/collections' },
+	{ id: 'draft', to: '/collections' },
+	{ id: 'media', to: '/media' },
+	{ id: 'apiKeys', to: '/settings' },
+	{ id: 'collections', to: '/collections' },
+	{ id: 'members', to: '/settings' },
 ]
 
 const DEFAULT_VISIBLE_STATS: StatId[] = ['total', 'published', 'draft', 'media', 'apiKeys']
@@ -63,6 +64,7 @@ function loadVisibleStats(): StatId[] {
 }
 
 function Dashboard() {
+	const { t } = useTranslation()
 	const navigate = useNavigate()
 	const { collections } = useCollections()
 	const [stats, setStats] = useState<Stats | null>(null)
@@ -152,12 +154,12 @@ function Dashboard() {
 	return (
 		<div className="p-8 pt-5">
 			<div className="flex items-center justify-between mb-6">
-				<h2 className="text-2xl font-bold">Dashboard</h2>
+				<h2 className="text-2xl font-bold">{t('dashboard.title')}</h2>
 				<button
 					type="button"
 					onClick={() => setStatsCustomizeOpen(true)}
 					className="flex items-center gap-1.5 px-2.5 py-1.5 text-text-secondary hover:text-text hover:bg-surface-alt rounded transition-colors"
-					title="Customize statistics"
+					title={t('dashboard.customizeStatistics')}
 				>
 					<svg
 						width="14"
@@ -179,13 +181,13 @@ function Dashboard() {
 						<line x1="9" y1="8" x2="15" y2="8" />
 						<line x1="17" y1="16" x2="23" y2="16" />
 					</svg>
-					<span className="text-xs">Customize</span>
+					<span className="text-xs">{t('dashboard.customize')}</span>
 				</button>
 			</div>
 
 			{statsError && (
 				<div className="mb-6 px-4 py-3 rounded-lg border border-red-900 bg-red-900/20 text-sm text-red-200">
-					Couldn't load dashboard statistics. Check your connection and reload the page.
+					{t('dashboard.statsError')}
 				</div>
 			)}
 
@@ -207,7 +209,7 @@ function Dashboard() {
 						return (
 							<StatCard
 								key={stat.id}
-								label={stat.label}
+								label={t(`dashboard.stats.${stat.id}`)}
 								value={getStatValue(stat.id)}
 								to={target.to}
 								search={target.search}
@@ -220,7 +222,7 @@ function Dashboard() {
 			{/* Analytics */}
 			<div className="rounded-lg border border-border p-5 mb-6">
 				<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
-					Content Analytics (30d)
+					{t('dashboard.analytics')}
 				</h3>
 				<AnalyticsPanel />
 			</div>
@@ -229,10 +231,10 @@ function Dashboard() {
 				{/* Recent activity */}
 				<div className="rounded-lg border border-border p-5">
 					<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
-						Recent Activity
+						{t('dashboard.recentActivity')}
 					</h3>
 					{recent.length === 0 ? (
-						<p className="text-text-secondary text-sm">No activity yet.</p>
+						<p className="text-text-secondary text-sm">{t('dashboard.noActivity')}</p>
 					) : (
 						<div className="space-y-2">
 							{recent.slice(0, 10).map((item) => (
@@ -252,7 +254,7 @@ function Dashboard() {
 									</div>
 									<div className="flex items-center gap-2 ml-3">
 										<StatusBadge status={item.status} />
-										<span className="text-xs text-text-secondary">{timeAgo(item.updatedAt)}</span>
+										<span className="text-xs text-text-secondary">{timeAgo(item.updatedAt, t)}</span>
 									</div>
 								</Link>
 							))}
@@ -263,35 +265,35 @@ function Dashboard() {
 				{/* Quick start */}
 				<div className="rounded-lg border border-border p-5">
 					<h3 className="text-sm font-semibold mb-3 text-text-muted uppercase tracking-wide">
-						Quick Start
+						{t('dashboard.quickStart')}
 					</h3>
 					<div className="space-y-3 text-sm text-text-muted">
 						<Step n={1}>
 							<Link to="/collections" className="text-text hover:underline">
-								Create a collection
+								{t('dashboard.steps.createCollectionLink')}
 							</Link>{' '}
-							to define your content types
+							{t('dashboard.steps.createCollectionTail')}
 						</Step>
 						<Step n={2}>
 							<Link to="/settings" className="text-text hover:underline">
-								Generate an API key
+								{t('dashboard.steps.generateApiKeyLink')}
 							</Link>{' '}
-							for Claude or other AI agents
+							{t('dashboard.steps.generateApiKeyTail')}
 						</Step>
 						<Step n={3}>
 							<Link to="/content/$id" params={{ id: 'new' }} className="text-text hover:underline">
-								Create content
+								{t('dashboard.steps.createContentLink')}
 							</Link>{' '}
-							manually or via MCP
+							{t('dashboard.steps.createContentTail')}
 						</Step>
 						<Step n={4}>
-							Consume via REST API at{' '}
+							{t('dashboard.steps.consumeApiPrefix')}{' '}
 							<code className="text-text-faint bg-surface-alt px-1 rounded text-xs">
 								/api/v1/content
 							</code>
 						</Step>
 						<Step n={5}>
-							Or use the SDK:{' '}
+							{t('dashboard.steps.useSdkPrefix')}{' '}
 							<code className="text-text-faint bg-surface-alt px-1 rounded text-xs">
 								npm i @innolope/sdk
 							</code>
@@ -301,12 +303,14 @@ function Dashboard() {
 					{!mcpConfigHidden ? (
 						<div className="mt-6 pt-4 border-t border-border">
 							<div className="flex items-center justify-between mb-2">
-								<h4 className="text-xs font-medium text-text-secondary">MCP Config</h4>
+								<h4 className="text-xs font-medium text-text-secondary">
+									{t('dashboard.mcpConfig')}
+								</h4>
 								<button
 									type="button"
 									onClick={() => setMcpConfigHidden(true)}
 									className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
-									title="Hide MCP Config"
+									title={t('dashboard.hideMcpConfig')}
 								>
 									<svg
 										width="12"
@@ -345,7 +349,7 @@ function Dashboard() {
 								onClick={() => setMcpConfigHidden(false)}
 								className="text-xs text-text-secondary hover:text-text transition-colors"
 							>
-								Show MCP Config
+								{t('dashboard.showMcpConfig')}
 							</button>
 						</div>
 					)}
@@ -375,6 +379,7 @@ function StatsCustomizeModal({
 	onReset: () => void
 	onClose: () => void
 }) {
+	const { t } = useTranslation()
 	const visibleSet = new Set(visibleStats)
 
 	useEffect(() => {
@@ -389,23 +394,23 @@ function StatsCustomizeModal({
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<button
 				type="button"
-				aria-label="Close dialog"
+				aria-label={t('common.closeDialog')}
 				className="absolute inset-0 -z-10 cursor-default"
 				onClick={onClose}
 			/>
 			<div
 				role="dialog"
 				aria-modal="true"
-				aria-label="Customize statistics"
+				aria-label={t('dashboard.customizeStatistics')}
 				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md p-6"
 			>
 				<div className="flex items-center justify-between mb-2">
-					<h3 className="font-semibold text-text">Customize Statistics</h3>
+					<h3 className="font-semibold text-text">{t('dashboard.customizeStatistics')}</h3>
 					<button
 						type="button"
 						onClick={onClose}
 						className="w-6 h-6 flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors"
-						title="Close"
+						title={t('dashboard.close')}
 					>
 						<svg
 							width="14"
@@ -423,7 +428,7 @@ function StatsCustomizeModal({
 					</button>
 				</div>
 				<p className="text-sm text-text-secondary mb-4">
-					Select which data points to show on your dashboard.
+					{t('dashboard.customizeDescription')}
 				</p>
 				<div className="space-y-1 mb-6 max-h-80 overflow-y-auto">
 					{ALL_STATS.map((stat) => {
@@ -440,7 +445,7 @@ function StatsCustomizeModal({
 									className="cursor-pointer"
 								/>
 								<span className={`flex-1 text-sm ${checked ? 'text-text' : 'text-text-secondary'}`}>
-									{stat.label}
+									{t(`dashboard.stats.${stat.id}`)}
 								</span>
 							</label>
 						)
@@ -452,14 +457,14 @@ function StatsCustomizeModal({
 						onClick={onReset}
 						className="text-xs text-text-secondary hover:text-text transition-colors"
 					>
-						Reset to default
+						{t('dashboard.resetToDefault')}
 					</button>
 					<button
 						type="button"
 						onClick={onClose}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 					>
-						Done
+						{t('dashboard.done')}
 					</button>
 				</div>
 			</div>
@@ -468,6 +473,7 @@ function StatsCustomizeModal({
 }
 
 function EmptyDashboard() {
+	const { t } = useTranslation()
 	const _navigate = useNavigate()
 	const toast = useToast()
 	const [step, setStepState] = useState<'choose' | 'connect-db' | 'upload'>(() => {
@@ -488,10 +494,7 @@ function EmptyDashboard() {
 		const file = e.target.files?.[0]
 		if (!file) return
 		// TODO: implement import endpoint
-		toast(
-			'File import is coming soon. For now, use the MCP server or API to bulk-create content.',
-			'error',
-		)
+		toast(t('dashboard.empty.importComingSoon'), 'error')
 	}
 
 	if (step === 'choose') {
@@ -499,9 +502,9 @@ function EmptyDashboard() {
 			<div className="p-8 pt-[15vh] flex justify-center min-h-[70vh]">
 				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
-						<h2 className="text-2xl font-bold mb-2">Welcome to Innolope CMS</h2>
+						<h2 className="text-2xl font-bold mb-2">{t('dashboard.empty.welcomeTitle')}</h2>
 						<p className="text-text-secondary text-sm">
-							How would you like to add your first content?
+							{t('dashboard.empty.welcomeSubtitle')}
 						</p>
 					</div>
 
@@ -527,9 +530,11 @@ function EmptyDashboard() {
 								</svg>
 							</div>
 							<div className="mt-6">
-								<h3 className="font-semibold text-white mb-1.5">Connect Database</h3>
+								<h3 className="font-semibold text-white mb-1.5">
+									{t('dashboard.empty.connectDb.title')}
+								</h3>
 								<p className="text-sm text-white/70">
-									I already have content in an external database
+									{t('dashboard.empty.connectDb.desc')}
 								</p>
 							</div>
 						</button>
@@ -555,8 +560,12 @@ function EmptyDashboard() {
 								</svg>
 							</div>
 							<div className="mt-6">
-								<h3 className="font-semibold text-white mb-1.5">Upload Files</h3>
-								<p className="text-sm text-white/70">I have content in Markdown or JSON files</p>
+								<h3 className="font-semibold text-white mb-1.5">
+									{t('dashboard.empty.uploadFiles.title')}
+								</h3>
+								<p className="text-sm text-white/70">
+									{t('dashboard.empty.uploadFiles.desc')}
+								</p>
 							</div>
 						</button>
 
@@ -579,8 +588,12 @@ function EmptyDashboard() {
 								</svg>
 							</div>
 							<div className="mt-6">
-								<h3 className="font-semibold text-white mb-1.5">Start from Scratch</h3>
-								<p className="text-sm text-white/70">Create a new collection and add content</p>
+								<h3 className="font-semibold text-white mb-1.5">
+									{t('dashboard.empty.fromScratch.title')}
+								</h3>
+								<p className="text-sm text-white/70">
+									{t('dashboard.empty.fromScratch.desc')}
+								</p>
 							</div>
 						</Link>
 					</div>
@@ -609,14 +622,16 @@ function EmptyDashboard() {
 					>
 						<polyline points="15 18 9 12 15 6" />
 					</svg>
-					Choose a different method
+					{t('dashboard.empty.chooseDifferentMethod')}
 				</button>
 				<div className="flex justify-center min-h-[70vh]">
 					<div className="max-w-4xl w-full">
 						<div className="text-center mb-10">
-							<h2 className="text-2xl font-bold mb-2">Connect Database</h2>
+							<h2 className="text-2xl font-bold mb-2">
+								{t('dashboard.empty.connectDb.title')}
+							</h2>
 							<p className="text-text-secondary text-sm">
-								Connect an external database to import existing content.
+								{t('dashboard.empty.connectDb.intro')}
 							</p>
 						</div>
 						<DatabaseSettings onChangeDatabase={() => setStep('choose')} />
@@ -646,14 +661,14 @@ function EmptyDashboard() {
 					>
 						<polyline points="15 18 9 12 15 6" />
 					</svg>
-					Choose a different method
+					{t('dashboard.empty.chooseDifferentMethod')}
 				</button>
 				<div className="flex justify-center min-h-[70vh]">
 					<div className="max-w-lg w-full">
 						<div className="text-center mb-10">
-							<h2 className="text-2xl font-bold mb-2">Upload Content</h2>
+							<h2 className="text-2xl font-bold mb-2">{t('dashboard.empty.upload.title')}</h2>
 							<p className="text-text-secondary text-sm">
-								Upload Markdown (.md) or JSON (.json) files to import content.
+								{t('dashboard.empty.upload.intro')}
 							</p>
 						</div>
 						<div className="flex gap-3 justify-center mb-8">
@@ -662,7 +677,7 @@ function EmptyDashboard() {
 								onClick={() => fileInputRef.current?.click()}
 								className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors cursor-pointer"
 							>
-								Choose Files
+								{t('dashboard.empty.upload.chooseFiles')}
 							</button>
 						</div>
 						<button
@@ -700,7 +715,7 @@ function EmptyDashboard() {
 								<polyline points="17 8 12 3 7 8" />
 								<line x1="12" y1="3" x2="12" y2="15" />
 							</svg>
-							Drop .md, .json, or .jsonl files here or click to browse
+							{t('dashboard.empty.upload.dropHint')}
 						</button>
 					</div>
 				</div>
@@ -762,13 +777,13 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 	)
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
 	const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
-	if (seconds < 60) return 'just now'
+	if (seconds < 60) return t('common.time.justNow')
 	const minutes = Math.floor(seconds / 60)
-	if (minutes < 60) return `${minutes}m ago`
+	if (minutes < 60) return t('dashboard.timeAgo.minutes', { count: minutes })
 	const hours = Math.floor(minutes / 60)
-	if (hours < 24) return `${hours}h ago`
+	if (hours < 24) return t('dashboard.timeAgo.hours', { count: hours })
 	const days = Math.floor(hours / 24)
-	return `${days}d ago`
+	return t('dashboard.timeAgo.days', { count: days })
 }

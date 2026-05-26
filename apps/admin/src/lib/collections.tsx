@@ -1,26 +1,7 @@
+import type { CollectionField } from '@innolope/config'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { api } from './api-client'
 import { useAuth } from './auth'
-
-interface CollectionField {
-	name: string
-	type: string
-	required?: boolean
-	localized?: boolean
-	options?: string[]
-	relationTo?: string
-	relationIsArray?: boolean
-	ui?: {
-		widget?: string
-		placeholder?: string
-		helpText?: string
-		rows?: number
-		separator?: 'enter' | 'comma' | 'both'
-		readOnly?: boolean
-		hidden?: boolean
-		subFields?: CollectionField[]
-	}
-}
 
 export interface CollectionWithCount {
 	id: string

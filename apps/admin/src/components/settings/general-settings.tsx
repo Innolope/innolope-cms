@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
 import { SaveBar } from '../save-bar'
 
 export function GeneralSettings() {
+	const { t } = useTranslation()
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 	const [name, setName] = useState('')
@@ -61,7 +63,7 @@ export function GeneralSettings() {
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('settings.general.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -71,7 +73,7 @@ export function GeneralSettings() {
 		<div className="space-y-4">
 			<div>
 				<label htmlFor="gs-project-name" className="block text-xs text-text-secondary mb-1.5">
-					Project name
+					{t('settings.general.projectName')}
 				</label>
 				<input
 					id="gs-project-name"
@@ -83,7 +85,7 @@ export function GeneralSettings() {
 			</div>
 			<div>
 				<label htmlFor="gs-project-slug" className="block text-xs text-text-secondary mb-1.5">
-					Project slug
+					{t('settings.general.projectSlug')}
 				</label>
 				<input
 					id="gs-project-slug"
@@ -92,13 +94,11 @@ export function GeneralSettings() {
 					onChange={(e) => setSlug(e.target.value)}
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 				/>
-				<p className="text-[11px] text-text-muted mt-1">
-					Used in URLs and API. Changing this may break existing integrations.
-				</p>
+				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.slugHelp')}</p>
 			</div>
 			<div>
 				<label htmlFor="gs-default-locale" className="block text-xs text-text-secondary mb-1.5">
-					Default locale
+					{t('settings.general.defaultLocale')}
 				</label>
 				<input
 					id="gs-default-locale"
@@ -111,7 +111,7 @@ export function GeneralSettings() {
 			</div>
 			<div>
 				<label htmlFor="gs-available-locales" className="block text-xs text-text-secondary mb-1.5">
-					Available locales
+					{t('settings.general.availableLocales')}
 				</label>
 				<input
 					id="gs-available-locales"
@@ -121,7 +121,7 @@ export function GeneralSettings() {
 					placeholder="en, es, fr, de"
 					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 				/>
-				<p className="text-[11px] text-text-muted mt-1">Comma-separated locale codes.</p>
+				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.localesHelp')}</p>
 			</div>
 			<SaveBar
 				dirty={dirty}
@@ -146,15 +146,16 @@ export function GeneralSettings() {
 						<span className={`inline-block transition-transform ${dangerOpen ? 'rotate-90' : ''}`}>
 							&#8250;
 						</span>
-						Danger zone
+						{t('settings.general.dangerZone')}
 					</button>
 					{dangerOpen && (
 						<div className="flex items-center justify-between gap-4 max-w-2xl mt-3 px-4 py-3 rounded-lg border border-border bg-surface-muted">
 							<div className="min-w-0">
-								<p className="text-sm text-text font-medium">Delete this workspace</p>
+								<p className="text-sm text-text font-medium">
+									{t('settings.general.deleteWorkspaceTitle')}
+								</p>
 								<p className="text-xs text-text-muted mt-0.5">
-									Permanently removes the workspace and its CMS content. Your external database and
-									its data are not touched.
+									{t('settings.general.deleteWorkspaceDesc')}
 								</p>
 							</div>
 							<button
@@ -162,7 +163,7 @@ export function GeneralSettings() {
 								onClick={() => setShowDelete(true)}
 								className="shrink-0 px-3 py-2 rounded text-sm font-medium border border-danger/50 text-danger hover:bg-danger/10"
 							>
-								Delete workspace
+								{t('settings.general.deleteWorkspace')}
 							</button>
 						</div>
 					)}
@@ -189,6 +190,7 @@ function DeleteWorkspaceModal({
 	projectName: string
 	onCancel: () => void
 }) {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const [confirmText, setConfirmText] = useState('')
 	const [deleting, setDeleting] = useState(false)
@@ -210,7 +212,7 @@ function DeleteWorkspaceModal({
 			localStorage.removeItem('innolope_project')
 			window.location.href = '/'
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to delete workspace', 'error')
+			toast(err instanceof Error ? err.message : t('settings.general.deleteFailed'), 'error')
 			setDeleting(false)
 		}
 	}
@@ -219,24 +221,26 @@ function DeleteWorkspaceModal({
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<button
 				type="button"
-				aria-label="Close dialog"
+				aria-label={t('common.closeDialog')}
 				className="absolute inset-0 -z-10 cursor-default"
 				onClick={onCancel}
 			/>
 			<div
 				role="dialog"
 				aria-modal="true"
-				aria-label="Delete workspace"
+				aria-label={t('settings.general.deleteWorkspace')}
 				className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-sm p-6"
 			>
-				<h3 className="font-semibold text-text mb-2">Delete workspace</h3>
+				<h3 className="font-semibold text-text mb-2">{t('settings.general.deleteWorkspace')}</h3>
 				<p className="text-sm text-text-secondary mb-4">
-					This permanently deletes <span className="font-medium text-text">{projectName}</span> and
-					all of its CMS content, collections, and members. This cannot be undone. Your connected
-					external database and its data will not be deleted.
+					{t('settings.general.deleteWorkspacePrompt1')}{' '}
+					<span className="font-medium text-text">{projectName}</span>{' '}
+					{t('settings.general.deleteWorkspacePrompt2')}
 				</p>
 				<label htmlFor="gs-delete-confirm" className="block text-xs text-text-secondary mb-1.5">
-					Type <span className="font-mono text-text">{projectName}</span> to confirm
+					{t('settings.general.typeToConfirmPrefix')}{' '}
+					<span className="font-mono text-text">{projectName}</span>{' '}
+					{t('settings.general.typeToConfirmSuffix')}
 				</label>
 				<input
 					id="gs-delete-confirm"
@@ -252,7 +256,7 @@ function DeleteWorkspaceModal({
 						onClick={onCancel}
 						className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
 					>
-						Cancel
+						{t('common.cancel')}
 					</button>
 					<button
 						type="button"
@@ -260,7 +264,7 @@ function DeleteWorkspaceModal({
 						disabled={!matches || deleting}
 						className="px-4 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40"
 					>
-						{deleting ? 'Deleting…' : 'Delete workspace'}
+						{deleting ? t('settings.general.deleting') : t('settings.general.deleteWorkspace')}
 					</button>
 				</div>
 			</div>

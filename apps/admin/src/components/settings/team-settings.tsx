@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useConfirm } from '../../lib/confirm'
@@ -31,6 +32,7 @@ const ROLES = ['viewer', 'editor', 'admin'] as const
 const ROLE_ORDER: Record<string, number> = { owner: 4, admin: 3, editor: 2, viewer: 1 }
 
 export function TeamSettings() {
+	const { t } = useTranslation()
 	const { currentProject, user } = useAuth()
 	const toast = useToast()
 	const confirm = useConfirm()
@@ -47,6 +49,12 @@ export function TeamSettings() {
 	const [savingScope, setSavingScope] = useState(false)
 
 	const isAdmin = currentProject && ROLE_ORDER[currentProject.role] >= ROLE_ORDER.admin
+
+	const roleLabel = (r: string) => {
+		const key = `settings.team.roles.${r}`
+		const translated = t(key)
+		return translated === key ? r : translated
+	}
 
 	const fetchData = useCallback(async () => {
 		if (!currentProject) return
@@ -85,7 +93,7 @@ export function TeamSettings() {
 			setTimeout(() => setSent(''), 3000)
 			fetchData()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to send invite', 'error')
+			toast(err instanceof Error ? err.message : t('settings.team.inviteFailed'), 'error')
 		} finally {
 			setSending(false)
 		}
@@ -102,7 +110,7 @@ export function TeamSettings() {
 			setEditingScope(null)
 			fetchData()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to update access', 'error')
+			toast(err instanceof Error ? err.message : t('settings.team.updateAccessFailed'), 'error')
 		} finally {
 			setSavingScope(false)
 		}
@@ -114,16 +122,16 @@ export function TeamSettings() {
 			await api.put(`/api/v1/projects/${currentProject.id}/members/${userId}`, { role: newRole })
 			fetchData()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to update role', 'error')
+			toast(err instanceof Error ? err.message : t('settings.team.updateRoleFailed'), 'error')
 		}
 	}
 
 	const removeMember = async (userId: string, name: string) => {
 		if (!currentProject) return
 		const ok = await confirm({
-			title: 'Remove member',
-			message: `Remove ${name} from this project?`,
-			confirmLabel: 'Remove',
+			title: t('settings.team.removeConfirmTitle'),
+			message: t('settings.team.removeConfirmMessage', { name }),
+			confirmLabel: t('settings.team.removeConfirmLabel'),
 			danger: true,
 		})
 		if (!ok) return
@@ -131,25 +139,27 @@ export function TeamSettings() {
 			await api.delete(`/api/v1/projects/${currentProject.id}/members/${userId}`)
 			fetchData()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to remove member', 'error')
+			toast(err instanceof Error ? err.message : t('settings.team.removeFailed'), 'error')
 		}
 	}
 
-	if (loading) return <p className="text-text-secondary text-sm">Loading team...</p>
+	if (loading) return <p className="text-text-secondary text-sm">{t('settings.team.loading')}</p>
+
+	const collectionsScopeLabel = (count: number) => t('settings.team.collectionsScope', { count })
 
 	return (
 		<div className="space-y-6">
 			{/* Members */}
 			<div>
-				<h4 className="text-sm font-medium mb-3">Members</h4>
+				<h4 className="text-sm font-medium mb-3">{t('settings.team.members')}</h4>
 				<div className="space-y-2">
 					{members.map((m) => {
 						const isOwnerOrAdmin = m.role === 'owner' || m.role === 'admin'
 						const scopeLabel = isOwnerOrAdmin
-							? 'Full access'
+							? t('settings.team.scope.fullAccess')
 							: m.collectionIds === null
-								? 'All collections'
-								: `${m.collectionIds.length} collection${m.collectionIds.length === 1 ? '' : 's'}`
+								? t('settings.team.scope.allCollections')
+								: collectionsScopeLabel(m.collectionIds.length)
 						const isEditingThis = editingMemberId === m.id
 						return (
 							<div key={m.id} className="rounded-lg bg-surface-alt">
@@ -164,12 +174,12 @@ export function TeamSettings() {
 											<Dropdown
 												value={m.role}
 												onChange={(v) => updateRole(m.userId, v)}
-												options={ROLES.map((r) => ({ value: r, label: r }))}
+												options={ROLES.map((r) => ({ value: r, label: roleLabel(r) }))}
 												className="px-2 py-1 bg-input border border-border rounded text-xs focus:outline-none"
 											/>
 										) : (
 											<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border">
-												{m.role}
+												{roleLabel(m.role)}
 											</span>
 										)}
 										{isAdmin && m.role !== 'owner' && m.userId !== user?.id && (
@@ -187,14 +197,14 @@ export function TeamSettings() {
 													}}
 													className="text-xs text-text-secondary hover:text-text"
 												>
-													{isEditingThis ? 'Cancel' : 'Edit access'}
+													{isEditingThis ? t('common.cancel') : t('settings.team.editAccess')}
 												</button>
 												<button
 													type="button"
 													onClick={() => removeMember(m.userId, m.userName)}
 													className="text-danger text-xs hover:opacity-80"
 												>
-													Remove
+													{t('settings.team.remove')}
 												</button>
 											</>
 										)}
@@ -217,7 +227,7 @@ export function TeamSettings() {
 													}}
 													className="px-3 py-1 text-xs text-text-secondary hover:text-text"
 												>
-													Cancel
+													{t('common.cancel')}
 												</button>
 												<button
 													type="button"
@@ -225,7 +235,9 @@ export function TeamSettings() {
 													disabled={savingScope}
 													className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 												>
-													{savingScope ? 'Saving...' : 'Save access'}
+													{savingScope
+														? t('settings.team.savingAccess')
+														: t('settings.team.saveAccess')}
 												</button>
 											</div>
 										)}
@@ -240,17 +252,15 @@ export function TeamSettings() {
 			{/* Pending invites */}
 			{isAdmin && invites.length > 0 && (
 				<div>
-					<h4 className="text-sm font-medium mb-3">Pending Invites</h4>
+					<h4 className="text-sm font-medium mb-3">{t('settings.team.pendingInvites')}</h4>
 					<div className="space-y-2">
 						{invites.map((inv) => {
 							const scopeLabel =
 								inv.role === 'admin'
-									? 'Full access'
+									? t('settings.team.scope.fullAccess')
 									: inv.collectionIds === null
-										? 'All collections'
-										: `${inv.collectionIds.length} collection${
-												inv.collectionIds.length === 1 ? '' : 's'
-											}`
+										? t('settings.team.scope.allCollections')
+										: collectionsScopeLabel(inv.collectionIds.length)
 							return (
 								<div
 									key={inv.id}
@@ -259,11 +269,14 @@ export function TeamSettings() {
 									<div className="min-w-0">
 										<p className="text-sm truncate">{inv.email}</p>
 										<p className="text-xs text-text-muted">
-											Expires {new Date(inv.expiresAt).toLocaleDateString()} · {scopeLabel}
+											{t('settings.team.expiresOn', {
+												date: new Date(inv.expiresAt).toLocaleDateString(),
+											})}{' '}
+											· {scopeLabel}
 										</p>
 									</div>
 									<span className="px-2 py-0.5 bg-surface rounded text-xs text-text-secondary border border-border shrink-0 ml-3">
-										{inv.role}
+										{roleLabel(inv.role)}
 									</span>
 								</div>
 							)
@@ -275,7 +288,7 @@ export function TeamSettings() {
 			{/* Invite form */}
 			{isAdmin && (
 				<div>
-					<h4 className="text-sm font-medium mb-3">Invite Member</h4>
+					<h4 className="text-sm font-medium mb-3">{t('settings.team.inviteMember')}</h4>
 					<div className="flex gap-2">
 						<input
 							type="email"
@@ -288,7 +301,7 @@ export function TeamSettings() {
 						<Dropdown
 							value={role}
 							onChange={setRole}
-							options={ROLES.map((r) => ({ value: r, label: r }))}
+							options={ROLES.map((r) => ({ value: r, label: roleLabel(r) }))}
 							className="w-28 shrink-0"
 						/>
 						<button
@@ -297,18 +310,24 @@ export function TeamSettings() {
 							disabled={sending || !email.trim()}
 							className="px-6 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors shrink-0"
 						>
-							{sending ? 'Sending...' : 'Send Invite'}
+							{sending ? t('settings.team.sending') : t('settings.team.sendInvite')}
 						</button>
 					</div>
 					<div className="mt-3 p-3 rounded-lg border border-border bg-surface">
-						<p className="text-xs font-medium text-text-secondary mb-2">Collection access</p>
+						<p className="text-xs font-medium text-text-secondary mb-2">
+							{t('settings.team.collectionAccess')}
+						</p>
 						<CollectionAccessPicker
 							value={inviteCollectionIds}
 							onChange={setInviteCollectionIds}
 							disabled={role === 'admin'}
 						/>
 					</div>
-					{sent && <p className="text-xs text-text-secondary mt-2">Invite sent to {sent}</p>}
+					{sent && (
+						<p className="text-xs text-text-secondary mt-2">
+							{t('settings.team.inviteSent', { email: sent })}
+						</p>
+					)}
 				</div>
 			)}
 		</div>

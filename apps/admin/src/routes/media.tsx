@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { LicenseGate } from '../components/license-gate'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
@@ -26,14 +27,16 @@ interface MediaItem {
 // The Media library is a Pro feature. The tab stays visible to free users but
 // renders an upgrade prompt instead of the library.
 function MediaLibrary() {
+	const { t } = useTranslation()
 	return (
-		<LicenseGate feature="media-integrations" featureLabel="Media Library">
+		<LicenseGate feature="media-integrations" featureLabel={t('mediaRoute.featureLabel')}>
 			<MediaLibraryContent />
 		</LicenseGate>
 	)
 }
 
 function MediaLibraryContent() {
+	const { t } = useTranslation()
 	const [tab, setTabState] = useState<'uploaded' | 'unsplash'>(() => {
 		const params = new URLSearchParams(window.location.search)
 		return (params.get('tab') as 'uploaded' | 'unsplash') || 'uploaded'
@@ -92,9 +95,9 @@ function MediaLibraryContent() {
 
 	const deleteMedia = async (id: string) => {
 		const ok = await confirm({
-			title: 'Delete file',
-			message: 'Delete this file permanently? This cannot be undone.',
-			confirmLabel: 'Delete',
+			title: t('mediaRoute.delete.title'),
+			message: t('mediaRoute.delete.message'),
+			confirmLabel: t('mediaRoute.delete.confirm'),
 			danger: true,
 		})
 		if (!ok) return
@@ -128,21 +131,21 @@ function MediaLibraryContent() {
 			<div className="flex-1 p-8 pt-5 flex flex-col overflow-auto">
 				<div className="flex items-center justify-between mb-6">
 					<div className="flex items-center gap-4">
-						<h2 className="text-2xl font-bold">Media</h2>
+						<h2 className="text-2xl font-bold">{t('mediaRoute.title')}</h2>
 						<div className="flex bg-surface rounded-lg p-0.5 border border-border">
 							<button
 								type="button"
 								onClick={() => setTab('uploaded')}
 								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${tab === 'uploaded' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
 							>
-								Uploaded
+								{t('mediaRoute.tabs.uploaded')}
 							</button>
 							<button
 								type="button"
 								onClick={() => setTab('unsplash')}
 								className={`px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center ${tab === 'unsplash' ? 'bg-surface-alt text-text' : 'text-text-secondary hover:text-text-muted'}`}
 							>
-								Unsplash
+								{t('mediaRoute.tabs.unsplash')}
 							</button>
 						</div>
 					</div>
@@ -152,10 +155,10 @@ function MediaLibraryContent() {
 								value={typeFilter}
 								onChange={setTypeFilter}
 								options={[
-									{ value: '', label: 'All types' },
-									{ value: 'image', label: 'Images' },
-									{ value: 'video', label: 'Videos' },
-									{ value: 'file', label: 'Files' },
+									{ value: '', label: t('mediaRoute.filter.all') },
+									{ value: 'image', label: t('mediaRoute.filter.images') },
+									{ value: 'video', label: t('mediaRoute.filter.videos') },
+									{ value: 'file', label: t('mediaRoute.filter.files') },
 								]}
 								className="w-32"
 							/>
@@ -165,7 +168,7 @@ function MediaLibraryContent() {
 								disabled={uploading}
 								className="px-3 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								{uploading ? 'Uploading...' : 'Upload'}
+								{uploading ? t('mediaRoute.uploading') : t('mediaRoute.upload')}
 							</button>
 							<input
 								ref={fileRef}
@@ -204,17 +207,16 @@ function MediaLibraryContent() {
 										<polyline points="21 15 16 10 5 21" />
 									</svg>
 								</div>
-								<h3 className="font-semibold text-text mb-1">No media files yet</h3>
+								<h3 className="font-semibold text-text mb-1">{t('mediaRoute.empty.title')}</h3>
 								<p className="text-sm text-text-secondary max-w-xs mb-5">
-									Upload images, videos, or files by dragging them into the drop zone or clicking
-									Upload.
+									{t('mediaRoute.empty.subtitle')}
 								</p>
 								<button
 									type="button"
 									onClick={() => fileRef.current?.click()}
 									className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 								>
-									Upload Your First File
+									{t('mediaRoute.empty.uploadFirst')}
 								</button>
 							</div>
 						) : (
@@ -238,7 +240,7 @@ function MediaLibraryContent() {
 											/>
 										) : (
 											<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
-												{item.type === 'video' ? 'Video' : 'File'}
+												{item.type === 'video' ? t('mediaRoute.types.video') : t('mediaRoute.types.file')}
 												<br />
 												{item.filename}
 											</div>
@@ -269,7 +271,7 @@ function MediaLibraryContent() {
 									if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
 								}}
 							>
-								Drop files here or click Upload
+								{t('mediaRoute.dropHere')}
 							</div>
 						</div>
 					</div>
@@ -279,7 +281,7 @@ function MediaLibraryContent() {
 			{/* Detail panel */}
 			{selected && (
 				<div className="w-72 border-l border-border p-6 space-y-4 overflow-auto">
-					<h3 className="font-semibold text-sm">Details</h3>
+					<h3 className="font-semibold text-sm">{t('mediaRoute.details.title')}</h3>
 					{selected.type === 'image' && (
 						<img
 							src={selected.variants?.small || selected.url}
@@ -288,13 +290,13 @@ function MediaLibraryContent() {
 						/>
 					)}
 					<dl className="text-sm space-y-2">
-						<dt className="text-text-secondary">Filename</dt>
+						<dt className="text-text-secondary">{t('mediaRoute.details.filename')}</dt>
 						<dd className="break-all">{selected.filename}</dd>
-						<dt className="text-text-secondary">Type</dt>
+						<dt className="text-text-secondary">{t('mediaRoute.details.type')}</dt>
 						<dd>{selected.mimeType}</dd>
-						<dt className="text-text-secondary">Size</dt>
+						<dt className="text-text-secondary">{t('mediaRoute.details.size')}</dt>
 						<dd>{formatSize(selected.size)}</dd>
-						<dt className="text-text-secondary">URL</dt>
+						<dt className="text-text-secondary">{t('mediaRoute.details.url')}</dt>
 						<dd>
 							<button
 								type="button"
@@ -303,24 +305,24 @@ function MediaLibraryContent() {
 								}}
 								className="text-xs text-blue-400 hover:text-blue-300"
 							>
-								Copy URL
+								{t('mediaRoute.details.copyUrl')}
 							</button>
 						</dd>
-						<dt className="text-text-secondary">Uploaded</dt>
+						<dt className="text-text-secondary">{t('mediaRoute.details.uploaded')}</dt>
 						<dd>{new Date(selected.createdAt).toLocaleString()}</dd>
 					</dl>
 
 					{selected.type === 'image' && (
 						<div className="pt-4 border-t border-border space-y-1.5">
 							<label htmlFor="media-alt" className="text-text-secondary text-sm">
-								Alt text
+								{t('mediaRoute.details.altText')}
 							</label>
 							<textarea
 								id="media-alt"
 								value={altDraft}
 								onChange={(e) => setAltDraft(e.target.value)}
 								rows={2}
-								placeholder="Describe this image for search engines and screen readers"
+								placeholder={t('mediaRoute.details.altPlaceholder')}
 								className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong resize-y"
 							/>
 							<button
@@ -329,7 +331,7 @@ function MediaLibraryContent() {
 								disabled={savingAlt || altDraft === (selected.alt || '')}
 								className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								{savingAlt ? 'Saving…' : 'Save alt text'}
+								{savingAlt ? t('mediaRoute.details.savingAlt') : t('mediaRoute.details.saveAlt')}
 							</button>
 						</div>
 					)}
@@ -340,14 +342,14 @@ function MediaLibraryContent() {
 							onClick={() => deleteMedia(selected.id)}
 							className="px-3 py-1.5 bg-danger-surface text-danger rounded text-sm hover:opacity-80"
 						>
-							Delete
+							{t('mediaRoute.details.delete')}
 						</button>
 						<button
 							type="button"
 							onClick={() => setSelected(null)}
 							className="px-3 py-1.5 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
-							Close
+							{t('mediaRoute.details.close')}
 						</button>
 					</div>
 				</div>

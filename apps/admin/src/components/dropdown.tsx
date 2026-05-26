@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface DropdownProps {
 	value: string
@@ -28,8 +29,10 @@ export function Dropdown({
 	className = '',
 	placeholder,
 	onAddOption,
-	addOptionLabel = '+ Add option…',
+	addOptionLabel,
 }: DropdownProps) {
+	const { t } = useTranslation()
+	const resolvedAddOptionLabel = addOptionLabel ?? t('dropdown.addOption')
 	const [open, setOpen] = useState(false)
 	const [adding, setAdding] = useState(false)
 	const [draft, setDraft] = useState('')
@@ -90,7 +93,7 @@ export function Dropdown({
 				className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-text focus:outline-none focus:border-border-strong text-left"
 			>
 				<span className={selected ? 'text-text' : 'text-text-muted'}>
-					{selected?.label || placeholder || 'Select...'}
+					{selected?.label || placeholder || t('dropdown.selectPlaceholder')}
 				</span>
 				<svg
 					width="12"
@@ -149,7 +152,7 @@ export function Dropdown({
 											setDraft('')
 										}
 									}}
-									placeholder="New option"
+									placeholder={t('dropdown.newOptionPlaceholder')}
 									className="flex-1 px-2 py-1 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 								/>
 								<button
@@ -158,7 +161,7 @@ export function Dropdown({
 									disabled={saving || !draft.trim()}
 									className="px-2 py-1 text-xs bg-btn-primary text-btn-primary-text rounded hover:opacity-90 disabled:opacity-40"
 								>
-									{saving ? 'Adding…' : 'Add'}
+									{saving ? t('dropdown.adding') : t('dropdown.add')}
 								</button>
 							</div>
 						) : (
@@ -167,7 +170,7 @@ export function Dropdown({
 								onClick={() => setAdding(true)}
 								className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
 							>
-								{addOptionLabel}
+								{resolvedAddOptionLabel}
 							</button>
 						))}
 				</div>

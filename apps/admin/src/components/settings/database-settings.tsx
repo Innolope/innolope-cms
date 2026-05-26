@@ -1,5 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
@@ -99,141 +100,159 @@ interface MediaStorageConfig {
 	hasCredentials?: boolean
 }
 
+// `label` is a brand name kept verbatim; `descKey` is an i18n key resolved at render.
 const DB_OPTIONS = [
-	{ value: 'built-in', label: 'Innolope CMS', desc: 'Managed PostgreSQL', logo: '/logo.svg' },
+	{
+		value: 'built-in',
+		label: 'Innolope CMS',
+		descKey: 'settings.database.dbDesc.builtIn',
+		logo: '/logo.svg',
+	},
 	{
 		value: 'mongodb',
 		label: 'MongoDB',
-		desc: 'Atlas or self-hosted',
+		descKey: 'settings.database.dbDesc.mongodb',
 		logo: '/db-logos/mongodb.svg',
 	},
 	{
 		value: 'postgresql',
 		label: 'PostgreSQL',
-		desc: 'Direct connection',
+		descKey: 'settings.database.dbDesc.postgresql',
 		logo: '/db-logos/postgresql.svg',
 	},
-	{ value: 'mysql', label: 'MySQL', desc: 'Direct connection', logo: '/db-logos/mysql.svg' },
+	{
+		value: 'mysql',
+		label: 'MySQL',
+		descKey: 'settings.database.dbDesc.mysql',
+		logo: '/db-logos/mysql.svg',
+	},
 	{
 		value: 'supabase',
 		label: 'Supabase',
-		desc: 'Managed Postgres',
+		descKey: 'settings.database.dbDesc.supabase',
 		logo: '/db-logos/supabase.svg',
 	},
 	{
 		value: 'cockroachdb',
 		label: 'CockroachDB',
-		desc: 'Distributed SQL',
+		descKey: 'settings.database.dbDesc.cockroachdb',
 		logo: '/db-logos/cockroachdb.svg',
 	},
 	{
 		value: 'firebase',
 		label: 'Firebase',
-		desc: 'Firestore connection',
+		descKey: 'settings.database.dbDesc.firebase',
 		logo: '/db-logos/firebase.svg',
 	},
-	{ value: 'neon', label: 'Neon', desc: 'Serverless Postgres', logo: '/db-logos/neon.svg' },
+	{
+		value: 'neon',
+		label: 'Neon',
+		descKey: 'settings.database.dbDesc.neon',
+		logo: '/db-logos/neon.svg',
+	},
 	{
 		value: 'vercel-postgres',
 		label: 'Vercel Postgres',
-		desc: 'Serverless SQL',
+		descKey: 'settings.database.dbDesc.vercelPostgres',
 		logo: '/db-logos/vercel.svg',
 	},
 ] as const
 
+// Static identifiers and structural data live here; user-facing strings (label,
+// instructions) are i18n keys resolved at render in the components below.
 const CONNECTION_HELP: Record<
 	string,
-	{ label: string; placeholder: string; instructions: string[]; format: string }
+	{ labelKey: string; placeholder: string; instructionKeys: string[]; format: string }
 > = {
 	mongodb: {
-		label: 'MongoDB connection string',
+		labelKey: 'settings.database.connHelp.mongodb.label',
 		placeholder: 'mongodb+srv://username:password@cluster.mongodb.net/database',
 		format: 'mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>',
-		instructions: [
-			'Open MongoDB Atlas and select your cluster',
-			'Click "Connect" then choose "Drivers"',
-			'Copy the connection string and replace <password> with your database user password',
+		instructionKeys: [
+			'settings.database.connHelp.mongodb.instructions.0',
+			'settings.database.connHelp.mongodb.instructions.1',
+			'settings.database.connHelp.mongodb.instructions.2',
 		],
 	},
 	postgresql: {
-		label: 'PostgreSQL connection string',
+		labelKey: 'settings.database.connHelp.postgresql.label',
 		placeholder: 'postgresql://user:password@host:5432/database',
 		format: 'postgresql://<user>:<password>@<host>:<port>/<database>',
-		instructions: [
-			'Find the connection details in your PostgreSQL hosting dashboard',
-			'Combine host, port, user, password, and database name into the URI format',
-			'If SSL is required, append ?sslmode=require to the string',
+		instructionKeys: [
+			'settings.database.connHelp.postgresql.instructions.0',
+			'settings.database.connHelp.postgresql.instructions.1',
+			'settings.database.connHelp.postgresql.instructions.2',
 		],
 	},
 	mysql: {
-		label: 'MySQL connection string',
+		labelKey: 'settings.database.connHelp.mysql.label',
 		placeholder: 'mysql://user:password@host:3306/database',
 		format: 'mysql://<user>:<password>@<host>:<port>/<database>',
-		instructions: [
-			'Find the connection details in your MySQL hosting dashboard or server config',
-			'Combine host, port, user, password, and database name into the URI format',
-			'Default port is 3306 unless configured otherwise',
+		instructionKeys: [
+			'settings.database.connHelp.mysql.instructions.0',
+			'settings.database.connHelp.mysql.instructions.1',
+			'settings.database.connHelp.mysql.instructions.2',
 		],
 	},
 	supabase: {
-		label: 'Supabase connection string',
+		labelKey: 'settings.database.connHelp.supabase.label',
 		placeholder:
 			'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
 		format:
 			'postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres',
-		instructions: [
-			'Open your Supabase project dashboard',
-			'Go to Project Settings \u2192 Database',
-			'Scroll to "Connection string" section and select URI',
-			'Copy the string and replace [YOUR-PASSWORD] with your database password',
+		instructionKeys: [
+			'settings.database.connHelp.supabase.instructions.0',
+			'settings.database.connHelp.supabase.instructions.1',
+			'settings.database.connHelp.supabase.instructions.2',
+			'settings.database.connHelp.supabase.instructions.3',
 		],
 	},
 	cockroachdb: {
-		label: 'CockroachDB connection string',
+		labelKey: 'settings.database.connHelp.cockroachdb.label',
 		placeholder:
 			'postgresql://user:password@cluster.cockroachlabs.cloud:26257/database?sslmode=verify-full',
 		format:
 			'postgresql://<user>:<password>@<cluster>.cockroachlabs.cloud:26257/<database>?sslmode=verify-full',
-		instructions: [
-			'Open the CockroachDB Cloud Console',
-			'Select your cluster and click "Connect"',
-			'Choose "General connection string" and copy it',
-			'Replace the password placeholder with your SQL user password',
+		instructionKeys: [
+			'settings.database.connHelp.cockroachdb.instructions.0',
+			'settings.database.connHelp.cockroachdb.instructions.1',
+			'settings.database.connHelp.cockroachdb.instructions.2',
+			'settings.database.connHelp.cockroachdb.instructions.3',
 		],
 	},
 	firebase: {
-		label: 'Firebase service account JSON',
+		labelKey: 'settings.database.connHelp.firebase.label',
 		placeholder: '{\n  "type": "service_account",\n  "project_id": "your-project",\n  ...\n}',
 		format: 'JSON object with type, project_id, private_key, client_email, etc.',
-		instructions: [
-			'Open the Firebase Console and select your project',
-			'Go to Project Settings \u2192 Service accounts',
-			'Click "Generate new private key" to download the JSON file',
-			'Open the file and paste the entire JSON content below',
+		instructionKeys: [
+			'settings.database.connHelp.firebase.instructions.0',
+			'settings.database.connHelp.firebase.instructions.1',
+			'settings.database.connHelp.firebase.instructions.2',
+			'settings.database.connHelp.firebase.instructions.3',
 		],
 	},
 	neon: {
-		label: 'Neon connection string',
+		labelKey: 'settings.database.connHelp.neon.label',
 		placeholder:
 			'postgresql://user:password@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require',
 		format: 'postgresql://<user>:<password>@<endpoint>.aws.neon.tech/<database>?sslmode=require',
-		instructions: [
-			'Open your Neon project dashboard',
-			'The connection string is displayed on the main Dashboard page',
-			'Click the copy button next to "Connection Details"',
-			'Make sure sslmode=require is included',
+		instructionKeys: [
+			'settings.database.connHelp.neon.instructions.0',
+			'settings.database.connHelp.neon.instructions.1',
+			'settings.database.connHelp.neon.instructions.2',
+			'settings.database.connHelp.neon.instructions.3',
 		],
 	},
 	'vercel-postgres': {
-		label: 'Vercel Postgres URL',
+		labelKey: 'settings.database.connHelp.vercelPostgres.label',
 		placeholder:
 			'postgres://default:xxxxx@ep-xxx-pooler.us-east-1.aws.neon.tech/verceldb?sslmode=require',
 		format: 'postgres://default:<password>@<host>/verceldb?sslmode=require',
-		instructions: [
-			'Open the Vercel dashboard and go to Storage',
-			'Select your Postgres database',
-			'Switch to the ".env.local" tab',
-			'Copy the value of POSTGRES_URL (not POSTGRES_URL_NON_POOLING)',
+		instructionKeys: [
+			'settings.database.connHelp.vercelPostgres.instructions.0',
+			'settings.database.connHelp.vercelPostgres.instructions.1',
+			'settings.database.connHelp.vercelPostgres.instructions.2',
+			'settings.database.connHelp.vercelPostgres.instructions.3',
 		],
 	},
 }
@@ -363,6 +382,7 @@ interface DatabaseSettingsProps {
 }
 
 export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {}) {
+	const { t } = useTranslation()
 	const { currentProject, refreshProjects } = useAuth()
 	const { refreshCollections } = useCollections()
 	const navigate = useNavigate()
@@ -449,16 +469,23 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const help = CONNECTION_HELP[dbType]
 
 	// Build step labels dynamically — use "Collections" for NoSQL, "Tables" for SQL
-	const tableWord = isNoSql ? 'Collections' : 'Tables'
-	const stepLabels = ['Database', 'Connection']
-	if (needsDbSelect) stepLabels.push('Confirm DB')
+	const tableWord = isNoSql
+		? t('settings.database.tableWord.collections')
+		: t('settings.database.tableWord.tables')
+	const stepLabels = [
+		t('settings.database.steps.database'),
+		t('settings.database.steps.connection'),
+	]
+	if (needsDbSelect) stepLabels.push(t('settings.database.steps.confirmDb'))
 	stepLabels.push(tableWord)
 
 	const tableStepIndex = needsDbSelect ? 3 : 2
 	const mediaStepIndex = tableStepIndex + 1
-	const selectedMediaTables = tables.filter((t) => selectedTables.has(t.name) && isMediaTable(t))
+	const selectedMediaTables = tables.filter(
+		(tbl) => selectedTables.has(tbl.name) && isMediaTable(tbl),
+	)
 	const hasMediaStep = selectedMediaTables.length > 0
-	if (hasMediaStep) stepLabels.push('Media storage')
+	if (hasMediaStep) stepLabels.push(t('settings.database.steps.mediaStorage'))
 
 	const setStep = useCallback(
 		(n: number) => {
@@ -536,7 +563,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 									if (isStale()) return
 									setTables(tableResult.tables)
 								} catch (err) {
-									toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+									toast(
+										err instanceof Error ? err.message : t('settings.database.scanFailed'),
+										'error',
+									)
 								} finally {
 									setScanning(false)
 								}
@@ -544,7 +574,10 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								setStep(2)
 							}
 						} catch (err) {
-							toast(err instanceof Error ? err.message : 'Failed to scan databases', 'error')
+							toast(
+								err instanceof Error ? err.message : t('settings.database.scanDatabasesFailed'),
+								'error',
+							)
 						} finally {
 							setScanning(false)
 						}
@@ -558,7 +591,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							)
 							setTables(tableResult.tables)
 						} catch (err) {
-							toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+							toast(err instanceof Error ? err.message : t('settings.database.scanFailed'), 'error')
 						} finally {
 							setScanning(false)
 						}
@@ -568,14 +601,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				if (isStale()) return
 				setTestResult({
 					ok: false,
-					message: err instanceof Error ? err.message : 'Connection failed',
+					message: err instanceof Error ? err.message : t('settings.database.connectionFailed'),
 				})
 			} finally {
 				// Only the most recent attempt owns the testing flag.
 				if (!isStale()) setTesting(false)
 			}
 		},
-		[currentProject, dbType, needsDbSelect, toast, setStep],
+		[currentProject, dbType, needsDbSelect, toast, setStep, t],
 	)
 
 	// Debounced effect: auto-test 800ms after user stops typing
@@ -599,12 +632,12 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				)
 				setTables(result.tables)
 			} catch (err) {
-				toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+				toast(err instanceof Error ? err.message : t('settings.database.scanFailed'), 'error')
 			} finally {
 				setScanning(false)
 			}
 		},
-		[currentProject, connectionString, dbType, toast],
+		[currentProject, connectionString, dbType, toast, t],
 	)
 
 	const selectDatabase = (db: string) => {
@@ -685,7 +718,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				setTimeout(() => setSaved(false), 2000)
 			}
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('settings.database.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -782,7 +815,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				...p,
 				[tableName]: {
 					result: 'error',
-					detail: err instanceof Error ? err.message : 'Probe failed',
+					detail: err instanceof Error ? err.message : t('settings.database.probeFailed'),
 				},
 			}))
 		}
@@ -817,7 +850,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			setResyncPhase(null)
 		} catch (err) {
 			setResyncPhase(null)
-			toast(err instanceof Error ? err.message : 'Re-sync failed', 'error')
+			toast(err instanceof Error ? err.message : t('settings.database.resyncFailed'), 'error')
 		} finally {
 			setResyncing(false)
 		}
@@ -839,14 +872,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		if (!currentProject || !ext?.type || !resyncTables) return
 		const toImport = new Set(resyncSelected)
 		// Include related collections so relation fields stay editable.
-		for (const t of resyncTables) {
-			if (resyncSelected.has(t.name)) {
-				for (const target of relationTargets(t, resyncTables)) toImport.add(target)
+		for (const tbl of resyncTables) {
+			if (resyncSelected.has(tbl.name)) {
+				for (const target of relationTargets(tbl, resyncTables)) toImport.add(target)
 			}
 		}
-		const tablesToSave = resyncTables.filter((t) => toImport.has(t.name))
+		const tablesToSave = resyncTables.filter((tbl) => toImport.has(tbl.name))
 		if (tablesToSave.length === 0) {
-			toast('Select at least one collection to display', 'error')
+			toast(t('settings.database.selectAtLeastOne'), 'error')
 			return
 		}
 		setResyncing(true)
@@ -875,7 +908,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			setResyncPhase('done')
 		} catch (err) {
 			setResyncPhase(null)
-			toast(err instanceof Error ? err.message : 'Re-sync failed', 'error')
+			toast(err instanceof Error ? err.message : t('settings.database.resyncFailed'), 'error')
 		} finally {
 			setResyncing(false)
 		}
@@ -942,12 +975,13 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						</svg>
 						<div className="flex-1 min-w-0">
 							<p className="text-sm text-text">
-								Connected to <span className="font-medium">{connectedOption.label}</span>
+								{t('settings.database.connectedTo')}{' '}
+								<span className="font-medium">{connectedOption.label}</span>
 							</p>
 							<p className="text-xs text-text-muted font-mono truncate">
 								{connectionString
 									? maskConnectionString(connectionString)
-									: 'Connection saved securely'}
+									: t('settings.database.connectionSavedSecurely')}
 							</p>
 						</div>
 						<img src={connectedOption.logo} alt="" className="w-5 h-5 shrink-0 opacity-60" />
@@ -958,10 +992,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					<div className="px-4 py-3 rounded-lg border border-border">
 						<div className="flex items-center justify-between gap-3">
 							<div className="min-w-0">
-								<p className="text-sm text-text font-medium">Re-sync collections &amp; schema</p>
+								<p className="text-sm text-text font-medium">
+									{t('settings.database.resyncTitle')}
+								</p>
 								<p className="text-xs text-text-muted mt-0.5">
-									Re-scan the database to refresh field types (dates, relations) and pull in
-									newly-related collections.
+									{t('settings.database.resyncDesc')}
 								</p>
 							</div>
 							<button
@@ -970,7 +1005,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								disabled={resyncing}
 								className="shrink-0 px-3 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 							>
-								{resyncing ? 'Re-syncing…' : 'Re-sync'}
+								{resyncing ? t('settings.database.resyncing') : t('settings.database.resync')}
 							</button>
 						</div>
 
@@ -992,8 +1027,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 											<polyline points="20 6 9 17 4 12" />
 										</svg>
 										<span className="font-medium">
-											Re-sync complete — {resyncResult?.count ?? 0} collection
-											{resyncResult?.count === 1 ? '' : 's'} refreshed
+											{t('settings.database.resyncComplete', {
+												count: resyncResult?.count ?? 0,
+											})}
 										</span>
 									</div>
 								) : (
@@ -1001,14 +1037,17 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										<div className="flex items-center justify-between mb-2">
 											<span className="text-xs font-medium text-text-secondary">
 												{resyncPhase === 'scanning'
-													? 'Scanning database for changes…'
+													? t('settings.database.resyncPhase.scanning')
 													: resyncPhase === 'importing'
-														? 'Importing collection schema…'
-														: 'Refreshing collections…'}
+														? t('settings.database.resyncPhase.importing')
+														: t('settings.database.resyncPhase.refreshing')}
 											</span>
 											<span className="text-xs text-text-muted">
-												Step {resyncPhase === 'scanning' ? 1 : resyncPhase === 'importing' ? 2 : 3}{' '}
-												of 3
+												{t('settings.database.stepOfTotal', {
+													current:
+														resyncPhase === 'scanning' ? 1 : resyncPhase === 'importing' ? 2 : 3,
+													total: 3,
+												})}
 											</span>
 										</div>
 										<div className="h-1.5 w-full rounded-full bg-surface-alt overflow-hidden">
@@ -1032,33 +1071,33 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						{resyncTables && !resyncPhase && (
 							<div className="mt-3 pt-3 border-t border-border">
 								<p className="text-xs font-medium text-text-secondary mb-2">
-									Select collections to display
+									{t('settings.database.selectCollectionsToDisplay')}
 								</p>
 								{resyncTables.length === 0 ? (
 									<p className="text-xs text-text-muted py-2">
-										No collections found in this database.
+										{t('settings.database.noCollectionsFound')}
 									</p>
 								) : (
 									<div className="max-h-64 overflow-auto">
 										{[...resyncTables]
 											.sort((a, b) => a.name.localeCompare(b.name))
-											.map((t) => (
+											.map((tbl) => (
 												<label
-													key={t.name}
+													key={tbl.name}
 													className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-surface-alt cursor-pointer"
 												>
 													<input
 														type="checkbox"
-														checked={resyncSelected.has(t.name)}
-														onChange={() => toggleResyncTable(t.name)}
+														checked={resyncSelected.has(tbl.name)}
+														onChange={() => toggleResyncTable(tbl.name)}
 														className="rounded"
 													/>
 													<span className="text-sm text-text flex-1 min-w-0">
-														{t.name}
-														{relationTargets(t, resyncTables).map((target) => (
+														{tbl.name}
+														{relationTargets(tbl, resyncTables).map((target) => (
 															<span
 																key={target}
-																title={`References ${target} — imported automatically`}
+																title={t('settings.database.referencesAuto', { target })}
 																className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted"
 															>
 																&rarr; {target}
@@ -1066,7 +1105,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 														))}
 													</span>
 													<span className="text-xs text-text-muted shrink-0">
-														{t.count ?? '—'} record{t.count === 1 ? '' : 's'}
+														{tbl.count ?? '—'}{' '}
+														{t('settings.database.recordsCount', { count: tbl.count ?? 0 })}
 													</span>
 												</label>
 											))}
@@ -1079,15 +1119,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										disabled={resyncing || resyncSelected.size === 0}
 										className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 									>
-										Import {resyncSelected.size} collection
-										{resyncSelected.size === 1 ? '' : 's'}
+										{t('settings.database.importCollections', { count: resyncSelected.size })}
 									</button>
 									<button
 										type="button"
 										onClick={() => setResyncTables(null)}
 										className="text-sm text-text-secondary hover:text-text"
 									>
-										Cancel
+										{t('common.cancel')}
 									</button>
 								</div>
 							</div>
@@ -1098,7 +1137,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				{connectedOption && <ImportedMediaStorage />}
 
 				<CollapsibleCard
-					title={hasExternalDb ? 'Change database source' : 'Select database source'}
+					title={
+						hasExternalDb
+							? t('settings.database.changeDbSource')
+							: t('settings.database.selectDbSource')
+					}
 					defaultOpen={!!onChangeDatabase}
 					borderless={!!onChangeDatabase}
 				>
@@ -1125,16 +1168,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								<p className={`font-medium ${dbType === opt.value ? 'text-accent' : 'text-text'}`}>
 									{opt.label}
 								</p>
-								<p className="text-xs text-text-muted mt-1">{opt.desc}</p>
+								<p className="text-xs text-text-muted mt-1">{t(opt.descKey)}</p>
 							</button>
 						))}
 					</div>
 				</CollapsibleCard>
 
 				{dbType === 'built-in' && (
-					<p className="text-xs text-text-muted">
-						Content stored in the default Innolope CMS database. No external connection needed.
-					</p>
+					<p className="text-xs text-text-muted">{t('settings.database.builtInDesc')}</p>
 				)}
 
 				{/* Only show save when switching back to built-in (disconnecting external DB) */}
@@ -1144,7 +1185,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						saving={saving}
 						saved={saved}
 						onSave={save}
-						saveLabel="Switch to Built-in"
+						saveLabel={t('settings.database.switchToBuiltIn')}
 					/>
 				)}
 			</div>
@@ -1158,7 +1199,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		return (
 			<div>
 				<div className="-mt-2 -ml-1 mb-6">
-					<BackLink onClick={goBack}>Change provider</BackLink>
+					<BackLink onClick={goBack}>{t('settings.database.changeProvider')}</BackLink>
 				</div>
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={1} />
@@ -1167,7 +1208,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						<img src={selectedOption.logo} alt="" className="w-8 h-8" />
 						<div>
 							<p className="font-medium text-text">{selectedOption.label}</p>
-							<p className="text-xs text-text-muted">{selectedOption.desc}</p>
+							<p className="text-xs text-text-muted">{t(selectedOption.descKey)}</p>
 						</div>
 					</div>
 
@@ -1177,7 +1218,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							htmlFor="db-connection-string"
 							className="block text-xs text-text-secondary mb-1.5"
 						>
-							{help.label}
+							{t(help.labelKey)}
 						</label>
 						{isFirebase ? (
 							<textarea
@@ -1212,19 +1253,19 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					{/* Instructions */}
 					<div className="bg-surface-alt rounded-lg p-4 space-y-2">
 						<p className="text-xs font-medium text-text-secondary">
-							How to find your connection string
+							{t('settings.database.howToFind')}
 						</p>
 						<ol className="space-y-1.5">
-							{help.instructions.map((line, i) => (
-								<li key={line} className="flex gap-2 text-sm text-text-muted">
+							{help.instructionKeys.map((key, i) => (
+								<li key={key} className="flex gap-2 text-sm text-text-muted">
 									<span className="text-text-secondary font-medium shrink-0">{i + 1}.</span>
-									{line}
+									{t(key)}
 								</li>
 							))}
 						</ol>
 						<div className="mt-2 pt-2 border-t border-border">
 							<p className="text-[11px] text-text-muted font-mono break-all">
-								Format: {help.format}
+								{t('settings.database.formatLabel')}: {help.format}
 							</p>
 						</div>
 					</div>
@@ -1233,14 +1274,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					{testing && (
 						<div className="flex items-center gap-2 text-sm text-text-muted">
 							<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-							Testing connection...
+							{t('settings.database.testingConnection')}
 						</div>
 					)}
 
 					{scanning && (
 						<div className="flex items-center gap-2 text-sm text-text-muted">
 							<div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-							Scanning...
+							{t('settings.database.scanning')}
 						</div>
 					)}
 
@@ -1273,16 +1314,17 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		return (
 			<div>
 				<div className="-mt-2 -ml-1 mb-6">
-					<BackLink onClick={goBack}>Edit connection string</BackLink>
+					<BackLink onClick={goBack}>{t('settings.database.editConnectionString')}</BackLink>
 				</div>
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={2} />
 
 					<div>
-						<div className="block text-xs text-text-secondary mb-2">Select a database</div>
+						<div className="block text-xs text-text-secondary mb-2">
+							{t('settings.database.selectADatabase')}
+						</div>
 						<p className="text-sm text-text-muted mb-3">
-							We found {databases.length} database{databases.length !== 1 ? 's' : ''} on this
-							server. Choose which one to connect.
+							{t('settings.database.foundDatabases', { count: databases.length })}
 						</p>
 						<div className="grid grid-cols-3 gap-3">
 							{databases.map((db) => (
@@ -1324,7 +1366,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			<div>
 				<div className="-mt-2 -ml-1 mb-6">
 					<BackLink onClick={goBack}>
-						{needsDbSelect ? 'Choose different database' : 'Edit connection string'}
+						{needsDbSelect
+							? t('settings.database.chooseDifferentDatabase')
+							: t('settings.database.editConnectionString')}
 					</BackLink>
 				</div>
 				<div className="space-y-5">
@@ -1346,13 +1390,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 								<polyline points="20 6 9 17 4 12" />
 							</svg>
 							<span className="text-sm text-text-secondary">
-								Connected to <span className="font-medium text-text">{selectedOption.label}</span>
+								{t('settings.database.connectedTo')}{' '}
+								<span className="font-medium text-text">{selectedOption.label}</span>
 							</span>
 							<button
 								type="button"
 								onClick={() => scanTablesFor(selectedDb || '')}
 								disabled={scanning}
-								title="Refresh collections"
+								title={t('settings.database.refreshCollections')}
 								className="text-text-muted hover:text-text transition-colors disabled:opacity-40"
 							>
 								<svg
@@ -1373,7 +1418,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						</div>
 						{selectedDb && (
 							<p className="text-sm text-text-muted">
-								Database found: <span className="font-medium text-text">{selectedDb}</span>
+								{t('settings.database.databaseFound')}{' '}
+								<span className="font-medium text-text">{selectedDb}</span>
 							</p>
 						)}
 					</div>
@@ -1382,33 +1428,36 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						<div className="flex items-center gap-3 py-8 justify-center">
 							<div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
 							<span className="text-sm text-text-muted">
-								Scanning {isNoSql ? 'collections' : 'tables'}...
+								{isNoSql
+									? t('settings.database.scanningCollections')
+									: t('settings.database.scanningTables')}
 							</span>
 						</div>
 					) : tables.length > 0 ? (
 						<div>
 							<div className="flex items-center justify-between mb-3">
 								<div className="text-xs text-text-secondary">
-									{isNoSql ? 'Detected collections' : 'Detected tables'} &mdash; select which to
-									manage as CMS collections
+									{isNoSql
+										? t('settings.database.detectedCollectionsLabel')
+										: t('settings.database.detectedTablesLabel')}
 								</div>
 							</div>
 							<div className="flex items-center gap-4 mb-3">
 								<div className="flex items-center gap-2 text-xs text-text-secondary">
-									<span>Sort:</span>
+									<span>{t('settings.database.sort')}:</span>
 									<button
 										type="button"
 										onClick={() => setTableSort('name')}
 										className={`px-2 py-0.5 rounded ${tableSort === 'name' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}
 									>
-										A-Z
+										{t('settings.database.sortAZ')}
 									</button>
 									<button
 										type="button"
 										onClick={() => setTableSort('records')}
 										className={`px-2 py-0.5 rounded ${tableSort === 'records' ? 'bg-surface-alt text-text font-medium' : 'hover:text-text'}`}
 									>
-										Records
+										{t('settings.database.sortRecords')}
 									</button>
 								</div>
 								<label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
@@ -1418,72 +1467,83 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 										onChange={(e) => setHideEmpty(e.target.checked)}
 										className="rounded"
 									/>
-									Hide empty
+									{t('settings.database.hideEmpty')}
 								</label>
 							</div>
 							<table className="w-full text-sm">
 								<thead>
 									<tr className="text-left text-xs text-text-muted border-b border-border">
 										<th className="pb-2 pl-1 w-8" />
-										<th className="pb-2">Name</th>
-										<th className="pb-2 text-right">{isNoSql ? 'Fields' : 'Columns'}</th>
-										<th className="pb-2 text-right">Records</th>
-										<th className="pb-2 text-right pr-1">Size</th>
+										<th className="pb-2">{t('settings.database.colName')}</th>
+										<th className="pb-2 text-right">
+											{isNoSql
+												? t('settings.database.colFields')
+												: t('settings.database.colColumns')}
+										</th>
+										<th className="pb-2 text-right">{t('settings.database.colRecords')}</th>
+										<th className="pb-2 text-right pr-1">{t('settings.database.colSize')}</th>
 									</tr>
 								</thead>
 								<tbody>
 									{tables
-										.filter((t) => !hideEmpty || (t.count ?? 0) > 0)
+										.filter((tbl) => !hideEmpty || (tbl.count ?? 0) > 0)
 										.sort((a, b) =>
 											tableSort === 'name'
 												? a.name.localeCompare(b.name)
 												: (b.count ?? 0) - (a.count ?? 0),
 										)
-										.map((t) => (
+										.map((tbl) => (
 											<tr
-												key={t.name}
+												key={tbl.name}
 												className="border-b border-border hover:bg-surface-alt transition-colors cursor-pointer"
-												onClick={() => toggleTable(t.name)}
+												onClick={() => toggleTable(tbl.name)}
 											>
 												<td className="py-2 pl-1">
 													<input
 														type="checkbox"
-														checked={selectedTables.has(t.name)}
-														onChange={() => toggleTable(t.name)}
+														checked={selectedTables.has(tbl.name)}
+														onChange={() => toggleTable(tbl.name)}
 														className="rounded"
 													/>
 												</td>
 												<td className="py-2 font-medium">
-													{t.name}
-													{relationTargets(t, tables).map((target) => (
+													{tbl.name}
+													{relationTargets(tbl, tables).map((target) => (
 														<span
 															key={target}
-															title={`References ${target} — it will be imported automatically`}
+															title={t('settings.database.referencesAutoImport', { target })}
 															className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted font-normal"
 														>
 															&rarr; {target}
 														</span>
 													))}
 												</td>
-												<td className="py-2 text-right text-text-muted">{t.columns.length}</td>
-												<td className="py-2 text-right text-text-muted">{t.count ?? '—'}</td>
+												<td className="py-2 text-right text-text-muted">{tbl.columns.length}</td>
+												<td className="py-2 text-right text-text-muted">{tbl.count ?? '—'}</td>
 												<td className="py-2 text-right text-text-muted pr-1">
-													{t.sizeBytes != null ? formatBytes(t.sizeBytes) : '—'}
+													{tbl.sizeBytes != null ? formatBytes(tbl.sizeBytes) : '—'}
 												</td>
 											</tr>
 										))}
 								</tbody>
 							</table>
-							{hideEmpty && tables.some((t) => (t.count ?? 0) === 0) && (
+							{hideEmpty && tables.some((tbl) => (tbl.count ?? 0) === 0) && (
 								<p className="text-xs text-text-muted mt-2">
-									{tables.filter((t) => (t.count ?? 0) === 0).length} empty{' '}
-									{isNoSql ? 'collections' : 'tables'} hidden
+									{isNoSql
+										? t('settings.database.emptyHiddenCollections', {
+												count: tables.filter((tbl) => (tbl.count ?? 0) === 0).length,
+											})
+										: t('settings.database.emptyHiddenTables', {
+												count: tables.filter((tbl) => (tbl.count ?? 0) === 0).length,
+											})}
 								</p>
 							)}
 						</div>
 					) : (
 						<p className="text-sm text-text-muted py-4 text-center">
-							No {isNoSql ? 'collections' : 'tables'} found in this database.
+							{isNoSql
+								? t('settings.database.noCollectionsInDb')
+								: t('settings.database.noTablesInDb')}
 						</p>
 					)}
 
@@ -1491,17 +1551,21 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					{selectedTables.size > 0 &&
 						(() => {
 							const selectedSizeBytes = tables
-								.filter((t) => selectedTables.has(t.name))
-								.reduce((sum, t) => sum + (t.sizeBytes ?? 0), 0)
+								.filter((tbl) => selectedTables.has(tbl.name))
+								.reduce((sum, tbl) => sum + (tbl.sizeBytes ?? 0), 0)
 							return (
 								<p className="text-xs text-text-muted">
-									Selected {isNoSql ? 'collections' : 'tables'} size:{' '}
-									{formatBytes(selectedSizeBytes)}
+									{isNoSql
+										? t('settings.database.selectedCollectionsSize', {
+												size: formatBytes(selectedSizeBytes),
+											})
+										: t('settings.database.selectedTablesSize', {
+												size: formatBytes(selectedSizeBytes),
+											})}
 									{selectedSizeBytes > 100 * 1024 * 1024 && (
 										<span className="text-text-secondary">
 											{' '}
-											— too large to cache automatically; records are read live from the database
-											until you sync
+											{t('settings.database.tooLargeToCache')}
 										</span>
 									)}
 								</p>
@@ -1511,7 +1575,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					{/* Access mode */}
 					{tables.length > 0 && (
 						<div className="flex items-center gap-4 text-xs text-text-secondary">
-							<span>Access mode:</span>
+							<span>{t('settings.database.accessMode')}:</span>
 							<label className="flex items-center gap-1.5 cursor-pointer">
 								<input
 									type="radio"
@@ -1519,7 +1583,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 									checked={accessMode === 'read-write'}
 									onChange={() => setAccessMode('read-write')}
 								/>
-								Read & Write
+								{t('settings.database.readWrite')}
 							</label>
 							<label className="flex items-center gap-1.5 cursor-pointer">
 								<input
@@ -1528,7 +1592,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 									checked={accessMode === 'read-only'}
 									onChange={() => setAccessMode('read-only')}
 								/>
-								Read Only
+								{t('settings.database.readOnly')}
 							</label>
 						</div>
 					)}
@@ -1538,7 +1602,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						saving={saving}
 						saved={saved}
 						onSave={proceedFromTables}
-						saveLabel={hasMediaStep ? 'Continue' : 'Save'}
+						saveLabel={hasMediaStep ? t('settings.database.continue') : t('settings.database.save')}
 					/>
 				</div>
 			</div>
@@ -1547,30 +1611,34 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 
 	// ─── Media storage step ───────────────────────────────────────────────
 	if (step === mediaStepIndex) {
-		const selectedTableList = tables.filter((t) => selectedTables.has(t.name))
+		const selectedTableList = tables.filter((tbl) => selectedTables.has(tbl.name))
 		return (
 			<div>
 				<div className="-mt-2 -ml-1 mb-6">
-					<BackLink onClick={goBack}>Back to {tableWord.toLowerCase()}</BackLink>
+					<BackLink onClick={goBack}>
+						{t('settings.database.backTo', { target: tableWord.toLowerCase() })}
+					</BackLink>
 				</div>
 				<div className="space-y-5">
 					<StepIndicator steps={stepLabels} current={mediaStepIndex} />
 
 					<div className="text-center space-y-1">
-						<h3 className="text-sm font-semibold text-text">Where are your media files stored?</h3>
+						<h3 className="text-sm font-semibold text-text">
+							{t('settings.database.mediaWhereTitle')}
+						</h3>
 						<p className="text-sm text-text-muted">
-							We detected {selectedMediaTables.length} media{' '}
-							{selectedMediaTables.length === 1 ? 'library' : 'libraries'}. Tell us where the files
-							live so the CMS can build working URLs from the stored paths.
+							{t('settings.database.mediaWhereDesc', {
+								count: selectedMediaTables.length,
+							})}
 						</p>
 					</div>
 
 					<div className="space-y-3">
-						{selectedTableList.map((t) => {
-							const cfg = mediaConfigs[t.name] || {
-								enabled: isMediaTable(t),
+						{selectedTableList.map((tbl) => {
+							const cfg = mediaConfigs[tbl.name] || {
+								enabled: isMediaTable(tbl),
 								adapter: 'absolute',
-								pathColumn: pickPathColumn(t),
+								pathColumn: pickPathColumn(tbl),
 								baseUrl: '',
 								access: 'public' as const,
 								credentials: emptyCreds(),
@@ -1578,16 +1646,16 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 							}
 							return (
 								<MediaStorageCard
-									key={t.name}
-									name={t.name}
-									label={t.name}
-									columnNames={t.columns.map((c) => c.name)}
-									detected={isMediaTable(t)}
+									key={tbl.name}
+									name={tbl.name}
+									label={tbl.name}
+									columnNames={tbl.columns.map((c) => c.name)}
+									detected={isMediaTable(tbl)}
 									config={cfg}
-									probeState={mediaProbes[t.name]}
-									onChange={(patch) => updateMediaConfig(t.name, patch)}
-									onChangeCreds={(patch) => updateMediaCreds(t.name, patch)}
-									onProbe={() => probeMedia(t.name)}
+									probeState={mediaProbes[tbl.name]}
+									onChange={(patch) => updateMediaConfig(tbl.name, patch)}
+									onChangeCreds={(patch) => updateMediaCreds(tbl.name, patch)}
+									onProbe={() => probeMedia(tbl.name)}
 								/>
 							)
 						})}
@@ -1598,7 +1666,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 						saving={saving}
 						saved={saved}
 						onSave={save}
-						saveLabel="Save"
+						saveLabel={t('settings.database.save')}
 					/>
 				</div>
 			</div>
@@ -1629,6 +1697,7 @@ function CredField({
 	password?: boolean
 	saved?: boolean
 }) {
+	const { t } = useTranslation()
 	return (
 		<div>
 			<div className="block text-[11px] text-text-secondary mb-1">{label}</div>
@@ -1636,33 +1705,38 @@ function CredField({
 				type={password ? 'password' : 'text'}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				placeholder={saved ? '•••••• saved — leave blank to keep' : ''}
+				placeholder={saved ? t('settings.database.credSavedPlaceholder') : ''}
 				className="w-full max-w-sm px-3 py-1.5 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 			/>
 		</div>
 	)
 }
 
+// Brand names stay verbatim; descriptions are i18n keys resolved at render.
 const PROVIDER_OPTIONS = [
 	{
 		id: 'public',
-		label: 'Public URL',
-		desc: 'Files load directly by their URL — no credentials needed.',
+		labelKey: 'settings.database.providers.public.label',
+		descKey: 'settings.database.providers.public.desc',
 	},
 	{
 		id: 'r2',
-		label: 'Cloudflare R2',
-		desc: 'Private bucket — the CMS signs short-lived URLs.',
+		labelKey: 'settings.database.providers.r2.label',
+		descKey: 'settings.database.providers.r2.desc',
 	},
 	{
 		id: 'cloudflare-images',
-		label: 'Cloudflare Images',
-		desc: 'Private images — the CMS signs delivery URLs.',
+		labelKey: 'settings.database.providers.cloudflareImages.label',
+		descKey: 'settings.database.providers.cloudflareImages.desc',
 	},
 ]
 
-function providerLabel(id: string): string {
-	return PROVIDER_OPTIONS.find((p) => p.id === id)?.label || id
+function useProviderLabel() {
+	const { t } = useTranslation()
+	return (id: string): string => {
+		const opt = PROVIDER_OPTIONS.find((p) => p.id === id)
+		return opt ? t(opt.labelKey) : id
+	}
 }
 
 const TONE_CLASS: Record<string, string> = {
@@ -1672,33 +1746,41 @@ const TONE_CLASS: Record<string, string> = {
 }
 
 /** The plain-language conclusion from the auto-probe, shown above the provider choice. */
-function probeConclusion(p: ProbeState | undefined): { tone: string; text: string } {
+function probeConclusion(
+	p: ProbeState | undefined,
+	t: (key: string, opts?: Record<string, unknown>) => string,
+	providerLabel: (id: string) => string,
+): { tone: string; text: string } {
 	if (!p || p.loading) {
-		return { tone: 'muted', text: 'Checking where these files are stored…' }
+		return { tone: 'muted', text: t('settings.database.probe.checking') }
 	}
 	if (p.result === 'public') {
 		return {
 			tone: 'ok',
-			text: 'We checked a sample of files — they load publicly. Nothing else to configure.',
+			text: t('settings.database.probe.public'),
 		}
 	}
 	if (p.result === 'private') {
 		return {
 			tone: 'warn',
 			text: p.provider
-				? `These files are private — they look like ${providerLabel(p.provider)}. Enter its credentials below.`
-				: 'These files are private. Pick the host below and enter its credentials.',
+				? t('settings.database.probe.privateWithProvider', {
+						provider: providerLabel(p.provider),
+					})
+				: t('settings.database.probe.privateGeneric'),
 		}
 	}
 	if (p.result === 'need-base-url') {
 		return {
 			tone: 'muted',
-			text: 'These files are stored as relative paths — tell us how they are served below.',
+			text: t('settings.database.probe.needBaseUrl'),
 		}
 	}
 	return {
 		tone: 'muted',
-		text: `We couldn't check automatically${p.detail ? ` (${p.detail})` : ''}. Choose where these files are stored below.`,
+		text: p.detail
+			? t('settings.database.probe.errorWithDetail', { detail: p.detail })
+			: t('settings.database.probe.errorGeneric'),
 	}
 }
 
@@ -1728,10 +1810,12 @@ function MediaStorageCard({
 	onChangeCreds: (patch: Partial<MediaCreds>) => void
 	onProbe: () => void
 }) {
+	const { t } = useTranslation()
+	const providerLabel = useProviderLabel()
 	const [showColumnPicker, setShowColumnPicker] = useState(false)
 	const creds = config.credentials || emptyCreds()
 	const selectedProvider = config.access === 'private' ? config.adapter : 'public'
-	const conclusion = probeConclusion(probeState)
+	const conclusion = probeConclusion(probeState, t, providerLabel)
 
 	const selectProvider = (id: string) => {
 		if (id === 'public') onChange({ access: 'public', adapter: 'custom-url' })
@@ -1750,7 +1834,7 @@ function MediaStorageCard({
 				<span className="text-sm font-medium text-text">{label}</span>
 				{detected && (
 					<span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-alt text-text-muted">
-						media library
+						{t('settings.database.mediaLibraryBadge')}
 					</span>
 				)}
 			</label>
@@ -1782,11 +1866,15 @@ function MediaStorageCard({
 									}`}
 								>
 									<p className={`text-sm font-medium ${active ? 'text-accent' : 'text-text'}`}>
-										{opt.label}
+										{t(opt.labelKey)}
 									</p>
-									<p className="text-[11px] text-text-muted mt-0.5 leading-snug">{opt.desc}</p>
+									<p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+										{t(opt.descKey)}
+									</p>
 									{suggested && !active && (
-										<p className="text-[10px] text-accent mt-1">Suggested</p>
+										<p className="text-[10px] text-accent mt-1">
+											{t('settings.database.suggested')}
+										</p>
 									)}
 								</button>
 							)
@@ -1797,7 +1885,8 @@ function MediaStorageCard({
 					{selectedProvider === 'public' ? (
 						<div>
 							<div className="block text-xs text-text-secondary mb-1">
-								Base URL <span className="text-text-muted">(optional)</span>
+								{t('settings.database.baseUrl')}{' '}
+								<span className="text-text-muted">{t('settings.database.optionalSuffix')}</span>
 							</div>
 							<input
 								type="text"
@@ -1807,70 +1896,70 @@ function MediaStorageCard({
 								className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 							/>
 							<p className="mt-1 text-[11px] text-text-muted">
-								Leave blank if the stored paths are already full URLs.
+								{t('settings.database.baseUrlHelp')}
 							</p>
 						</div>
 					) : selectedProvider === 'cloudflare-images' ? (
 						<div className="space-y-2.5">
 							<CredField
-								label="Account ID"
+								label={t('settings.database.creds.accountId')}
 								value={creds.accountId}
 								onChange={(v) => onChangeCreds({ accountId: v })}
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="API token"
+								label={t('settings.database.creds.apiToken')}
 								value={creds.apiToken}
 								onChange={(v) => onChangeCreds({ apiToken: v })}
 								password
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="Account hash"
+								label={t('settings.database.creds.accountHash')}
 								value={creds.accountHash}
 								onChange={(v) => onChangeCreds({ accountHash: v })}
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="URL signing key"
+								label={t('settings.database.creds.signingKey')}
 								value={creds.signingKey}
 								onChange={(v) => onChangeCreds({ signingKey: v })}
 								password
 								saved={config.hasCredentials}
 							/>
 							<p className="text-[11px] text-text-muted">
-								Stored server-side and never sent back to the browser.
+								{t('settings.database.creds.serverSideNote')}
 							</p>
 						</div>
 					) : (
 						<div className="space-y-2.5">
 							<CredField
-								label="Account ID"
+								label={t('settings.database.creds.accountId')}
 								value={creds.accountId}
 								onChange={(v) => onChangeCreds({ accountId: v })}
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="R2 bucket"
+								label={t('settings.database.creds.r2Bucket')}
 								value={creds.bucket}
 								onChange={(v) => onChangeCreds({ bucket: v })}
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="Access key ID"
+								label={t('settings.database.creds.accessKeyId')}
 								value={creds.accessKeyId}
 								onChange={(v) => onChangeCreds({ accessKeyId: v })}
 								saved={config.hasCredentials}
 							/>
 							<CredField
-								label="Secret access key"
+								label={t('settings.database.creds.secretAccessKey')}
 								value={creds.secretAccessKey}
 								onChange={(v) => onChangeCreds({ secretAccessKey: v })}
 								password
 								saved={config.hasCredentials}
 							/>
 							<p className="text-[11px] text-text-muted">
-								Stored server-side and never sent back to the browser.
+								{t('settings.database.creds.serverSideNote')}
 							</p>
 						</div>
 					)}
@@ -1878,7 +1967,7 @@ function MediaStorageCard({
 					{/* Secondary: which column holds the file path + re-check */}
 					<div className="flex items-center gap-3 text-[11px] text-text-muted pt-1">
 						<span>
-							File paths from{' '}
+							{t('settings.database.filePathsFrom')}{' '}
 							<code className="text-text-secondary">{config.pathColumn || '—'}</code>
 						</span>
 						<button
@@ -1886,7 +1975,7 @@ function MediaStorageCard({
 							onClick={() => setShowColumnPicker((s) => !s)}
 							className="text-accent hover:underline"
 						>
-							{showColumnPicker ? 'Done' : 'Change'}
+							{showColumnPicker ? t('settings.database.done') : t('settings.database.change')}
 						</button>
 						<span className="text-border">·</span>
 						<button
@@ -1895,7 +1984,7 @@ function MediaStorageCard({
 							disabled={probeState?.loading}
 							className="text-accent hover:underline disabled:opacity-50"
 						>
-							Re-check access
+							{t('settings.database.recheckAccess')}
 						</button>
 					</div>
 					{showColumnPicker && (
@@ -1960,6 +2049,7 @@ function CollapsibleCard({
  * generate signed URLs.
  */
 function ImportedMediaStorage() {
+	const { t } = useTranslation()
 	const { collections } = useCollections()
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
@@ -2015,7 +2105,10 @@ function ImportedMediaStorage() {
 		} catch (err) {
 			setProbes((p) => ({
 				...p,
-				[name]: { result: 'error', detail: err instanceof Error ? err.message : 'Probe failed' },
+				[name]: {
+					result: 'error',
+					detail: err instanceof Error ? err.message : t('settings.database.probeFailed'),
+				},
 			}))
 		}
 	}
@@ -2104,18 +2197,23 @@ function ImportedMediaStorage() {
 			setDirty(false)
 			setTimeout(() => setSaved(false), 2000)
 			if (res?.adapterPromoted) {
-				toast('Also using Cloudflare Images for new uploads.', 'success')
+				toast(t('settings.database.adapterPromotedToast'), 'success')
 			}
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('settings.database.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
 	}
 
-	const mediaDescription = `We check where the files for your imported media ${mediaCols.length === 1 ? 'library' : 'libraries'} are stored and show what we found below — confirm the host, and add credentials if they're private.`
+	const mediaDescription = t('settings.database.importedMediaDescription', {
+		count: mediaCols.length,
+	})
 	return (
-		<CollapsibleCard title="Imported media storage" description={mediaDescription}>
+		<CollapsibleCard
+			title={t('settings.database.importedMediaTitle')}
+			description={mediaDescription}
+		>
 			<div className="space-y-3">
 				{mediaCols.map((c) => {
 					const cfg = configs[c.name] || {
@@ -2146,7 +2244,7 @@ function ImportedMediaStorage() {
 					saving={saving}
 					saved={saved}
 					onSave={save}
-					saveLabel="Save media storage"
+					saveLabel={t('settings.database.saveMediaStorage')}
 				/>
 			</div>
 		</CollapsibleCard>

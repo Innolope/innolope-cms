@@ -2,6 +2,7 @@ import { createRootRoute, Link, Outlet, useLocation, useNavigate } from '@tansta
 // AuthGate no longer uses navigate (it does a hard redirect for the cross-boundary case),
 // but other components below still import it from the same line above.
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
 import { api, loginUrlPreservingNext } from '../lib/api-client'
@@ -12,6 +13,7 @@ import {
 	useCollections,
 } from '../lib/collections'
 import { ConfirmProvider } from '../lib/confirm'
+import { LocaleProvider } from '../lib/locale'
 import { ThemeProvider } from '../lib/theme'
 import { ToastProvider, useToast } from '../lib/toast'
 
@@ -23,15 +25,17 @@ function RootWithAuth() {
 	return (
 		<ThemeProvider>
 			<AuthProvider>
-				<LicenseProvider>
-					<CollectionsProvider>
-						<ToastProvider>
-							<ConfirmProvider>
-								<AuthGate />
-							</ConfirmProvider>
-						</ToastProvider>
-					</CollectionsProvider>
-				</LicenseProvider>
+				<LocaleProvider>
+					<LicenseProvider>
+						<CollectionsProvider>
+							<ToastProvider>
+								<ConfirmProvider>
+									<AuthGate />
+								</ConfirmProvider>
+							</ToastProvider>
+						</CollectionsProvider>
+					</LicenseProvider>
+				</LocaleProvider>
 			</AuthProvider>
 		</ThemeProvider>
 	)
@@ -78,21 +82,24 @@ function AuthGate() {
 }
 
 function DomainAccessDeniedView({ projectName }: { projectName: string | null }) {
+	const { t } = useTranslation()
 	const { user, logout } = useAuth()
 	return (
 		<div className="min-h-screen bg-bg flex items-center justify-center p-4">
 			<div className="w-full max-w-sm text-center">
-				<h1 className="text-2xl font-bold text-text">No access</h1>
+				<h1 className="text-2xl font-bold text-text">{t('domainAccess.noAccess')}</h1>
 				<p className="text-text-secondary text-sm mt-2 mb-6">
-					{user?.email} is not a member of {projectName ? `“${projectName}”` : 'this project'}. Ask
-					a project admin for an invite, then sign in again.
+					{t(projectName ? 'domainAccess.bodyNamed' : 'domainAccess.bodyUnnamed', {
+						email: user?.email,
+						projectName,
+					})}
 				</p>
 				<button
 					type="button"
 					onClick={logout}
 					className="px-4 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover"
 				>
-					Sign out
+					{t('common.signOut')}
 				</button>
 			</div>
 		</div>
@@ -100,6 +107,7 @@ function DomainAccessDeniedView({ projectName }: { projectName: string | null })
 }
 
 function NoProjectView() {
+	const { t } = useTranslation()
 	const { user, logout } = useAuth()
 	const { refreshProjects } = useAuth()
 	const toast = useToast()
@@ -115,7 +123,7 @@ function NoProjectView() {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '')
 		if (!slug) {
-			toast('Project name must contain at least one letter or number.', 'error')
+			toast(t('noProject.errors.invalidName'), 'error')
 			return
 		}
 		setCreating(true)
@@ -124,7 +132,7 @@ function NoProjectView() {
 			await refreshProjects()
 			window.location.reload()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed', 'error')
+			toast(err instanceof Error ? err.message : t('common.failed'), 'error')
 		} finally {
 			setCreating(false)
 		}
@@ -133,17 +141,17 @@ function NoProjectView() {
 	return (
 		<div className="min-h-screen bg-bg flex items-center justify-center p-4">
 			<div className="w-full max-w-sm text-center">
-				<h1 className="text-2xl font-bold text-text">Welcome, {user?.name}</h1>
-				<p className="text-text-secondary text-sm mt-2 mb-6">
-					Create your first project to get started.
-				</p>
+				<h1 className="text-2xl font-bold text-text">
+					{t('noProject.welcome', { name: user?.name })}
+				</h1>
+				<p className="text-text-secondary text-sm mt-2 mb-6">{t('noProject.subtitle')}</p>
 				<div className="flex gap-2">
 					<input
 						type="text"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 						onKeyDown={(e) => e.key === 'Enter' && create()}
-						placeholder="Project name"
+						placeholder={t('noProject.projectNamePlaceholder')}
 						className="flex-1 px-3 py-2.5 bg-input border border-border-strong rounded-lg text-sm text-text focus:outline-none focus:border-border-strong"
 						autoFocus
 					/>
@@ -153,7 +161,7 @@ function NoProjectView() {
 						disabled={creating || !name.trim()}
 						className="px-4 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
-						Create
+						{t('common.create')}
 					</button>
 				</div>
 				<button
@@ -161,7 +169,7 @@ function NoProjectView() {
 					onClick={logout}
 					className="mt-4 text-xs text-text-muted hover:text-text-secondary"
 				>
-					Logout
+					{t('common.logout')}
 				</button>
 			</div>
 		</div>
@@ -169,6 +177,7 @@ function NoProjectView() {
 }
 
 function AppLayout() {
+	const { t } = useTranslation()
 	const { user, logout } = useAuth()
 	const license = useLicense()
 	const mediaLocked = !hasFeature(license, 'media-integrations')
@@ -209,7 +218,7 @@ function AppLayout() {
 					type="button"
 					onClick={toggleSidebar}
 					className={`absolute top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-md bg-surface border border-border shadow-sm flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt transition-colors ${collapsed ? 'left-[47px]' : 'left-[243px]'}`}
-					title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+					title={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
 				>
 					<svg
 						width="14"
@@ -231,7 +240,7 @@ function AppLayout() {
 						<>
 							<CollapsedNavLink
 								to="/dashboard"
-								title="Dashboard"
+								title={t('nav.dashboard')}
 								icon={
 									<svg
 										width="18"
@@ -255,7 +264,7 @@ function AppLayout() {
 							<div className="my-2 border-t border-border" />
 							<CollapsedNavLink
 								to="/media"
-								title="Media"
+								title={t('nav.media')}
 								icon={
 									<svg
 										width="18"
@@ -275,7 +284,7 @@ function AppLayout() {
 							/>
 							<CollapsedNavLink
 								to="/settings"
-								title="Project Settings"
+								title={t('nav.settings')}
 								icon={
 									<svg
 										width="18"
@@ -295,15 +304,15 @@ function AppLayout() {
 						</>
 					) : (
 						<>
-							<NavLink to="/dashboard" label="Dashboard" />
+							<NavLink to="/dashboard" label={t('nav.dashboard')} />
 							<div className="my-2 border-t border-border" />
 							<p className="px-3 py-1 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-								Collections
+								{t('nav.collections')}
 							</p>
 							<CollectionNavExpanded />
 							<div className="my-2 border-t border-border" />
-							<NavLink to="/media" label="Media" proBadge={mediaLocked} />
-							<NavLink to="/settings" label="Project Settings" />
+							<NavLink to="/media" label={t('nav.media')} proBadge={mediaLocked} />
+							<NavLink to="/settings" label={t('nav.settings')} />
 						</>
 					)}
 				</nav>
@@ -315,7 +324,7 @@ function AppLayout() {
 							<Link
 								to="/account"
 								className="p-1.5 rounded-md text-text-muted hover:bg-surface-alt hover:text-text transition-colors"
-								title="Account settings"
+								title={t('nav.accountSettings')}
 							>
 								<svg
 									width="16"
@@ -335,7 +344,7 @@ function AppLayout() {
 								type="button"
 								onClick={handleLogout}
 								className="p-1.5 rounded-md text-text-muted hover:text-danger transition-colors"
-								title="Logout"
+								title={t('common.logout')}
 							>
 								<svg
 									width="14"
@@ -363,7 +372,7 @@ function AppLayout() {
 								<Link
 									to="/account"
 									className="text-text-muted hover:text-text transition-colors shrink-0 ml-2"
-									title="Account settings"
+									title={t('nav.accountSettings')}
 								>
 									<svg
 										width="16"
@@ -385,7 +394,7 @@ function AppLayout() {
 								type="button"
 								onClick={handleLogout}
 								className="flex items-center gap-1.5 text-text-faint hover:text-danger transition-colors mt-1.5"
-								title="Logout"
+								title={t('common.logout')}
 							>
 								<svg
 									width="12"
@@ -401,7 +410,7 @@ function AppLayout() {
 									<polyline points="16 17 21 12 16 7" />
 									<line x1="21" y1="12" x2="9" y2="12" />
 								</svg>
-								<span className="text-[10px]">Logout</span>
+								<span className="text-[10px]">{t('common.logout')}</span>
 							</button>
 						</>
 					)}
@@ -449,6 +458,7 @@ function CollapsedNavLink({
 }
 
 function CollectionNavExpanded() {
+	const { t } = useTranslation()
 	const { collections, loading } = useCollections()
 	const location = useLocation()
 
@@ -523,13 +533,14 @@ function CollectionNavExpanded() {
 					<line x1="12" y1="5" x2="12" y2="19" />
 					<line x1="5" y1="12" x2="19" y2="12" />
 				</svg>
-				New Collection
+				{t('nav.newCollection')}
 			</Link>
 		</div>
 	)
 }
 
 function CollectionNavCollapsed() {
+	const { t } = useTranslation()
 	const { collections } = useCollections()
 
 	return (
@@ -550,7 +561,7 @@ function CollectionNavCollapsed() {
 			<Link
 				to="/collections/new"
 				className="flex items-center justify-center p-2 rounded-md text-text-muted transition-colors hover:bg-surface-alt hover:text-text-secondary"
-				title="New Collection"
+				title={t('nav.newCollection')}
 			>
 				<svg
 					width="16"

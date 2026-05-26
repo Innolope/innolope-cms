@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { Dropdown } from '../components/dropdown'
@@ -287,6 +288,7 @@ function loadLocaleUi(projectId: string | undefined, defaults: LocaleUiState): L
 }
 
 function CollectionContentEditor() {
+	const { t } = useTranslation()
 	const { slug, contentId } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
@@ -391,16 +393,13 @@ function CollectionContentEditor() {
 		if (!currentProject?.id || !dismissKey || missing.length === 0) return
 		const labels = missing.map((l) => l.toUpperCase()).join(', ')
 		const ok = await confirm({
-			title: 'Add detected languages?',
-			message: `This record has content in ${labels}, but ${
-				missing.length === 1 ? 'it isn’t' : 'they aren’t'
-			} in your project locales yet. Add ${
-				missing.length === 1 ? 'it' : 'them'
-			} so you can use the locale switcher to edit ${
-				missing.length === 1 ? 'it' : 'them'
-			}? Picking "Not now" hides the switcher and falls back to JSON editing.`,
-			confirmLabel: 'Add to project',
-			cancelLabel: 'Not now',
+			title: t('collections.detail.localePrompt.title'),
+			message: t('collections.detail.localePrompt.message', {
+				labels,
+				count: missing.length,
+			}),
+			confirmLabel: t('collections.detail.localePrompt.confirm'),
+			cancelLabel: t('collections.detail.localePrompt.cancel'),
 			cancelAsLink: true,
 		})
 		if (ok) {
@@ -421,13 +420,17 @@ function CollectionContentEditor() {
 				} catch {}
 				setAutoDiscoverDismissed(false)
 				toast(
-					missing.length === 1
-						? `Added ${missing[0].toUpperCase()} to project locales`
-						: `Added ${labels} to project locales`,
+					t('collections.detail.localePrompt.addedToast', {
+						labels: missing.length === 1 ? missing[0].toUpperCase() : labels,
+						count: missing.length,
+					}),
 					'success',
 				)
 			} catch (err) {
-				toast(err instanceof Error ? err.message : 'Failed to update project', 'error')
+				toast(
+					err instanceof Error ? err.message : t('collections.detail.errors.updateProject'),
+					'error',
+				)
 				// Allow re-prompt on next load.
 				promptedRef.current = false
 			}
@@ -655,7 +658,7 @@ function CollectionContentEditor() {
 				.catch((err) => {
 					// Don't silently bounce to the list — a transient 500/network error is
 					// indistinguishable from a real 404 that way. Surface it in place.
-					setLoadError(err instanceof Error ? err.message : 'Failed to load this record')
+					setLoadError(err instanceof Error ? err.message : t('collections.detail.errors.loadFailed'))
 				})
 				.finally(() => setLoading(false))
 		}
@@ -794,7 +797,7 @@ function CollectionContentEditor() {
 	const save = async () => {
 		if (!collection) return
 		if (isReadOnly) {
-			toast('This collection is read-only', 'error')
+			toast(t('collections.detail.errors.readOnlyCollection'), 'error')
 			return
 		}
 		setSaving(true)
@@ -837,7 +840,7 @@ function CollectionContentEditor() {
 				}
 				setFieldErrors(next)
 			}
-			toast(err instanceof Error ? err.message : 'Save failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -846,7 +849,7 @@ function CollectionContentEditor() {
 	const publish = async () => {
 		if (!collection) return
 		if (isReadOnly) {
-			toast('This collection is read-only', 'error')
+			toast(t('collections.detail.errors.readOnlyCollection'), 'error')
 			return
 		}
 		const prevStatus = status
@@ -867,7 +870,7 @@ function CollectionContentEditor() {
 			} catch {}
 		} catch (err) {
 			setStatus(prevStatus)
-			toast(err instanceof Error ? err.message : 'Publish failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -879,7 +882,7 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/submit-for-review`, {})
 			setStatus('pending_review')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Submit failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.submitFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -891,7 +894,7 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/approve`, {})
 			setStatus('published')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Approve failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.approveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -899,12 +902,12 @@ function CollectionContentEditor() {
 
 	const rejectContent = async () => {
 		const reason = await prompt({
-			title: 'Reject content',
-			message: 'Add an optional reason for rejecting this content.',
-			label: 'Rejection reason',
-			placeholder: 'Optional',
+			title: t('collections.detail.reject.title'),
+			message: t('collections.detail.reject.message'),
+			label: t('collections.detail.reject.reasonLabel'),
+			placeholder: t('collections.detail.reject.reasonPlaceholder'),
 			multiline: true,
-			confirmLabel: 'Reject',
+			confirmLabel: t('collections.detail.reject.confirm'),
 		})
 		if (reason === null) return
 		setSaving(true)
@@ -912,7 +915,7 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/reject`, { reason: reason || undefined })
 			setStatus('draft')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Reject failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.rejectFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -939,14 +942,14 @@ function CollectionContentEditor() {
 						<path d="M12 8v4M12 16h.01" />
 					</svg>
 				</div>
-				<h3 className="font-semibold text-text mb-1">Couldn't load this record</h3>
+				<h3 className="font-semibold text-text mb-1">{t('collections.detail.couldntLoad')}</h3>
 				<p className="text-sm text-text-secondary max-w-sm mb-5">{loadError}</p>
 				<button
 					type="button"
 					onClick={() => navigate({ to: `/collections/${slug}` })}
 					className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors"
 				>
-					Back to {collection?.label || slug}
+					{t('collections.detail.backTo', { name: collection?.label || slug })}
 				</button>
 			</div>
 		)
@@ -998,14 +1001,20 @@ function CollectionContentEditor() {
 		if (source === target) return
 		const map = toLocaleValueMap(extraFields[fieldName], defaultLocale)
 		if (!(map[source] ?? '').trim()) {
-			toast(`Nothing to translate — ${localeDisplayName(source)} is empty`, 'error')
+			toast(
+				t('collections.detail.translate.nothingToTranslate', { lang: localeDisplayName(source) }),
+				'error',
+			)
 			return
 		}
 		if ((map[target] ?? '').trim()) {
 			const ok = await confirm({
-				title: 'Replace translation?',
-				message: `The ${localeDisplayName(target)} value for "${fieldName}" already has content. Replace it with a new AI translation?`,
-				confirmLabel: 'Replace',
+				title: t('collections.detail.translate.replaceTitle'),
+				message: t('collections.detail.translate.replaceMessage', {
+					lang: localeDisplayName(target),
+					field: fieldName,
+				}),
+				confirmLabel: t('collections.detail.translate.replace'),
 			})
 			if (!ok) return
 		}
@@ -1018,7 +1027,7 @@ function CollectionContentEditor() {
 			})
 			setDirty(true)
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Translation failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.translate.failed'), 'error')
 		} finally {
 			setTranslatingFields((s) => {
 				const next = new Set(s)
@@ -1038,7 +1047,7 @@ function CollectionContentEditor() {
 	 * dropdown's `onAddOption` (see canEditSchema).
 	 */
 	const addEnumOption = async (fieldName: string, newValue: string) => {
-		if (!collection) throw new Error('No collection')
+		if (!collection) throw new Error(t('collections.detail.errors.noCollection'))
 		const next = (collection.fields ?? []).map((field) => {
 			if (field.name !== fieldName) return field
 			const existing = field.options ?? []
@@ -1070,23 +1079,27 @@ function CollectionContentEditor() {
 
 		const translateBody = !isNew && markdown.trim().length > 0
 		if (fieldNames.length === 0 && !translateBody) {
-			toast('Nothing to translate on this record', 'error')
+			toast(t('collections.detail.translate.nothingOnRecord'), 'error')
 			return
 		}
 
 		const fieldsLabel =
 			fieldNames.length > 0
-				? `${fieldNames.length} localized field${fieldNames.length === 1 ? '' : 's'}`
+				? t('collections.detail.translate.localizedFieldsLabel', { count: fieldNames.length })
 				: ''
-		const parts = [fieldsLabel, translateBody ? 'the document body' : ''].filter(Boolean)
+		const parts = [
+			fieldsLabel,
+			translateBody ? t('collections.detail.translate.documentBody') : '',
+		].filter(Boolean)
 		const ok = await confirm({
-			title: 'Translate document?',
-			message: `Translate ${parts.join(' and ')} from ${localeDisplayName(source)} to ${localeDisplayName(
-				target,
-			)} with AI? Existing ${localeDisplayName(target)} values will be replaced.${
-				isNew ? ' Save the record first to also translate the document body.' : ''
-			}`,
-			confirmLabel: 'Translate',
+			title: t('collections.detail.translate.translateTitle'),
+			message: t('collections.detail.translate.translateMessage', {
+				what: parts.join(t('collections.detail.translate.joinAnd')),
+				source: localeDisplayName(source),
+				target: localeDisplayName(target),
+				saveFirstNote: isNew ? t('collections.detail.translate.saveFirstNote') : '',
+			}),
+			confirmLabel: t('collections.detail.translate.translate'),
 		})
 		if (!ok) return
 
@@ -1110,7 +1123,9 @@ function CollectionContentEditor() {
 
 			if (translateBody) {
 				const translatedBody = await translateText(markdown, source, target, 'body')
-				const siblingMetadata: Record<string, unknown> = { ...collectMetadata() }
+				const siblingMetadata: Record<string, unknown> = {
+					...collectMetadata(resolveAutoTitle()),
+				}
 				for (const [k, v] of Object.entries(fieldUpdates)) siblingMetadata[k] = v
 
 				const translations = await api.get<Record<string, { id: string }>>(
@@ -1133,12 +1148,18 @@ function CollectionContentEditor() {
 						status: 'draft',
 					})
 				}
-				toast(`Translated document to ${localeDisplayName(target)}`, 'success')
+				toast(
+					t('collections.detail.translate.translatedDocument', { lang: localeDisplayName(target) }),
+					'success',
+				)
 			} else {
-				toast(`Translated fields to ${localeDisplayName(target)}`, 'success')
+				toast(
+					t('collections.detail.translate.translatedFields', { lang: localeDisplayName(target) }),
+					'success',
+				)
 			}
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Translation failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.detail.translate.failed'), 'error')
 		} finally {
 			setBulkTranslating(false)
 		}
@@ -1253,7 +1274,7 @@ function CollectionContentEditor() {
 								extractLabel(extraFields.title, defaultLocale) ||
 								title.trim() ||
 								null
-							const primary = isNew ? 'New' : friendlyLabel || contentSlug
+							const primary = isNew ? t('collections.detail.newRecord') : friendlyLabel || contentSlug
 							const secondary = !isNew && friendlyLabel ? contentSlug : null
 							return (
 								<div className="min-w-0 flex-1">
@@ -1271,7 +1292,7 @@ function CollectionContentEditor() {
 										<span className="text-text truncate">{primary}</span>
 										{isReadOnly && (
 											<span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium uppercase rounded bg-surface-alt text-text-muted shrink-0">
-												Read Only
+												{t('collections.detail.readOnly')}
 											</span>
 										)}
 									</div>
@@ -1365,12 +1386,12 @@ function CollectionContentEditor() {
 										type="button"
 										onClick={() => runLocalePrompt(latentMissingLocales)}
 										aria-hidden={showLocalizationBar}
-										aria-label={`Detected ${latentMissingLocales.length} unconfigured ${
-											latentMissingLocales.length === 1 ? 'language' : 'languages'
-										} — review`}
-										title={`Detected ${latentMissingLocales
-											.map((l) => l.toUpperCase())
-											.join(', ')} in this record but not in project settings — click to review`}
+										aria-label={t('collections.detail.locale.detectedAriaLabel', {
+											count: latentMissingLocales.length,
+										})}
+										title={t('collections.detail.locale.detectedTitle', {
+											langs: latentMissingLocales.map((l) => l.toUpperCase()).join(', '),
+										})}
 										className={`absolute right-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-surface-alt/40 border border-border text-text-muted hover:text-text hover:bg-surface-alt origin-right transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
 											showLocalizationBar
 												? 'opacity-0 scale-50 pointer-events-none delay-0'
@@ -1402,7 +1423,7 @@ function CollectionContentEditor() {
 					{showDraftRestore && (
 						<div className="flex items-center justify-between px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border">
 							<span className="text-sm text-text-secondary">
-								You have unsaved changes from a previous session.
+								{t('collections.detail.draftRestore.message')}
 							</span>
 							<div className="flex gap-2">
 								<button
@@ -1410,14 +1431,14 @@ function CollectionContentEditor() {
 									onClick={restoreDraft}
 									className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
 								>
-									Restore
+									{t('collections.detail.draftRestore.restore')}
 								</button>
 								<button
 									type="button"
 									onClick={dismissDraft}
 									className="px-3 py-1 text-text-muted hover:text-text text-xs"
 								>
-									Dismiss
+									{t('collections.detail.draftRestore.dismiss')}
 								</button>
 							</div>
 						</div>
@@ -1439,8 +1460,8 @@ function CollectionContentEditor() {
 								<path d="M7 11V7a5 5 0 0110 0v4" />
 							</svg>
 							{isLive
-								? 'This is live data from the external database. Sync the collection to cache it locally and enable editing.'
-								: 'This content is read-only. The external database connection is configured as read-only.'}
+								? t('collections.detail.readOnlyLive')
+								: t('collections.detail.readOnlyContent')}
 						</div>
 					)}
 
@@ -1455,7 +1476,7 @@ function CollectionContentEditor() {
 									setDirty(true)
 									if (isNew) setContentSlug(generateSlug(e.target.value))
 								}}
-								placeholder="Enter title"
+								placeholder={t('collections.detail.titlePlaceholder')}
 								disabled={isReadOnly}
 								className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
 							/>
@@ -1508,7 +1529,7 @@ function CollectionContentEditor() {
 							disabled={saving}
 							className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 						>
-							{saving ? 'Saving...' : 'Save'}
+							{saving ? t('collections.detail.saving') : t('collections.detail.save')}
 						</button>
 					)}
 					{!isNew && !isReadOnly && status === 'draft' && reviewWorkflowsLicensed && (
@@ -1518,7 +1539,7 @@ function CollectionContentEditor() {
 							disabled={saving}
 							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 						>
-							Submit
+							{t('collections.detail.submit')}
 						</button>
 					)}
 					{!isNew && !isReadOnly && status === 'pending_review' && reviewWorkflowsLicensed && (
@@ -1529,7 +1550,7 @@ function CollectionContentEditor() {
 								disabled={saving}
 								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								Approve
+								{t('collections.detail.approve')}
 							</button>
 							<button
 								type="button"
@@ -1537,7 +1558,7 @@ function CollectionContentEditor() {
 								disabled={saving}
 								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 							>
-								Reject
+								{t('collections.detail.reject.button')}
 							</button>
 						</>
 					)}
@@ -1548,7 +1569,7 @@ function CollectionContentEditor() {
 							disabled={saving}
 							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 						>
-							Publish
+							{t('collections.detail.publish')}
 						</button>
 					)}
 				</div>
@@ -1556,7 +1577,7 @@ function CollectionContentEditor() {
 				{/* For internal collections: slug + status */}
 				{!isExternal && (
 					<>
-						<Field label="Slug">
+						<Field label={t('collections.detail.fields.slug')}>
 							<input
 								type="text"
 								value={contentSlug}
@@ -1568,7 +1589,7 @@ function CollectionContentEditor() {
 							/>
 						</Field>
 
-						<Field label="Status">
+						<Field label={t('collections.detail.fields.status')}>
 							<Dropdown
 								value={status}
 								onChange={(v) => {
@@ -1576,10 +1597,10 @@ function CollectionContentEditor() {
 									setDirty(true)
 								}}
 								options={[
-									{ value: 'draft', label: 'Draft' },
-									{ value: 'pending_review', label: 'Pending Review' },
-									{ value: 'published', label: 'Published' },
-									{ value: 'archived', label: 'Archived' },
+									{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
+									{ value: 'pending_review', label: t('collections.detail.statusOptions.pendingReview') },
+									{ value: 'published', label: t('collections.detail.statusOptions.published') },
+									{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
 								]}
 								className="w-full"
 							/>
@@ -1592,14 +1613,14 @@ function CollectionContentEditor() {
 				    rendering an empty pill input on every collection — including ones whose
 				    external schema has no `tags` column — is just noise. */}
 				{(collection?.fields?.some((f) => f.name === 'tags') || tags.length > 0) && (
-					<Field label="Tags">
+					<Field label={t('collections.detail.fields.tags')}>
 						<PillInput
 							value={tags}
 							onChange={(v) => {
 								setTags(v)
 								setDirty(true)
 							}}
-							placeholder="Add a tag and press Enter"
+							placeholder={t('collections.detail.tagsPlaceholder')}
 							disabled={isReadOnly}
 						/>
 					</Field>
@@ -1641,7 +1662,7 @@ function CollectionContentEditor() {
 								>
 									<polyline points="9 18 15 12 9 6" />
 								</svg>
-								Additional fields ({additionalEntries.length})
+								{t('collections.detail.additionalFields', { count: additionalEntries.length })}
 							</button>
 							{showExtraFields && (
 								<div className="mt-2 space-y-2">
@@ -1711,10 +1732,10 @@ function CollectionContentEditor() {
 											type="button"
 											onClick={async () => {
 												const key = await prompt({
-													title: 'Add field',
-													label: 'Field name',
+													title: t('collections.detail.addField.title'),
+													label: t('collections.detail.addField.label'),
 													required: true,
-													confirmLabel: 'Add field',
+													confirmLabel: t('collections.detail.addField.confirm'),
 												})
 												if (key?.trim()) {
 													setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
@@ -1724,7 +1745,7 @@ function CollectionContentEditor() {
 											}}
 											className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
 										>
-											+ Add field
+											{t('collections.detail.addField.button')}
 										</button>
 									)}
 								</div>
@@ -1739,10 +1760,10 @@ function CollectionContentEditor() {
 						type="button"
 						onClick={async () => {
 							const key = await prompt({
-								title: 'Add field',
-								label: 'Field name',
+								title: t('collections.detail.addField.title'),
+								label: t('collections.detail.addField.label'),
 								required: true,
-								confirmLabel: 'Add field',
+								confirmLabel: t('collections.detail.addField.confirm'),
 							})
 							if (key?.trim()) {
 								setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
@@ -1752,7 +1773,7 @@ function CollectionContentEditor() {
 						}}
 						className="text-xs text-text-muted hover:text-text-secondary transition-colors"
 					>
-						+ Add custom field
+						{t('collections.detail.addField.customButton')}
 					</button>
 				)}
 
@@ -1760,13 +1781,13 @@ function CollectionContentEditor() {
 				    already shows `Collection Name / Record`. */}
 
 				{!isNew && (
-					<Field label="Version">
+					<Field label={t('collections.detail.fields.version')}>
 						<p className="text-sm text-text-secondary">v{version}</p>
 					</Field>
 				)}
 
 				{externalId && (
-					<Field label="External ID">
+					<Field label={t('collections.detail.fields.externalId')}>
 						<p className="text-xs text-text-muted font-mono break-all">{externalId}</p>
 					</Field>
 				)}
@@ -1797,7 +1818,7 @@ function CollectionContentEditor() {
 						onClick={() => setShowAi(!showAi)}
 						className="w-full px-3 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover transition-colors"
 					>
-						{showAi ? 'Hide AI' : 'AI Assistant'}
+						{showAi ? t('collections.detail.hideAi') : t('collections.detail.aiAssistant')}
 					</button>
 				) : (
 					<UpgradePrompt feature="AI Assistant" plan="Pro" />

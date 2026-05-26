@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useCollections } from '../../lib/collections'
 import { pickTitleField, resolveDisplayTitle } from '../../lib/display-title'
@@ -93,6 +94,7 @@ function Thumb({ url, className }: { url: string; className: string }) {
 }
 
 export function RelationField({ value, relationTo, disabled, onChange }: RelationFieldProps) {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const { getCollectionByName } = useCollections()
 	const related = relationTo ? getCollectionByName(relationTo) : undefined
@@ -172,7 +174,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 			onChange(created._id)
 			loadDocs()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+			toast(err instanceof Error ? err.message : t('editor.relationField.uploadFailed'), 'error')
 		} finally {
 			setUploading(false)
 		}
@@ -191,7 +193,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 			setCreateName('')
 			loadDocs()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Create failed', 'error')
+			toast(err instanceof Error ? err.message : t('editor.relationField.createFailed'), 'error')
 		} finally {
 			setCreateSaving(false)
 		}
@@ -210,8 +212,8 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 				/>
 				<p className="mt-1 text-[10px] text-text-muted">
 					{relationTo
-						? `Related collection "${relationTo}" is not imported — showing the raw reference id.`
-						: 'No related collection detected for this field.'}
+						? t('editor.relationField.relatedNotImported', { name: relationTo })
+						: t('editor.relationField.noRelatedCollection')}
 				</p>
 			</div>
 		)
@@ -233,7 +235,9 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 						className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
 					>
 						<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
-							{current ? docLabel(current) : value || `Select ${related.label}…`}
+							{current
+								? docLabel(current)
+								: value || t('editor.relationField.selectLabel', { label: related.label })}
 						</span>
 						<svg
 							width="12"
@@ -262,13 +266,15 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 									}}
 									className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
 								>
-									— None —
+									{t('editor.relationField.none')}
 								</button>
 							)}
 							{loading ? (
-								<p className="px-3 py-2 text-sm text-text-muted">Loading…</p>
+								<p className="px-3 py-2 text-sm text-text-muted">{t('common.loading')}</p>
 							) : docs.length === 0 ? (
-								<p className="px-3 py-2 text-sm text-text-muted">No records yet.</p>
+								<p className="px-3 py-2 text-sm text-text-muted">
+									{t('editor.relationField.noRecordsYet')}
+								</p>
 							) : (
 								docs.map((doc) => {
 									const id = docId(doc)
@@ -308,7 +314,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 									}}
 									className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
 								>
-									+ Create new {related.label}
+									{t('editor.relationField.createNew', { label: related.label })}
 								</button>
 							)}
 						</div>
@@ -320,7 +326,9 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 
 			{urlField && !disabled && canWrite && (
 				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-					{uploading ? 'Uploading…' : 'Upload image'}
+					{uploading
+						? t('editor.relationField.uploading')
+						: t('editor.relationField.uploadImage')}
 					<input
 						type="file"
 						accept="image/*"
@@ -339,17 +347,19 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 					<button
 						type="button"
-						aria-label="Close dialog"
+						aria-label={t('common.closeDialog')}
 						className="absolute inset-0 -z-10 cursor-default"
 						onClick={() => setCreating(false)}
 					/>
 					<div
 						role="dialog"
 						aria-modal="true"
-						aria-label={`New ${related.label}`}
+						aria-label={t('editor.relationField.newDialogTitle', { label: related.label })}
 						className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-3"
 					>
-						<h3 className="text-sm font-semibold">New {related.label}</h3>
+						<h3 className="text-sm font-semibold">
+							{t('editor.relationField.newDialogTitle', { label: related.label })}
+						</h3>
 						<input
 							ref={createInputRef}
 							type="text"
@@ -359,7 +369,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 								if (e.key === 'Enter') handleCreate()
 								if (e.key === 'Escape') setCreating(false)
 							}}
-							placeholder={labelField || 'Name'}
+							placeholder={labelField || t('editor.relationField.namePlaceholder')}
 							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 						/>
 						<div className="flex justify-end gap-2">
@@ -368,7 +378,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 								onClick={() => setCreating(false)}
 								className="px-3 py-1.5 text-text-secondary hover:text-text text-xs"
 							>
-								Cancel
+								{t('common.cancel')}
 							</button>
 							<button
 								type="button"
@@ -376,7 +386,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 								disabled={createSaving || !createName.trim()}
 								className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 							>
-								{createSaving ? 'Creating…' : 'Create'}
+								{createSaving ? t('editor.relationField.creating') : t('common.create')}
 							</button>
 						</div>
 					</div>

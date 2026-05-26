@@ -16,6 +16,7 @@
  */
 
 import type { CollectionField } from '@innolope/config'
+import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../dropdown'
 import { JsonField } from './json-field'
 import { LocalizedTextField } from './localized-text-field'
@@ -117,6 +118,7 @@ export function FieldRenderer({
 	translating,
 	onAddEnumOption,
 }: FieldRendererProps) {
+	const { t } = useTranslation()
 	const ro = !!disabled
 	const placeholder = f.ui?.placeholder
 	const widget = defaultWidgetFor(f)
@@ -134,7 +136,9 @@ export function FieldRenderer({
 					disabled={ro}
 					className="rounded"
 				/>
-				<span className="text-text-secondary">{value ? 'Yes' : 'No'}</span>
+				<span className="text-text-secondary">
+					{value ? t('editor.fieldRenderer.yes') : t('editor.fieldRenderer.no')}
+				</span>
 			</label>
 		)
 	}
@@ -302,16 +306,17 @@ function EnumWidget({
 	placeholder?: string
 	onAddOption?: (newValue: string) => Promise<void> | void
 }) {
+	const { t } = useTranslation()
 	const options = (field.options ?? []).map((o) => ({ value: o, label: o }))
 	return (
 		<Dropdown
 			value={value}
 			onChange={(v) => onChange(v)}
 			options={options}
-			placeholder={placeholder || 'Select...'}
+			placeholder={placeholder || t('editor.fieldRenderer.selectPlaceholder')}
 			className="w-full"
 			onAddOption={onAddOption}
-			addOptionLabel="+ Add option…"
+			addOptionLabel={t('editor.fieldRenderer.addOption')}
 		/>
 	)
 }

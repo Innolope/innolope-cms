@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 
 export function ProjectSelector() {
+	const { t } = useTranslation()
 	const { projects, currentProject, switchProject, refreshProjects, domainLocked } = useAuth()
 	const toast = useToast()
 	const [open, setOpen] = useState(false)
@@ -33,7 +35,7 @@ export function ProjectSelector() {
 			await refreshProjects()
 			switchProject(project.id)
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to create project', 'error')
+			toast(err instanceof Error ? err.message : t('projectSelector.createFailed'), 'error')
 		}
 		setCreating(false)
 		setNewName('')
@@ -44,7 +46,7 @@ export function ProjectSelector() {
 		return (
 			<div className="px-3 py-2">
 				<p className="text-base font-semibold truncate text-left">
-					{currentProject?.name || 'Project'}
+					{currentProject?.name || t('projectSelector.projectFallback')}
 				</p>
 			</div>
 		)
@@ -58,7 +60,7 @@ export function ProjectSelector() {
 				className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-surface-alt transition-colors"
 			>
 				<p className="text-base font-semibold truncate text-left min-w-0">
-					{currentProject?.name || 'Select project'}
+					{currentProject?.name || t('projectSelector.selectProject')}
 				</p>
 				<svg
 					className={`w-4 h-4 text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -98,7 +100,7 @@ export function ProjectSelector() {
 									value={newName}
 									onChange={(e) => setNewName(e.target.value)}
 									onKeyDown={(e) => e.key === 'Enter' && createProject()}
-									placeholder="Project name"
+									placeholder={t('projectSelector.projectNamePlaceholder')}
 									className="flex-1 px-2 py-1 bg-input border border-border-strong rounded text-xs focus:outline-none"
 									autoFocus
 								/>
@@ -107,7 +109,7 @@ export function ProjectSelector() {
 									onClick={createProject}
 									className="px-2 py-1 bg-btn-primary text-btn-primary-text rounded text-xs"
 								>
-									Create
+									{t('common.create')}
 								</button>
 							</div>
 						) : (
@@ -116,7 +118,7 @@ export function ProjectSelector() {
 								onClick={() => setCreating(true)}
 								className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-surface-alt hover:text-text-muted"
 							>
-								+ New Project
+								{t('projectSelector.newProject')}
 							</button>
 						)}
 					</div>

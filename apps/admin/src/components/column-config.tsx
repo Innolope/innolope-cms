@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export interface ColumnOption {
 	id: string
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onReset }: Props) {
+	const { t } = useTranslation()
 	const [open, setOpen] = useState(false)
 	const ref = useRef<HTMLDivElement>(null)
 
@@ -44,7 +46,7 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 				type="button"
 				onClick={() => setOpen(!open)}
 				className="flex items-center gap-1.5 px-3 py-2 bg-input border border-border rounded text-sm text-text hover:border-border-strong focus:outline-none focus:border-border-strong"
-				title="Configure columns"
+				title={t('columnConfig.configure')}
 			>
 				<svg
 					width="14"
@@ -60,13 +62,13 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 					<line x1="3" y1="12" x2="21" y2="12" />
 					<line x1="3" y1="18" x2="21" y2="18" />
 				</svg>
-				Columns
+				{t('columnConfig.columns')}
 			</button>
 
 			{open && (
 				<div className="absolute right-0 top-full mt-1 w-64 bg-surface border border-border-strong rounded-lg shadow-xl z-50 overflow-hidden">
 					<div className="px-3 py-2 border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wide">
-						Columns
+						{t('columnConfig.columns')}
 					</div>
 					<div className="max-h-80 overflow-y-auto py-1">
 						{sorted.map((col) => {
@@ -92,7 +94,11 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 										className={`flex-1 text-sm ${isVisible ? 'text-text' : 'text-text-secondary'}`}
 									>
 										{col.label}
-										{isPinned && <span className="ml-1.5 text-[10px] text-text-muted">pinned</span>}
+										{isPinned && (
+											<span className="ml-1.5 text-[10px] text-text-muted">
+												{t('columnConfig.pinned')}
+											</span>
+										)}
 									</span>
 									{isVisible && !isPinned && (
 										<div className="flex gap-0.5">
@@ -101,7 +107,7 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 												onClick={() => onMove(col.id, -1)}
 												disabled={!canMoveUp}
 												className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text disabled:opacity-20 disabled:cursor-not-allowed"
-												title="Move up"
+												title={t('columnConfig.moveUp')}
 											>
 												<svg
 													width="10"
@@ -121,7 +127,7 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 												onClick={() => onMove(col.id, 1)}
 												disabled={!canMoveDown}
 												className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text disabled:opacity-20 disabled:cursor-not-allowed"
-												title="Move down"
+												title={t('columnConfig.moveDown')}
 											>
 												<svg
 													width="10"
@@ -148,7 +154,7 @@ export function ColumnConfig({ available, visible, pinned, onToggle, onMove, onR
 							onClick={onReset}
 							className="text-xs text-text-secondary hover:text-text"
 						>
-							Reset to default
+							{t('columnConfig.resetDefault')}
 						</button>
 					</div>
 				</div>

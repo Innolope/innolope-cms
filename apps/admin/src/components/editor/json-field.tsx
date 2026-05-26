@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface JsonFieldProps {
 	value: unknown
@@ -25,6 +26,7 @@ function toText(value: unknown): string {
  * is preserved — the user keeps editing until the JSON parses.
  */
 export function JsonField({ value, onChange, disabled, compact }: JsonFieldProps) {
+	const { t } = useTranslation()
 	const [text, setText] = useState(() => toText(value))
 	const [error, setError] = useState<string | null>(null)
 	const lastExternalRef = useRef<string>(toText(value))
@@ -64,7 +66,7 @@ export function JsonField({ value, onChange, disabled, compact }: JsonFieldProps
 			lastExternalRef.current = toText(parsed)
 			onChange(parsed)
 		} catch (e) {
-			setError(e instanceof Error ? e.message : 'Invalid JSON')
+			setError(e instanceof Error ? e.message : t('editor.jsonField.invalidJson'))
 		}
 	}
 
@@ -99,7 +101,11 @@ export function JsonField({ value, onChange, disabled, compact }: JsonFieldProps
 					error ? 'border-danger' : 'border-border'
 				} rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60 resize-none overflow-y-auto ${maxHeightClass}`}
 			/>
-			{error && <p className="mt-1 text-[11px] text-danger font-mono">Invalid JSON: {error}</p>}
+			{error && (
+				<p className="mt-1 text-[11px] text-danger font-mono">
+					{t('editor.jsonField.invalidJsonWithMessage', { message: error })}
+				</p>
+			)}
 		</div>
 	)
 }

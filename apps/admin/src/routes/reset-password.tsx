@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/reset-password')({
@@ -7,6 +8,7 @@ export const Route = createFileRoute('/reset-password')({
 })
 
 function ResetPassword() {
+	const { t } = useTranslation()
 	const navigate = useNavigate()
 	const params = new URLSearchParams(window.location.search)
 	const token = params.get('token')
@@ -21,9 +23,9 @@ function ResetPassword() {
 		return (
 			<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 				<div className="text-center">
-					<p className="text-text-secondary">Invalid reset link.</p>
+					<p className="text-text-secondary">{t('resetPassword.invalidLink')}</p>
 					<Link to="/login" className="text-xs text-text-muted hover:text-text-faint mt-2 block">
-						Back to login
+						{t('resetPassword.backToLogin')}
 					</Link>
 				</div>
 			</div>
@@ -34,7 +36,7 @@ function ResetPassword() {
 		e.preventDefault()
 		setError('')
 		if (password !== confirm) {
-			setError('Passwords do not match.')
+			setError(t('resetPassword.errors.mismatch'))
 			return
 		}
 		setSubmitting(true)
@@ -43,7 +45,7 @@ function ResetPassword() {
 			setDone(true)
 			setTimeout(() => navigate({ to: '/login' }), 2000)
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Reset failed')
+			setError(err instanceof Error ? err.message : t('resetPassword.errors.resetFailed'))
 		} finally {
 			setSubmitting(false)
 		}
@@ -53,19 +55,19 @@ function ResetPassword() {
 		<div className="min-h-screen bg-bg text-text flex items-center justify-center p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
-					<h1 className="text-2xl font-bold">New Password</h1>
-					<p className="text-text-secondary text-sm mt-1">Enter your new password.</p>
+					<h1 className="text-2xl font-bold">{t('resetPassword.title')}</h1>
+					<p className="text-text-secondary text-sm mt-1">{t('resetPassword.subtitle')}</p>
 				</div>
 
 				{done ? (
 					<div className="text-center space-y-3">
-						<p className="text-sm text-text">Password updated! Redirecting to login...</p>
+						<p className="text-sm text-text">{t('resetPassword.successRedirect')}</p>
 					</div>
 				) : (
 					<form onSubmit={handleSubmit} className="space-y-4">
 						<div>
 							<label htmlFor="rp-password" className="block text-xs text-text-secondary mb-1.5">
-								New password
+								{t('resetPassword.newPassword')}
 							</label>
 							<input
 								id="rp-password"
@@ -75,13 +77,13 @@ function ResetPassword() {
 								required
 								minLength={8}
 								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-								placeholder="Min 8 characters"
+								placeholder={t('resetPassword.minPlaceholder')}
 								autoFocus
 							/>
 						</div>
 						<div>
 							<label htmlFor="rp-confirm" className="block text-xs text-text-secondary mb-1.5">
-								Confirm password
+								{t('resetPassword.confirmPassword')}
 							</label>
 							<input
 								id="rp-confirm"
@@ -91,7 +93,7 @@ function ResetPassword() {
 								required
 								minLength={8}
 								className="w-full px-3 py-2.5 bg-input border border-border rounded-lg text-sm text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong"
-								placeholder="Repeat password"
+								placeholder={t('resetPassword.repeatPlaceholder')}
 							/>
 						</div>
 
@@ -104,7 +106,7 @@ function ResetPassword() {
 							disabled={submitting}
 							className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 						>
-							{submitting ? 'Updating...' : 'Set New Password'}
+							{submitting ? t('resetPassword.updating') : t('resetPassword.setNewPassword')}
 						</button>
 					</form>
 				)}

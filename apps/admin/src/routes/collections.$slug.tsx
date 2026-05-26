@@ -8,6 +8,7 @@ import {
 	useRef,
 	useState,
 } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
@@ -81,19 +82,19 @@ const STATUS_STYLES: Record<string, string> = {
 	archived: 'bg-surface-alt text-text-muted',
 }
 
-const STATUS_LABELS: Record<string, string> = {
-	draft: 'draft',
-	pending_review: 'pending review',
-	published: 'published',
-	archived: 'archived',
+const STATUS_KEYS: Record<string, string> = {
+	draft: 'collections.list.status.draft',
+	pending_review: 'collections.list.status.pendingReview',
+	published: 'collections.list.status.published',
+	archived: 'collections.list.status.archived',
 }
 
-const STATUS_OPTIONS = [
-	{ value: 'draft', label: 'Draft' },
-	{ value: 'pending_review', label: 'Pending Review' },
-	{ value: 'published', label: 'Published' },
-	{ value: 'archived', label: 'Archived' },
-]
+const STATUS_OPTION_KEYS: Record<string, string> = {
+	draft: 'collections.list.statusOptions.draft',
+	pending_review: 'collections.list.statusOptions.pendingReview',
+	published: 'collections.list.statusOptions.published',
+	archived: 'collections.list.statusOptions.archived',
+}
 
 interface ColumnRenderCtx {
 	slug: string
@@ -107,13 +108,18 @@ interface ColumnDescriptor {
 	render: (item: ContentItem, ctx: ColumnRenderCtx) => ReactNode
 }
 
-function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
+type Translator = (key: string, opts?: Record<string, unknown>) => string
+
+function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDescriptor[] {
 	const fields = collection.fields || []
 	// Whichever field acts as the row label — either the user-pinned `titleField`
 	// on the collection, or the heuristic pick over the schema. We exclude this
 	// field from the metadata columns below so it isn't rendered twice.
 	const primaryField = pickTitleField(collection)
-	const primaryLabel = primaryField === 'name' ? 'Name' : 'Title'
+	const primaryLabel =
+		primaryField === 'name'
+			? t('collections.list.columns.name')
+			: t('collections.list.columns.title')
 
 	const builtins: ColumnDescriptor[] = [
 		{
@@ -136,26 +142,26 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 		},
 		{
 			id: 'slug',
-			label: 'Slug',
+			label: t('collections.list.columns.slug'),
 			render: (item) => <span className="text-text-secondary font-mono text-xs">{item.slug}</span>,
 		},
 		{
 			id: 'status',
-			label: 'Status',
+			label: t('collections.list.columns.status'),
 			render: (item) => (
 				<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
-					{STATUS_LABELS[item.status] || item.status}
+					{STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
 				</span>
 			),
 		},
 		{
 			id: 'locale',
-			label: 'Locale',
+			label: t('collections.list.columns.locale'),
 			render: (item) => <span className="text-text-secondary text-xs">{item.locale}</span>,
 		},
 		{
 			id: 'updatedAt',
-			label: 'Last edited',
+			label: t('collections.list.columns.lastEdited'),
 			render: (item) => {
 				if (!item.updatedAt) return <span className="text-text-muted">—</span>
 				const created = item.createdAt ? new Date(item.createdAt).getTime() : Number.NaN
@@ -166,7 +172,7 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 						className={neverEdited ? 'text-text-muted italic' : 'text-text-secondary'}
 						title={
 							neverEdited
-								? `Imported ${absoluteDate(item.updatedAt)} — never edited`
+								? t('collections.list.importedNeverEdited', { date: absoluteDate(item.updatedAt) })
 								: absoluteDate(item.updatedAt)
 						}
 					>
@@ -177,7 +183,7 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 		},
 		{
 			id: 'createdAt',
-			label: 'Created',
+			label: t('collections.list.columns.created'),
 			render: (item) =>
 				item.createdAt ? (
 					<span className="text-text-secondary" title={absoluteDate(item.createdAt)}>
@@ -189,7 +195,7 @@ function buildColumns(collection: CollectionWithCount): ColumnDescriptor[] {
 		},
 		{
 			id: 'publishedAt',
-			label: 'Published',
+			label: t('collections.list.columns.published'),
 			render: (item) =>
 				item.publishedAt ? (
 					<span className="text-text-secondary" title={absoluteDate(item.publishedAt)}>
@@ -245,13 +251,17 @@ function renderMetadataValue(value: unknown, ctx?: ColumnRenderCtx): ReactNode {
 	return <span className="text-text-secondary">{String(value)}</span>
 }
 
-function buildFilters(collection: CollectionWithCount): FilterDescriptor[] {
+function buildFilters(collection: CollectionWithCount, t: Translator): FilterDescriptor[] {
+	const statusOptions = Object.keys(STATUS_OPTION_KEYS).map((value) => ({
+		value,
+		label: t(STATUS_OPTION_KEYS[value]),
+	}))
 	const builtins: FilterDescriptor[] = [
-		{ id: 'status', label: 'Status', type: 'enum', options: STATUS_OPTIONS },
-		{ id: 'locale', label: 'Locale', type: 'text' },
-		{ id: 'updatedAt', label: 'Last edited', type: 'date-range' },
-		{ id: 'createdAt', label: 'Created', type: 'date-range' },
-		{ id: 'publishedAt', label: 'Published', type: 'date-range' },
+		{ id: 'status', label: t('collections.list.columns.status'), type: 'enum', options: statusOptions },
+		{ id: 'locale', label: t('collections.list.columns.locale'), type: 'text' },
+		{ id: 'updatedAt', label: t('collections.list.columns.lastEdited'), type: 'date-range' },
+		{ id: 'createdAt', label: t('collections.list.columns.created'), type: 'date-range' },
+		{ id: 'publishedAt', label: t('collections.list.columns.published'), type: 'date-range' },
 	]
 	const metadata: FilterDescriptor[] = (collection.fields || []).map((f) => {
 		if (f.options && f.options.length > 0) {
@@ -307,6 +317,7 @@ const DEFAULT_COLUMNS = ['title', 'slug', 'status', 'updatedAt']
 const PINNED_COLUMNS = ['title']
 
 function CollectionContentList() {
+	const { t } = useTranslation()
 	const { slug } = Route.useParams()
 	const { getCollectionByName } = useCollections()
 	const collection = getCollectionByName(slug)
@@ -359,12 +370,12 @@ function CollectionContentList() {
 	const { filters, setFilter, clearAll } = useUrlFilters()
 
 	const allColumns: ColumnDescriptor[] = useMemo(
-		() => (collection ? buildColumns(collection) : []),
-		[collection],
+		() => (collection ? buildColumns(collection, t) : []),
+		[collection, t],
 	)
 	const allFilters: FilterDescriptor[] = useMemo(
-		() => (collection ? buildFilters(collection) : []),
-		[collection],
+		() => (collection ? buildFilters(collection, t) : []),
+		[collection, t],
 	)
 
 	// Built-in columns with no real data for this collection — an id-derived slug, or
@@ -520,12 +531,12 @@ function CollectionContentList() {
 
 	const rejectItem = async (id: string) => {
 		const reason = await prompt({
-			title: 'Reject content',
-			message: 'Add an optional reason for rejecting this content.',
-			label: 'Rejection reason',
-			placeholder: 'Optional',
+			title: t('collections.list.reject.title'),
+			message: t('collections.list.reject.message'),
+			label: t('collections.list.reject.reasonLabel'),
+			placeholder: t('collections.list.reject.reasonPlaceholder'),
 			multiline: true,
-			confirmLabel: 'Reject',
+			confirmLabel: t('collections.list.reject.confirm'),
 		})
 		if (reason === null) return
 		await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
@@ -540,12 +551,12 @@ function CollectionContentList() {
 				`/api/v1/collections/${collection.id}/sync-preview`,
 			)
 			if (preview.total === 0) {
-				toast('No external discrepancies found', 'success')
+				toast(t('collections.list.sync.noDiscrepancies'), 'success')
 			} else {
 				setSyncPreview(preview)
 			}
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Sync preview failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.list.sync.previewFailed'), 'error')
 		} finally {
 			setPreviewLoading(false)
 		}
@@ -560,13 +571,13 @@ function CollectionContentList() {
 				{},
 			)
 			toast(
-				`Synced ${result.updated} updated and ${result.created} new item${result.created === 1 ? '' : 's'}`,
+				t('collections.list.sync.success', { updated: result.updated, count: result.created }),
 				'success',
 			)
 			setSyncPreview(null)
 			fetchContent()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Sync failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.list.sync.failed'), 'error')
 		} finally {
 			setSyncing(false)
 		}
@@ -575,7 +586,7 @@ function CollectionContentList() {
 	if (!collection) {
 		return (
 			<div className="p-8 pt-5">
-				<p className="text-text-secondary text-sm">Collection not found.</p>
+				<p className="text-text-secondary text-sm">{t('collections.list.notFound')}</p>
 			</div>
 		)
 	}
@@ -595,9 +606,9 @@ function CollectionContentList() {
 				)
 				ok++
 			}
-			toast(`Uploaded ${ok} file${ok === 1 ? '' : 's'}`, 'success')
+			toast(t('collections.list.uploaded', { count: ok }), 'success')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.list.uploadFailed'), 'error')
 		} finally {
 			if (ok > 0) fetchContent()
 			setUploading(false)
@@ -623,7 +634,7 @@ function CollectionContentList() {
 									: 'text-text-secondary hover:text-text-muted'
 							}`}
 						>
-							All
+							{t('collections.list.tabs.all')}
 						</button>
 						<button
 							type="button"
@@ -634,7 +645,7 @@ function CollectionContentList() {
 									: 'text-text-secondary hover:text-text-muted'
 							}`}
 						>
-							Review
+							{t('collections.list.tabs.review')}
 							{showReviewQueue && reviewTotal > 0 && (
 								<span className="ml-1.5 px-1.5 py-0.5 bg-border rounded-full text-[10px]">
 									{reviewTotal}
@@ -652,7 +663,11 @@ function CollectionContentList() {
 							disabled={previewLoading || syncing}
 							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors disabled:opacity-50"
 						>
-							{previewLoading ? 'Checking...' : syncing ? 'Syncing...' : 'Sync'}
+							{previewLoading
+								? t('collections.list.sync.checking')
+								: syncing
+									? t('collections.list.sync.syncing')
+									: t('collections.list.sync.button')}
 						</button>
 					)}
 					{mediaUpload && (
@@ -671,7 +686,7 @@ function CollectionContentList() {
 								disabled={uploading}
 								className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors disabled:opacity-50"
 							>
-								{uploading ? 'Uploading…' : 'Upload'}
+								{uploading ? t('collections.list.uploading') : t('collections.list.upload')}
 							</button>
 						</>
 					)}
@@ -680,7 +695,7 @@ function CollectionContentList() {
 						params={{ slug }}
 						className="px-3 py-2 bg-btn-secondary text-text-secondary rounded-md text-sm font-medium hover:bg-btn-secondary-hover hover:text-text transition-colors"
 					>
-						Schema
+						{t('collections.list.schema')}
 					</Link>
 					{showToolbar && (
 						<Link
@@ -688,7 +703,7 @@ function CollectionContentList() {
 							params={{ slug, contentId: 'new' }}
 							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover active:translate-x-px active:translate-y-px transition-colors"
 						>
-							New {collection.label.replace(/s$/, '')}
+							{t('collections.list.newRecord', { name: collection.label.replace(/s$/, '') })}
 						</Link>
 					)}
 				</div>
@@ -712,12 +727,14 @@ function CollectionContentList() {
 								<path d="M21 12a9 9 0 1 1-6.219-8.56" />
 							</svg>
 							<span>
-								Importing content from the external database —{' '}
 								{importStatus?.total != null
-									? `${importStatus.processed} of ${importStatus.total} records cached`
-									: `${importStatus?.processed ?? 0} records cached`}
-								. The full collection is browsable now; search, filtering, and editing become
-								available once the import finishes.
+										? t('collections.list.import.progress', {
+												processed: importStatus.processed,
+												total: importStatus.total,
+											})
+										: t('collections.list.import.progressUnknownTotal', {
+												processed: importStatus?.processed ?? 0,
+											})}
 							</span>
 						</div>
 					)}
@@ -737,9 +754,11 @@ function CollectionContentList() {
 								<path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
 							</svg>
 							<span>
-								Content import did not finish
-								{importStatus.error ? `: ${importStatus.error}` : ''}. Some records may be missing —
-								re-run the import from the database settings, or use Sync.
+								{importStatus.error
+										? t('collections.list.import.failedWithError', {
+												error: importStatus.error,
+											})
+										: t('collections.list.import.failed')}
 							</span>
 						</div>
 					)}
@@ -758,11 +777,7 @@ function CollectionContentList() {
 							>
 								<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
 							</svg>
-							<span>
-								Showing live data from the external database — this collection is too large to cache
-								automatically. Search, filtering, sorting, and editing require syncing the
-								collection first.
-							</span>
+							<span>{t('collections.list.liveDataNote')}</span>
 						</div>
 					)}
 					{showToolbar && (
@@ -770,7 +785,7 @@ function CollectionContentList() {
 							<div className="flex gap-3 items-center">
 								<input
 									type="text"
-									placeholder="Search..."
+									placeholder={t('collections.list.searchPlaceholder')}
 									value={search}
 									onChange={(e) => {
 										setSearch(e.target.value)
@@ -812,7 +827,7 @@ function CollectionContentList() {
 						) : items.length === 0 ? (
 							search || hasActiveFilters ? (
 								<div className="p-8 text-center text-text-secondary text-sm">
-									No content matches your filters.
+									{t('collections.list.noMatches')}
 								</div>
 							) : (
 								<div className="flex flex-col items-center pt-[15vh] text-center">
@@ -834,16 +849,20 @@ function CollectionContentList() {
 											<line x1="16" y1="17" x2="8" y2="17" />
 										</svg>
 									</div>
-									<h3 className="font-semibold text-text mb-1">No content yet</h3>
+									<h3 className="font-semibold text-text mb-1">{t('collections.list.empty.title')}</h3>
 									<p className="text-sm text-text-secondary max-w-xs mb-5">
-										Create your first {collection.label.toLowerCase()} entry.
+										{t('collections.list.empty.subtitle', {
+											name: collection.label.toLowerCase(),
+										})}
 									</p>
 									<Link
 										to="/collections/$slug/$contentId"
 										params={{ slug, contentId: 'new' }}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
-										Create {collection.label.replace(/s$/, '')}
+										{t('collections.list.empty.create', {
+											name: collection.label.replace(/s$/, ''),
+										})}
 									</Link>
 								</div>
 							)
@@ -878,9 +897,7 @@ function CollectionContentList() {
 
 					{total > 25 && (
 						<div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
-							<span>
-								{total} items — page {page}
-							</span>
+							<span>{t('collections.list.pagination.summary', { total, page })}</span>
 							<div className="flex gap-2">
 								<button
 									type="button"
@@ -888,7 +905,7 @@ function CollectionContentList() {
 									disabled={page === 1}
 									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 								>
-									Previous
+									{t('collections.list.pagination.previous')}
 								</button>
 								<button
 									type="button"
@@ -896,7 +913,7 @@ function CollectionContentList() {
 									disabled={items.length < 25}
 									className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 								>
-									Next
+									{t('collections.list.pagination.next')}
 								</button>
 							</div>
 						</div>
@@ -910,16 +927,16 @@ function CollectionContentList() {
 						<div className="p-8" />
 					) : reviewItems.length === 0 ? (
 						<div className="p-8 text-center text-text-secondary text-sm">
-							No content pending review.
+							{t('collections.list.review.empty')}
 						</div>
 					) : (
 						<table className="w-full text-sm">
 							<thead>
 								<tr className="text-left text-text-secondary border-b border-border">
-									<th className="px-4 py-3 font-medium">Title</th>
-									<th className="px-4 py-3 font-medium">Slug</th>
-									<th className="px-4 py-3 font-medium">Last edited</th>
-									<th className="px-4 py-3 font-medium text-right">Actions</th>
+									<th className="px-4 py-3 font-medium">{t('collections.list.columns.title')}</th>
+									<th className="px-4 py-3 font-medium">{t('collections.list.columns.slug')}</th>
+									<th className="px-4 py-3 font-medium">{t('collections.list.columns.lastEdited')}</th>
+									<th className="px-4 py-3 font-medium text-right">{t('collections.list.columns.actions')}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -951,14 +968,14 @@ function CollectionContentList() {
 													onClick={() => approveItem(item.id)}
 													className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
 												>
-													Approve
+													{t('collections.list.review.approve')}
 												</button>
 												<button
 													type="button"
 													onClick={() => rejectItem(item.id)}
 													className="px-3 py-1 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover"
 												>
-													Reject
+													{t('collections.list.review.reject')}
 												</button>
 											</div>
 										</td>
@@ -992,14 +1009,16 @@ function SyncPreviewDialog({
 	onCancel: () => void
 	onConfirm: () => void
 }) {
+	const { t } = useTranslation()
 	return (
 		<div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-6">
 			<div className="w-full max-w-4xl max-h-[82vh] bg-surface border border-border rounded-lg shadow-xl flex flex-col">
 				<div className="p-5 border-b border-border">
-					<h3 className="text-lg font-semibold text-text">External changes found</h3>
+					<h3 className="text-lg font-semibold text-text">
+						{t('collections.list.syncDialog.title')}
+					</h3>
 					<p className="mt-1 text-sm text-text-secondary">
-						Sync will overwrite the local CMS cache with the external database values. A copy of
-						each overwritten local version will be saved in version history.
+						{t('collections.list.syncDialog.intro')}
 					</p>
 				</div>
 				<div className="overflow-auto p-5 space-y-4">
@@ -1019,13 +1038,13 @@ function SyncPreviewDialog({
 										className="grid grid-cols-[160px_1fr_1fr] gap-3 p-3 text-xs"
 									>
 										<div className="font-mono text-text-secondary">{change.field}</div>
-										<DiffValue label="Local" value={change.local} />
-										<DiffValue label="External" value={change.external} />
+										<DiffValue label={t('collections.list.syncDialog.local')} value={change.local} />
+										<DiffValue label={t('collections.list.syncDialog.external')} value={change.external} />
 									</div>
 								))}
 								{item.changes.length > 6 && (
 									<div className="px-3 py-2 text-xs text-text-muted">
-										+{item.changes.length - 6} more changed fields
+										{t('collections.list.syncDialog.moreFields', { count: item.changes.length - 6 })}
 									</div>
 								)}
 							</div>
@@ -1033,8 +1052,11 @@ function SyncPreviewDialog({
 					))}
 					{preview.total > preview.discrepancies.length && (
 						<p className="text-xs text-text-muted">
-							Showing {preview.discrepancies.length} of {preview.total} discrepanc
-							{preview.total === 1 ? 'y' : 'ies'}.
+							{t('collections.list.syncDialog.showingOf', {
+								showing: preview.discrepancies.length,
+								total: preview.total,
+								count: preview.total,
+							})}
 						</p>
 					)}
 				</div>
@@ -1045,7 +1067,7 @@ function SyncPreviewDialog({
 						disabled={syncing}
 						className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover disabled:opacity-50"
 					>
-						Cancel
+						{t('common.cancel')}
 					</button>
 					<button
 						type="button"
@@ -1053,7 +1075,9 @@ function SyncPreviewDialog({
 						disabled={syncing}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
-						{syncing ? 'Syncing...' : 'Overwrite local cache'}
+						{syncing
+								? t('collections.list.sync.syncing')
+								: t('collections.list.syncDialog.overwrite')}
 					</button>
 				</div>
 			</div>
@@ -1073,7 +1097,7 @@ function DiffValue({ label, value }: { label: string; value: unknown }) {
 }
 
 function formatDiffValue(value: unknown): string {
-	if (value === null || value === undefined || value === '') return 'empty'
+	if (value === null || value === undefined || value === '') return ''
 	if (typeof value === 'string') return value
 	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
 	try {

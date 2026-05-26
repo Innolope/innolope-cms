@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 
 /**
  * Auto-grow a textarea to fit its content, up to a CSS-imposed `max-h`.
@@ -124,6 +125,7 @@ export function LocalizedTextField({
 	translating,
 	disabled,
 }: LocalizedTextFieldProps) {
+	const { t } = useTranslation()
 	const map = toLocaleMap(value, defaultLocale)
 
 	const setLocale = (locale: string, text: string) => {
@@ -161,8 +163,14 @@ export function LocalizedTextField({
 						type="button"
 						onClick={() => onTranslate(leftLocale, rightLocale)}
 						disabled={disabled || translating || leftLocale === rightLocale}
-						aria-label={`Translate ${leftLocale.toUpperCase()} to ${rightLocale.toUpperCase()}`}
-						title={`Translate ${leftLocale.toUpperCase()} → ${rightLocale.toUpperCase()}`}
+						aria-label={t('editor.localizedTextField.translateAria', {
+							source: leftLocale.toUpperCase(),
+							target: rightLocale.toUpperCase(),
+						})}
+						title={t('editor.localizedTextField.translateTitle', {
+							source: leftLocale.toUpperCase(),
+							target: rightLocale.toUpperCase(),
+						})}
 						className="flex items-center justify-center w-7 h-9 rounded bg-input border border-border text-text-muted transition-colors hover:text-text hover:bg-surface-alt disabled:opacity-40 disabled:hover:bg-input disabled:hover:text-text-muted"
 					>
 						{translating ? (

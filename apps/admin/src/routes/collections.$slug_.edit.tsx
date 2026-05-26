@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
@@ -49,6 +50,7 @@ const WIDGETS_BY_TYPE: Record<string, string[]> = {
 }
 
 function CollectionSchemaEditor() {
+	const { t } = useTranslation()
 	const { slug } = Route.useParams()
 	const navigate = useNavigate()
 	const toast = useToast()
@@ -144,7 +146,7 @@ function CollectionSchemaEditor() {
 
 	const save = async () => {
 		if (!collection || !label.trim()) {
-			toast('Label is required', 'error')
+			toast(t('collections.edit.errors.labelRequired'), 'error')
 			return
 		}
 		const validFields = fields.filter((f) => f.name.trim())
@@ -161,7 +163,7 @@ function CollectionSchemaEditor() {
 			await refreshCollections()
 			navigate({ to: `/collections/${collectionName}` })
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Save failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.edit.errors.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -170,9 +172,9 @@ function CollectionSchemaEditor() {
 	const deleteCollection = async () => {
 		if (!collection) return
 		const ok = await confirm({
-			title: 'Delete collection',
-			message: `Delete "${name}" and all its content? This cannot be undone.`,
-			confirmLabel: 'Delete',
+			title: t('collections.edit.delete.title'),
+			message: t('collections.edit.delete.message', { name: label || collectionName }),
+			confirmLabel: t('collections.edit.delete.confirm'),
 			danger: true,
 		})
 		if (!ok) return
@@ -181,13 +183,15 @@ function CollectionSchemaEditor() {
 			await refreshCollections()
 			navigate({ to: '/dashboard' })
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Delete failed', 'error')
+			toast(err instanceof Error ? err.message : t('collections.edit.errors.deleteFailed'), 'error')
 		}
 	}
 
 	if (loading) return <div className="p-8 pt-5" />
 	if (!collection)
-		return <div className="p-8 pt-5 text-text-secondary text-sm">Collection not found.</div>
+		return (
+			<div className="p-8 pt-5 text-text-secondary text-sm">{t('collections.edit.notFound')}</div>
+		)
 
 	return (
 		<div className="p-8 pt-5 max-w-3xl">
@@ -200,13 +204,13 @@ function CollectionSchemaEditor() {
 					{collection.label}
 				</button>
 				<span>/</span>
-				<span className="text-text">Edit Schema</span>
+				<span className="text-text">{t('collections.edit.breadcrumb')}</span>
 			</div>
 
-			<h2 className="text-2xl font-bold mb-6">Edit: {label}</h2>
+			<h2 className="text-2xl font-bold mb-6">{t('collections.edit.title', { name: label })}</h2>
 
 			<div className="space-y-5">
-				<Field label="Label">
+				<Field label={t('collections.edit.fields.label')}>
 					<input
 						type="text"
 						value={label}
@@ -215,7 +219,7 @@ function CollectionSchemaEditor() {
 					/>
 				</Field>
 
-				<Field label="Name">
+				<Field label={t('collections.edit.fields.name')}>
 					<input
 						type="text"
 						value={collectionName}
@@ -224,50 +228,48 @@ function CollectionSchemaEditor() {
 					/>
 				</Field>
 
-				<Field label="Description">
+				<Field label={t('collections.edit.fields.description')}>
 					<input
 						type="text"
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
-						placeholder="What this collection is for"
+						placeholder={t('collections.edit.fields.descriptionPlaceholder')}
 						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 					/>
 				</Field>
 
-				<Field label="Display title field">
+				<Field label={t('collections.edit.fields.displayTitleField')}>
 					<Dropdown
 						value={titleField ?? '__auto__'}
 						onChange={(v) => setTitleField(v === '__auto__' ? null : v)}
 						options={[
-							{ value: '__auto__', label: 'Auto (smart heuristic)' },
+							{ value: '__auto__', label: t('collections.edit.titleFieldAuto') },
 							...fields.filter((f) => f.name.trim()).map((f) => ({ value: f.name, label: f.name })),
 						]}
 					/>
 					<p className="mt-1 text-xs text-text-muted">
-						Used as the row label in list views and reference pickers. Auto picks <code>title</code>{' '}
-						→ <code>name</code> → a name-like field → the first text field.
+						{t('collections.edit.titleFieldHint')}
 					</p>
 				</Field>
 
-				<Field label="Sidebar visibility">
+				<Field label={t('collections.edit.sidebarVisibility')}>
 					<Dropdown
 						value={sidebarMode}
 						onChange={(v) => setSidebarMode(v as 'auto' | 'show' | 'hide')}
 						options={[
-							{ value: 'auto', label: 'Auto (hide when used only as a relation target)' },
-							{ value: 'show', label: 'Always show' },
-							{ value: 'hide', label: 'Always hide (accessible via relations only)' },
+							{ value: 'auto', label: t('collections.edit.sidebar.auto') },
+							{ value: 'show', label: t('collections.edit.sidebar.show') },
+							{ value: 'hide', label: t('collections.edit.sidebar.hide') },
 						]}
 					/>
 					<p className="mt-1 text-xs text-text-muted">
-						Auto hides collections that another collection references via a relation field, so
-						lookup-only collections (tags, authors, categories) don't clutter the sidebar.
+						{t('collections.edit.sidebarHint')}
 					</p>
 				</Field>
 
 				<div>
 					<div className="flex items-center justify-between mb-3">
-						<div className="text-sm font-medium">Fields</div>
+						<div className="text-sm font-medium">{t('collections.edit.fields.title')}</div>
 						<div className="flex gap-2">
 							{collection?.source === 'external' && currentProject && (
 								<button
@@ -279,7 +281,7 @@ function CollectionSchemaEditor() {
 										try {
 											const settings = currentProject.settings as unknown as Record<string, unknown>
 											const extDb = settings?.externalDb as Record<string, unknown> | undefined
-											if (!extDb?.type) throw new Error('No external DB config')
+											if (!extDb?.type) throw new Error(t('collections.edit.errors.noExternalDb'))
 											const result = await api.post<{
 												tables: Array<{ name: string; columns: { name: string; type: string }[] }>
 											}>(`/api/v1/projects/${currentProject.id}/database/scan`, {
@@ -310,15 +312,15 @@ function CollectionSchemaEditor() {
 												if (newFields.length > 0) {
 													setFields([...fields, ...newFields])
 													toast(
-														`Found ${newFields.length} new field${newFields.length !== 1 ? 's' : ''}`,
+														t('collections.edit.scan.found', { count: newFields.length }),
 														'success',
 													)
 												} else {
-													toast('No new fields found', 'success')
+													toast(t('collections.edit.scan.nothing'), 'success')
 												}
 											}
 										} catch (err) {
-											toast(err instanceof Error ? err.message : 'Scan failed', 'error')
+											toast(err instanceof Error ? err.message : t('collections.edit.scan.failed'), 'error')
 										} finally {
 											setScanning(false)
 										}
@@ -328,7 +330,7 @@ function CollectionSchemaEditor() {
 									{scanning && (
 										<div className="w-3 h-3 border-2 border-text-muted border-t-transparent rounded-full animate-spin" />
 									)}
-									{scanning ? 'Scanning...' : 'Re-scan from DB'}
+									{scanning ? t('collections.edit.scan.scanning') : t('collections.edit.scan.rescan')}
 								</button>
 							)}
 							<button
@@ -336,14 +338,14 @@ function CollectionSchemaEditor() {
 								onClick={addField}
 								className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
 							>
-								+ Add Field
+								{t('collections.edit.addField')}
 							</button>
 						</div>
 					</div>
 
 					{fields.length === 0 ? (
 						<p className="text-text-secondary text-sm">
-							No fields yet. Every collection gets markdown content by default.
+							{t('collections.edit.noFieldsHint')}
 						</p>
 					) : (
 						<div className="space-y-2">
@@ -373,7 +375,7 @@ function CollectionSchemaEditor() {
 										type="text"
 										value={field.name}
 										onChange={(e) => updateField(i, { name: e.target.value })}
-										placeholder="Field name"
+										placeholder={t('collections.edit.fieldName')}
 										className="flex-1 px-2 py-1.5 bg-input border border-border-strong rounded text-sm font-mono focus:outline-none"
 									/>
 									<Dropdown
@@ -404,7 +406,7 @@ function CollectionSchemaEditor() {
 											}
 											options={(WIDGETS_BY_TYPE[field.type] ?? []).map((w, idx) => ({
 												value: w,
-												label: idx === 0 ? `${w} (default)` : w,
+												label: idx === 0 ? t('collections.edit.widgetDefault', { name: w }) : w,
 											}))}
 											className="w-32 shrink-0"
 										/>
@@ -415,7 +417,7 @@ function CollectionSchemaEditor() {
 											checked={field.required || false}
 											onChange={(e) => updateField(i, { required: e.target.checked })}
 										/>{' '}
-										Required
+										{t('collections.edit.required')}
 									</label>
 									<label className="flex items-center gap-1 text-xs text-text-secondary">
 										<input
@@ -423,14 +425,14 @@ function CollectionSchemaEditor() {
 											checked={field.localized || false}
 											onChange={(e) => updateField(i, { localized: e.target.checked })}
 										/>{' '}
-										i18n
+										{t('collections.edit.i18n')}
 									</label>
 									<button
 										type="button"
 										onClick={() => toggleExpanded(i)}
 										className="text-text-secondary hover:text-text text-xs px-2"
 										aria-expanded={expandedRows.has(i)}
-										title={expandedRows.has(i) ? 'Hide advanced' : 'Show advanced'}
+										title={expandedRows.has(i) ? t('collections.edit.hideAdvanced') : t('collections.edit.showAdvanced')}
 									>
 										…
 									</button>
@@ -439,7 +441,7 @@ function CollectionSchemaEditor() {
 										onClick={() => removeField(i)}
 										className="text-danger hover:opacity-80 text-xs px-2"
 									>
-										Remove
+										{t('collections.edit.remove')}
 									</button>
 									{field.type === 'enum' && (
 										<input
@@ -453,39 +455,39 @@ function CollectionSchemaEditor() {
 														.filter(Boolean),
 												})
 											}
-											placeholder="Dropdown options (comma-separated)"
+											placeholder={t('collections.edit.enumOptionsPlaceholder')}
 											className="w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
 										/>
 									)}
 									{expandedRows.has(i) && (
 										<div className="w-full mt-2 pt-2 border-t border-border space-y-2">
 											<label className="block text-xs text-text-secondary">
-												Placeholder
+												{t('collections.edit.advanced.placeholder')}
 												<input
 													type="text"
 													value={field.ui?.placeholder ?? ''}
 													onChange={(e) =>
 														updateFieldUi(i, { placeholder: e.target.value || undefined })
 													}
-													placeholder="Shown inside the empty input"
+													placeholder={t('collections.edit.advanced.placeholderHint')}
 													className="mt-1 w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
 												/>
 											</label>
 											<label className="block text-xs text-text-secondary">
-												Help text
+												{t('collections.edit.advanced.helpText')}
 												<input
 													type="text"
 													value={field.ui?.helpText ?? ''}
 													onChange={(e) =>
 														updateFieldUi(i, { helpText: e.target.value || undefined })
 													}
-													placeholder="Short hint shown below the input"
+													placeholder={t('collections.edit.advanced.helpTextHint')}
 													className="mt-1 w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
 												/>
 											</label>
 											{field.type === 'text' && field.ui?.widget === 'textarea' && (
 												<label className="block text-xs text-text-secondary">
-													Rows
+													{t('collections.edit.advanced.rows')}
 													<input
 														type="number"
 														min={1}
@@ -502,7 +504,7 @@ function CollectionSchemaEditor() {
 											)}
 											{field.type === 'array' && (
 												<div className="block text-xs text-text-secondary">
-													<span>Chip separator</span>
+													<span>{t('collections.edit.advanced.chipSeparator')}</span>
 													<Dropdown
 														value={field.ui?.separator ?? 'enter'}
 														onChange={(v) =>
@@ -512,8 +514,8 @@ function CollectionSchemaEditor() {
 															})
 														}
 														options={[
-															{ value: 'enter', label: 'Enter only (default)' },
-															{ value: 'comma', label: 'Enter or comma' },
+															{ value: 'enter', label: t('collections.edit.advanced.enterOnly') },
+															{ value: 'comma', label: t('collections.edit.advanced.enterOrComma') },
 														]}
 														className="mt-1 w-48"
 													/>
@@ -528,7 +530,7 @@ function CollectionSchemaEditor() {
 															updateFieldUi(i, { readOnly: e.target.checked || undefined })
 														}
 													/>{' '}
-													Read-only (system-managed)
+													{t('collections.edit.advanced.readOnly')}
 												</label>
 												<label className="flex items-center gap-1 text-xs text-text-secondary">
 													<input
@@ -538,7 +540,7 @@ function CollectionSchemaEditor() {
 															updateFieldUi(i, { hidden: e.target.checked || undefined })
 														}
 													/>{' '}
-													Hidden from form
+													{t('collections.edit.advanced.hidden')}
 												</label>
 											</div>
 										</div>
@@ -556,14 +558,14 @@ function CollectionSchemaEditor() {
 						disabled={saving}
 						className="px-6 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
-						{saving ? 'Saving...' : 'Save Changes'}
+						{saving ? t('collections.edit.saving') : t('collections.edit.saveChanges')}
 					</button>
 					<button
 						type="button"
 						onClick={deleteCollection}
 						className="text-xs text-danger hover:opacity-80"
 					>
-						Delete Collection
+						{t('collections.edit.deleteCollection')}
 					</button>
 				</div>
 			</div>

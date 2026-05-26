@@ -1,0 +1,1478 @@
+{
+	"common": {
+		"cancel": "Скасувати",
+		"confirm": "Підтвердити",
+		"closeDialog": "Закрити діалог",
+		"create": "Створити",
+		"failed": "Не вдалося",
+		"loading": "Завантаження…",
+		"logout": "Вийти",
+		"signOut": "Вийти",
+		"time": { "justNow": "щойно" }
+	},
+	"nav": {
+		"dashboard": "Панель керування",
+		"media": "Медіа",
+		"settings": "Налаштування проєкту",
+		"collections": "Колекції",
+		"newCollection": "Нова колекція",
+		"accountSettings": "Налаштування акаунта",
+		"expandSidebar": "Розгорнути бічну панель",
+		"collapseSidebar": "Згорнути бічну панель"
+	},
+	"confirm": { "typeToConfirm": "Введіть <code>{{text}}</code> для підтвердження" },
+	"domainAccess": {
+		"noAccess": "Доступ заборонено",
+		"bodyNamed": "{{email}} не є учасником проєкту «{{projectName}}». Попросіть адміністратора надіслати запрошення, а потім увійдіть знову.",
+		"bodyUnnamed": "{{email}} не є учасником цього проєкту. Попросіть адміністратора надіслати запрошення, а потім увійдіть знову."
+	},
+	"noProject": {
+		"welcome": "Вітаємо, {{name}}",
+		"subtitle": "Створіть свій перший проєкт, щоб почати.",
+		"projectNamePlaceholder": "Назва проєкту",
+		"errors": { "invalidName": "Назва проєкту має містити хоча б одну літеру або цифру." }
+	},
+	"account": {
+		"title": "Акаунт",
+		"tabs": {
+			"profile": "Профіль",
+			"password": "Пароль",
+			"sso": "Зв’язані акаунти",
+			"appearance": "Зовнішній вигляд"
+		},
+		"profile": { "name": "Ім’я", "email": "Електронна пошта" },
+		"password": {
+			"current": "Поточний пароль",
+			"new": "Новий пароль",
+			"confirm": "Підтвердження нового пароля",
+			"saveLabel": "Змінити пароль",
+			"errors": {
+				"allRequired": "Усі поля обов’язкові",
+				"tooShort": "Новий пароль має містити щонайменше 8 символів",
+				"mismatch": "Паролі не збігаються",
+				"changeFailed": "Не вдалося змінити пароль"
+			}
+		},
+		"sso": {
+			"intro": "Ідентифікатори вашого постачальника, прив’язані до цього акаунта. Прив’язка SSO-ідентифікатора дозволяє входити без пароля.",
+			"noneLinked": "SSO-ідентифікатори ще не прив’язані.",
+			"unknownConnection": "Невідомо",
+			"noEmailInProfile": "(у профілі немає електронної пошти)",
+			"lastSignIn": "Останній вхід: {{date}}",
+			"unlink": "Від’єднати",
+			"unlinkConfirmTitle": "Від’єднати SSO-ідентифікатор",
+			"unlinkConfirmMessage": "Від’єднати цей SSO-ідентифікатор?",
+			"unlinkConfirmLabel": "Від’єднати",
+			"unlinkFailed": "Не вдалося від’єднати",
+			"linkNewIdentity": "Прив’язати новий ідентифікатор",
+			"linkArrow": "Прив’язати →"
+		},
+		"appearance": {
+			"theme": "Тема",
+			"language": "Мова",
+			"themes": { "light": "Світла", "dark": "Темна", "system": "Системна" },
+			"languages": { "en": "English", "uk": "Українська" }
+		}
+	},
+	"saveBar": {
+		"save": "Зберегти зміни",
+		"saving": "Збереження…",
+		"saved": "Збережено"
+	},
+	"dropdown": {
+		"selectPlaceholder": "Виберіть…",
+		"addOption": "+ Додати варіант…",
+		"newOptionPlaceholder": "Новий варіант",
+		"add": "Додати",
+		"adding": "Додавання…"
+	},
+	"columnConfig": {
+		"configure": "Налаштувати стовпці",
+		"columns": "Стовпці",
+		"pinned": "закріплено",
+		"moveUp": "Перемістити вгору",
+		"moveDown": "Перемістити вниз",
+		"resetDefault": "Скинути до типових"
+	},
+	"filterBar": {
+		"addFilter": "Додати фільтр",
+		"clearAll": "Очистити все",
+		"removeFilter": "Видалити фільтр",
+		"filterByPlaceholder": "Фільтр за {{label}}…",
+		"from": "Від",
+		"to": "До"
+	},
+	"licenseGate": {
+		"proBadge": "Pro",
+		"requiresLicense": "Ця функція потребує ліцензії Innolope CMS {{plan}}.",
+		"proUnlocks": "Розблоковує AI-написання, медіабібліотеку, вебхуки та підтримку кількох проєктів.",
+		"enterpriseUnlocks": "Розблоковує SSO, журнал аудиту, кастомні ролі та інше.",
+		"viewPlans": "Переглянути тарифи"
+	},
+	"projectSelector": {
+		"projectFallback": "Проєкт",
+		"selectProject": "Вибрати проєкт",
+		"projectNamePlaceholder": "Назва проєкту",
+		"newProject": "+ Новий проєкт",
+		"createFailed": "Не вдалося створити проєкт"
+	},
+	"versions": {
+		"history": "Історія версій",
+		"loading": "Завантаження версій…",
+		"noPrevious": "Попередніх версій немає.",
+		"revertTitle": "Відновити версію",
+		"revertMessage": "Відновити версію {{version}}? Поточний вміст буде збережено як нову версію.",
+		"revert": "Відновити",
+		"revertFailed": "Не вдалося відновити",
+		"reverting": "Відновлення…",
+		"revertToVersion": "Відновити до v{{version}}"
+	},
+	"ai": {
+		"toolbar": {
+			"ai": "✨ AI",
+			"rewrite": "Переписати",
+			"shorter": "Коротше",
+			"fix": "Виправити",
+			"seo": "SEO"
+		},
+		"actions": {
+			"rewrite": "Переписати",
+			"shorter": "Коротше",
+			"longer": "Довше",
+			"fixGrammar": "Виправити граматику",
+			"seo": "SEO"
+		},
+		"chat": {
+			"title": "AI-помічник",
+			"targeting": "Ціль:",
+			"close": "Закрити",
+			"emptyLine1": "Виділіть текст у полі та скористайтеся швидкими діями,",
+			"emptyLine2": "або введіть запит нижче.",
+			"applyTo": "Застосувати до {{field}}",
+			"copy": "Копіювати",
+			"inputPlaceholder": "Попросіть AI допомогти…",
+			"send": "Надіслати",
+			"errorPrefix": "Помилка: {{message}}"
+		},
+		"settings": {
+			"addProvider": "+ Додати постачальника",
+			"loading": "Завантаження налаштувань AI…",
+			"saveFailed": "Не вдалося зберегти",
+			"defaultModel": "Модель за замовчуванням",
+			"noModels": "Немає доступних моделей — підключіть постачальника нижче",
+			"cloudIntro": "AI-постачальники керуються Innolope Cloud. Усі основні моделі доступні. Виберіть бажану модель вище.",
+			"providerApiKeys": "API-ключі постачальників",
+			"providerApiKeysHelp": "Додайте власні API-ключі, щоб увімкнути функції AI. Ключі зберігаються зашифрованими для кожного проєкту. Ви можете додати того самого постачальника кілька разів для ротації ключів; рядки використовуються згори донизу.",
+			"providerLabelNumbered": "{{label}} #{{n}}",
+			"dragToReorder": "Перетягніть, щоб змінити порядок",
+			"connectedReplace": "Підключено (введіть новий ключ, щоб замінити)",
+			"pasteApiKey": "Вставте API-ключ…",
+			"connected": "Підключено",
+			"removeProvider": "Видалити постачальника",
+			"removeProviderTitle": "Видалити {{provider}}?",
+			"removeProviderConnectedMessage": "Це видалить ключ {{provider}}. Збережений API-ключ буде видалено після збереження.",
+			"removeProviderMessage": "Це видалить рядок постачальника {{provider}}.",
+			"remove": "Видалити",
+			"fallbackTitle": "Перемикатися на інших постачальників за обмеженням або помилкою",
+			"fallbackHelp": "Якщо постачальник вибраної моделі повертає 429 або 5xx, спробувати наступного увімкненого постачальника зі списку (використовуючи його модель за замовчуванням)."
+		}
+	},
+	"media": {
+		"unsplash": {
+			"integrationTitle": "Інтеграція Unsplash",
+			"upgradeDescription": "Ця функція потребує ліцензії Innolope CMS Pro. Розблоковує AI-написання, вебхуки та підтримку кількох проєктів.",
+			"viewPlans": "Переглянути тарифи",
+			"checking": "Перевірка Unsplash…",
+			"notConfigured": "Unsplash не налаштовано.",
+			"setEnvVarPrefix": "Встановіть",
+			"setEnvVarSuffix": "щоб увімкнути.",
+			"searchPlaceholder": "Пошук фото на Unsplash…",
+			"noPhotosFound": "Фото не знайдено.",
+			"searchFreePhotos": "Шукайте безкоштовні фото на Unsplash.",
+			"savedToLibrary": "Збережено в бібліотеку",
+			"saveToLibrary": "Зберегти в бібліотеку",
+			"loadMore": "Завантажити ще",
+			"photosByPrefix": "Фото",
+			"savedToast": "Збережено \"{{alt}}\" від {{author}}",
+			"photoFallback": "фото",
+			"savePhotoFailed": "Не вдалося зберегти фото"
+		}
+	},
+	"editor": {
+		"fieldRenderer": {
+			"yes": "Так",
+			"no": "Ні",
+			"selectPlaceholder": "Виберіть…",
+			"addOption": "+ Додати варіант…"
+		},
+		"imagePicker": {
+			"title": "Вставити зображення",
+			"close": "Закрити",
+			"tabs": { "unsplash": "Unsplash", "url": "URL" },
+			"imageUrl": "URL зображення",
+			"altTextOptional": "Alt-текст (необов’язково)",
+			"describeImage": "Опишіть зображення",
+			"insertImage": "Вставити зображення"
+		},
+		"jsonField": {
+			"invalidJson": "Недійсний JSON",
+			"invalidJsonWithMessage": "Недійсний JSON: {{message}}"
+		},
+		"localizationBar": {
+			"locale": "Локаль",
+			"singleLocale": "Одна локаль",
+			"compareLocales": "Порівняти локалі поруч",
+			"translate": "Перекласти",
+			"translating": "Переклад…",
+			"translateWithAiTitle": "Перекласти {{source}} → {{target}} за допомогою AI"
+		},
+		"localizedTextField": {
+			"translateAria": "Перекласти {{source}} на {{target}}",
+			"translateTitle": "Перекласти {{source}} → {{target}}"
+		},
+		"markdownEditor": {
+			"placeholder": "Почніть писати…",
+			"addLink": "Додати посилання",
+			"linkUrl": "URL посилання",
+			"toolbar": {
+				"bulletList": "Список",
+				"quote": "Цитата",
+				"code": "Код",
+				"image": "Зображення",
+				"link": "Посилання"
+			}
+		},
+		"objectArrayField": {
+			"yes": "Так",
+			"no": "Ні",
+			"nested": "(вкладене)",
+			"addEmptyRow": "+ Додати порожній рядок",
+			"addRow": "+ Додати рядок",
+			"removeRow": "Видалити рядок {{index}}"
+		},
+		"pillInput": {
+			"placeholder": "Введіть і натисніть Enter",
+			"remove": "Видалити {{label}}"
+		},
+		"relationField": {
+			"uploadFailed": "Не вдалося завантажити",
+			"createFailed": "Не вдалося створити",
+			"relatedNotImported": "Пов’язана колекція \"{{name}}\" не імпортована — показано необроблений ідентифікатор посилання.",
+			"noRelatedCollection": "Не виявлено пов’язаної колекції для цього поля.",
+			"selectLabel": "Виберіть {{label}}…",
+			"none": "— Немає —",
+			"noRecordsYet": "Записів ще немає.",
+			"createNew": "+ Створити новий {{label}}",
+			"uploadImage": "Завантажити зображення",
+			"uploading": "Завантаження…",
+			"newDialogTitle": "Новий {{label}}",
+			"namePlaceholder": "Назва",
+			"creating": "Створення…"
+		}
+	},
+	"settings": {
+		"analytics": {
+			"loading": "Завантаження аналітики…",
+			"unavailable": "Аналітика недоступна.",
+			"readsBySource": "Перегляди за джерелом (30 днів)",
+			"noReads": "Переглядів ще немає.",
+			"total": "Усього",
+			"mostReadContent": "Найпопулярніший вміст",
+			"topSearchQueries": "Топ пошукових запитів",
+			"contentGaps": "Прогалини у вмісті",
+			"contentGapsDesc": "Запити, у яких більше промахів, ніж збігів — варто створити вміст на ці теми.",
+			"readsCount_one": "{{count}} перегляд",
+			"readsCount_few": "{{count}} перегляди",
+			"readsCount_many": "{{count}} переглядів",
+			"readsCount_other": "{{count}} перегляду",
+			"missesCount_one": "{{count}} промах",
+			"missesCount_few": "{{count}} промахи",
+			"missesCount_many": "{{count}} промахів",
+			"missesCount_other": "{{count}} промаху",
+			"hitsMisses": "{{hits}} збігів / {{misses}} промахів"
+		},
+		"collectionAccess": {
+			"fullAccessNote": "Повний доступ (ця роль надає доступ до всіх колекцій).",
+			"allCollections": "Усі колекції",
+			"specificCollections": "Певні колекції",
+			"linkedTooltip": "Автоматично читається через зв’язки — надавайте, лише якщо користувач повинен її редагувати напряму.",
+			"linkedBadge": "пов’язано",
+			"noCollections": "У цьому проєкті ще немає колекцій.",
+			"linkedHelp": "Пов’язані колекції (використовуються як цілі зв’язків) читаються автоматично через зв’язки — надавайте їх лише якщо користувач повинен керувати записами напряму."
+		},
+		"customDomain": {
+			"copy": "Копіювати",
+			"copied": "Скопійовано",
+			"loadFailed": "Не вдалося завантажити кастомний домен",
+			"saveFailed": "Не вдалося зберегти домен",
+			"verifyFailed": "Перевірку не пройдено",
+			"verifiedToast": "Домен підтверджено",
+			"removeFailed": "Не вдалося видалити домен",
+			"removeConfirmTitle": "Видалити кастомний домен",
+			"removeConfirmMessage": "Видалити цей кастомний домен? CMS більше не буде доступна на ньому.",
+			"removeConfirmLabel": "Видалити",
+			"intro1": "Прив’яжіть власний домен, щоб ваша команда входила в цей проєкт за брендованим URL (напр.",
+			"intro2": "). Домен прив’язаний до цього проєкту — кожен, хто відвідує його, потрапляє безпосередньо на сторінку входу цього проєкту.",
+			"domain": "Домен",
+			"addDomain": "Додати домен",
+			"verifiedAndLive": "Підтверджено та активно",
+			"pendingVerification": "Очікує перевірки",
+			"remove": "Видалити",
+			"step1Title": "Крок 1 — Підтвердіть володіння",
+			"step1Desc": "Додайте цей TXT-запис у вашого DNS-провайдера, щоб підтвердити володіння доменом.",
+			"txtRecordName": "Ім’я TXT-запису",
+			"txtRecordValue": "Значення TXT-запису",
+			"step2Title": "Крок 2 — Спрямуйте домен",
+			"step2Desc1": "Додайте CNAME-запис, щоб домен вказував на CMS. HTTPS-сертифікат видається автоматично під час першого відвідування. Якщо ваш DNS на Cloudflare, встановіть цей запис на",
+			"step2Desc2": "(сіра хмара) — проксійований запис блокує видачу сертифіката.",
+			"dnsOnly": "Лише DNS",
+			"cnameLabel": "CNAME {{domain}} →",
+			"checking": "Перевірка…",
+			"verifyDomain": "Перевірити домен",
+			"signInAt": "Ваша команда тепер може входити в цей проєкт за адресою",
+			"cnameReminder1": "Переконайтеся, що CNAME-запис для",
+			"cnameReminder2": "вказує на",
+			"cnameReminder3": ". Якщо ваш DNS на Cloudflare, тримайте цей запис",
+			"cnameReminder4": "(сіра хмара)."
+		},
+		"general": {
+			"saveFailed": "Не вдалося зберегти",
+			"deleteFailed": "Не вдалося видалити робочий простір",
+			"projectName": "Назва проєкту",
+			"projectSlug": "Slug проєкту",
+			"slugHelp": "Використовується в URL та API. Зміна може зламати наявні інтеграції.",
+			"defaultLocale": "Локаль за замовчуванням",
+			"availableLocales": "Доступні локалі",
+			"localesHelp": "Коди локалей через кому.",
+			"dangerZone": "Небезпечна зона",
+			"deleteWorkspaceTitle": "Видалити цей робочий простір",
+			"deleteWorkspaceDesc": "Безповоротно видаляє робочий простір та його вміст CMS. Ваша зовнішня база даних і її дані не зачіпаються.",
+			"deleteWorkspace": "Видалити робочий простір",
+			"deleting": "Видалення…",
+			"deleteWorkspacePrompt1": "Це безповоротно видаляє",
+			"deleteWorkspacePrompt2": "та весь його вміст CMS, колекції та учасників. Цю дію неможливо скасувати. Ваша підключена зовнішня база даних і її дані не будуть видалені.",
+			"typeToConfirmPrefix": "Введіть",
+			"typeToConfirmSuffix": "для підтвердження"
+		},
+		"license": {
+			"pasteFirst": "Спочатку вставте ваш ліцензійний ключ.",
+			"activateFailed": "Не вдалося активувати ліцензію.",
+			"activatedToast": "Ліцензія {{plan}} активована.",
+			"removeFailed": "Не вдалося видалити ліцензію.",
+			"removeConfirmTitle": "Видалити ліцензію",
+			"removeConfirmMessage": "Видалити цю ліцензію та повернутися до тарифу Community?",
+			"removeConfirmLabel": "Видалити",
+			"removedToast": "Ліцензію видалено. Тепер працює на тарифі Community.",
+			"cloudNotice": "Цей екземпляр працює на Innolope Cloud — усі функції включено, і ліцензійний ключ не потрібен.",
+			"currentPlan": "Поточний тариф",
+			"licensedBadge": "Ліцензовано",
+			"organization": "Організація",
+			"expires": "Закінчується",
+			"unlockedFeatures": "Розблоковані функції",
+			"communityNotice": "Ви на безкоштовному тарифі Community. Активуйте ліцензійний ключ нижче, щоб розблокувати функції Pro та Enterprise.",
+			"replaceKey": "Замінити ліцензійний ключ",
+			"activateLicense": "Активувати ліцензію",
+			"activateDesc": "Вставте ліцензійний ключ із вашої покупки Innolope CMS. Ключі починаються з",
+			"verifying": "Перевірка…",
+			"activateButton": "Активувати ліцензію",
+			"removeLicense": "Видалити ліцензію",
+			"viewPlans": "Переглянути тарифи та ціни",
+			"plans": { "community": "Community", "pro": "Pro", "enterprise": "Enterprise" },
+			"features": {
+				"sso": "Єдиний вхід (SAML та OIDC)",
+				"auditLog": "Журнал аудиту",
+				"aiAssistant": "AI-помічник та семантичний пошук",
+				"multipleProjects": "Кілька проєктів",
+				"webhooks": "Вебхуки",
+				"scheduling": "Планування вмісту",
+				"customRoles": "Кастомні ролі",
+				"whiteLabel": "White-Label",
+				"reviewWorkflows": "Робочі процеси перевірки",
+				"mediaIntegrations": "Медіабібліотека"
+			}
+		},
+		"media": {
+			"saveFailed": "Не вдалося зберегти",
+			"storageAdapter": "Адаптер сховища",
+			"setViaEnv": "Встановлено через змінну середовища",
+			"cfEnvConfiguredTitle": "Облікові дані Cloudflare налаштовано через середовище",
+			"cfEnvConfiguredDesc": "Усі необхідні облікові дані Cloudflare встановлено як змінні середовища на сервері. Додаткове налаштування не потрібне.",
+			"localDesc": "Файли зберігаються у файловій системі сервера. Підходить для розробки та невеликих розгортань.",
+			"configuredViaEnv": "Налаштовано через середовище",
+			"overridePlaceholder": "Перевизначити значення середовища…",
+			"overridingEnv": "Перевизначення змінної середовища",
+			"adapters": {
+				"local": "Локальна файлова система",
+				"cloudflare": "Cloudflare (Images + R2 + Stream)",
+				"s3": "S3-сумісний"
+			},
+			"fields": {
+				"accountId": "ID акаунта",
+				"apiToken": "API-токен",
+				"imagesAccountHash": "Хеш акаунта Images",
+				"r2Bucket": "Кошик R2",
+				"r2AccessKeyId": "Access Key ID для R2",
+				"r2SecretAccessKey": "Secret Access Key для R2",
+				"r2Endpoint": "Endpoint R2"
+			}
+		},
+		"sso": {
+			"loadFailed": "Не вдалося завантажити SSO-підключення",
+			"nameSlugRequired": "Назва та slug обов’язкові",
+			"saveFailed": "Не вдалося зберегти",
+			"deleteFailed": "Не вдалося видалити",
+			"deleteConfirmTitle": "Видалити SSO-підключення",
+			"deleteConfirmMessage": "Це безповоротно видаляє SSO-підключення. Цю дію неможливо скасувати.",
+			"deleteConfirmLabel": "Видалити",
+			"loading": "Завантаження SSO-підключень…",
+			"intro": "Налаштуйте єдиний вхід SAML або OIDC для вашої команди. Користувачі, чий поштовий домен відповідає увімкненому підключенню, можуть входити через свого постачальника ідентифікації.",
+			"addConnection": "Додати підключення",
+			"empty": "SSO-підключень ще немає. Додайте одне, щоб федерувати входи з вашим IdP.",
+			"statusEnabled": "увімкнено",
+			"statusDisabled": "вимкнено",
+			"statusEnforced": "обов’язково",
+			"domainsList": "Домени: {{domains}}",
+			"noDomainFilter": "Без фільтра доменів",
+			"slugLabel": "slug: {{slug}}",
+			"edit": "Редагувати",
+			"delete": "Видалити",
+			"editTitle": "Редагувати SSO-підключення",
+			"newTitle": "Нове SSO-підключення",
+			"fields": {
+				"displayName": "Відображувана назва",
+				"slug": "Slug (використовується в URL перенаправлення)",
+				"protocol": "Протокол",
+				"domainAllowlist": "Список дозволених поштових доменів (через кому)",
+				"issuerUrl": "URL видавця",
+				"clientId": "Client ID",
+				"clientSecret": "Client secret",
+				"clientSecretExisting": "Client secret (залиште порожнім, щоб залишити поточний)",
+				"scopes": "Scopes (через пробіл)",
+				"idpEntityId": "IdP Entity ID",
+				"idpSsoUrl": "IdP SSO URL",
+				"idpCerts": "Сертифікати IdP (PEM, по одному блоку на сертифікат — додайте другий під час ротації)",
+				"emailClaim": "Claim для email",
+				"nameClaim": "Claim для імені",
+				"groupsClaim": "Claim для груп",
+				"defaultRole": "Роль за замовчуванням",
+				"groupRoleMap": "Зіставлення групи → роль (по одному рядку: GROUP_NAME=role)"
+			},
+			"flags": {
+				"enabled": "Увімкнено",
+				"enforceSso": "Обов’язковий SSO (блокувати вхід паролем для відповідних доменів)",
+				"allowIdpInitiated": "Дозволити ініційовані IdP",
+				"signedAssertions": "Вимагати підписані assertions",
+				"encryptedAssertions": "Вимагати шифровані assertions"
+			},
+			"protocols": { "oidc": "OIDC (OpenID Connect)", "saml": "SAML 2.0" },
+			"roles": { "admin": "адміністратор", "editor": "редактор", "viewer": "глядач" },
+			"addSecondCertWarning": "Додайте другий сертифікат перед ротацією, щоб уникнути простою.",
+			"attrRolesTitle": "Зіставлення атрибутів та ролей",
+			"saving": "Збереження…",
+			"saveChanges": "Зберегти зміни",
+			"createConnection": "Створити підключення",
+			"scim": {
+				"title": "Токени провізіонування SCIM",
+				"baseUrlLabel": "Базовий URL:",
+				"description": "Згенеруйте bearer-токен для SCIM-клієнта вашого IdP. Токени можуть створювати та деактивувати користувачів, але не можуть переглядати секрети чи змінювати конфігурацію SSO.",
+				"saveTokenNotice": "Збережіть цей токен зараз. Він більше не буде показаний.",
+				"dismiss": "Закрити",
+				"loading": "Завантаження токенів…",
+				"noTokens": "Токенів ще немає.",
+				"colName": "Назва",
+				"colPrefix": "Префікс",
+				"colCreated": "Створено",
+				"colLastUsed": "Останнє використання",
+				"never": "Ніколи",
+				"revoked": "ВІДКЛИКАНО",
+				"revoke": "Відкликати",
+				"revokeConfirmTitle": "Відкликати SCIM-токен",
+				"revokeConfirmMessage": "Відкликати цей SCIM-токен? Активні синхронізації з ним почнуть падати.",
+				"revokeConfirmLabel": "Відкликати",
+				"createFailed": "Не вдалося створити токен",
+				"tokenNamePlaceholder": "Назва токена (напр. Okta sync)",
+				"generating": "Генерування…",
+				"generateToken": "Згенерувати токен"
+			}
+		},
+		"team": {
+			"loading": "Завантаження команди…",
+			"inviteFailed": "Не вдалося надіслати запрошення",
+			"updateAccessFailed": "Не вдалося оновити доступ",
+			"updateRoleFailed": "Не вдалося оновити роль",
+			"removeFailed": "Не вдалося видалити учасника",
+			"removeConfirmTitle": "Видалити учасника",
+			"removeConfirmMessage": "Видалити {{name}} з цього проєкту?",
+			"removeConfirmLabel": "Видалити",
+			"members": "Учасники",
+			"pendingInvites": "Запрошення в очікуванні",
+			"inviteMember": "Запросити учасника",
+			"collectionAccess": "Доступ до колекцій",
+			"editAccess": "Редагувати доступ",
+			"remove": "Видалити",
+			"saveAccess": "Зберегти доступ",
+			"savingAccess": "Збереження…",
+			"sending": "Надсилання…",
+			"sendInvite": "Надіслати запрошення",
+			"inviteSent": "Запрошення надіслано на {{email}}",
+			"expiresOn": "Закінчується {{date}}",
+			"collectionsScope_one": "{{count}} колекція",
+			"collectionsScope_few": "{{count}} колекції",
+			"collectionsScope_many": "{{count}} колекцій",
+			"collectionsScope_other": "{{count}} колекції",
+			"scope": { "fullAccess": "Повний доступ", "allCollections": "Усі колекції" },
+			"roles": { "owner": "власник", "admin": "адміністратор", "editor": "редактор", "viewer": "глядач" }
+		},
+		"webhook": {
+			"createFailed": "Не вдалося створити вебхук",
+			"testError": "Тест не пройдено",
+			"testSuccess": "Тестова доставка успішна!",
+			"testFailed": "Тестова доставка не вдалася.",
+			"deleteConfirmTitle": "Видалити вебхук",
+			"deleteConfirmMessage": "Видалити цей вебхук?",
+			"deleteConfirmLabel": "Видалити",
+			"intro": "Отримуйте HTTP-зворотні виклики, коли змінюється вміст",
+			"create": "Створити вебхук",
+			"secretReveal": "Секрет вебхука (скопіюйте зараз — показується лише раз):",
+			"dismiss": "Закрити",
+			"emptyTitle": "Вебхуки не налаштовано",
+			"emptyDesc": "Вебхуки сповіщають зовнішні сервіси в реальному часі, коли вміст створюється, оновлюється, публікується чи видаляється.",
+			"createFirst": "Створіть ваш перший вебхук",
+			"allEvents": "Усі події",
+			"active": "Активний",
+			"paused": "Призупинено",
+			"logs": "Журнали",
+			"test": "Тест",
+			"pause": "Призупинити",
+			"enable": "Увімкнути",
+			"delete": "Видалити",
+			"recentDeliveries": "Останні доставки",
+			"noDeliveries": "Доставок ще немає.",
+			"endpointUrl": "URL endpoint",
+			"eventsLabel": "Події (залиште порожнім для всіх)"
+		},
+		"database": {
+			"scanFailed": "Сканування не вдалося",
+			"scanDatabasesFailed": "Не вдалося просканувати бази даних",
+			"connectionFailed": "Підключення не вдалося",
+			"saveFailed": "Не вдалося зберегти",
+			"probeFailed": "Перевірка не вдалася",
+			"resyncFailed": "Повторна синхронізація не вдалася",
+			"selectAtLeastOne": "Виберіть принаймні одну колекцію для відображення",
+			"adapterPromotedToast": "Також використовуємо Cloudflare Images для нових завантажень.",
+			"tableWord": { "tables": "Таблиці", "collections": "Колекції" },
+			"steps": {
+				"database": "База даних",
+				"connection": "Підключення",
+				"confirmDb": "Підтвердити БД",
+				"mediaStorage": "Сховище медіа"
+			},
+			"dbDesc": {
+				"builtIn": "Керована PostgreSQL",
+				"mongodb": "Atlas або self-hosted",
+				"postgresql": "Пряме підключення",
+				"mysql": "Пряме підключення",
+				"supabase": "Керована Postgres",
+				"cockroachdb": "Розподілений SQL",
+				"firebase": "Підключення до Firestore",
+				"neon": "Serverless Postgres",
+				"vercelPostgres": "Serverless SQL"
+			},
+			"connHelp": {
+				"mongodb": {
+					"label": "Рядок підключення MongoDB",
+					"instructions": {
+						"0": "Відкрийте MongoDB Atlas і виберіть ваш кластер",
+						"1": "Натисніть \"Connect\", потім виберіть \"Drivers\"",
+						"2": "Скопіюйте рядок підключення та замініть <password> на пароль користувача БД"
+					}
+				},
+				"postgresql": {
+					"label": "Рядок підключення PostgreSQL",
+					"instructions": {
+						"0": "Знайдіть деталі підключення в панелі вашого PostgreSQL-хостингу",
+						"1": "Об’єднайте host, port, user, password і ім’я БД у формат URI",
+						"2": "Якщо потрібен SSL, додайте ?sslmode=require до рядка"
+					}
+				},
+				"mysql": {
+					"label": "Рядок підключення MySQL",
+					"instructions": {
+						"0": "Знайдіть деталі підключення в панелі вашого MySQL-хостингу або конфігурації сервера",
+						"1": "Об’єднайте host, port, user, password і ім’я БД у формат URI",
+						"2": "Порт за замовчуванням 3306, якщо не налаштовано інакше"
+					}
+				},
+				"supabase": {
+					"label": "Рядок підключення Supabase",
+					"instructions": {
+						"0": "Відкрийте панель вашого Supabase-проєкту",
+						"1": "Перейдіть у Project Settings → Database",
+						"2": "Прокрутіть до розділу \"Connection string\" і виберіть URI",
+						"3": "Скопіюйте рядок і замініть [YOUR-PASSWORD] на пароль вашої БД"
+					}
+				},
+				"cockroachdb": {
+					"label": "Рядок підключення CockroachDB",
+					"instructions": {
+						"0": "Відкрийте CockroachDB Cloud Console",
+						"1": "Виберіть ваш кластер і натисніть \"Connect\"",
+						"2": "Виберіть \"General connection string\" і скопіюйте його",
+						"3": "Замініть placeholder пароля на пароль SQL-користувача"
+					}
+				},
+				"firebase": {
+					"label": "JSON сервісного акаунта Firebase",
+					"instructions": {
+						"0": "Відкрийте Firebase Console і виберіть ваш проєкт",
+						"1": "Перейдіть у Project Settings → Service accounts",
+						"2": "Натисніть \"Generate new private key\", щоб завантажити JSON-файл",
+						"3": "Відкрийте файл і вставте весь вміст JSON нижче"
+					}
+				},
+				"neon": {
+					"label": "Рядок підключення Neon",
+					"instructions": {
+						"0": "Відкрийте панель вашого Neon-проєкту",
+						"1": "Рядок підключення показано на головній сторінці Dashboard",
+						"2": "Натисніть кнопку копіювання поряд із \"Connection Details\"",
+						"3": "Переконайтеся, що sslmode=require включено"
+					}
+				},
+				"vercelPostgres": {
+					"label": "URL Vercel Postgres",
+					"instructions": {
+						"0": "Відкрийте панель Vercel і перейдіть у Storage",
+						"1": "Виберіть вашу базу даних Postgres",
+						"2": "Переключіться на вкладку \".env.local\"",
+						"3": "Скопіюйте значення POSTGRES_URL (не POSTGRES_URL_NON_POOLING)"
+					}
+				}
+			},
+			"connectedTo": "Підключено до",
+			"connectionSavedSecurely": "Підключення збережено безпечно",
+			"resyncTitle": "Повторна синхронізація колекцій і схеми",
+			"resyncDesc": "Повторно скануємо базу даних, щоб оновити типи полів (дати, зв’язки) і додати нові пов’язані колекції.",
+			"resync": "Синхронізувати",
+			"resyncing": "Синхронізація…",
+			"resyncComplete_one": "Синхронізацію завершено — оновлено {{count}} колекцію",
+			"resyncComplete_few": "Синхронізацію завершено — оновлено {{count}} колекції",
+			"resyncComplete_many": "Синхронізацію завершено — оновлено {{count}} колекцій",
+			"resyncComplete_other": "Синхронізацію завершено — оновлено {{count}} колекції",
+			"resyncPhase": {
+				"scanning": "Сканування бази даних на зміни…",
+				"importing": "Імпортування схеми колекції…",
+				"refreshing": "Оновлення колекцій…"
+			},
+			"stepOfTotal": "Крок {{current}} з {{total}}",
+			"selectCollectionsToDisplay": "Виберіть колекції для відображення",
+			"noCollectionsFound": "У цій базі даних не знайдено колекцій.",
+			"referencesAuto": "Посилається на {{target}} — імпортовано автоматично",
+			"referencesAutoImport": "Посилається на {{target}} — буде імпортовано автоматично",
+			"recordsCount_one": "запис",
+			"recordsCount_few": "записи",
+			"recordsCount_many": "записів",
+			"recordsCount_other": "запису",
+			"importCollections_one": "Імпортувати {{count}} колекцію",
+			"importCollections_few": "Імпортувати {{count}} колекції",
+			"importCollections_many": "Імпортувати {{count}} колекцій",
+			"importCollections_other": "Імпортувати {{count}} колекції",
+			"changeDbSource": "Змінити джерело бази даних",
+			"selectDbSource": "Виберіть джерело бази даних",
+			"builtInDesc": "Вміст зберігається у вбудованій базі даних Innolope CMS. Зовнішнє підключення не потрібне.",
+			"switchToBuiltIn": "Переключитися на вбудовану",
+			"changeProvider": "Змінити постачальника",
+			"howToFind": "Як знайти ваш рядок підключення",
+			"formatLabel": "Формат",
+			"testingConnection": "Перевірка підключення…",
+			"scanning": "Сканування…",
+			"editConnectionString": "Редагувати рядок підключення",
+			"selectADatabase": "Виберіть базу даних",
+			"foundDatabases_one": "Ми знайшли {{count}} базу даних на цьому сервері. Виберіть, яку підключити.",
+			"foundDatabases_few": "Ми знайшли {{count}} бази даних на цьому сервері. Виберіть, яку підключити.",
+			"foundDatabases_many": "Ми знайшли {{count}} баз даних на цьому сервері. Виберіть, яку підключити.",
+			"foundDatabases_other": "Ми знайшли {{count}} бази даних на цьому сервері. Виберіть, яку підключити.",
+			"chooseDifferentDatabase": "Вибрати іншу базу даних",
+			"refreshCollections": "Оновити колекції",
+			"databaseFound": "Знайдено базу даних:",
+			"scanningCollections": "Сканування колекцій…",
+			"scanningTables": "Сканування таблиць…",
+			"detectedCollectionsLabel": "Виявлені колекції — виберіть, якими керувати як колекціями CMS",
+			"detectedTablesLabel": "Виявлені таблиці — виберіть, якими керувати як колекціями CMS",
+			"sort": "Сортування",
+			"sortAZ": "А-Я",
+			"sortRecords": "Записи",
+			"hideEmpty": "Сховати порожні",
+			"colName": "Назва",
+			"colFields": "Поля",
+			"colColumns": "Стовпці",
+			"colRecords": "Записи",
+			"colSize": "Розмір",
+			"emptyHiddenCollections_one": "{{count}} порожню колекцію приховано",
+			"emptyHiddenCollections_few": "{{count}} порожні колекції приховано",
+			"emptyHiddenCollections_many": "{{count}} порожніх колекцій приховано",
+			"emptyHiddenCollections_other": "{{count}} порожні колекції приховано",
+			"emptyHiddenTables_one": "{{count}} порожню таблицю приховано",
+			"emptyHiddenTables_few": "{{count}} порожні таблиці приховано",
+			"emptyHiddenTables_many": "{{count}} порожніх таблиць приховано",
+			"emptyHiddenTables_other": "{{count}} порожні таблиці приховано",
+			"noCollectionsInDb": "У цій базі даних не знайдено колекцій.",
+			"noTablesInDb": "У цій базі даних не знайдено таблиць.",
+			"selectedCollectionsSize": "Розмір вибраних колекцій: {{size}}",
+			"selectedTablesSize": "Розмір вибраних таблиць: {{size}}",
+			"tooLargeToCache": "— занадто велика для автоматичного кешування; записи читаються живими з бази даних до синхронізації",
+			"accessMode": "Режим доступу",
+			"readWrite": "Читання та запис",
+			"readOnly": "Лише читання",
+			"continue": "Продовжити",
+			"save": "Зберегти",
+			"backTo": "Назад до {{target}}",
+			"mediaWhereTitle": "Де зберігаються ваші медіафайли?",
+			"mediaWhereDesc_one": "Ми виявили {{count}} медіабібліотеку. Вкажіть, де знаходяться файли, щоб CMS могла будувати робочі URL зі збережених шляхів.",
+			"mediaWhereDesc_few": "Ми виявили {{count}} медіабібліотеки. Вкажіть, де знаходяться файли, щоб CMS могла будувати робочі URL зі збережених шляхів.",
+			"mediaWhereDesc_many": "Ми виявили {{count}} медіабібліотек. Вкажіть, де знаходяться файли, щоб CMS могла будувати робочі URL зі збережених шляхів.",
+			"mediaWhereDesc_other": "Ми виявили {{count}} медіабібліотеки. Вкажіть, де знаходяться файли, щоб CMS могла будувати робочі URL зі збережених шляхів.",
+			"credSavedPlaceholder": "•••••• збережено — залиште порожнім, щоб залишити",
+			"providers": {
+				"public": {
+					"label": "Публічний URL",
+					"desc": "Файли завантажуються напряму за URL — облікові дані не потрібні."
+				},
+				"r2": {
+					"label": "Cloudflare R2",
+					"desc": "Приватний кошик — CMS підписує короткоживучі URL."
+				},
+				"cloudflareImages": {
+					"label": "Cloudflare Images",
+					"desc": "Приватні зображення — CMS підписує URL доставки."
+				}
+			},
+			"probe": {
+				"checking": "Перевіряємо, де зберігаються ці файли…",
+				"public": "Ми перевірили зразок файлів — вони завантажуються публічно. Більше нічого налаштовувати не потрібно.",
+				"privateWithProvider": "Ці файли приватні — схоже на {{provider}}. Введіть його облікові дані нижче.",
+				"privateGeneric": "Ці файли приватні. Виберіть хост нижче і введіть його облікові дані.",
+				"needBaseUrl": "Ці файли зберігаються як відносні шляхи — вкажіть, як вони обслуговуються, нижче.",
+				"errorGeneric": "Нам не вдалося перевірити автоматично. Виберіть, де зберігаються ці файли, нижче.",
+				"errorWithDetail": "Нам не вдалося перевірити автоматично ({{detail}}). Виберіть, де зберігаються ці файли, нижче."
+			},
+			"mediaLibraryBadge": "медіабібліотека",
+			"suggested": "Запропоновано",
+			"baseUrl": "Базовий URL",
+			"optionalSuffix": "(необов’язково)",
+			"baseUrlHelp": "Залиште порожнім, якщо збережені шляхи вже є повними URL.",
+			"creds": {
+				"accountId": "ID акаунта",
+				"apiToken": "API-токен",
+				"accountHash": "Хеш акаунта",
+				"signingKey": "Ключ підпису URL",
+				"r2Bucket": "Кошик R2",
+				"accessKeyId": "Access Key ID",
+				"secretAccessKey": "Secret Access Key",
+				"serverSideNote": "Зберігається на сервері й ніколи не повертається в браузер."
+			},
+			"filePathsFrom": "Шляхи до файлів з",
+			"done": "Готово",
+			"change": "Змінити",
+			"recheckAccess": "Перевірити доступ",
+			"importedMediaTitle": "Імпортоване сховище медіа",
+			"importedMediaDescription_one": "Ми перевіряємо, де зберігаються файли вашої імпортованої медіабібліотеки, і показуємо, що знайшли, нижче — підтвердьте хост і додайте облікові дані, якщо вони приватні.",
+			"importedMediaDescription_few": "Ми перевіряємо, де зберігаються файли ваших імпортованих медіабібліотек, і показуємо, що знайшли, нижче — підтвердьте хост і додайте облікові дані, якщо вони приватні.",
+			"importedMediaDescription_many": "Ми перевіряємо, де зберігаються файли ваших імпортованих медіабібліотек, і показуємо, що знайшли, нижче — підтвердьте хост і додайте облікові дані, якщо вони приватні.",
+			"importedMediaDescription_other": "Ми перевіряємо, де зберігаються файли ваших імпортованих медіабібліотек, і показуємо, що знайшли, нижче — підтвердьте хост і додайте облікові дані, якщо вони приватні.",
+			"saveMediaStorage": "Зберегти сховище медіа"
+		}
+	},
+	"notFound": {
+		"code": "404",
+		"message": "Сторінку не знайдено",
+		"backToDashboard": "Повернутися на панель керування"
+	},
+	"login": {
+		"subtitle": {
+			"setup": "Ласкаво просимо! Налаштуйте свій акаунт Innolope CMS, щоб почати.",
+			"signIn": "Увійдіть у свій акаунт Innolope CMS",
+			"signInToProject": "Увійти в {{name}}"
+		},
+		"fields": { "yourName": "Ваше ім’я", "email": "Електронна пошта", "password": "Пароль" },
+		"placeholders": { "name": "Inna Lope", "email": "admin@example.com", "password": "Мін. 8 символів" },
+		"errors": {
+			"invalidEmail": "Введіть дійсну адресу електронної пошти.",
+			"enterName": "Введіть ваше ім’я.",
+			"passwordTooShort": "Пароль має містити щонайменше 8 символів.",
+			"authFailed": "Аутентифікацію не пройдено"
+		},
+		"continueWithSso": "Продовжити з {{name}}",
+		"pleaseWait": "Зачекайте, будь ласка…",
+		"createAdminAccount": "Створити акаунт адміністратора",
+		"signIn": "Увійти",
+		"orUsePassword": "або використайте ваш пароль нижче",
+		"forgotPassword": "Забули пароль?"
+	},
+	"forgotPassword": {
+		"title": "Скидання пароля",
+		"subtitle": "Введіть вашу електронну пошту, і ми надішлемо посилання для скидання.",
+		"sentMessage": "Якщо акаунт для <strong>{{email}}</strong> існує, ви незабаром отримаєте посилання для скидання.",
+		"backToLogin": "Назад до входу",
+		"email": "Електронна пошта",
+		"emailPlaceholder": "your@email.com",
+		"sending": "Надсилання…",
+		"sendResetLink": "Надіслати посилання",
+		"errors": { "generic": "Щось пішло не так" }
+	},
+	"resetPassword": {
+		"title": "Новий пароль",
+		"subtitle": "Введіть ваш новий пароль.",
+		"invalidLink": "Недійсне посилання для скидання.",
+		"backToLogin": "Назад до входу",
+		"successRedirect": "Пароль оновлено! Перенаправлення на вхід…",
+		"newPassword": "Новий пароль",
+		"minPlaceholder": "Мін. 8 символів",
+		"confirmPassword": "Підтвердьте пароль",
+		"repeatPlaceholder": "Повторіть пароль",
+		"updating": "Оновлення…",
+		"setNewPassword": "Встановити новий пароль",
+		"errors": { "mismatch": "Паролі не збігаються.", "resetFailed": "Скидання не вдалося" }
+	},
+	"acceptInvite": {
+		"accepting": "Прийняття запрошення…",
+		"redirecting": "Перенаправлення…",
+		"createAccountToJoin": "Створіть акаунт з <strong>{{email}}</strong>, щоб приєднатися.",
+		"createAccount": "Створити акаунт",
+		"goToLogin": "Перейти до входу",
+		"errors": { "noToken": "Токен запрошення не надано.", "failed": "Не вдалося прийняти запрошення." }
+	},
+	"onboarding": {
+		"welcome": "Ласкаво просимо до Innolope CMS",
+		"intro": "Ваш акаунт готовий. Давайте швидко подивимося, що ви можете робити — і активуємо ліцензію, якщо вона у вас є.",
+		"getStarted": "Почати",
+		"chooseTitle": "Виберіть, як далеко піти",
+		"chooseSubtitle": "Innolope CMS повністю функціональний безкоштовно. Pro та Enterprise розблоковують більше.",
+		"back": "Назад",
+		"continue": "Продовжити",
+		"activateTitle": "Активуйте вашу ліцензію",
+		"activateSubtitle": "Маєте ключ Pro або Enterprise? Вставте його нижче, щоб розблокувати платні функції. Це завжди можна зробити пізніше в Налаштуваннях.",
+		"licensePlaceholder": "ink-lic_…",
+		"verifying": "Перевірка…",
+		"activateAndContinue": "Активувати та продовжити",
+		"skip": "Пропустити — продовжити на Community",
+		"errors": { "pasteOrSkip": "Вставте ваш ліцензійний ключ або пропустіть поки що.", "activateFailed": "Не вдалося активувати ліцензію." },
+		"tiers": {
+			"community": {
+				"name": "Community",
+				"tagline": "Безкоштовно, self-hosted",
+				"features": {
+					"unlimited": "Необмежені колекції та вміст",
+					"restApi": "REST API та TypeScript SDK",
+					"mcpServer": "MCP-сервер для AI-агентів",
+					"teamAccounts": "Командні акаунти та ролі"
+				}
+			},
+			"pro": {
+				"name": "Pro",
+				"tagline": "Для зростаючих команд",
+				"features": {
+					"aiAssistant": "AI-помічник з написання",
+					"semanticSearch": "Семантичний пошук",
+					"mediaLibrary": "Медіабібліотека та Unsplash",
+					"webhooks": "Вебхуки та планування вмісту",
+					"multiProjects": "Кілька проєктів"
+				}
+			},
+			"enterprise": {
+				"name": "Enterprise",
+				"tagline": "Для організацій",
+				"features": {
+					"sso": "SSO — SAML та OIDC",
+					"auditLog": "Журнал аудиту",
+					"customRoles": "Кастомні ролі",
+					"whiteLabel": "White-label",
+					"reviewWorkflows": "Робочі процеси перевірки"
+				}
+			}
+		}
+	},
+	"dashboard": {
+		"title": "Панель керування",
+		"customizeStatistics": "Налаштувати статистику",
+		"customize": "Налаштувати",
+		"customizeDescription": "Виберіть, які дані показувати на вашій панелі.",
+		"close": "Закрити",
+		"resetToDefault": "Скинути до типових",
+		"done": "Готово",
+		"statsError": "Не вдалося завантажити статистику панелі. Перевірте підключення і перезавантажте сторінку.",
+		"analytics": "Аналітика вмісту (30 днів)",
+		"recentActivity": "Остання активність",
+		"noActivity": "Активності ще немає.",
+		"quickStart": "Швидкий старт",
+		"mcpConfig": "Конфігурація MCP",
+		"hideMcpConfig": "Сховати конфігурацію MCP",
+		"showMcpConfig": "Показати конфігурацію MCP",
+		"stats": {
+			"total": "Усього вмісту",
+			"published": "Опубліковано",
+			"draft": "Чернетки",
+			"media": "Медіафайли",
+			"apiKeys": "API-ключі",
+			"collections": "Колекції",
+			"members": "Учасники"
+		},
+		"steps": {
+			"createCollectionLink": "Створіть колекцію",
+			"createCollectionTail": "щоб визначити типи вмісту",
+			"generateApiKeyLink": "Згенеруйте API-ключ",
+			"generateApiKeyTail": "для Claude або інших AI-агентів",
+			"createContentLink": "Створіть вміст",
+			"createContentTail": "вручну або через MCP",
+			"consumeApiPrefix": "Споживайте через REST API за адресою",
+			"useSdkPrefix": "Або скористайтеся SDK:"
+		},
+		"timeAgo": {
+			"minutes": "{{count}} хв тому",
+			"hours": "{{count}} год тому",
+			"days": "{{count}} дн тому"
+		},
+		"empty": {
+			"welcomeTitle": "Ласкаво просимо до Innolope CMS",
+			"welcomeSubtitle": "Як ви хочете додати ваш перший вміст?",
+			"importComingSoon": "Імпорт файлів буде доступний скоро. Наразі використовуйте MCP-сервер або API для масового створення вмісту.",
+			"chooseDifferentMethod": "Вибрати інший метод",
+			"connectDb": {
+				"title": "Підключити базу даних",
+				"desc": "У мене вже є вміст у зовнішній базі даних",
+				"intro": "Підключіть зовнішню базу даних, щоб імпортувати наявний вміст."
+			},
+			"uploadFiles": {
+				"title": "Завантажити файли",
+				"desc": "У мене є вміст у файлах Markdown або JSON"
+			},
+			"fromScratch": {
+				"title": "Почати з нуля",
+				"desc": "Створіть нову колекцію та додайте вміст"
+			},
+			"upload": {
+				"title": "Завантажити вміст",
+				"intro": "Завантажте файли Markdown (.md) або JSON (.json), щоб імпортувати вміст.",
+				"chooseFiles": "Вибрати файли",
+				"dropHint": "Перетягніть .md, .json або .jsonl сюди, або натисніть для вибору"
+			}
+		}
+	},
+	"collections": {
+		"list": {
+			"notFound": "Колекцію не знайдено.",
+			"tabs": { "all": "Усі", "review": "Перевірка" },
+			"schema": "Схема",
+			"newRecord": "Новий {{name}}",
+			"upload": "Завантажити",
+			"uploading": "Завантаження…",
+			"uploaded_one": "Завантажено {{count}} файл",
+			"uploaded_few": "Завантажено {{count}} файли",
+			"uploaded_many": "Завантажено {{count}} файлів",
+			"uploaded_other": "Завантажено {{count}} файлу",
+			"uploadFailed": "Завантаження не вдалося",
+			"searchPlaceholder": "Пошук…",
+			"noMatches": "Жоден вміст не відповідає вашим фільтрам.",
+			"liveDataNote": "Показано живі дані із зовнішньої бази даних — ця колекція занадто велика для автоматичного кешування. Пошук, фільтрація, сортування та редагування потребують спочатку синхронізації колекції.",
+			"importedNeverEdited": "Імпортовано {{date}} — ніколи не редаговано",
+			"empty": {
+				"title": "Вмісту ще немає",
+				"subtitle": "Створіть ваш перший запис {{name}}.",
+				"create": "Створити {{name}}"
+			},
+			"columns": {
+				"name": "Назва",
+				"title": "Заголовок",
+				"slug": "Slug",
+				"status": "Статус",
+				"locale": "Локаль",
+				"lastEdited": "Востаннє редаговано",
+				"created": "Створено",
+				"published": "Опубліковано",
+				"actions": "Дії"
+			},
+			"status": {
+				"draft": "чернетка",
+				"pendingReview": "очікує перевірки",
+				"published": "опубліковано",
+				"archived": "архівовано"
+			},
+			"statusOptions": {
+				"draft": "Чернетка",
+				"pendingReview": "Очікує перевірки",
+				"published": "Опубліковано",
+				"archived": "Архівовано"
+			},
+			"pagination": {
+				"summary": "{{total}} елементів — сторінка {{page}}",
+				"previous": "Попередня",
+				"next": "Наступна"
+			},
+			"reject": {
+				"title": "Відхилити вміст",
+				"message": "Додайте необов’язкову причину відхилення цього вмісту.",
+				"reasonLabel": "Причина відхилення",
+				"reasonPlaceholder": "Необов’язково",
+				"confirm": "Відхилити"
+			},
+			"review": { "empty": "Немає вмісту, що очікує перевірки.", "approve": "Схвалити", "reject": "Відхилити" },
+			"sync": {
+				"button": "Синхронізувати",
+				"checking": "Перевірка…",
+				"syncing": "Синхронізація…",
+				"noDiscrepancies": "Зовнішніх розбіжностей не знайдено",
+				"previewFailed": "Перегляд синхронізації не вдався",
+				"failed": "Синхронізація не вдалася",
+				"success_one": "Синхронізовано {{updated}} оновлених і {{count}} новий елемент",
+				"success_few": "Синхронізовано {{updated}} оновлених і {{count}} нові елементи",
+				"success_many": "Синхронізовано {{updated}} оновлених і {{count}} нових елементів",
+				"success_other": "Синхронізовано {{updated}} оновлених і {{count}} нові елементи"
+			},
+			"syncDialog": {
+				"title": "Знайдено зовнішні зміни",
+				"intro": "Синхронізація перезапише локальний кеш CMS значеннями з зовнішньої БД. Копія кожної перезаписаної локальної версії буде збережена в історії версій.",
+				"local": "Локальне",
+				"external": "Зовнішнє",
+				"moreFields": "+{{count}} ще змінених полів",
+				"showingOf_one": "Показано {{showing}} з {{total}} розбіжності.",
+				"showingOf_few": "Показано {{showing}} з {{total}} розбіжностей.",
+				"showingOf_many": "Показано {{showing}} з {{total}} розбіжностей.",
+				"showingOf_other": "Показано {{showing}} з {{total}} розбіжностей.",
+				"overwrite": "Перезаписати локальний кеш"
+			},
+			"import": {
+				"progress": "Імпорт вмісту із зовнішньої БД — {{processed}} з {{total}} записів закешовано. Уся колекція доступна для перегляду; пошук, фільтрація та редагування стануть доступними після завершення імпорту.",
+				"progressUnknownTotal": "Імпорт вмісту із зовнішньої БД — {{processed}} записів закешовано. Уся колекція доступна для перегляду; пошук, фільтрація та редагування стануть доступними після завершення імпорту.",
+				"failed": "Імпорт вмісту не завершився. Деякі записи можуть бути відсутні — повторіть імпорт із налаштувань БД або скористайтеся синхронізацією.",
+				"failedWithError": "Імпорт вмісту не завершився: {{error}}. Деякі записи можуть бути відсутні — повторіть імпорт із налаштувань БД або скористайтеся синхронізацією."
+			}
+		},
+		"new": {
+			"title": "Нова колекція",
+			"subtitle": "Як ви хочете визначити вашу колекцію?",
+			"backToDashboard": "Назад до панелі",
+			"backToMethods": "Назад до методів",
+			"builtinDbNote": "Вміст буде зберігатися у вбудованій базі даних Innolope CMS.",
+			"createCollection": "Створити колекцію",
+			"saving": "Збереження…",
+			"methods": {
+				"template": { "title": "Вибрати шаблон", "desc": "Виберіть із готових схем колекцій" },
+				"importFile": { "title": "Імпорт з файлу", "desc": "Завантажте файл CSV, JSON або Markdown" },
+				"importPaste": { "title": "Імпорт через вставку", "desc": "Вставте дані JSON, CSV або Markdown" },
+				"aiGenerate": { "title": "AI-генерація", "desc": "Опишіть і автоматично створіть поля" },
+				"manual": { "title": "Ручний ввід", "desc": "Визначте поля по одному" },
+				"copyExisting": { "title": "Скопіювати з наявної", "desc": "Дублюйте схему наявної колекції" }
+			},
+			"template": {
+				"title": "Виберіть шаблон",
+				"subtitle": "Виберіть готову схему, щоб швидко почати.",
+				"blankTitle": "Порожня колекція",
+				"blankDesc": "Визначте власну схему з нуля"
+			},
+			"templates": {
+				"showLess": "Показати менше",
+				"showMore": "+{{count}} ще полів",
+				"seoArticle": { "label": "SEO-стаття", "description": "Вміст, оптимізований для пошукових систем, з повними метаданими SEO та Open Graph" },
+				"knowledgeBase": { "label": "База знань", "description": "Структуровані статті для отримання AI-агентами та самообслуговування клієнтів" },
+				"faq": { "label": "FAQ", "description": "Пари запитання-відповідь, оптимізовані для AI-агентів підтримки" },
+				"productCatalog": { "label": "Каталог продуктів", "description": "Структуровані дані продуктів для AI-рекомендацій і пошуку" },
+				"documentation": { "label": "Документація", "description": "Технічна документація з впорядкуванням розділів для AI-помічників розробників" },
+				"crm": { "label": "CRM", "description": "Контакти клієнтів і угоди для AI-асистованих процесів продажу" },
+				"apiReference": { "label": "API Reference", "description": "Документація endpoint для AI-агентів і інструментів розробників" },
+				"changelog": { "label": "Список змін", "description": "Історія версій і нотатки до випусків для оновлень продукту" },
+				"blog": { "label": "Блог", "description": "Статті та пости з метаданими SEO для контент-маркетингу" },
+				"jobBoard": { "label": "Дошка вакансій", "description": "Відкриті позиції зі структурованими вимогами для рекрутингових агентів" },
+				"events": { "label": "Події", "description": "Вебінари, зустрічі та конференції з плануванням і даними реєстрації" }
+			},
+			"importFile": {
+				"title": "Імпорт з файлу",
+				"subtitle": "Завантажте файл CSV або JSON для автовизначення полів.",
+				"dropHint": "Перетягніть .csv, .json, .yaml або .md сюди, або натисніть для вибору"
+			},
+			"importPaste": {
+				"title": "Імпорт через вставку",
+				"subtitle": "Вставте дані для автовизначення полів колекції.",
+				"jsonHint": "Ключі об’єктів стають іменами полів. Типи визначаються зі значень. Масиви об’єктів також підтримуються.",
+				"csvHint": "Перший рядок використовується як заголовки. Типи стовпців визначаються зі значень даних.",
+				"yamlHint": "Кожна пара key: value стає полем. Також підтримується frontmatter (розділений ---).",
+				"detectFields": "Визначити поля"
+			},
+			"aiGenerate": {
+				"title": "AI-генерація",
+				"subtitle": "Опишіть вашу колекцію, і ми створимо схему.",
+				"promptLabel": "Опишіть вашу колекцію та поля, які вона повинна мати",
+				"promptPlaceholder": "напр. Каталог продуктів з назвою, ціною, SKU, категорією, описом, кількістю на складі та ознакою рекомендованих",
+				"generating": "Генерування…",
+				"generate": "Згенерувати схему",
+				"requiresFeature": "AI-генерація схеми потребує функції AI-помічника.",
+				"upgradePrompt": "Оновіться до Pro, щоб розблокувати AI-створення схеми."
+			},
+			"copyExisting": {
+				"title": "Скопіювати з наявної",
+				"subtitle": "Дублюйте схему наявної колекції.",
+				"moreFields": "+{{count}} ще"
+			},
+			"manual": {
+				"title": "Ручний ввід",
+				"subtitle": "Визначте поля вашої колекції по одному."
+			},
+			"configure": {
+				"title": "Перегляд і створення",
+				"subtitle_one": "Виявлено {{count}} поле. Перегляньте та налаштуйте перед створенням.",
+				"subtitle_few": "Виявлено {{count}} поля. Перегляньте та налаштуйте перед створенням.",
+				"subtitle_many": "Виявлено {{count}} полів. Перегляньте та налаштуйте перед створенням.",
+				"subtitle_other": "Виявлено {{count}} поля. Перегляньте та налаштуйте перед створенням."
+			},
+			"fields": {
+				"label": "Мітка",
+				"name": "Назва",
+				"description": "Опис",
+				"labelPlaceholder": "напр. Статті, Продукти, FAQ",
+				"descriptionPlaceholder": "Для чого ця колекція"
+			},
+			"fieldEditor": {
+				"title": "Поля",
+				"addField": "+ Додати поле",
+				"emptyHint": "Полів ще немає. Кожна колекція за замовчуванням отримує markdown-вміст.",
+				"fieldNamePlaceholder": "Назва поля",
+				"required": "Обов’язкове",
+				"i18n": "i18n"
+			},
+			"errors": {
+				"labelRequired": "Мітка обов’язкова",
+				"saveFailed": "Збереження не вдалося",
+				"aiNoFields": "Поля не згенеровано. Спробуйте детальніший опис.",
+				"aiGenerateFailed": "Не вдалося згенерувати схему",
+				"invalidJson": "Недійсний JSON.",
+				"expectedArrayOfObjects": "Очікувався масив об’єктів.",
+				"expectedObjectOrArray": "Очікувався JSON-об’єкт або масив об’єктів.",
+				"noFieldsFound": "Полів не знайдено.",
+				"pasteCsv": "Будь ласка, вставте дані CSV.",
+				"noHeaders": "Не вдалося визначити заголовки.",
+				"noFieldsYaml": "Полів не виявлено. Використовуйте формат key: value.",
+				"pasteJsonFirst": "Спочатку вставте дані JSON.",
+				"pasteCsvFirst": "Спочатку вставте дані CSV.",
+				"pasteYamlFirst": "Спочатку вставте дані YAML."
+			}
+		},
+		"detail": {
+			"newRecord": "Новий",
+			"readOnly": "Лише читання",
+			"readOnlyLive": "Це живі дані із зовнішньої БД. Синхронізуйте колекцію, щоб закешувати локально й увімкнути редагування.",
+			"readOnlyContent": "Цей вміст лише для читання. Підключення до зовнішньої БД налаштовано як read-only.",
+			"couldntLoad": "Не вдалося завантажити цей запис",
+			"backTo": "Назад до {{name}}",
+			"titlePlaceholder": "Введіть заголовок",
+			"tagsPlaceholder": "Додайте тег і натисніть Enter",
+			"save": "Зберегти",
+			"saving": "Збереження…",
+			"submit": "Надіслати",
+			"approve": "Схвалити",
+			"publish": "Опублікувати",
+			"hideAi": "Сховати AI",
+			"aiAssistant": "AI-помічник",
+			"additionalFields": "Додаткові поля ({{count}})",
+			"fields": {
+				"slug": "Slug",
+				"status": "Статус",
+				"tags": "Теги",
+				"version": "Версія",
+				"externalId": "Зовнішній ID"
+			},
+			"statusOptions": {
+				"draft": "Чернетка",
+				"pendingReview": "Очікує перевірки",
+				"published": "Опубліковано",
+				"archived": "Архівовано"
+			},
+			"draftRestore": {
+				"message": "У вас є незбережені зміни з попередньої сесії.",
+				"restore": "Відновити",
+				"dismiss": "Відхилити"
+			},
+			"addField": {
+				"title": "Додати поле",
+				"label": "Назва поля",
+				"confirm": "Додати поле",
+				"button": "+ Додати поле",
+				"customButton": "+ Додати кастомне поле"
+			},
+			"reject": {
+				"button": "Відхилити",
+				"title": "Відхилити вміст",
+				"message": "Додайте необов’язкову причину відхилення цього вмісту.",
+				"reasonLabel": "Причина відхилення",
+				"reasonPlaceholder": "Необов’язково",
+				"confirm": "Відхилити"
+			},
+			"locale": {
+				"detectedAriaLabel_one": "Виявлено {{count}} неналаштовану мову — перегляньте",
+				"detectedAriaLabel_few": "Виявлено {{count}} неналаштовані мови — перегляньте",
+				"detectedAriaLabel_many": "Виявлено {{count}} неналаштованих мов — перегляньте",
+				"detectedAriaLabel_other": "Виявлено {{count}} неналаштовані мови — перегляньте",
+				"detectedTitle": "Виявлено {{langs}} у цьому записі, але не в налаштуваннях проєкту — натисніть, щоб переглянути"
+			},
+			"localePrompt": {
+				"title": "Додати виявлені мови?",
+				"message_one": "Цей запис має вміст {{labels}}, але її ще немає у локалях вашого проєкту. Додати, щоб ви могли використовувати перемикач локалей для редагування? Вибір \"Не зараз\" приховає перемикач і повернеться до редагування JSON.",
+				"message_few": "Цей запис має вміст {{labels}}, але їх ще немає у локалях вашого проєкту. Додати, щоб ви могли використовувати перемикач локалей для редагування? Вибір \"Не зараз\" приховає перемикач і повернеться до редагування JSON.",
+				"message_many": "Цей запис має вміст {{labels}}, але їх ще немає у локалях вашого проєкту. Додати, щоб ви могли використовувати перемикач локалей для редагування? Вибір \"Не зараз\" приховає перемикач і повернеться до редагування JSON.",
+				"message_other": "Цей запис має вміст {{labels}}, але їх ще немає у локалях вашого проєкту. Додати, щоб ви могли використовувати перемикач локалей для редагування? Вибір \"Не зараз\" приховає перемикач і повернеться до редагування JSON.",
+				"confirm": "Додати до проєкту",
+				"cancel": "Не зараз",
+				"addedToast": "Додано {{labels}} до локалей проєкту"
+			},
+			"translate": {
+				"nothingToTranslate": "Немає що перекладати — {{lang}} порожня",
+				"nothingOnRecord": "Немає що перекладати в цьому записі",
+				"replaceTitle": "Замінити переклад?",
+				"replaceMessage": "Значення {{lang}} для \"{{field}}\" вже має вміст. Замінити його новим AI-перекладом?",
+				"replace": "Замінити",
+				"failed": "Переклад не вдався",
+				"localizedFieldsLabel_one": "{{count}} локалізоване поле",
+				"localizedFieldsLabel_few": "{{count}} локалізовані поля",
+				"localizedFieldsLabel_many": "{{count}} локалізованих полів",
+				"localizedFieldsLabel_other": "{{count}} локалізовані поля",
+				"documentBody": "тіло документа",
+				"joinAnd": " та ",
+				"translateTitle": "Перекласти документ?",
+				"translateMessage": "Перекласти {{what}} з {{source}} на {{target}} за допомогою AI? Наявні значення {{target}} буде замінено.{{saveFirstNote}}",
+				"saveFirstNote": " Спочатку збережіть запис, щоб перекласти також тіло документа.",
+				"translate": "Перекласти",
+				"translatedDocument": "Документ перекладено на {{lang}}",
+				"translatedFields": "Поля перекладено на {{lang}}"
+			},
+			"errors": {
+				"loadFailed": "Не вдалося завантажити цей запис",
+				"saveFailed": "Збереження не вдалося",
+				"publishFailed": "Публікація не вдалася",
+				"submitFailed": "Надсилання не вдалося",
+				"approveFailed": "Схвалення не вдалося",
+				"rejectFailed": "Відхилення не вдалося",
+				"readOnlyCollection": "Ця колекція лише для читання",
+				"updateProject": "Не вдалося оновити проєкт",
+				"noCollection": "Немає колекції"
+			}
+		},
+		"edit": {
+			"title": "Редагування: {{name}}",
+			"breadcrumb": "Редагування схеми",
+			"notFound": "Колекцію не знайдено.",
+			"saving": "Збереження…",
+			"saveChanges": "Зберегти зміни",
+			"deleteCollection": "Видалити колекцію",
+			"addField": "+ Додати поле",
+			"fieldName": "Назва поля",
+			"enumOptionsPlaceholder": "Варіанти випадаючого списку (через кому)",
+			"required": "Обов’язкове",
+			"i18n": "i18n",
+			"remove": "Видалити",
+			"hideAdvanced": "Сховати додатково",
+			"showAdvanced": "Показати додатково",
+			"noFieldsHint": "Полів ще немає. Кожна колекція за замовчуванням отримує markdown-вміст.",
+			"sidebarVisibility": "Видимість у бічній панелі",
+			"sidebarHint": "Авто приховує колекції, на які посилається інша колекція через поле-зв’язок, щоб довідкові колекції (теги, автори, категорії) не захаращували бічну панель.",
+			"titleFieldAuto": "Авто (розумна евристика)",
+			"titleFieldHint": "Використовується як мітка рядка у списках і селекторах посилань. Авто вибирає title → name → name-подібне поле → перше текстове поле.",
+			"widgetDefault": "{{name}} (типово)",
+			"fields": {
+				"title": "Поля",
+				"label": "Мітка",
+				"name": "Назва",
+				"description": "Опис",
+				"descriptionPlaceholder": "Для чого ця колекція",
+				"displayTitleField": "Поле відображуваного заголовка"
+			},
+			"sidebar": {
+				"auto": "Авто (приховати, коли використовується лише як ціль зв’язку)",
+				"show": "Завжди показувати",
+				"hide": "Завжди приховувати (доступно лише через зв’язки)"
+			},
+			"advanced": {
+				"placeholder": "Placeholder",
+				"placeholderHint": "Показується всередині порожнього поля",
+				"helpText": "Текст підказки",
+				"helpTextHint": "Коротка підказка під полем",
+				"rows": "Рядки",
+				"chipSeparator": "Роздільник чипів",
+				"enterOnly": "Лише Enter (типово)",
+				"enterOrComma": "Enter або кома",
+				"readOnly": "Лише для читання (керується системою)",
+				"hidden": "Сховано з форми"
+			},
+			"delete": {
+				"title": "Видалити колекцію",
+				"message": "Видалити \"{{name}}\" та весь її вміст? Цю дію неможливо скасувати.",
+				"confirm": "Видалити"
+			},
+			"scan": {
+				"rescan": "Пересканувати з БД",
+				"scanning": "Сканування…",
+				"found_one": "Знайдено {{count}} нове поле",
+				"found_few": "Знайдено {{count}} нові поля",
+				"found_many": "Знайдено {{count}} нових полів",
+				"found_other": "Знайдено {{count}} нові поля",
+				"nothing": "Нових полів не знайдено",
+				"failed": "Сканування не вдалося"
+			},
+			"errors": {
+				"labelRequired": "Мітка обов’язкова",
+				"saveFailed": "Збереження не вдалося",
+				"deleteFailed": "Видалення не вдалося",
+				"noExternalDb": "Немає конфігурації зовнішньої БД"
+			}
+		}
+	},
+	"content": {
+		"titlePlaceholder": "Заголовок статті",
+		"bodyPlaceholder": "Пишіть ваш вміст у markdown…",
+		"openAiAssistant": "Відкрити AI-помічника",
+		"save": "Зберегти",
+		"saving": "Збереження…",
+		"submit": "Надіслати",
+		"approve": "Схвалити",
+		"publish": "Опублікувати",
+		"selectCollection": "Виберіть колекцію",
+		"tagsPlaceholder": "tag1, tag2, tag3",
+		"id": "ID: {{id}}",
+		"fields": { "slug": "Slug", "status": "Статус", "collection": "Колекція", "tags": "Теги" },
+		"statusOptions": {
+			"draft": "Чернетка",
+			"pendingReview": "Очікує перевірки",
+			"published": "Опубліковано",
+			"archived": "Архівовано"
+		},
+		"reject": {
+			"button": "Відхилити",
+			"title": "Відхилити вміст",
+			"message": "Додайте необов’язкову причину відхилення цього вмісту.",
+			"reasonLabel": "Причина відхилення",
+			"reasonPlaceholder": "Необов’язково",
+			"confirm": "Відхилити"
+		},
+		"errors": {
+			"saveFailed": "Збереження не вдалося",
+			"publishFailed": "Публікація не вдалася",
+			"submitFailed": "Надсилання не вдалося",
+			"approveFailed": "Схвалення не вдалося",
+			"rejectFailed": "Відхилення не вдалося"
+		}
+	},
+	"mediaRoute": {
+		"featureLabel": "Медіабібліотека",
+		"title": "Медіа",
+		"tabs": { "uploaded": "Завантажене", "unsplash": "Unsplash" },
+		"filter": { "all": "Усі типи", "images": "Зображення", "videos": "Відео", "files": "Файли" },
+		"upload": "Завантажити",
+		"uploading": "Завантаження…",
+		"types": { "video": "Відео", "file": "Файл" },
+		"dropHere": "Перетягніть файли сюди або натисніть «Завантажити»",
+		"empty": {
+			"title": "Медіафайлів ще немає",
+			"subtitle": "Завантажуйте зображення, відео чи файли, перетягуючи їх у зону скидання або натискаючи «Завантажити».",
+			"uploadFirst": "Завантажте ваш перший файл"
+		},
+		"delete": {
+			"title": "Видалити файл",
+			"message": "Видалити цей файл назавжди? Цю дію неможливо скасувати.",
+			"confirm": "Видалити"
+		},
+		"details": {
+			"title": "Деталі",
+			"filename": "Ім’я файлу",
+			"type": "Тип",
+			"size": "Розмір",
+			"url": "URL",
+			"copyUrl": "Копіювати URL",
+			"uploaded": "Завантажено",
+			"altText": "Alt-текст",
+			"altPlaceholder": "Опишіть це зображення для пошукових систем і скрін-рідерів",
+			"saveAlt": "Зберегти alt-текст",
+			"savingAlt": "Збереження…",
+			"delete": "Видалити",
+			"close": "Закрити"
+		}
+	},
+	"reviewQueue": {
+		"title": "Черга перевірки",
+		"subtitle": "Вміст, що очікує редакційного схвалення",
+		"empty": "Немає вмісту, що очікує перевірки.",
+		"approve": "Схвалити",
+		"columns": { "title": "Заголовок", "slug": "Slug", "updated": "Оновлено", "actions": "Дії" },
+		"reject": {
+			"button": "Відхилити",
+			"title": "Відхилити вміст",
+			"message": "Додайте необов’язкову причину відхилення цього вмісту.",
+			"reasonLabel": "Причина відхилення",
+			"reasonPlaceholder": "Необов’язково",
+			"confirm": "Відхилити"
+		},
+		"pagination": {
+			"summary": "{{total}} елементів — сторінка {{page}}",
+			"previous": "Попередня",
+			"next": "Наступна"
+		},
+		"errors": { "approveFailed": "Схвалення не вдалося", "rejectFailed": "Відхилення не вдалося" }
+	},
+	"settingsPage": {
+		"title": "Налаштування проєкту",
+		"tabs": {
+			"general": "Загальні",
+			"access": "Доступ",
+			"ai": "AI",
+			"storage": "Сховище вмісту",
+			"developer": "Розробник",
+			"license": "Ліцензія"
+		},
+		"sections": {
+			"team": { "title": "Учасники команди", "description": "Керуйте, хто має доступ до цього проєкту та їхніми ролями." },
+			"sso": { "title": "Єдиний вхід (SSO)", "description": "Дозвольте вашій команді входити через SAML або OIDC." },
+			"aiModels": { "title": "AI-моделі", "description": "Налаштуйте AI-постачальників і модель за замовчуванням." },
+			"semanticSearch": { "title": "Семантичний пошук", "description": "Векторні embeddings, що живлять семантичний пошук вмісту." },
+			"database": { "title": "База даних", "description": "Підключіть і зіставте зовнішню базу даних." },
+			"mediaStorage": { "title": "Сховище медіа", "description": "Виберіть, де зберігаються завантажені медіафайли." },
+			"apiKeys": { "title": "API-ключі", "description": "Генеруйте та керуйте ключами для публічного API." },
+			"webhooks": { "title": "Вебхуки", "description": "Надсилайте події зовнішнім сервісам." },
+			"customDomain": { "title": "Кастомний домен", "description": "Обслуговуйте цей проєкт з вашого домену." }
+		},
+		"featureLabels": {
+			"sso": "Єдиний вхід (SAML та OIDC)",
+			"semanticSearch": "Семантичний пошук",
+			"webhooks": "Вебхуки",
+			"customDomain": "Кастомний домен"
+		},
+		"embedding": {
+			"intro": "Семантичний пошук використовує векторні embeddings, щоб знаходити вміст за значенням, а не лише ключовими словами. Потребує API-ключа OpenAI (налаштовується в AI-моделях).",
+			"coverage": "Покриття embeddings",
+			"itemsFraction": "{{done}} / {{total}} елементів",
+			"allIndexed": "Весь вміст індексовано для семантичного пошуку.",
+			"notYetEmbedded": "{{count}} елементів ще не embedded. Увімкніть авто-embed нижче або викликайте вручну через API.",
+			"autoEmbedLabel": "Авто-генерувати embeddings при створенні/оновленні вмісту",
+			"saveFailed": "Не вдалося зберегти"
+		},
+		"apiKeys": {
+			"intro": "Генеруйте ключі для AI-агентів і зовнішніх інтеграцій",
+			"createApiKey": "Створити API-ключ",
+			"saveNowWarning": "Збережіть цей ключ зараз. Він більше не буде показаний.",
+			"copy": "Копіювати",
+			"copied": "Скопійовано",
+			"claudeDesktopConfig": "Конфігурація Claude Desktop",
+			"dismiss": "Закрити",
+			"keyName": "Назва ключа",
+			"keyNamePlaceholder": "напр. Claude Agent, CI Pipeline",
+			"generateApiKey": "Згенерувати API-ключ",
+			"createFailed": "Не вдалося створити ключ",
+			"revokeTitle": "Відкликати API-ключ",
+			"revokeMessage": "Відкликати цей API-ключ? Цю дію неможливо скасувати.",
+			"revokeConfirm": "Відкликати",
+			"revoke": "Відкликати",
+			"never": "Ніколи",
+			"columns": { "name": "Назва", "key": "Ключ", "created": "Створено", "lastUsed": "Останнє використання" },
+			"empty": {
+				"title": "API-ключів ще немає",
+				"subtitle": "API-ключі дозволяють Claude, AI-агентам і зовнішнім сервісам отримувати доступ до вашого вмісту через REST API та MCP-сервер.",
+				"createFirst": "Створіть ваш перший API-ключ"
+			}
+		}
+	}
+}

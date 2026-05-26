@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { LicenseGate, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
@@ -36,13 +37,13 @@ interface NewKeyResponse extends ApiKeyItem {
 
 type SettingsTab = 'general' | 'access' | 'ai' | 'storage' | 'developer' | 'license'
 
-const TABS: { id: SettingsTab; label: string; hideInCloud?: boolean }[] = [
-	{ id: 'general', label: 'General' },
-	{ id: 'access', label: 'Access' },
-	{ id: 'ai', label: 'AI' },
-	{ id: 'storage', label: 'Content Storage' },
-	{ id: 'developer', label: 'Developer' },
-	{ id: 'license', label: 'License', hideInCloud: true },
+const TABS: { id: SettingsTab; hideInCloud?: boolean }[] = [
+	{ id: 'general' },
+	{ id: 'access' },
+	{ id: 'ai' },
+	{ id: 'storage' },
+	{ id: 'developer' },
+	{ id: 'license', hideInCloud: true },
 ]
 
 const VALID_TABS = new Set<string>(TABS.map((t) => t.id))
@@ -65,8 +66,8 @@ function SettingsSection({
 	defaultOpen = false,
 	children,
 }: {
-	title: string
-	description?: string
+	title: ReactNode
+	description?: ReactNode
 	defaultOpen?: boolean
 	children: ReactNode
 }) {
@@ -97,6 +98,7 @@ function SettingsSection({
 }
 
 function Settings() {
+	const { t } = useTranslation()
 	const license = useLicense()
 	const [tab, setTabState] = useState<SettingsTab>(() => {
 		const raw = new URLSearchParams(window.location.search).get('tab') || ''
@@ -115,22 +117,22 @@ function Settings() {
 
 	return (
 		<div className="p-8 pt-5 relative min-h-full">
-			<h2 className="text-2xl font-bold mb-6">Project Settings</h2>
+			<h2 className="text-2xl font-bold mb-6">{t('settingsPage.title')}</h2>
 
 			{/* Tabs */}
 			<div className="flex border-b border-border mb-8">
-				{visibleTabs.map((t) => (
+				{visibleTabs.map((tab2) => (
 					<button
-						key={t.id}
+						key={tab2.id}
 						type="button"
-						onClick={() => setTab(t.id)}
+						onClick={() => setTab(tab2.id)}
 						className={`flex-1 px-6 py-3 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center justify-center ${
-							tab === t.id
+							tab === tab2.id
 								? 'border-b-2 border-text text-text'
 								: 'text-text-secondary hover:text-text'
 						}`}
 					>
-						{t.label}
+						{t(`settingsPage.tabs.${tab2.id}`)}
 					</button>
 				))}
 			</div>
@@ -141,71 +143,74 @@ function Settings() {
 			</div>
 			<div className={tab === 'access' ? '' : 'hidden'}>
 				<SettingsSection
-					title="Team Members"
-					description="Manage who has access to this project and their roles."
+					title={t('settingsPage.sections.team.title')}
+					description={t('settingsPage.sections.team.description')}
 					defaultOpen
 				>
 					<TeamSettings />
 				</SettingsSection>
 				<SettingsSection
-					title="Single Sign-On (SSO)"
-					description="Let your team sign in with SAML or OIDC."
+					title={t('settingsPage.sections.sso.title')}
+					description={t('settingsPage.sections.sso.description')}
 				>
-					<LicenseGate feature="sso" featureLabel="Single Sign-On (SAML &amp; OIDC)">
+					<LicenseGate feature="sso" featureLabel={t('settingsPage.featureLabels.sso')}>
 						<SsoSettings />
 					</LicenseGate>
 				</SettingsSection>
 			</div>
 			<div className={tab === 'ai' ? '' : 'hidden'}>
 				<SettingsSection
-					title="AI Models"
-					description="Configure AI providers and the default model."
+					title={t('settingsPage.sections.aiModels.title')}
+					description={t('settingsPage.sections.aiModels.description')}
 					defaultOpen
 				>
 					<AiSettingsPanel />
 				</SettingsSection>
 				<SettingsSection
-					title="Semantic Search"
-					description="Vector embeddings that power semantic content search."
+					title={t('settingsPage.sections.semanticSearch.title')}
+					description={t('settingsPage.sections.semanticSearch.description')}
 				>
-					<LicenseGate feature="ai-assistant" featureLabel="Semantic Search">
+					<LicenseGate feature="ai-assistant" featureLabel={t('settingsPage.featureLabels.semanticSearch')}>
 						<EmbeddingSettings />
 					</LicenseGate>
 				</SettingsSection>
 			</div>
 			<div className={tab === 'storage' ? '' : 'hidden'}>
 				<SettingsSection
-					title="Database"
-					description="Connect and map an external database."
+					title={t('settingsPage.sections.database.title')}
+					description={t('settingsPage.sections.database.description')}
 					defaultOpen
 				>
 					<DatabaseSettings />
 				</SettingsSection>
 				<SettingsSection
-					title="Media Storage"
-					description="Choose where uploaded media files are stored."
+					title={t('settingsPage.sections.mediaStorage.title')}
+					description={t('settingsPage.sections.mediaStorage.description')}
 				>
 					<MediaSettings />
 				</SettingsSection>
 			</div>
 			<div className={tab === 'developer' ? '' : 'hidden'}>
 				<SettingsSection
-					title="API Keys"
-					description="Generate and manage keys for the public API."
+					title={t('settingsPage.sections.apiKeys.title')}
+					description={t('settingsPage.sections.apiKeys.description')}
 					defaultOpen
 				>
 					<ApiKeysContent />
 				</SettingsSection>
-				<SettingsSection title="Webhooks" description="Send events to external services.">
-					<LicenseGate feature="webhooks" featureLabel="Webhooks">
+				<SettingsSection
+					title={t('settingsPage.sections.webhooks.title')}
+					description={t('settingsPage.sections.webhooks.description')}
+				>
+					<LicenseGate feature="webhooks" featureLabel={t('settingsPage.featureLabels.webhooks')}>
 						<WebhookSettings />
 					</LicenseGate>
 				</SettingsSection>
 				<SettingsSection
-					title="Custom Domain"
-					description="Serve this project from your own domain."
+					title={t('settingsPage.sections.customDomain.title')}
+					description={t('settingsPage.sections.customDomain.description')}
 				>
-					<LicenseGate feature="custom-domain" featureLabel="Custom Domain">
+					<LicenseGate feature="custom-domain" featureLabel={t('settingsPage.featureLabels.customDomain')}>
 						<CustomDomainSettings />
 					</LicenseGate>
 				</SettingsSection>
@@ -218,6 +223,7 @@ function Settings() {
 }
 
 function EmbeddingSettings() {
+	const { t } = useTranslation()
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 	const [autoEmbed, setAutoEmbed] = useState(false)
@@ -259,7 +265,7 @@ function EmbeddingSettings() {
 			setSaved(true)
 			setTimeout(() => setSaved(false), 2000)
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('settingsPage.embedding.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -267,10 +273,7 @@ function EmbeddingSettings() {
 
 	return (
 		<div className="space-y-4">
-			<p className="text-sm text-text-secondary">
-				Semantic search uses vector embeddings to find content by meaning, not just keywords.
-				Requires an OpenAI API key (configured in AI Models).
-			</p>
+			<p className="text-sm text-text-secondary">{t('settingsPage.embedding.intro')}</p>
 
 			{status &&
 				(() => {
@@ -281,9 +284,12 @@ function EmbeddingSettings() {
 					return (
 						<div className="rounded-lg bg-surface-alt p-4 space-y-3">
 							<div className="flex items-center justify-between text-sm">
-								<span className="text-text-secondary">Embedding coverage</span>
+								<span className="text-text-secondary">{t('settingsPage.embedding.coverage')}</span>
 								<span className="font-semibold text-text">
-									{status.embeddedContent} / {status.totalContent} items{' '}
+									{t('settingsPage.embedding.itemsFraction', {
+										done: status.embeddedContent,
+										total: status.totalContent,
+									})}{' '}
 									<span className="text-text-muted font-normal">({pct}%)</span>
 								</span>
 							</div>
@@ -295,13 +301,14 @@ function EmbeddingSettings() {
 							</div>
 							{pct === 100 && status.totalContent > 0 && (
 								<p className="text-xs text-text-muted">
-									All content is indexed for semantic search.
+									{t('settingsPage.embedding.allIndexed')}
 								</p>
 							)}
 							{pct < 100 && status.totalContent > 0 && (
 								<p className="text-xs text-text-muted">
-									{status.totalContent - status.embeddedContent} items not yet embedded. Enable
-									auto-embed below or trigger manually via the API.
+									{t('settingsPage.embedding.notYetEmbedded', {
+										count: status.totalContent - status.embeddedContent,
+									})}
 								</p>
 							)}
 						</div>
@@ -315,7 +322,7 @@ function EmbeddingSettings() {
 					onChange={(e) => setAutoEmbed(e.target.checked)}
 					className="rounded"
 				/>
-				<span className="text-sm">Auto-generate embeddings on content create/update</span>
+				<span className="text-sm">{t('settingsPage.embedding.autoEmbedLabel')}</span>
 			</label>
 
 			<SaveBar
@@ -330,6 +337,7 @@ function EmbeddingSettings() {
 }
 
 function ApiKeysContent() {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
 	const [keys, setKeys] = useState<ApiKeyItem[]>([])
@@ -366,15 +374,15 @@ function ApiKeysContent() {
 			setShowCreate(false)
 			fetchKeys()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to create key', 'error')
+			toast(err instanceof Error ? err.message : t('settingsPage.apiKeys.createFailed'), 'error')
 		}
 	}
 
 	const deleteKey = async (id: string) => {
 		const ok = await confirm({
-			title: 'Revoke API key',
-			message: 'Revoke this API key? This cannot be undone.',
-			confirmLabel: 'Revoke',
+			title: t('settingsPage.apiKeys.revokeTitle'),
+			message: t('settingsPage.apiKeys.revokeMessage'),
+			confirmLabel: t('settingsPage.apiKeys.revokeConfirm'),
 			danger: true,
 		})
 		if (!ok) return
@@ -393,22 +401,20 @@ function ApiKeysContent() {
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-4">
-				<p className="text-text-secondary text-sm">
-					Generate keys for AI agents and external integrations
-				</p>
+				<p className="text-text-secondary text-sm">{t('settingsPage.apiKeys.intro')}</p>
 				<button
 					type="button"
 					onClick={() => setShowCreate(true)}
 					className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 				>
-					Create API Key
+					{t('settingsPage.apiKeys.createApiKey')}
 				</button>
 			</div>
 
 			{createdKey && (
 				<div className="mb-4 p-4 rounded-lg bg-surface-alt border border-border">
 					<p className="text-sm font-medium text-text-secondary mb-2">
-						Save this key now. It will not be shown again.
+						{t('settingsPage.apiKeys.saveNowWarning')}
 					</p>
 					<div className="flex items-center gap-2">
 						<code className="flex-1 text-sm bg-surface px-3 py-2 rounded font-mono break-all border border-border">
@@ -419,12 +425,12 @@ function ApiKeysContent() {
 							onClick={copyKey}
 							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
-							{copied ? 'Copied' : 'Copy'}
+							{copied ? t('settingsPage.apiKeys.copied') : t('settingsPage.apiKeys.copy')}
 						</button>
 					</div>
 					<details className="mt-3">
 						<summary className="text-xs text-text-secondary cursor-pointer">
-							Claude Desktop config
+							{t('settingsPage.apiKeys.claudeDesktopConfig')}
 						</summary>
 						<pre className="mt-2 text-xs bg-surface p-3 rounded overflow-x-auto border border-border">
 							{JSON.stringify(
@@ -450,7 +456,7 @@ function ApiKeysContent() {
 						onClick={() => setCreatedKey(null)}
 						className="mt-3 text-xs text-text-secondary hover:text-text"
 					>
-						Dismiss
+						{t('settingsPage.apiKeys.dismiss')}
 					</button>
 				</div>
 			)}
@@ -458,7 +464,7 @@ function ApiKeysContent() {
 			{showCreate && (
 				<div className="mb-4 p-4 rounded-lg bg-surface border border-border-strong">
 					<label htmlFor="new-api-key-name" className="block text-sm mb-2">
-						Key name
+						{t('settingsPage.apiKeys.keyName')}
 					</label>
 					<div className="flex gap-2">
 						<input
@@ -467,7 +473,7 @@ function ApiKeysContent() {
 							value={newKeyName}
 							onChange={(e) => setNewKeyName(e.target.value)}
 							onKeyDown={(e) => e.key === 'Enter' && createKey()}
-							placeholder="e.g. Claude Agent, CI Pipeline"
+							placeholder={t('settingsPage.apiKeys.keyNamePlaceholder')}
 							className="flex-1 px-3 py-2 bg-input border border-border-strong rounded text-sm focus:outline-none focus:border-border-strong"
 							autoFocus
 						/>
@@ -476,21 +482,21 @@ function ApiKeysContent() {
 							onClick={createKey}
 							className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover"
 						>
-							Generate API Key
+							{t('settingsPage.apiKeys.generateApiKey')}
 						</button>
 						<button
 							type="button"
 							onClick={() => setShowCreate(false)}
 							className="px-4 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
-							Dismiss
+							{t('settingsPage.apiKeys.dismiss')}
 						</button>
 					</div>
 				</div>
 			)}
 
 			{loading ? (
-				<p className="text-text-secondary text-sm">Loading...</p>
+				<p className="text-text-secondary text-sm">{t('common.loading')}</p>
 			) : keys.length === 0 && !showCreate && !createdKey ? (
 				<div className="flex flex-col items-center justify-center py-16 text-center">
 					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
@@ -508,27 +514,26 @@ function ApiKeysContent() {
 							<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
 						</svg>
 					</div>
-					<h3 className="font-semibold text-text mb-1">No API keys yet</h3>
+					<h3 className="font-semibold text-text mb-1">{t('settingsPage.apiKeys.empty.title')}</h3>
 					<p className="text-sm text-text-secondary max-w-xs mb-5">
-						API keys let Claude, AI agents, and external services access your content via the REST
-						API and MCP server.
+						{t('settingsPage.apiKeys.empty.subtitle')}
 					</p>
 					<button
 						type="button"
 						onClick={() => setShowCreate(true)}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 					>
-						Create Your First API Key
+						{t('settingsPage.apiKeys.empty.createFirst')}
 					</button>
 				</div>
 			) : keys.length === 0 ? null : (
 				<table className="w-full text-sm">
 					<thead>
 						<tr className="text-left text-text-secondary border-b border-border">
-							<th className="pb-2 font-medium">Name</th>
-							<th className="pb-2 font-medium">Key</th>
-							<th className="pb-2 font-medium">Created</th>
-							<th className="pb-2 font-medium">Last Used</th>
+							<th className="pb-2 font-medium">{t('settingsPage.apiKeys.columns.name')}</th>
+							<th className="pb-2 font-medium">{t('settingsPage.apiKeys.columns.key')}</th>
+							<th className="pb-2 font-medium">{t('settingsPage.apiKeys.columns.created')}</th>
+							<th className="pb-2 font-medium">{t('settingsPage.apiKeys.columns.lastUsed')}</th>
 							<th className="pb-2 font-medium" />
 						</tr>
 					</thead>
@@ -541,7 +546,9 @@ function ApiKeysContent() {
 									{new Date(k.createdAt).toLocaleDateString()}
 								</td>
 								<td className="py-3 text-text-secondary">
-									{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : 'Never'}
+									{k.lastUsedAt
+										? new Date(k.lastUsedAt).toLocaleDateString()
+										: t('settingsPage.apiKeys.never')}
 								</td>
 								<td className="py-3 text-right">
 									<button
@@ -549,7 +556,7 @@ function ApiKeysContent() {
 										onClick={() => deleteKey(k.id)}
 										className="text-danger hover:opacity-80 text-xs"
 									>
-										Revoke
+										{t('settingsPage.apiKeys.revoke')}
 									</button>
 								</td>
 							</tr>

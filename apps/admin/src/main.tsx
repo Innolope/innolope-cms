@@ -2,6 +2,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { initAnalytics, trackPageView } from './lib/analytics'
+import './lib/i18n'
 import { routeTree } from './routeTree.gen'
 import './index.css'
 

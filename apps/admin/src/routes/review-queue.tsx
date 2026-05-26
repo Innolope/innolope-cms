@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api-client'
 import { usePrompt } from '../lib/confirm'
 import { useToast } from '../lib/toast'
@@ -25,6 +26,7 @@ interface ReviewResponse {
 }
 
 function ReviewQueue() {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const prompt = usePrompt()
 	const [items, setItems] = useState<ContentItem[]>([])
@@ -53,50 +55,50 @@ function ReviewQueue() {
 			await api.post(`/api/v1/content/${id}/approve`, {})
 			fetchQueue()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Approve failed', 'error')
+			toast(err instanceof Error ? err.message : t('reviewQueue.errors.approveFailed'), 'error')
 		}
 	}
 
 	const reject = async (id: string) => {
 		const reason = await prompt({
-			title: 'Reject content',
-			message: 'Add an optional reason for rejecting this content.',
-			label: 'Rejection reason',
-			placeholder: 'Optional',
+			title: t('reviewQueue.reject.title'),
+			message: t('reviewQueue.reject.message'),
+			label: t('reviewQueue.reject.reasonLabel'),
+			placeholder: t('reviewQueue.reject.reasonPlaceholder'),
 			multiline: true,
-			confirmLabel: 'Reject',
+			confirmLabel: t('reviewQueue.reject.confirm'),
 		})
 		if (reason === null) return
 		try {
 			await api.post(`/api/v1/content/${id}/reject`, { reason: reason || undefined })
 			fetchQueue()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Reject failed', 'error')
+			toast(err instanceof Error ? err.message : t('reviewQueue.errors.rejectFailed'), 'error')
 		}
 	}
 
 	return (
 		<div className="p-8">
 			<div className="mb-6">
-				<h2 className="text-2xl font-bold">Review Queue</h2>
-				<p className="text-sm text-text-secondary mt-1">Content awaiting editorial approval</p>
+				<h2 className="text-2xl font-bold">{t('reviewQueue.title')}</h2>
+				<p className="text-sm text-text-secondary mt-1">{t('reviewQueue.subtitle')}</p>
 			</div>
 
 			<div className="rounded-lg border border-border">
 				{loading ? (
-					<div className="p-8 text-center text-text-secondary text-sm">Loading...</div>
+					<div className="p-8 text-center text-text-secondary text-sm">{t('common.loading')}</div>
 				) : items.length === 0 ? (
 					<div className="p-8 text-center text-text-secondary text-sm">
-						No content pending review.
+						{t('reviewQueue.empty')}
 					</div>
 				) : (
 					<table className="w-full text-sm">
 						<thead>
 							<tr className="text-left text-text-secondary border-b border-border">
-								<th className="px-4 py-3 font-medium">Title</th>
-								<th className="px-4 py-3 font-medium">Slug</th>
-								<th className="px-4 py-3 font-medium">Updated</th>
-								<th className="px-4 py-3 font-medium text-right">Actions</th>
+								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.title')}</th>
+								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.slug')}</th>
+								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.updated')}</th>
+								<th className="px-4 py-3 font-medium text-right">{t('reviewQueue.columns.actions')}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -125,14 +127,14 @@ function ReviewQueue() {
 												onClick={() => approve(item.id)}
 												className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover"
 											>
-												Approve
+												{t('reviewQueue.approve')}
 											</button>
 											<button
 												type="button"
 												onClick={() => reject(item.id)}
 												className="px-3 py-1 bg-btn-secondary rounded text-xs font-medium hover:bg-btn-secondary-hover"
 											>
-												Reject
+												{t('reviewQueue.reject.button')}
 											</button>
 										</div>
 									</td>
@@ -145,9 +147,7 @@ function ReviewQueue() {
 
 			{total > 25 && (
 				<div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
-					<span>
-						{total} items — page {page}
-					</span>
+					<span>{t('reviewQueue.pagination.summary', { total, page })}</span>
 					<div className="flex gap-2">
 						<button
 							type="button"
@@ -155,7 +155,7 @@ function ReviewQueue() {
 							disabled={page === 1}
 							className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 						>
-							Previous
+							{t('reviewQueue.pagination.previous')}
 						</button>
 						<button
 							type="button"
@@ -163,7 +163,7 @@ function ReviewQueue() {
 							disabled={items.length < 25}
 							className="px-3 py-1 bg-btn-secondary rounded disabled:opacity-30"
 						>
-							Next
+							{t('reviewQueue.pagination.next')}
 						</button>
 					</div>
 				</div>

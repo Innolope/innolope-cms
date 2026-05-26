@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface PromptModalProps {
 	title: string
@@ -21,15 +22,17 @@ export function PromptModal({
 	label,
 	placeholder,
 	defaultValue = '',
-	confirmLabel = 'Confirm',
+	confirmLabel,
 	required = false,
 	multiline = false,
 	onConfirm,
 	onCancel,
 }: PromptModalProps) {
+	const { t } = useTranslation()
 	const inputId = useId()
 	const [value, setValue] = useState(defaultValue)
 	const blocked = required && value.trim() === ''
+	const resolvedConfirmLabel = confirmLabel ?? t('common.confirm')
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -47,7 +50,7 @@ export function PromptModal({
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<button
 				type="button"
-				aria-label="Close dialog"
+				aria-label={t('common.closeDialog')}
 				className="absolute inset-0 -z-10 cursor-default"
 				onClick={onCancel}
 			/>
@@ -97,7 +100,7 @@ export function PromptModal({
 						onClick={onCancel}
 						className="px-4 py-2 bg-btn-secondary text-text-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
 					>
-						Cancel
+						{t('common.cancel')}
 					</button>
 					<button
 						type="button"
@@ -105,7 +108,7 @@ export function PromptModal({
 						disabled={blocked}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors disabled:opacity-40"
 					>
-						{confirmLabel}
+						{resolvedConfirmLabel}
 					</button>
 				</div>
 			</div>

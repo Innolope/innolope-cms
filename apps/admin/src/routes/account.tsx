@@ -1,10 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { hasFeature, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useConfirm } from '../lib/confirm'
+import { SUPPORTED_UI_LOCALES, type UiLocale } from '../lib/i18n'
+import { useLocale } from '../lib/locale'
 import { useTheme } from '../lib/theme'
 import { useToast } from '../lib/toast'
 
@@ -14,14 +17,8 @@ export const Route = createFileRoute('/account')({
 
 type AccountTab = 'profile' | 'password' | 'sso' | 'appearance'
 
-const TABS: { id: AccountTab; label: string; pro?: string }[] = [
-	{ id: 'profile', label: 'Profile' },
-	{ id: 'password', label: 'Password' },
-	{ id: 'sso', label: 'Linked Accounts', pro: 'sso' },
-	{ id: 'appearance', label: 'Appearance' },
-]
-
 function AccountSettings() {
+	const { t } = useTranslation()
 	const license = useLicense()
 	const [tab, setTabState] = useState<AccountTab>(() => {
 		const params = new URLSearchParams(window.location.search)
@@ -35,25 +32,31 @@ function AccountSettings() {
 		window.history.replaceState({}, '', url.toString())
 	}
 
-	const visibleTabs = TABS.filter((t) => !t.pro || hasFeature(license, t.pro))
+	const TABS: { id: AccountTab; label: string; pro?: string }[] = [
+		{ id: 'profile', label: t('account.tabs.profile') },
+		{ id: 'password', label: t('account.tabs.password') },
+		{ id: 'sso', label: t('account.tabs.sso'), pro: 'sso' },
+		{ id: 'appearance', label: t('account.tabs.appearance') },
+	]
+	const visibleTabs = TABS.filter((tab) => !tab.pro || hasFeature(license, tab.pro))
 
 	return (
 		<div className="p-8 pt-5">
-			<h2 className="text-2xl font-bold mb-6">Account</h2>
+			<h2 className="text-2xl font-bold mb-6">{t('account.title')}</h2>
 
 			<div className="flex border-b border-border mb-8">
-				{visibleTabs.map((t) => (
+				{visibleTabs.map((tabItem) => (
 					<button
-						key={t.id}
+						key={tabItem.id}
 						type="button"
-						onClick={() => setTab(t.id)}
+						onClick={() => setTab(tabItem.id)}
 						className={`flex-1 px-6 py-3 text-sm font-medium -mb-px whitespace-nowrap transition-colors flex items-center justify-center ${
-							tab === t.id
+							tab === tabItem.id
 								? 'border-b-2 border-text text-text'
 								: 'text-text-secondary hover:text-text'
 						}`}
 					>
-						{t.label}
+						{tabItem.label}
 					</button>
 				))}
 			</div>
@@ -89,6 +92,7 @@ interface LinkedIdentity {
 }
 
 function SsoIdentitiesSettings() {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
 	const [items, setItems] = useState<LinkedIdentity[]>([])
@@ -121,9 +125,9 @@ function SsoIdentitiesSettings() {
 
 	const unlink = async (id: string) => {
 		const ok = await confirm({
-			title: 'Unlink SSO identity',
-			message: 'Unlink this SSO identity?',
-			confirmLabel: 'Unlink',
+			title: t('account.sso.unlinkConfirmTitle'),
+			message: t('account.sso.unlinkConfirmMessage'),
+			confirmLabel: t('account.sso.unlinkConfirmLabel'),
 			danger: true,
 		})
 		if (!ok) return
@@ -131,7 +135,7 @@ function SsoIdentitiesSettings() {
 			await api.delete(`/api/v1/auth/me/identities/${id}`)
 			await refresh()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to unlink', 'error')
+			toast(err instanceof Error ? err.message : t('account.sso.unlinkFailed'), 'error')
 		}
 	}
 
@@ -140,20 +144,17 @@ function SsoIdentitiesSettings() {
 		window.location.href = `/api/v1/auth/sso/${encodeURIComponent(slug)}/initiate?intent=link&next=${encodeURIComponent(next)}`
 	}
 
-	if (loading) return <p className="text-text-secondary text-sm">Loading...</p>
+	if (loading) return <p className="text-text-secondary text-sm">{t('common.loading')}</p>
 
 	const linkedConnIds = new Set(items.map((i) => i.connectionId))
 	const linkable = availableConnections.filter((c) => !linkedConnIds.has(c.id))
 
 	return (
 		<div className="space-y-5">
-			<p className="text-sm text-text-secondary">
-				Identities from your identity provider that are linked to this account. Linking an SSO
-				identity lets you sign in without a password.
-			</p>
+			<p className="text-sm text-text-secondary">{t('account.sso.intro')}</p>
 
 			{items.length === 0 ? (
-				<div className="text-sm text-text-secondary py-3">No SSO identities linked yet.</div>
+				<div className="text-sm text-text-secondary py-3">{t('account.sso.noneLinked')}</div>
 			) : (
 				<div className="space-y-2">
 					{items.map((i) => (
@@ -163,15 +164,17 @@ function SsoIdentitiesSettings() {
 						>
 							<div className="min-w-0">
 								<p className="text-sm">
-									{i.connectionName ?? 'Unknown'}{' '}
+									{i.connectionName ?? t('account.sso.unknownConnection')}{' '}
 									<span className="text-xs uppercase text-text-muted ml-2">{i.provider}</span>
 								</p>
 								<p className="text-xs text-text-muted truncate">
-									{i.email ?? '(no email in profile)'}
+									{i.email ?? t('account.sso.noEmailInProfile')}
 								</p>
 								{i.lastLoginAt && (
 									<p className="text-xs text-text-muted">
-										Last sign-in: {new Date(i.lastLoginAt).toLocaleString()}
+										{t('account.sso.lastSignIn', {
+											date: new Date(i.lastLoginAt).toLocaleString(),
+										})}
 									</p>
 								)}
 							</div>
@@ -180,7 +183,7 @@ function SsoIdentitiesSettings() {
 								onClick={() => unlink(i.id)}
 								className="px-2 py-1 text-xs text-danger hover:opacity-80 shrink-0"
 							>
-								Unlink
+								{t('account.sso.unlink')}
 							</button>
 						</div>
 					))}
@@ -189,7 +192,7 @@ function SsoIdentitiesSettings() {
 
 			{linkable.length > 0 && (
 				<div className="pt-4 border-t border-border">
-					<h4 className="text-sm font-medium mb-3">Link a new identity</h4>
+					<h4 className="text-sm font-medium mb-3">{t('account.sso.linkNewIdentity')}</h4>
 					<div className="space-y-2">
 						{linkable.map((c) => (
 							<button
@@ -202,7 +205,7 @@ function SsoIdentitiesSettings() {
 									{c.name}{' '}
 									<span className="text-xs uppercase text-text-muted ml-2">{c.protocol}</span>
 								</span>
-								<span className="text-xs text-text-muted">Link →</span>
+								<span className="text-xs text-text-muted">{t('account.sso.linkArrow')}</span>
 							</button>
 						))}
 					</div>
@@ -213,6 +216,7 @@ function SsoIdentitiesSettings() {
 }
 
 function ProfileSettings() {
+	const { t } = useTranslation()
 	const { user, refreshUser } = useAuth()
 	const [name, setName] = useState(user?.name || '')
 	const [email, setEmail] = useState(user?.email || '')
@@ -241,7 +245,7 @@ function ProfileSettings() {
 		<div className="space-y-4">
 			<div>
 				<label htmlFor="acc-name" className="block text-xs text-text-secondary mb-1.5">
-					Name
+					{t('account.profile.name')}
 				</label>
 				<input
 					id="acc-name"
@@ -253,7 +257,7 @@ function ProfileSettings() {
 			</div>
 			<div>
 				<label htmlFor="acc-email" className="block text-xs text-text-secondary mb-1.5">
-					Email
+					{t('account.profile.email')}
 				</label>
 				<input
 					id="acc-email"
@@ -278,6 +282,7 @@ function ProfileSettings() {
 }
 
 function PasswordSettings() {
+	const { t } = useTranslation()
 	const [currentPassword, setCurrentPassword] = useState('')
 	const [newPassword, setNewPassword] = useState('')
 	const [confirmPassword, setConfirmPassword] = useState('')
@@ -292,9 +297,9 @@ function PasswordSettings() {
 	const save = async () => {
 		setError('')
 		if (!valid) {
-			if (!currentPassword || !newPassword) setError('All fields are required')
-			else if (newPassword.length < 8) setError('New password must be at least 8 characters')
-			else if (newPassword !== confirmPassword) setError('Passwords do not match')
+			if (!currentPassword || !newPassword) setError(t('account.password.errors.allRequired'))
+			else if (newPassword.length < 8) setError(t('account.password.errors.tooShort'))
+			else if (newPassword !== confirmPassword) setError(t('account.password.errors.mismatch'))
 			return
 		}
 
@@ -307,7 +312,7 @@ function PasswordSettings() {
 			setSaved(true)
 			setTimeout(() => setSaved(false), 2000)
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to change password')
+			setError(err instanceof Error ? err.message : t('account.password.errors.changeFailed'))
 		} finally {
 			setSaving(false)
 		}
@@ -317,7 +322,7 @@ function PasswordSettings() {
 		<div className="space-y-4">
 			<div>
 				<label htmlFor="acc-current-password" className="block text-xs text-text-secondary mb-1.5">
-					Current password
+					{t('account.password.current')}
 				</label>
 				<input
 					id="acc-current-password"
@@ -329,7 +334,7 @@ function PasswordSettings() {
 			</div>
 			<div>
 				<label htmlFor="acc-new-password" className="block text-xs text-text-secondary mb-1.5">
-					New password
+					{t('account.password.new')}
 				</label>
 				<input
 					id="acc-new-password"
@@ -341,7 +346,7 @@ function PasswordSettings() {
 			</div>
 			<div>
 				<label htmlFor="acc-confirm-password" className="block text-xs text-text-secondary mb-1.5">
-					Confirm new password
+					{t('account.password.confirm')}
 				</label>
 				<input
 					id="acc-confirm-password"
@@ -357,7 +362,7 @@ function PasswordSettings() {
 				saving={saving}
 				saved={saved}
 				onSave={save}
-				saveLabel="Change Password"
+				saveLabel={t('account.password.saveLabel')}
 				onReset={() => {
 					setCurrentPassword('')
 					setNewPassword('')
@@ -370,26 +375,55 @@ function PasswordSettings() {
 }
 
 function AppearanceSettings() {
+	const { t } = useTranslation()
 	const { theme, setTheme } = useTheme()
+	const { locale, setLocale } = useLocale()
 
 	return (
-		<div className="space-y-3">
-			<div className="block text-xs text-text-secondary mb-1.5">Theme</div>
-			<div className="flex gap-2 max-w-sm">
-				{(['light', 'dark', 'system'] as const).map((t) => (
-					<button
-						key={t}
-						type="button"
-						onClick={() => setTheme(t)}
-						className={`flex-1 py-2 rounded text-sm font-medium transition-colors capitalize ${
-							theme === t
-								? 'bg-btn-primary text-btn-primary-text'
-								: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
-						}`}
-					>
-						{t}
-					</button>
-				))}
+		<div className="space-y-6">
+			<div>
+				<div className="block text-xs text-text-secondary mb-1.5">
+					{t('account.appearance.theme')}
+				</div>
+				<div className="flex gap-2 max-w-sm">
+					{(['light', 'dark', 'system'] as const).map((variant) => (
+						<button
+							key={variant}
+							type="button"
+							onClick={() => setTheme(variant)}
+							className={`flex-1 py-2 rounded text-sm font-medium transition-colors ${
+								theme === variant
+									? 'bg-btn-primary text-btn-primary-text'
+									: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
+							}`}
+						>
+							{t(`account.appearance.themes.${variant}`)}
+						</button>
+					))}
+				</div>
+			</div>
+			<div>
+				<div className="block text-xs text-text-secondary mb-1.5">
+					{t('account.appearance.language')}
+				</div>
+				<div className="flex gap-2 max-w-sm">
+					{SUPPORTED_UI_LOCALES.map((code: UiLocale) => (
+						<button
+							key={code}
+							type="button"
+							onClick={() => {
+								void setLocale(code)
+							}}
+							className={`flex-1 py-2 rounded text-sm font-medium transition-colors ${
+								locale === code
+									? 'bg-btn-primary text-btn-primary-text'
+									: 'bg-btn-secondary text-text-secondary hover:bg-btn-secondary-hover'
+							}`}
+						>
+							{t(`account.appearance.languages.${code}`)}
+						</button>
+					))}
+				</div>
 			</div>
 		</div>
 	)

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
@@ -18,6 +19,7 @@ interface VersionPanelProps {
 }
 
 export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPanelProps) {
+	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
 	const [versions, setVersions] = useState<Version[]>([])
@@ -36,9 +38,9 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 
 	const revert = async (version: number) => {
 		const ok = await confirm({
-			title: 'Revert version',
-			message: `Revert to version ${version}? Current content will be saved as a new version.`,
-			confirmLabel: 'Revert',
+			title: t('versions.revertTitle'),
+			message: t('versions.revertMessage', { version }),
+			confirmLabel: t('versions.revert'),
 		})
 		if (!ok) return
 		setReverting(true)
@@ -47,20 +49,20 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 			onRevert()
 			setSelected(null)
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Revert failed', 'error')
+			toast(err instanceof Error ? err.message : t('versions.revertFailed'), 'error')
 		} finally {
 			setReverting(false)
 		}
 	}
 
-	if (loading) return <p className="text-text-secondary text-xs">Loading versions...</p>
+	if (loading) return <p className="text-text-secondary text-xs">{t('versions.loading')}</p>
 	if (versions.length === 0)
-		return <p className="text-text-secondary text-xs">No previous versions.</p>
+		return <p className="text-text-secondary text-xs">{t('versions.noPrevious')}</p>
 
 	return (
 		<div className="space-y-2">
 			<h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">
-				Version History
+				{t('versions.history')}
 			</h4>
 			<div className="space-y-1 max-h-48 overflow-auto">
 				{versions.map((v) => (
@@ -96,7 +98,9 @@ export function VersionPanel({ contentId, currentVersion, onRevert }: VersionPan
 						disabled={reverting}
 						className="w-full px-3 py-1.5 bg-btn-secondary text-text-secondary rounded text-xs hover:bg-btn-secondary-hover disabled:opacity-50"
 					>
-						{reverting ? 'Reverting...' : `Revert to v${selected.version}`}
+						{reverting
+							? t('versions.reverting')
+							: t('versions.revertToVersion', { version: selected.version })}
 					</button>
 				</div>
 			)}

@@ -14,6 +14,7 @@ interface User {
 	email: string
 	name: string
 	role: string
+	uiLocale?: string | null
 }
 
 interface Project {

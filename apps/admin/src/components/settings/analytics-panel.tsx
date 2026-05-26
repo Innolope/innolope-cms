@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 
 interface AnalyticsData {
@@ -9,6 +10,7 @@ interface AnalyticsData {
 }
 
 export function AnalyticsPanel() {
+	const { t } = useTranslation()
 	const [data, setData] = useState<AnalyticsData | null>(null)
 	const [loading, setLoading] = useState(true)
 
@@ -20,8 +22,10 @@ export function AnalyticsPanel() {
 			.finally(() => setLoading(false))
 	}, [])
 
-	if (loading) return <p className="text-sm text-text-secondary">Loading analytics...</p>
-	if (!data) return <p className="text-sm text-text-secondary">Analytics unavailable.</p>
+	if (loading)
+		return <p className="text-sm text-text-secondary">{t('settings.analytics.loading')}</p>
+	if (!data)
+		return <p className="text-sm text-text-secondary">{t('settings.analytics.unavailable')}</p>
 
 	const totalReads = data.bySource.reduce((sum, s) => sum + s.count, 0)
 
@@ -29,9 +33,9 @@ export function AnalyticsPanel() {
 		<div className="space-y-6">
 			{/* Source breakdown */}
 			<div>
-				<h4 className="text-sm font-medium mb-2">Reads by Source (30d)</h4>
+				<h4 className="text-sm font-medium mb-2">{t('settings.analytics.readsBySource')}</h4>
 				{totalReads === 0 ? (
-					<p className="text-xs text-text-secondary">No reads recorded yet.</p>
+					<p className="text-xs text-text-secondary">{t('settings.analytics.noReads')}</p>
 				) : (
 					<div className="flex gap-4">
 						{data.bySource.map((s) => (
@@ -42,7 +46,9 @@ export function AnalyticsPanel() {
 						))}
 						<div className="text-center">
 							<p className="text-2xl font-bold">{totalReads}</p>
-							<p className="text-xs text-text-secondary uppercase">Total</p>
+							<p className="text-xs text-text-secondary uppercase">
+								{t('settings.analytics.total')}
+							</p>
 						</div>
 					</div>
 				)}
@@ -51,7 +57,7 @@ export function AnalyticsPanel() {
 			{/* Top content */}
 			{data.topContent.length > 0 && (
 				<div>
-					<h4 className="text-sm font-medium mb-2">Most Read Content</h4>
+					<h4 className="text-sm font-medium mb-2">{t('settings.analytics.mostReadContent')}</h4>
 					<div className="space-y-1">
 						{data.topContent.slice(0, 10).map((item, i) => (
 							<div key={item.contentId || i} className="flex items-center justify-between text-sm">
@@ -68,7 +74,9 @@ export function AnalyticsPanel() {
 										<span className="text-text-muted">{item.title}</span>
 									)}
 								</span>
-								<span className="text-text-secondary ml-3 tabular-nums">{item.reads} reads</span>
+								<span className="text-text-secondary ml-3 tabular-nums">
+									{t('settings.analytics.readsCount', { count: item.reads })}
+								</span>
 							</div>
 						))}
 					</div>
@@ -78,13 +86,13 @@ export function AnalyticsPanel() {
 			{/* Search queries */}
 			{data.topQueries.length > 0 && (
 				<div>
-					<h4 className="text-sm font-medium mb-2">Top Search Queries</h4>
+					<h4 className="text-sm font-medium mb-2">{t('settings.analytics.topSearchQueries')}</h4>
 					<div className="space-y-1">
 						{data.topQueries.slice(0, 10).map((q) => (
 							<div key={q.query} className="flex items-center justify-between text-sm">
 								<span className="font-mono text-xs truncate flex-1">{q.query}</span>
 								<span className="text-text-secondary ml-3 text-xs tabular-nums">
-									{q.hits} hits / {q.misses} misses
+									{t('settings.analytics.hitsMisses', { hits: q.hits, misses: q.misses })}
 								</span>
 							</div>
 						))}
@@ -95,9 +103,9 @@ export function AnalyticsPanel() {
 			{/* Content gaps */}
 			{data.topQueries.filter((q) => q.misses > q.hits).length > 0 && (
 				<div>
-					<h4 className="text-sm font-medium mb-2">Content Gaps</h4>
+					<h4 className="text-sm font-medium mb-2">{t('settings.analytics.contentGaps')}</h4>
 					<p className="text-xs text-text-secondary mb-2">
-						Queries with more misses than hits — consider creating content for these topics.
+						{t('settings.analytics.contentGapsDesc')}
 					</p>
 					<div className="space-y-1">
 						{data.topQueries
@@ -106,7 +114,9 @@ export function AnalyticsPanel() {
 							.map((q) => (
 								<div key={q.query} className="text-sm">
 									<span className="font-mono text-xs">{q.query}</span>
-									<span className="text-danger text-xs ml-2">{q.misses} misses</span>
+									<span className="text-danger text-xs ml-2">
+										{t('settings.analytics.missesCount', { count: q.misses })}
+									</span>
 								</div>
 							))}
 					</div>

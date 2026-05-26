@@ -141,17 +141,37 @@ export async function authRoutes(app: FastifyInstance) {
 
 	// Get current user
 	app.get('/me', { preHandler: [app.authenticate] }, async (request) => {
-		return request.user
+		// JWT carries only id/email/name/role. uiLocale lives in DB and is fetched
+		// here so the admin can render in the user's chosen language without
+		// waiting for a token refresh after a switch.
+		const [row] = await app.db
+			.select({ uiLocale: users.uiLocale })
+			.from(users)
+			.where(eq(users.id, getUser(request).id))
+			.limit(1)
+		return { ...request.user, uiLocale: row?.uiLocale ?? null }
 	})
+
+	const SUPPORTED_UI_LOCALES = ['en', 'uk'] as const
+	type SupportedUiLocale = (typeof SUPPORTED_UI_LOCALES)[number]
+	const isSupportedUiLocale = (v: unknown): v is SupportedUiLocale =>
+		typeof v === 'string' && (SUPPORTED_UI_LOCALES as readonly string[]).includes(v)
 
 	// Update profile
 	app.put('/profile', { preHandler: [app.authenticate] }, async (request, reply) => {
-		const { name, email } = request.body as { name?: string; email?: string }
+		const { name, email, uiLocale } = request.body as {
+			name?: string
+			email?: string
+			uiLocale?: string | null
+		}
 
 		if (name !== undefined && !name.trim())
 			return reply.status(400).send({ error: 'Name cannot be empty' })
 		if (email !== undefined && !email.trim())
 			return reply.status(400).send({ error: 'Email cannot be empty' })
+		if (uiLocale !== undefined && uiLocale !== null && !isSupportedUiLocale(uiLocale)) {
+			return reply.status(400).send({ error: 'Unsupported UI locale' })
+		}
 
 		if (email && email !== getUser(request).email) {
 			const [existing] = await app.db
@@ -167,12 +187,19 @@ export async function authRoutes(app: FastifyInstance) {
 		const updates: Record<string, unknown> = { updatedAt: new Date() }
 		if (name) updates.name = name.trim()
 		if (email) updates.email = email.trim().toLowerCase()
+		if (uiLocale !== undefined) updates.uiLocale = uiLocale
 
 		const [updated] = await app.db
 			.update(users)
 			.set(updates)
 			.where(eq(users.id, getUser(request).id))
-			.returning({ id: users.id, email: users.email, name: users.name, role: users.role })
+			.returning({
+				id: users.id,
+				email: users.email,
+				name: users.name,
+				role: users.role,
+				uiLocale: users.uiLocale,
+			})
 
 		return updated
 	})

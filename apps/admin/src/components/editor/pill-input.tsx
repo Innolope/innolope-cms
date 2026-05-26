@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 /** When this many separator characters get added to commit. Default is Enter-only. */
 export type PillSeparator = 'enter' | 'comma' | 'both'
@@ -26,6 +27,7 @@ export function PillInput({
 	placeholder,
 	separator = 'enter',
 }: PillInputProps) {
+	const { t } = useTranslation()
 	const [draft, setDraft] = useState('')
 	const splitsOnComma = separator !== 'enter'
 
@@ -47,7 +49,7 @@ export function PillInput({
 				type="text"
 				value={draft}
 				disabled={disabled}
-				placeholder={placeholder || 'Type and press Enter'}
+				placeholder={placeholder || t('editor.pillInput.placeholder')}
 				onChange={(e) => setDraft(e.target.value)}
 				onKeyDown={(e) => {
 					if (e.key === 'Enter' || (splitsOnComma && e.key === ',')) {
@@ -80,7 +82,7 @@ export function PillInput({
 										type="button"
 										onClick={() => removeAt(i)}
 										className="text-text-muted hover:text-text leading-none text-sm"
-										aria-label={`Remove ${label}`}
+										aria-label={t('editor.pillInput.remove', { label })}
 									>
 										&times;
 									</button>

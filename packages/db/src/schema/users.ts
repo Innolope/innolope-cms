@@ -8,6 +8,7 @@ export const users = pgTable('users', {
 	role: text({ enum: ['admin', 'editor', 'viewer'] })
 		.notNull()
 		.default('editor'),
+	uiLocale: text(),
 	createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 })

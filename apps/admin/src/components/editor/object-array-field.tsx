@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { JsonField } from './json-field'
 
 interface ObjectArrayFieldProps {
@@ -50,6 +51,7 @@ function SubFieldEditor({
 	onChange: (next: unknown) => void
 	disabled?: boolean
 }) {
+	const { t } = useTranslation()
 	if (typeof value === 'boolean') {
 		return (
 			<label className="flex items-center gap-2 text-xs">
@@ -60,7 +62,9 @@ function SubFieldEditor({
 					onChange={(e) => onChange(e.target.checked)}
 					className="rounded"
 				/>
-				<span className="text-text-secondary">{value ? 'Yes' : 'No'}</span>
+				<span className="text-text-secondary">
+					{value ? t('editor.objectArrayField.yes') : t('editor.objectArrayField.no')}
+				</span>
 			</label>
 		)
 	}
@@ -78,7 +82,9 @@ function SubFieldEditor({
 	if (value !== null && typeof value === 'object') {
 		return (
 			<div>
-				<span className="block text-[10px] text-text-muted mb-0.5 font-mono italic">(nested)</span>
+				<span className="block text-[10px] text-text-muted mb-0.5 font-mono italic">
+					{t('editor.objectArrayField.nested')}
+				</span>
 				<JsonField value={value} onChange={onChange} disabled={disabled} compact />
 			</div>
 		)
@@ -101,6 +107,7 @@ function SubFieldEditor({
  * Empty arrays fall back to a JSON textarea so editors can paste an initial item.
  */
 export function ObjectArrayField({ value, onChange, disabled }: ObjectArrayFieldProps) {
+	const { t } = useTranslation()
 	const rows = toRows(value)
 	const keys = deriveKeys(rows)
 
@@ -122,7 +129,7 @@ export function ObjectArrayField({ value, onChange, disabled }: ObjectArrayField
 						onClick={() => onChange([{}])}
 						className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
 					>
-						+ Add empty row
+						{t('editor.objectArrayField.addEmptyRow')}
 					</button>
 				)}
 			</div>
@@ -154,7 +161,7 @@ export function ObjectArrayField({ value, onChange, disabled }: ObjectArrayField
 								type="button"
 								onClick={() => removeRow(i)}
 								className="text-text-muted hover:text-danger text-sm leading-none"
-								aria-label={`Remove row ${i + 1}`}
+								aria-label={t('editor.objectArrayField.removeRow', { index: i + 1 })}
 							>
 								&times;
 							</button>
@@ -178,7 +185,7 @@ export function ObjectArrayField({ value, onChange, disabled }: ObjectArrayField
 					onClick={addRow}
 					className="text-xs text-text-muted hover:text-text-secondary transition-colors"
 				>
-					+ Add row
+					{t('editor.objectArrayField.addRow')}
 				</button>
 			)}
 		</div>

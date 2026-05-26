@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
@@ -20,6 +21,7 @@ interface MediaEnvConfig {
 }
 
 export function MediaSettings() {
+	const { t } = useTranslation()
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 	const [adapter, setAdapter] = useState('local')
@@ -92,7 +94,7 @@ export function MediaSettings() {
 			setTimeout(() => setSaved(false), 2000)
 			await refreshProjects()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
+			toast(err instanceof Error ? err.message : t('settings.media.saveFailed'), 'error')
 		} finally {
 			setSaving(false)
 		}
@@ -101,21 +103,24 @@ export function MediaSettings() {
 	const allCfEnvSet =
 		envConfig?.env?.accountId && envConfig.env.apiToken && envConfig.env.imagesAccountHash
 
+	const adapterDisplayName = (a: string) => {
+		if (a === 'cloudflare') return t('settings.media.adapters.cloudflare')
+		if (a === 's3') return t('settings.media.adapters.s3')
+		if (a === 'local') return t('settings.media.adapters.local')
+		return a
+	}
+
 	return (
 		<div className="space-y-4">
 			<div>
-				<div className="block text-xs text-text-secondary mb-1.5">Storage adapter</div>
+				<div className="block text-xs text-text-secondary mb-1.5">
+					{t('settings.media.storageAdapter')}
+				</div>
 				{adapterSetViaEnv ? (
 					<div>
-						<p className="text-sm font-medium text-text">
-							{effectiveAdapter === 'cloudflare'
-								? 'Cloudflare (Images + R2 + Stream)'
-								: effectiveAdapter === 's3'
-									? 'S3-compatible'
-									: effectiveAdapter}
-						</p>
+						<p className="text-sm font-medium text-text">{adapterDisplayName(effectiveAdapter)}</p>
 						<p className="text-xs text-text-muted mt-1">
-							Set via environment variable{' '}
+							{t('settings.media.setViaEnv')}{' '}
 							<code className="bg-surface-alt px-1 rounded">MEDIA_ADAPTER</code>
 						</p>
 					</div>
@@ -124,9 +129,9 @@ export function MediaSettings() {
 						value={adapter}
 						onChange={setAdapter}
 						options={[
-							{ value: 'local', label: 'Local filesystem' },
-							{ value: 'cloudflare', label: 'Cloudflare (Images + R2 + Stream)' },
-							{ value: 's3', label: 'S3-compatible' },
+							{ value: 'local', label: t('settings.media.adapters.local') },
+							{ value: 'cloudflare', label: t('settings.media.adapters.cloudflare') },
+							{ value: 's3', label: t('settings.media.adapters.s3') },
 						]}
 						className="w-full max-w-xs"
 					/>
@@ -151,56 +156,53 @@ export function MediaSettings() {
 								<polyline points="20 6 9 17 4 12" />
 							</svg>
 							<p className="text-sm font-medium text-text">
-								Cloudflare credentials configured via environment
+								{t('settings.media.cfEnvConfiguredTitle')}
 							</p>
 						</div>
-						<p className="text-xs text-text-muted">
-							All required Cloudflare credentials are set as environment variables on the server. No
-							additional configuration is needed.
-						</p>
+						<p className="text-xs text-text-muted">{t('settings.media.cfEnvConfiguredDesc')}</p>
 					</div>
 				) : (
 					<div className="space-y-3 border-l-2 border-border pl-4">
 						<CfField
-							label="Account ID"
+							label={t('settings.media.fields.accountId')}
 							value={cfAccountId}
 							onChange={setCfAccountId}
 							envConfigured={envConfig?.env.accountId}
 						/>
 						<CfField
-							label="API Token"
+							label={t('settings.media.fields.apiToken')}
 							value={cfApiToken}
 							onChange={setCfApiToken}
 							password
 							envConfigured={envConfig?.env.apiToken}
 						/>
 						<CfField
-							label="Images Account Hash"
+							label={t('settings.media.fields.imagesAccountHash')}
 							value={cfImagesHash}
 							onChange={setCfImagesHash}
 							envConfigured={envConfig?.env.imagesAccountHash}
 						/>
 						<CfField
-							label="R2 Bucket"
+							label={t('settings.media.fields.r2Bucket')}
 							value={cfR2Bucket}
 							onChange={setCfR2Bucket}
 							envConfigured={envConfig?.env.r2Bucket}
 						/>
 						<CfField
-							label="R2 Access Key ID"
+							label={t('settings.media.fields.r2AccessKeyId')}
 							value={cfR2AccessKey}
 							onChange={setCfR2AccessKey}
 							envConfigured={envConfig?.env.r2AccessKeyId}
 						/>
 						<CfField
-							label="R2 Secret Access Key"
+							label={t('settings.media.fields.r2SecretAccessKey')}
 							value={cfR2SecretKey}
 							onChange={setCfR2SecretKey}
 							password
 							envConfigured={envConfig?.env.r2SecretAccessKey}
 						/>
 						<CfField
-							label="R2 Endpoint"
+							label={t('settings.media.fields.r2Endpoint')}
 							value={cfR2Endpoint}
 							onChange={setCfR2Endpoint}
 							placeholder="https://..."
@@ -210,9 +212,7 @@ export function MediaSettings() {
 				))}
 
 			{effectiveAdapter === 'local' && (
-				<p className="text-xs text-text-muted">
-					Files stored on the server filesystem. Good for development and small deployments.
-				</p>
+				<p className="text-xs text-text-muted">{t('settings.media.localDesc')}</p>
 			)}
 
 			{!adapterSetViaEnv && <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />}
@@ -235,6 +235,7 @@ function CfField({
 	placeholder?: string
 	envConfigured?: boolean
 }) {
+	const { t } = useTranslation()
 	const fieldId = useId()
 	if (envConfigured && !value) {
 		return (
@@ -255,7 +256,7 @@ function CfField({
 						<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
 						<path d="M7 11V7a5 5 0 0110 0v4" />
 					</svg>
-					Configured via environment
+					{t('settings.media.configuredViaEnv')}
 				</div>
 			</div>
 		)
@@ -271,11 +272,11 @@ function CfField({
 				type={password ? 'password' : 'text'}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				placeholder={envConfigured ? 'Override environment value...' : placeholder || ''}
+				placeholder={envConfigured ? t('settings.media.overridePlaceholder') : placeholder || ''}
 				className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 			/>
 			{envConfigured && value && (
-				<p className="text-[11px] text-text-muted mt-1">Overriding environment variable</p>
+				<p className="text-[11px] text-text-muted mt-1">{t('settings.media.overridingEnv')}</p>
 			)}
 		</div>
 	)

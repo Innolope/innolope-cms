@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useLicense } from '../components/license-gate'
 import { api } from '../lib/api-client'
 
@@ -9,39 +10,32 @@ export const Route = createFileRoute('/onboarding')({
 
 const ONBOARDED_KEY = 'innolope_onboarded'
 
-const TIERS: { name: string; tagline: string; accent: string; features: string[] }[] = [
+interface TierDef {
+	id: 'community' | 'pro' | 'enterprise'
+	accent: string
+	featureKeys: string[]
+}
+
+const TIERS: TierDef[] = [
 	{
-		name: 'Community',
-		tagline: 'Free, self-hosted',
+		id: 'community',
 		accent: 'text-text',
-		features: [
-			'Unlimited collections & content',
-			'REST API & TypeScript SDK',
-			'MCP server for AI agents',
-			'Team accounts & roles',
-		],
+		featureKeys: ['unlimited', 'restApi', 'mcpServer', 'teamAccounts'],
 	},
 	{
-		name: 'Pro',
-		tagline: 'For growing teams',
+		id: 'pro',
 		accent: 'text-violet-400',
-		features: [
-			'AI writing assistant',
-			'Semantic search',
-			'Media library & Unsplash',
-			'Webhooks & content scheduling',
-			'Multiple projects',
-		],
+		featureKeys: ['aiAssistant', 'semanticSearch', 'mediaLibrary', 'webhooks', 'multiProjects'],
 	},
 	{
-		name: 'Enterprise',
-		tagline: 'For organizations',
+		id: 'enterprise',
 		accent: 'text-amber-400',
-		features: ['SSO — SAML & OIDC', 'Audit log', 'Custom roles', 'White-label', 'Review workflows'],
+		featureKeys: ['sso', 'auditLog', 'customRoles', 'whiteLabel', 'reviewWorkflows'],
 	},
 ]
 
 function Onboarding() {
+	const { t } = useTranslation()
 	const navigate = useNavigate()
 	const license = useLicense()
 	const [step, setStep] = useState(0)
@@ -62,7 +56,7 @@ function Onboarding() {
 	const activate = async () => {
 		const key = keyInput.trim()
 		if (!key) {
-			setError('Paste your license key, or skip for now.')
+			setError(t('onboarding.errors.pasteOrSkip'))
 			return
 		}
 		setError('')
@@ -72,7 +66,7 @@ function Onboarding() {
 			await license.refreshLicense()
 			finish()
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not activate license.')
+			setError(err instanceof Error ? err.message : t('onboarding.errors.activateFailed'))
 		} finally {
 			setSubmitting(false)
 		}
@@ -96,40 +90,41 @@ function Onboarding() {
 				{step === 0 && (
 					<div className="text-center">
 						<img src="/logo.svg" alt="Innolope CMS" className="w-12 h-12 mx-auto mb-5" />
-						<h1 className="text-3xl font-bold mb-3">Welcome to Innolope CMS</h1>
-						<p className="text-text-secondary max-w-md mx-auto mb-8">
-							Your account is ready. Let's take a quick look at what you can do — and activate a
-							license if you have one.
-						</p>
+						<h1 className="text-3xl font-bold mb-3">{t('onboarding.welcome')}</h1>
+						<p className="text-text-secondary max-w-md mx-auto mb-8">{t('onboarding.intro')}</p>
 						<button
 							type="button"
 							onClick={() => setStep(1)}
 							className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 						>
-							Get Started
+							{t('onboarding.getStarted')}
 						</button>
 					</div>
 				)}
 
 				{step === 1 && (
 					<div>
-						<h1 className="text-2xl font-bold text-center mb-2">Choose how far you go</h1>
+						<h1 className="text-2xl font-bold text-center mb-2">{t('onboarding.chooseTitle')}</h1>
 						<p className="text-text-secondary text-center mb-8">
-							Innolope CMS is fully functional for free. Pro and Enterprise unlock more.
+							{t('onboarding.chooseSubtitle')}
 						</p>
 						<div className="grid md:grid-cols-3 gap-4 mb-8">
 							{TIERS.map((tier) => (
 								<div
-									key={tier.name}
+									key={tier.id}
 									className="rounded-xl border border-border bg-surface p-5 flex flex-col"
 								>
-									<p className={`text-sm font-semibold ${tier.accent}`}>{tier.name}</p>
-									<p className="text-xs text-text-muted mb-4">{tier.tagline}</p>
+									<p className={`text-sm font-semibold ${tier.accent}`}>
+										{t(`onboarding.tiers.${tier.id}.name`)}
+									</p>
+									<p className="text-xs text-text-muted mb-4">
+										{t(`onboarding.tiers.${tier.id}.tagline`)}
+									</p>
 									<ul className="space-y-2 text-sm">
-										{tier.features.map((f) => (
-											<li key={f} className="flex gap-2 text-text-secondary">
+										{tier.featureKeys.map((fk) => (
+											<li key={fk} className="flex gap-2 text-text-secondary">
 												<span className="text-text-muted">•</span>
-												{f}
+												{t(`onboarding.tiers.${tier.id}.features.${fk}`)}
 											</li>
 										))}
 									</ul>
@@ -142,14 +137,14 @@ function Onboarding() {
 								onClick={() => setStep(0)}
 								className="px-5 py-2.5 bg-btn-secondary rounded-lg text-sm hover:bg-btn-secondary-hover transition-colors"
 							>
-								Back
+								{t('onboarding.back')}
 							</button>
 							<button
 								type="button"
 								onClick={() => setStep(2)}
 								className="px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 							>
-								Continue
+								{t('onboarding.continue')}
 							</button>
 						</div>
 					</div>
@@ -160,11 +155,8 @@ function Onboarding() {
 						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mb-4 mx-auto">
 							<span className="text-2xl">✨</span>
 						</div>
-						<h1 className="text-2xl font-bold mb-2">Activate your license</h1>
-						<p className="text-text-secondary mb-6">
-							Have a Pro or Enterprise key? Paste it below to unlock paid features. You can always
-							do this later from Settings.
-						</p>
+						<h1 className="text-2xl font-bold mb-2">{t('onboarding.activateTitle')}</h1>
+						<p className="text-text-secondary mb-6">{t('onboarding.activateSubtitle')}</p>
 						<textarea
 							value={keyInput}
 							onChange={(e) => {
@@ -172,7 +164,7 @@ function Onboarding() {
 								setError('')
 							}}
 							rows={3}
-							placeholder="ink-lic_..."
+							placeholder={t('onboarding.licensePlaceholder')}
 							className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm font-mono text-text placeholder:text-text-muted focus:outline-none focus:border-border-strong resize-none"
 						/>
 						{error && (
@@ -187,7 +179,7 @@ function Onboarding() {
 								disabled={submitting}
 								className="w-full py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50 transition-colors"
 							>
-								{submitting ? 'Verifying...' : 'Activate & Continue'}
+								{submitting ? t('onboarding.verifying') : t('onboarding.activateAndContinue')}
 							</button>
 							<button
 								type="button"
@@ -195,7 +187,7 @@ function Onboarding() {
 								disabled={submitting}
 								className="text-sm text-text-secondary hover:text-text disabled:opacity-50"
 							>
-								Skip — continue on Community
+								{t('onboarding.skip')}
 							</button>
 						</div>
 					</div>

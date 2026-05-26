@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 interface SaveBarProps {
 	dirty: boolean
 	saving: boolean
@@ -8,6 +10,7 @@ interface SaveBarProps {
 }
 
 export function SaveBar({ dirty, saving, saved, onSave, saveLabel }: SaveBarProps) {
+	const { t } = useTranslation()
 	if (!dirty && !saving && !saved) return null
 
 	return (
@@ -18,7 +21,7 @@ export function SaveBar({ dirty, saving, saved, onSave, saveLabel }: SaveBarProp
 				disabled={saving || !dirty}
 				className="px-5 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-40 shadow-lg transition-all"
 			>
-				{saving ? 'Saving...' : saved ? 'Saved' : saveLabel || 'Save Changes'}
+				{saving ? t('saveBar.saving') : saved ? t('saveBar.saved') : saveLabel || t('saveBar.save')}
 			</button>
 		</div>
 	)

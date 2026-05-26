@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { UnsplashPicker } from '../media/unsplash-picker'
 
 export interface ImageSelection {
@@ -19,6 +20,7 @@ interface ImagePickerModalProps {
 type Tab = 'url' | 'unsplash'
 
 export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
+	const { t } = useTranslation()
 	const [tab, setTab] = useState<Tab>('unsplash')
 	const [url, setUrl] = useState('')
 	const [alt, setAlt] = useState('')
@@ -41,35 +43,35 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
 			<button
 				type="button"
-				aria-label="Close dialog"
+				aria-label={t('common.closeDialog')}
 				className="absolute inset-0 -z-10 cursor-default"
 				onClick={onClose}
 			/>
 			<div
 				role="dialog"
 				aria-modal="true"
-				aria-label="Insert image"
+				aria-label={t('editor.imagePicker.title')}
 				className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
 			>
 				{/* Header */}
 				<div className="flex items-center justify-between px-5 py-4 border-b border-border">
-					<h3 className="text-sm font-semibold">Insert Image</h3>
+					<h3 className="text-sm font-semibold">{t('editor.imagePicker.title')}</h3>
 					<button
 						type="button"
 						onClick={onClose}
 						className="text-text-secondary hover:text-text text-xs"
 					>
-						Close
+						{t('editor.imagePicker.close')}
 					</button>
 				</div>
 
 				{/* Tabs */}
 				<div className="flex border-b border-border">
 					<TabButton active={tab === 'unsplash'} onClick={() => setTab('unsplash')}>
-						Unsplash
+						{t('editor.imagePicker.tabs.unsplash')}
 					</TabButton>
 					<TabButton active={tab === 'url'} onClick={() => setTab('url')}>
-						URL
+						{t('editor.imagePicker.tabs.url')}
 					</TabButton>
 				</div>
 
@@ -96,7 +98,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 						<div className="space-y-4">
 							<div>
 								<label htmlFor="img-url" className="block text-xs text-text-secondary mb-1.5">
-									Image URL
+									{t('editor.imagePicker.imageUrl')}
 								</label>
 								<input
 									id="img-url"
@@ -111,7 +113,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 							</div>
 							<div>
 								<label htmlFor="img-alt" className="block text-xs text-text-secondary mb-1.5">
-									Alt text (optional)
+									{t('editor.imagePicker.altTextOptional')}
 								</label>
 								<input
 									id="img-alt"
@@ -119,7 +121,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 									value={alt}
 									onChange={(e) => setAlt(e.target.value)}
 									onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
-									placeholder="Describe the image"
+									placeholder={t('editor.imagePicker.describeImage')}
 									className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
 								/>
 							</div>
@@ -129,7 +131,7 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 								disabled={!url.trim()}
 								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-30 transition-colors"
 							>
-								Insert Image
+								{t('editor.imagePicker.insertImage')}
 							</button>
 						</div>
 					)}

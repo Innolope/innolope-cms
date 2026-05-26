@@ -1,0 +1,1493 @@
+{
+	"common": {
+		"cancel": "Cancel",
+		"confirm": "Confirm",
+		"closeDialog": "Close dialog",
+		"create": "Create",
+		"failed": "Failed",
+		"loading": "Loading…",
+		"logout": "Logout",
+		"signOut": "Sign out",
+		"time": {
+			"justNow": "just now"
+		}
+	},
+	"nav": {
+		"dashboard": "Dashboard",
+		"media": "Media",
+		"settings": "Project Settings",
+		"collections": "Collections",
+		"newCollection": "New Collection",
+		"accountSettings": "Account settings",
+		"expandSidebar": "Expand sidebar",
+		"collapseSidebar": "Collapse sidebar"
+	},
+	"confirm": {
+		"typeToConfirm": "Type <code>{{text}}</code> to confirm"
+	},
+	"domainAccess": {
+		"noAccess": "No access",
+		"bodyNamed": "{{email}} is not a member of “{{projectName}}”. Ask a project admin for an invite, then sign in again.",
+		"bodyUnnamed": "{{email}} is not a member of this project. Ask a project admin for an invite, then sign in again."
+	},
+	"noProject": {
+		"welcome": "Welcome, {{name}}",
+		"subtitle": "Create your first project to get started.",
+		"projectNamePlaceholder": "Project name",
+		"errors": {
+			"invalidName": "Project name must contain at least one letter or number."
+		}
+	},
+	"account": {
+		"title": "Account",
+		"tabs": {
+			"profile": "Profile",
+			"password": "Password",
+			"sso": "Linked Accounts",
+			"appearance": "Appearance"
+		},
+		"profile": {
+			"name": "Name",
+			"email": "Email"
+		},
+		"password": {
+			"current": "Current password",
+			"new": "New password",
+			"confirm": "Confirm new password",
+			"saveLabel": "Change Password",
+			"errors": {
+				"allRequired": "All fields are required",
+				"tooShort": "New password must be at least 8 characters",
+				"mismatch": "Passwords do not match",
+				"changeFailed": "Failed to change password"
+			}
+		},
+		"sso": {
+			"intro": "Identities from your identity provider that are linked to this account. Linking an SSO identity lets you sign in without a password.",
+			"noneLinked": "No SSO identities linked yet.",
+			"unknownConnection": "Unknown",
+			"noEmailInProfile": "(no email in profile)",
+			"lastSignIn": "Last sign-in: {{date}}",
+			"unlink": "Unlink",
+			"unlinkConfirmTitle": "Unlink SSO identity",
+			"unlinkConfirmMessage": "Unlink this SSO identity?",
+			"unlinkConfirmLabel": "Unlink",
+			"unlinkFailed": "Failed to unlink",
+			"linkNewIdentity": "Link a new identity",
+			"linkArrow": "Link →"
+		},
+		"appearance": {
+			"theme": "Theme",
+			"language": "Language",
+			"themes": {
+				"light": "Light",
+				"dark": "Dark",
+				"system": "System"
+			},
+			"languages": {
+				"en": "English",
+				"uk": "Українська"
+			}
+		}
+	},
+	"saveBar": {
+		"save": "Save Changes",
+		"saving": "Saving…",
+		"saved": "Saved"
+	},
+	"dropdown": {
+		"selectPlaceholder": "Select…",
+		"addOption": "+ Add option…",
+		"newOptionPlaceholder": "New option",
+		"add": "Add",
+		"adding": "Adding…"
+	},
+	"columnConfig": {
+		"configure": "Configure columns",
+		"columns": "Columns",
+		"pinned": "pinned",
+		"moveUp": "Move up",
+		"moveDown": "Move down",
+		"resetDefault": "Reset to default"
+	},
+	"filterBar": {
+		"addFilter": "Add filter",
+		"clearAll": "Clear all",
+		"removeFilter": "Remove filter",
+		"filterByPlaceholder": "Filter by {{label}}…",
+		"from": "From",
+		"to": "To"
+	},
+	"licenseGate": {
+		"proBadge": "Pro",
+		"requiresLicense": "This feature requires an Innolope CMS {{plan}} license.",
+		"proUnlocks": "Unlock AI writing, the media library, webhooks, and multiple projects support.",
+		"enterpriseUnlocks": "Unlock SSO, audit logs, custom roles, and more.",
+		"viewPlans": "View Plans"
+	},
+	"projectSelector": {
+		"projectFallback": "Project",
+		"selectProject": "Select project",
+		"projectNamePlaceholder": "Project name",
+		"newProject": "+ New Project",
+		"createFailed": "Failed to create project"
+	},
+	"versions": {
+		"history": "Version History",
+		"loading": "Loading versions…",
+		"noPrevious": "No previous versions.",
+		"revertTitle": "Revert version",
+		"revertMessage": "Revert to version {{version}}? Current content will be saved as a new version.",
+		"revert": "Revert",
+		"revertFailed": "Revert failed",
+		"reverting": "Reverting…",
+		"revertToVersion": "Revert to v{{version}}"
+	},
+	"ai": {
+		"toolbar": {
+			"ai": "✨ AI",
+			"rewrite": "Rewrite",
+			"shorter": "Shorter",
+			"fix": "Fix",
+			"seo": "SEO"
+		},
+		"actions": {
+			"rewrite": "Rewrite",
+			"shorter": "Shorter",
+			"longer": "Longer",
+			"fixGrammar": "Fix Grammar",
+			"seo": "SEO"
+		},
+		"chat": {
+			"title": "AI Assistant",
+			"targeting": "Targeting:",
+			"close": "Close",
+			"emptyLine1": "Select text in a field and use quick actions,",
+			"emptyLine2": "or type a prompt below.",
+			"applyTo": "Apply to {{field}}",
+			"copy": "Copy",
+			"inputPlaceholder": "Ask AI to help…",
+			"send": "Send",
+			"errorPrefix": "Error: {{message}}"
+		},
+		"settings": {
+			"addProvider": "+ Add provider",
+			"loading": "Loading AI settings…",
+			"saveFailed": "Failed to save",
+			"defaultModel": "Default Model",
+			"noModels": "No models available — connect a provider below",
+			"cloudIntro": "AI providers are managed by Innolope Cloud. All major models are available. Select your preferred default model above.",
+			"providerApiKeys": "Provider API Keys",
+			"providerApiKeysHelp": "Add your own API keys to enable AI features. Keys are stored encrypted per project. You can add the same provider multiple times to rotate between API keys; rows are tried top-to-bottom.",
+			"providerLabelNumbered": "{{label}} #{{n}}",
+			"dragToReorder": "Drag to reorder",
+			"connectedReplace": "Connected (enter new key to replace)",
+			"pasteApiKey": "Paste API key…",
+			"connected": "Connected",
+			"removeProvider": "Remove provider",
+			"removeProviderTitle": "Remove {{provider}}?",
+			"removeProviderConnectedMessage": "This removes this {{provider}} key. The stored API key is deleted when you save.",
+			"removeProviderMessage": "This removes this {{provider}} provider row.",
+			"remove": "Remove",
+			"fallbackTitle": "Fall back to other providers on rate limit or error",
+			"fallbackHelp": "If the selected model's provider returns a 429 or 5xx, try the next enabled provider in the list (using that provider's default model)."
+		}
+	},
+	"media": {
+		"unsplash": {
+			"integrationTitle": "Unsplash Integration",
+			"upgradeDescription": "This feature requires an Innolope CMS Pro license. Unlock AI writing, webhooks, and multiple projects support.",
+			"viewPlans": "View Plans",
+			"checking": "Checking Unsplash…",
+			"notConfigured": "Unsplash not configured.",
+			"setEnvVarPrefix": "Set",
+			"setEnvVarSuffix": "to enable.",
+			"searchPlaceholder": "Search Unsplash photos…",
+			"noPhotosFound": "No photos found.",
+			"searchFreePhotos": "Search free photos on Unsplash.",
+			"savedToLibrary": "Saved to library",
+			"saveToLibrary": "Save to library",
+			"loadMore": "Load more",
+			"photosByPrefix": "Photos by",
+			"savedToast": "Saved \"{{alt}}\" by {{author}}",
+			"photoFallback": "photo",
+			"savePhotoFailed": "Failed to save photo"
+		}
+	},
+	"editor": {
+		"fieldRenderer": {
+			"yes": "Yes",
+			"no": "No",
+			"selectPlaceholder": "Select…",
+			"addOption": "+ Add option…"
+		},
+		"imagePicker": {
+			"title": "Insert Image",
+			"close": "Close",
+			"tabs": {
+				"unsplash": "Unsplash",
+				"url": "URL"
+			},
+			"imageUrl": "Image URL",
+			"altTextOptional": "Alt text (optional)",
+			"describeImage": "Describe the image",
+			"insertImage": "Insert Image"
+		},
+		"jsonField": {
+			"invalidJson": "Invalid JSON",
+			"invalidJsonWithMessage": "Invalid JSON: {{message}}"
+		},
+		"localizationBar": {
+			"locale": "Locale",
+			"singleLocale": "Single locale",
+			"compareLocales": "Compare locales side-by-side",
+			"translate": "Translate",
+			"translating": "Translating…",
+			"translateWithAiTitle": "Translate {{source}} → {{target}} with AI"
+		},
+		"localizedTextField": {
+			"translateAria": "Translate {{source}} to {{target}}",
+			"translateTitle": "Translate {{source}} → {{target}}"
+		},
+		"markdownEditor": {
+			"placeholder": "Start writing…",
+			"addLink": "Add link",
+			"linkUrl": "Link URL",
+			"toolbar": {
+				"bulletList": "List",
+				"quote": "Quote",
+				"code": "Code",
+				"image": "Image",
+				"link": "Link"
+			}
+		},
+		"objectArrayField": {
+			"yes": "Yes",
+			"no": "No",
+			"nested": "(nested)",
+			"addEmptyRow": "+ Add empty row",
+			"addRow": "+ Add row",
+			"removeRow": "Remove row {{index}}"
+		},
+		"pillInput": {
+			"placeholder": "Type and press Enter",
+			"remove": "Remove {{label}}"
+		},
+		"relationField": {
+			"uploadFailed": "Upload failed",
+			"createFailed": "Create failed",
+			"relatedNotImported": "Related collection \"{{name}}\" is not imported — showing the raw reference id.",
+			"noRelatedCollection": "No related collection detected for this field.",
+			"selectLabel": "Select {{label}}…",
+			"none": "— None —",
+			"noRecordsYet": "No records yet.",
+			"createNew": "+ Create new {{label}}",
+			"uploadImage": "Upload image",
+			"uploading": "Uploading…",
+			"newDialogTitle": "New {{label}}",
+			"namePlaceholder": "Name",
+			"creating": "Creating…"
+		}
+	},
+	"settings": {
+		"analytics": {
+			"loading": "Loading analytics…",
+			"unavailable": "Analytics unavailable.",
+			"readsBySource": "Reads by Source (30d)",
+			"noReads": "No reads recorded yet.",
+			"total": "Total",
+			"mostReadContent": "Most Read Content",
+			"topSearchQueries": "Top Search Queries",
+			"contentGaps": "Content Gaps",
+			"contentGapsDesc": "Queries with more misses than hits — consider creating content for these topics.",
+			"readsCount_one": "{{count}} read",
+			"readsCount_other": "{{count}} reads",
+			"missesCount_one": "{{count}} miss",
+			"missesCount_other": "{{count}} misses",
+			"hitsMisses": "{{hits}} hits / {{misses}} misses"
+		},
+		"collectionAccess": {
+			"fullAccessNote": "Full access (this role grants access to all collections).",
+			"allCollections": "All collections",
+			"specificCollections": "Specific collections",
+			"linkedTooltip": "Auto-readable via relations — only grant if the user must edit it directly.",
+			"linkedBadge": "linked",
+			"noCollections": "No collections in this project yet.",
+			"linkedHelp": "Linked collections (used as relation targets) are readable automatically through relations — grant them only if the user should be able to manage records directly."
+		},
+		"customDomain": {
+			"copy": "Copy",
+			"copied": "Copied",
+			"loadFailed": "Failed to load custom domain",
+			"saveFailed": "Failed to save domain",
+			"verifyFailed": "Verification failed",
+			"verifiedToast": "Domain verified",
+			"removeFailed": "Failed to remove domain",
+			"removeConfirmTitle": "Remove custom domain",
+			"removeConfirmMessage": "Remove this custom domain? The CMS will no longer be reachable there.",
+			"removeConfirmLabel": "Remove",
+			"intro1": "Link your own domain so your team signs in to this project at a branded URL (e.g.",
+			"intro2": "). The domain is tied to this project — anyone visiting it lands directly on this project's sign-in.",
+			"domain": "Domain",
+			"addDomain": "Add domain",
+			"verifiedAndLive": "Verified & live",
+			"pendingVerification": "Pending verification",
+			"remove": "Remove",
+			"step1Title": "Step 1 — Verify ownership",
+			"step1Desc": "Add this TXT record at your DNS provider to prove you own the domain.",
+			"txtRecordName": "TXT record name",
+			"txtRecordValue": "TXT record value",
+			"step2Title": "Step 2 — Point the domain",
+			"step2Desc1": "Add a CNAME record so the domain resolves to the CMS. An HTTPS certificate is issued automatically on the first visit. If your DNS is on Cloudflare, set this record to",
+			"step2Desc2": "(grey cloud) — a proxied record blocks certificate issuance.",
+			"dnsOnly": "DNS only",
+			"cnameLabel": "CNAME {{domain}} →",
+			"checking": "Checking…",
+			"verifyDomain": "Verify domain",
+			"signInAt": "Your team can now sign in to this project at",
+			"cnameReminder1": "Make sure the CNAME record for",
+			"cnameReminder2": "points to",
+			"cnameReminder3": ". If your DNS is on Cloudflare, keep this record",
+			"cnameReminder4": "(grey cloud)."
+		},
+		"general": {
+			"saveFailed": "Failed to save",
+			"deleteFailed": "Failed to delete workspace",
+			"projectName": "Project name",
+			"projectSlug": "Project slug",
+			"slugHelp": "Used in URLs and API. Changing this may break existing integrations.",
+			"defaultLocale": "Default locale",
+			"availableLocales": "Available locales",
+			"localesHelp": "Comma-separated locale codes.",
+			"dangerZone": "Danger zone",
+			"deleteWorkspaceTitle": "Delete this workspace",
+			"deleteWorkspaceDesc": "Permanently removes the workspace and its CMS content. Your external database and its data are not touched.",
+			"deleteWorkspace": "Delete workspace",
+			"deleting": "Deleting…",
+			"deleteWorkspacePrompt1": "This permanently deletes",
+			"deleteWorkspacePrompt2": "and all of its CMS content, collections, and members. This cannot be undone. Your connected external database and its data will not be deleted.",
+			"typeToConfirmPrefix": "Type",
+			"typeToConfirmSuffix": "to confirm"
+		},
+		"license": {
+			"pasteFirst": "Paste your license key first.",
+			"activateFailed": "Could not activate license.",
+			"activatedToast": "{{plan}} license activated.",
+			"removeFailed": "Could not remove license.",
+			"removeConfirmTitle": "Remove license",
+			"removeConfirmMessage": "Remove this license and revert to the Community tier?",
+			"removeConfirmLabel": "Remove",
+			"removedToast": "License removed. Now running on the Community tier.",
+			"cloudNotice": "This instance runs on Innolope Cloud — all features are included and no license key is needed.",
+			"currentPlan": "Current plan",
+			"licensedBadge": "Licensed",
+			"organization": "Organization",
+			"expires": "Expires",
+			"unlockedFeatures": "Unlocked features",
+			"communityNotice": "You're on the free Community tier. Activate a license key below to unlock Pro and Enterprise features.",
+			"replaceKey": "Replace license key",
+			"activateLicense": "Activate a license",
+			"activateDesc": "Paste the license key from your Innolope CMS purchase. Keys start with",
+			"verifying": "Verifying…",
+			"activateButton": "Activate License",
+			"removeLicense": "Remove license",
+			"viewPlans": "View plans & pricing",
+			"plans": {
+				"community": "Community",
+				"pro": "Pro",
+				"enterprise": "Enterprise"
+			},
+			"features": {
+				"sso": "Single Sign-On (SAML & OIDC)",
+				"auditLog": "Audit Log",
+				"aiAssistant": "AI Assistant & Semantic Search",
+				"multipleProjects": "Multiple Projects",
+				"webhooks": "Webhooks",
+				"scheduling": "Content Scheduling",
+				"customRoles": "Custom Roles",
+				"whiteLabel": "White-Label",
+				"reviewWorkflows": "Review Workflows",
+				"mediaIntegrations": "Media Library"
+			}
+		},
+		"media": {
+			"saveFailed": "Failed to save",
+			"storageAdapter": "Storage adapter",
+			"setViaEnv": "Set via environment variable",
+			"cfEnvConfiguredTitle": "Cloudflare credentials configured via environment",
+			"cfEnvConfiguredDesc": "All required Cloudflare credentials are set as environment variables on the server. No additional configuration is needed.",
+			"localDesc": "Files stored on the server filesystem. Good for development and small deployments.",
+			"configuredViaEnv": "Configured via environment",
+			"overridePlaceholder": "Override environment value…",
+			"overridingEnv": "Overriding environment variable",
+			"adapters": {
+				"local": "Local filesystem",
+				"cloudflare": "Cloudflare (Images + R2 + Stream)",
+				"s3": "S3-compatible"
+			},
+			"fields": {
+				"accountId": "Account ID",
+				"apiToken": "API Token",
+				"imagesAccountHash": "Images Account Hash",
+				"r2Bucket": "R2 Bucket",
+				"r2AccessKeyId": "R2 Access Key ID",
+				"r2SecretAccessKey": "R2 Secret Access Key",
+				"r2Endpoint": "R2 Endpoint"
+			}
+		},
+		"sso": {
+			"loadFailed": "Failed to load SSO connections",
+			"nameSlugRequired": "Name and slug are required",
+			"saveFailed": "Failed to save",
+			"deleteFailed": "Failed to delete",
+			"deleteConfirmTitle": "Delete SSO connection",
+			"deleteConfirmMessage": "This permanently deletes the SSO connection. This cannot be undone.",
+			"deleteConfirmLabel": "Delete",
+			"loading": "Loading SSO connections…",
+			"intro": "Configure SAML or OIDC single sign-on for your team. Users whose email domain matches an enabled connection can sign in via their identity provider.",
+			"addConnection": "Add connection",
+			"empty": "No SSO connections yet. Add one to start federating logins with your IdP.",
+			"statusEnabled": "enabled",
+			"statusDisabled": "disabled",
+			"statusEnforced": "enforced",
+			"domainsList": "Domains: {{domains}}",
+			"noDomainFilter": "No domain filter",
+			"slugLabel": "slug: {{slug}}",
+			"edit": "Edit",
+			"delete": "Delete",
+			"editTitle": "Edit SSO connection",
+			"newTitle": "New SSO connection",
+			"fields": {
+				"displayName": "Display name",
+				"slug": "Slug (used in redirect URLs)",
+				"protocol": "Protocol",
+				"domainAllowlist": "Email-domain allowlist (comma-separated)",
+				"issuerUrl": "Issuer URL",
+				"clientId": "Client ID",
+				"clientSecret": "Client secret",
+				"clientSecretExisting": "Client secret (leave blank to keep current)",
+				"scopes": "Scopes (space-separated)",
+				"idpEntityId": "IdP Entity ID",
+				"idpSsoUrl": "IdP SSO URL",
+				"idpCerts": "IdP certificates (PEM, one block per cert — add a second during rotation)",
+				"emailClaim": "Email claim",
+				"nameClaim": "Name claim",
+				"groupsClaim": "Groups claim",
+				"defaultRole": "Default role",
+				"groupRoleMap": "Group → role map (one mapping per line: GROUP_NAME=role)"
+			},
+			"flags": {
+				"enabled": "Enabled",
+				"enforceSso": "Enforce SSO (block password login for matching domains)",
+				"allowIdpInitiated": "Allow IdP-initiated",
+				"signedAssertions": "Require signed assertions",
+				"encryptedAssertions": "Require encrypted assertions"
+			},
+			"protocols": {
+				"oidc": "OIDC (OpenID Connect)",
+				"saml": "SAML 2.0"
+			},
+			"roles": {
+				"admin": "admin",
+				"editor": "editor",
+				"viewer": "viewer"
+			},
+			"addSecondCertWarning": "Add a second cert before rotation to avoid downtime.",
+			"attrRolesTitle": "Attribute mapping & roles",
+			"saving": "Saving…",
+			"saveChanges": "Save changes",
+			"createConnection": "Create connection",
+			"scim": {
+				"title": "SCIM provisioning tokens",
+				"baseUrlLabel": "Base URL:",
+				"description": "Generate a bearer token for your IdP's SCIM client. Tokens can create and deactivate users, but cannot view secrets or change SSO configuration.",
+				"saveTokenNotice": "Save this token now. It will not be shown again.",
+				"dismiss": "Dismiss",
+				"loading": "Loading tokens…",
+				"noTokens": "No tokens yet.",
+				"colName": "Name",
+				"colPrefix": "Prefix",
+				"colCreated": "Created",
+				"colLastUsed": "Last Used",
+				"never": "Never",
+				"revoked": "REVOKED",
+				"revoke": "Revoke",
+				"revokeConfirmTitle": "Revoke SCIM token",
+				"revokeConfirmMessage": "Revoke this SCIM token? Active syncs using it will start failing.",
+				"revokeConfirmLabel": "Revoke",
+				"createFailed": "Failed to create token",
+				"tokenNamePlaceholder": "Token name (e.g. Okta sync)",
+				"generating": "Generating…",
+				"generateToken": "Generate token"
+			}
+		},
+		"team": {
+			"loading": "Loading team…",
+			"inviteFailed": "Failed to send invite",
+			"updateAccessFailed": "Failed to update access",
+			"updateRoleFailed": "Failed to update role",
+			"removeFailed": "Failed to remove member",
+			"removeConfirmTitle": "Remove member",
+			"removeConfirmMessage": "Remove {{name}} from this project?",
+			"removeConfirmLabel": "Remove",
+			"members": "Members",
+			"pendingInvites": "Pending Invites",
+			"inviteMember": "Invite Member",
+			"collectionAccess": "Collection access",
+			"editAccess": "Edit access",
+			"remove": "Remove",
+			"saveAccess": "Save access",
+			"savingAccess": "Saving…",
+			"sending": "Sending…",
+			"sendInvite": "Send Invite",
+			"inviteSent": "Invite sent to {{email}}",
+			"expiresOn": "Expires {{date}}",
+			"collectionsScope_one": "{{count}} collection",
+			"collectionsScope_other": "{{count}} collections",
+			"scope": {
+				"fullAccess": "Full access",
+				"allCollections": "All collections"
+			},
+			"roles": {
+				"owner": "owner",
+				"admin": "admin",
+				"editor": "editor",
+				"viewer": "viewer"
+			}
+		},
+		"webhook": {
+			"createFailed": "Failed to create webhook",
+			"testError": "Test failed",
+			"testSuccess": "Test delivery succeeded!",
+			"testFailed": "Test delivery failed.",
+			"deleteConfirmTitle": "Delete webhook",
+			"deleteConfirmMessage": "Delete this webhook?",
+			"deleteConfirmLabel": "Delete",
+			"intro": "Receive HTTP callbacks when content changes occur",
+			"create": "Create Webhook",
+			"secretReveal": "Webhook secret (copy now — shown only once):",
+			"dismiss": "Dismiss",
+			"emptyTitle": "No webhooks configured",
+			"emptyDesc": "Webhooks notify external services in real time when content is created, updated, published, or deleted.",
+			"createFirst": "Create Your First Webhook",
+			"allEvents": "All events",
+			"active": "Active",
+			"paused": "Paused",
+			"logs": "Logs",
+			"test": "Test",
+			"pause": "Pause",
+			"enable": "Enable",
+			"delete": "Delete",
+			"recentDeliveries": "Recent Deliveries",
+			"noDeliveries": "No deliveries yet.",
+			"endpointUrl": "Endpoint URL",
+			"eventsLabel": "Events (leave empty for all)"
+		},
+		"database": {
+			"scanFailed": "Scan failed",
+			"scanDatabasesFailed": "Failed to scan databases",
+			"connectionFailed": "Connection failed",
+			"saveFailed": "Failed to save",
+			"probeFailed": "Probe failed",
+			"resyncFailed": "Re-sync failed",
+			"selectAtLeastOne": "Select at least one collection to display",
+			"adapterPromotedToast": "Also using Cloudflare Images for new uploads.",
+			"tableWord": {
+				"tables": "Tables",
+				"collections": "Collections"
+			},
+			"steps": {
+				"database": "Database",
+				"connection": "Connection",
+				"confirmDb": "Confirm DB",
+				"mediaStorage": "Media storage"
+			},
+			"dbDesc": {
+				"builtIn": "Managed PostgreSQL",
+				"mongodb": "Atlas or self-hosted",
+				"postgresql": "Direct connection",
+				"mysql": "Direct connection",
+				"supabase": "Managed Postgres",
+				"cockroachdb": "Distributed SQL",
+				"firebase": "Firestore connection",
+				"neon": "Serverless Postgres",
+				"vercelPostgres": "Serverless SQL"
+			},
+			"connHelp": {
+				"mongodb": {
+					"label": "MongoDB connection string",
+					"instructions": {
+						"0": "Open MongoDB Atlas and select your cluster",
+						"1": "Click \"Connect\" then choose \"Drivers\"",
+						"2": "Copy the connection string and replace <password> with your database user password"
+					}
+				},
+				"postgresql": {
+					"label": "PostgreSQL connection string",
+					"instructions": {
+						"0": "Find the connection details in your PostgreSQL hosting dashboard",
+						"1": "Combine host, port, user, password, and database name into the URI format",
+						"2": "If SSL is required, append ?sslmode=require to the string"
+					}
+				},
+				"mysql": {
+					"label": "MySQL connection string",
+					"instructions": {
+						"0": "Find the connection details in your MySQL hosting dashboard or server config",
+						"1": "Combine host, port, user, password, and database name into the URI format",
+						"2": "Default port is 3306 unless configured otherwise"
+					}
+				},
+				"supabase": {
+					"label": "Supabase connection string",
+					"instructions": {
+						"0": "Open your Supabase project dashboard",
+						"1": "Go to Project Settings → Database",
+						"2": "Scroll to \"Connection string\" section and select URI",
+						"3": "Copy the string and replace [YOUR-PASSWORD] with your database password"
+					}
+				},
+				"cockroachdb": {
+					"label": "CockroachDB connection string",
+					"instructions": {
+						"0": "Open the CockroachDB Cloud Console",
+						"1": "Select your cluster and click \"Connect\"",
+						"2": "Choose \"General connection string\" and copy it",
+						"3": "Replace the password placeholder with your SQL user password"
+					}
+				},
+				"firebase": {
+					"label": "Firebase service account JSON",
+					"instructions": {
+						"0": "Open the Firebase Console and select your project",
+						"1": "Go to Project Settings → Service accounts",
+						"2": "Click \"Generate new private key\" to download the JSON file",
+						"3": "Open the file and paste the entire JSON content below"
+					}
+				},
+				"neon": {
+					"label": "Neon connection string",
+					"instructions": {
+						"0": "Open your Neon project dashboard",
+						"1": "The connection string is displayed on the main Dashboard page",
+						"2": "Click the copy button next to \"Connection Details\"",
+						"3": "Make sure sslmode=require is included"
+					}
+				},
+				"vercelPostgres": {
+					"label": "Vercel Postgres URL",
+					"instructions": {
+						"0": "Open the Vercel dashboard and go to Storage",
+						"1": "Select your Postgres database",
+						"2": "Switch to the \".env.local\" tab",
+						"3": "Copy the value of POSTGRES_URL (not POSTGRES_URL_NON_POOLING)"
+					}
+				}
+			},
+			"connectedTo": "Connected to",
+			"connectionSavedSecurely": "Connection saved securely",
+			"resyncTitle": "Re-sync collections & schema",
+			"resyncDesc": "Re-scan the database to refresh field types (dates, relations) and pull in newly-related collections.",
+			"resync": "Re-sync",
+			"resyncing": "Re-syncing…",
+			"resyncComplete_one": "Re-sync complete — {{count}} collection refreshed",
+			"resyncComplete_other": "Re-sync complete — {{count}} collections refreshed",
+			"resyncPhase": {
+				"scanning": "Scanning database for changes…",
+				"importing": "Importing collection schema…",
+				"refreshing": "Refreshing collections…"
+			},
+			"stepOfTotal": "Step {{current}} of {{total}}",
+			"selectCollectionsToDisplay": "Select collections to display",
+			"noCollectionsFound": "No collections found in this database.",
+			"referencesAuto": "References {{target}} — imported automatically",
+			"referencesAutoImport": "References {{target}} — it will be imported automatically",
+			"recordsCount_one": "record",
+			"recordsCount_other": "records",
+			"importCollections_one": "Import {{count}} collection",
+			"importCollections_other": "Import {{count}} collections",
+			"changeDbSource": "Change database source",
+			"selectDbSource": "Select database source",
+			"builtInDesc": "Content stored in the default Innolope CMS database. No external connection needed.",
+			"switchToBuiltIn": "Switch to Built-in",
+			"changeProvider": "Change provider",
+			"howToFind": "How to find your connection string",
+			"formatLabel": "Format",
+			"testingConnection": "Testing connection…",
+			"scanning": "Scanning…",
+			"editConnectionString": "Edit connection string",
+			"selectADatabase": "Select a database",
+			"foundDatabases_one": "We found {{count}} database on this server. Choose which one to connect.",
+			"foundDatabases_other": "We found {{count}} databases on this server. Choose which one to connect.",
+			"chooseDifferentDatabase": "Choose different database",
+			"refreshCollections": "Refresh collections",
+			"databaseFound": "Database found:",
+			"scanningCollections": "Scanning collections…",
+			"scanningTables": "Scanning tables…",
+			"detectedCollectionsLabel": "Detected collections — select which to manage as CMS collections",
+			"detectedTablesLabel": "Detected tables — select which to manage as CMS collections",
+			"sort": "Sort",
+			"sortAZ": "A-Z",
+			"sortRecords": "Records",
+			"hideEmpty": "Hide empty",
+			"colName": "Name",
+			"colFields": "Fields",
+			"colColumns": "Columns",
+			"colRecords": "Records",
+			"colSize": "Size",
+			"emptyHiddenCollections_one": "{{count}} empty collection hidden",
+			"emptyHiddenCollections_other": "{{count}} empty collections hidden",
+			"emptyHiddenTables_one": "{{count}} empty table hidden",
+			"emptyHiddenTables_other": "{{count}} empty tables hidden",
+			"noCollectionsInDb": "No collections found in this database.",
+			"noTablesInDb": "No tables found in this database.",
+			"selectedCollectionsSize": "Selected collections size: {{size}}",
+			"selectedTablesSize": "Selected tables size: {{size}}",
+			"tooLargeToCache": "— too large to cache automatically; records are read live from the database until you sync",
+			"accessMode": "Access mode",
+			"readWrite": "Read & Write",
+			"readOnly": "Read Only",
+			"continue": "Continue",
+			"save": "Save",
+			"backTo": "Back to {{target}}",
+			"mediaWhereTitle": "Where are your media files stored?",
+			"mediaWhereDesc_one": "We detected {{count}} media library. Tell us where the files live so the CMS can build working URLs from the stored paths.",
+			"mediaWhereDesc_other": "We detected {{count}} media libraries. Tell us where the files live so the CMS can build working URLs from the stored paths.",
+			"credSavedPlaceholder": "•••••• saved — leave blank to keep",
+			"providers": {
+				"public": {
+					"label": "Public URL",
+					"desc": "Files load directly by their URL — no credentials needed."
+				},
+				"r2": {
+					"label": "Cloudflare R2",
+					"desc": "Private bucket — the CMS signs short-lived URLs."
+				},
+				"cloudflareImages": {
+					"label": "Cloudflare Images",
+					"desc": "Private images — the CMS signs delivery URLs."
+				}
+			},
+			"probe": {
+				"checking": "Checking where these files are stored…",
+				"public": "We checked a sample of files — they load publicly. Nothing else to configure.",
+				"privateWithProvider": "These files are private — they look like {{provider}}. Enter its credentials below.",
+				"privateGeneric": "These files are private. Pick the host below and enter its credentials.",
+				"needBaseUrl": "These files are stored as relative paths — tell us how they are served below.",
+				"errorGeneric": "We couldn't check automatically. Choose where these files are stored below.",
+				"errorWithDetail": "We couldn't check automatically ({{detail}}). Choose where these files are stored below."
+			},
+			"mediaLibraryBadge": "media library",
+			"suggested": "Suggested",
+			"baseUrl": "Base URL",
+			"optionalSuffix": "(optional)",
+			"baseUrlHelp": "Leave blank if the stored paths are already full URLs.",
+			"creds": {
+				"accountId": "Account ID",
+				"apiToken": "API token",
+				"accountHash": "Account hash",
+				"signingKey": "URL signing key",
+				"r2Bucket": "R2 bucket",
+				"accessKeyId": "Access key ID",
+				"secretAccessKey": "Secret access key",
+				"serverSideNote": "Stored server-side and never sent back to the browser."
+			},
+			"filePathsFrom": "File paths from",
+			"done": "Done",
+			"change": "Change",
+			"recheckAccess": "Re-check access",
+			"importedMediaTitle": "Imported media storage",
+			"importedMediaDescription_one": "We check where the files for your imported media library are stored and show what we found below — confirm the host, and add credentials if they're private.",
+			"importedMediaDescription_other": "We check where the files for your imported media libraries are stored and show what we found below — confirm the host, and add credentials if they're private.",
+			"saveMediaStorage": "Save media storage"
+		}
+	},
+	"notFound": {
+		"code": "404",
+		"message": "Page not found",
+		"backToDashboard": "Back to Dashboard"
+	},
+	"login": {
+		"subtitle": {
+			"setup": "Welcome! Set up your Innolope CMS account to get started.",
+			"signIn": "Sign in to your Innolope CMS account",
+			"signInToProject": "Sign in to {{name}}"
+		},
+		"fields": {
+			"yourName": "Your name",
+			"email": "Email",
+			"password": "Password"
+		},
+		"placeholders": {
+			"name": "Inna Lope",
+			"email": "admin@example.com",
+			"password": "Min 8 characters"
+		},
+		"errors": {
+			"invalidEmail": "Enter a valid email address.",
+			"enterName": "Enter your name.",
+			"passwordTooShort": "Password must be at least 8 characters.",
+			"authFailed": "Authentication failed"
+		},
+		"continueWithSso": "Continue with {{name}}",
+		"pleaseWait": "Please wait…",
+		"createAdminAccount": "Create Admin Account",
+		"signIn": "Sign In",
+		"orUsePassword": "or use your password below",
+		"forgotPassword": "Forgot password?"
+	},
+	"forgotPassword": {
+		"title": "Reset Password",
+		"subtitle": "Enter your email and we'll send a reset link.",
+		"sentMessage": "If an account exists for <strong>{{email}}</strong>, you'll receive a reset link shortly.",
+		"backToLogin": "Back to login",
+		"email": "Email",
+		"emailPlaceholder": "your@email.com",
+		"sending": "Sending…",
+		"sendResetLink": "Send Reset Link",
+		"errors": { "generic": "Something went wrong" }
+	},
+	"resetPassword": {
+		"title": "New Password",
+		"subtitle": "Enter your new password.",
+		"invalidLink": "Invalid reset link.",
+		"backToLogin": "Back to login",
+		"successRedirect": "Password updated! Redirecting to login…",
+		"newPassword": "New password",
+		"minPlaceholder": "Min 8 characters",
+		"confirmPassword": "Confirm password",
+		"repeatPlaceholder": "Repeat password",
+		"updating": "Updating…",
+		"setNewPassword": "Set New Password",
+		"errors": { "mismatch": "Passwords do not match.", "resetFailed": "Reset failed" }
+	},
+	"acceptInvite": {
+		"accepting": "Accepting invite…",
+		"redirecting": "Redirecting…",
+		"createAccountToJoin": "Create an account with <strong>{{email}}</strong> to join.",
+		"createAccount": "Create Account",
+		"goToLogin": "Go to login",
+		"errors": { "noToken": "No invite token provided.", "failed": "Failed to accept invite." }
+	},
+	"onboarding": {
+		"welcome": "Welcome to Innolope CMS",
+		"intro": "Your account is ready. Let's take a quick look at what you can do — and activate a license if you have one.",
+		"getStarted": "Get Started",
+		"chooseTitle": "Choose how far you go",
+		"chooseSubtitle": "Innolope CMS is fully functional for free. Pro and Enterprise unlock more.",
+		"back": "Back",
+		"continue": "Continue",
+		"activateTitle": "Activate your license",
+		"activateSubtitle": "Have a Pro or Enterprise key? Paste it below to unlock paid features. You can always do this later from Settings.",
+		"licensePlaceholder": "ink-lic_…",
+		"verifying": "Verifying…",
+		"activateAndContinue": "Activate & Continue",
+		"skip": "Skip — continue on Community",
+		"errors": { "pasteOrSkip": "Paste your license key, or skip for now.", "activateFailed": "Could not activate license." },
+		"tiers": {
+			"community": {
+				"name": "Community",
+				"tagline": "Free, self-hosted",
+				"features": {
+					"unlimited": "Unlimited collections & content",
+					"restApi": "REST API & TypeScript SDK",
+					"mcpServer": "MCP server for AI agents",
+					"teamAccounts": "Team accounts & roles"
+				}
+			},
+			"pro": {
+				"name": "Pro",
+				"tagline": "For growing teams",
+				"features": {
+					"aiAssistant": "AI writing assistant",
+					"semanticSearch": "Semantic search",
+					"mediaLibrary": "Media library & Unsplash",
+					"webhooks": "Webhooks & content scheduling",
+					"multiProjects": "Multiple projects"
+				}
+			},
+			"enterprise": {
+				"name": "Enterprise",
+				"tagline": "For organizations",
+				"features": {
+					"sso": "SSO — SAML & OIDC",
+					"auditLog": "Audit log",
+					"customRoles": "Custom roles",
+					"whiteLabel": "White-label",
+					"reviewWorkflows": "Review workflows"
+				}
+			}
+		}
+	},
+	"dashboard": {
+		"title": "Dashboard",
+		"customizeStatistics": "Customize statistics",
+		"customize": "Customize",
+		"customizeDescription": "Select which data points to show on your dashboard.",
+		"close": "Close",
+		"resetToDefault": "Reset to default",
+		"done": "Done",
+		"statsError": "Couldn't load dashboard statistics. Check your connection and reload the page.",
+		"analytics": "Content Analytics (30d)",
+		"recentActivity": "Recent Activity",
+		"noActivity": "No activity yet.",
+		"quickStart": "Quick Start",
+		"mcpConfig": "MCP Config",
+		"hideMcpConfig": "Hide MCP Config",
+		"showMcpConfig": "Show MCP Config",
+		"stats": {
+			"total": "Total Content",
+			"published": "Published",
+			"draft": "Drafts",
+			"media": "Media Files",
+			"apiKeys": "API Keys",
+			"collections": "Collections",
+			"members": "Members"
+		},
+		"steps": {
+			"createCollectionLink": "Create a collection",
+			"createCollectionTail": "to define your content types",
+			"generateApiKeyLink": "Generate an API key",
+			"generateApiKeyTail": "for Claude or other AI agents",
+			"createContentLink": "Create content",
+			"createContentTail": "manually or via MCP",
+			"consumeApiPrefix": "Consume via REST API at",
+			"useSdkPrefix": "Or use the SDK:"
+		},
+		"timeAgo": {
+			"minutes": "{{count}}m ago",
+			"hours": "{{count}}h ago",
+			"days": "{{count}}d ago"
+		},
+		"empty": {
+			"welcomeTitle": "Welcome to Innolope CMS",
+			"welcomeSubtitle": "How would you like to add your first content?",
+			"importComingSoon": "File import is coming soon. For now, use the MCP server or API to bulk-create content.",
+			"chooseDifferentMethod": "Choose a different method",
+			"connectDb": {
+				"title": "Connect Database",
+				"desc": "I already have content in an external database",
+				"intro": "Connect an external database to import existing content."
+			},
+			"uploadFiles": {
+				"title": "Upload Files",
+				"desc": "I have content in Markdown or JSON files"
+			},
+			"fromScratch": {
+				"title": "Start from Scratch",
+				"desc": "Create a new collection and add content"
+			},
+			"upload": {
+				"title": "Upload Content",
+				"intro": "Upload Markdown (.md) or JSON (.json) files to import content.",
+				"chooseFiles": "Choose Files",
+				"dropHint": "Drop .md, .json, or .jsonl files here or click to browse"
+			}
+		}
+	},
+	"collections": {
+		"list": {
+			"notFound": "Collection not found.",
+			"tabs": { "all": "All", "review": "Review" },
+			"schema": "Schema",
+			"newRecord": "New {{name}}",
+			"upload": "Upload",
+			"uploading": "Uploading…",
+			"uploaded_one": "Uploaded {{count}} file",
+			"uploaded_other": "Uploaded {{count}} files",
+			"uploadFailed": "Upload failed",
+			"searchPlaceholder": "Search…",
+			"noMatches": "No content matches your filters.",
+			"liveDataNote": "Showing live data from the external database — this collection is too large to cache automatically. Search, filtering, sorting, and editing require syncing the collection first.",
+			"importedNeverEdited": "Imported {{date}} — never edited",
+			"empty": {
+				"title": "No content yet",
+				"subtitle": "Create your first {{name}} entry.",
+				"create": "Create {{name}}"
+			},
+			"columns": {
+				"name": "Name",
+				"title": "Title",
+				"slug": "Slug",
+				"status": "Status",
+				"locale": "Locale",
+				"lastEdited": "Last edited",
+				"created": "Created",
+				"published": "Published",
+				"actions": "Actions"
+			},
+			"status": {
+				"draft": "draft",
+				"pendingReview": "pending review",
+				"published": "published",
+				"archived": "archived"
+			},
+			"statusOptions": {
+				"draft": "Draft",
+				"pendingReview": "Pending Review",
+				"published": "Published",
+				"archived": "Archived"
+			},
+			"pagination": {
+				"summary": "{{total}} items — page {{page}}",
+				"previous": "Previous",
+				"next": "Next"
+			},
+			"reject": {
+				"title": "Reject content",
+				"message": "Add an optional reason for rejecting this content.",
+				"reasonLabel": "Rejection reason",
+				"reasonPlaceholder": "Optional",
+				"confirm": "Reject"
+			},
+			"review": {
+				"empty": "No content pending review.",
+				"approve": "Approve",
+				"reject": "Reject"
+			},
+			"sync": {
+				"button": "Sync",
+				"checking": "Checking…",
+				"syncing": "Syncing…",
+				"noDiscrepancies": "No external discrepancies found",
+				"previewFailed": "Sync preview failed",
+				"failed": "Sync failed",
+				"success_one": "Synced {{updated}} updated and {{count}} new item",
+				"success_other": "Synced {{updated}} updated and {{count}} new items"
+			},
+			"syncDialog": {
+				"title": "External changes found",
+				"intro": "Sync will overwrite the local CMS cache with the external database values. A copy of each overwritten local version will be saved in version history.",
+				"local": "Local",
+				"external": "External",
+				"moreFields": "+{{count}} more changed fields",
+				"showingOf_one": "Showing {{showing}} of {{total}} discrepancy.",
+				"showingOf_other": "Showing {{showing}} of {{total}} discrepancies.",
+				"overwrite": "Overwrite local cache"
+			},
+			"import": {
+				"progress": "Importing content from the external database — {{processed}} of {{total}} records cached. The full collection is browsable now; search, filtering, and editing become available once the import finishes.",
+				"progressUnknownTotal": "Importing content from the external database — {{processed}} records cached. The full collection is browsable now; search, filtering, and editing become available once the import finishes.",
+				"failed": "Content import did not finish. Some records may be missing — re-run the import from the database settings, or use Sync.",
+				"failedWithError": "Content import did not finish: {{error}}. Some records may be missing — re-run the import from the database settings, or use Sync."
+			}
+		},
+		"new": {
+			"title": "New Collection",
+			"subtitle": "How would you like to define your collection?",
+			"backToDashboard": "Back to dashboard",
+			"backToMethods": "Back to methods",
+			"builtinDbNote": "Content will be stored in the built-in Innolope CMS database.",
+			"createCollection": "Create Collection",
+			"saving": "Saving…",
+			"methods": {
+				"template": { "title": "Choose Template", "desc": "Pick from pre-built collection schemas" },
+				"importFile": { "title": "Import from File", "desc": "Upload a CSV, JSON, or Markdown file" },
+				"importPaste": { "title": "Import with Paste", "desc": "Paste JSON, CSV, or Markdown data" },
+				"aiGenerate": { "title": "AI Generate", "desc": "Describe and auto-create fields" },
+				"manual": { "title": "Manual Input", "desc": "Define fields one by one" },
+				"copyExisting": { "title": "Copy from Existing", "desc": "Duplicate an existing collection schema" }
+			},
+			"template": {
+				"title": "Choose a Template",
+				"subtitle": "Pick a pre-built schema to get started quickly.",
+				"blankTitle": "Blank Collection",
+				"blankDesc": "Define your own schema from scratch"
+			},
+			"templates": {
+				"showLess": "Show less",
+				"showMore": "+{{count}} more fields",
+				"seoArticle": { "label": "SEO Article", "description": "Content optimized for search engines with full SEO and Open Graph metadata" },
+				"knowledgeBase": { "label": "Knowledge Base", "description": "Structured articles for AI agent retrieval and customer self-service" },
+				"faq": { "label": "FAQ", "description": "Question-answer pairs optimized for AI-powered support agents" },
+				"productCatalog": { "label": "Product Catalog", "description": "Structured product data for AI-driven recommendations and search" },
+				"documentation": { "label": "Documentation", "description": "Technical docs with section ordering for developer-facing AI assistants" },
+				"crm": { "label": "CRM", "description": "Customer contacts and deals for AI-assisted sales workflows" },
+				"apiReference": { "label": "API Reference", "description": "Endpoint documentation for API-aware AI agents and developer tools" },
+				"changelog": { "label": "Changelog", "description": "Version history and release notes for product updates" },
+				"blog": { "label": "Blog", "description": "Articles and posts with SEO metadata for content marketing" },
+				"jobBoard": { "label": "Job Board", "description": "Open positions with structured requirements for recruiting agents" },
+				"events": { "label": "Events", "description": "Webinars, meetups, and conferences with scheduling and registration data" }
+			},
+			"importFile": {
+				"title": "Import from File",
+				"subtitle": "Upload a CSV or JSON file to auto-detect fields.",
+				"dropHint": "Drop .csv, .json, .yaml, or .md files here or click to browse"
+			},
+			"importPaste": {
+				"title": "Import with Paste",
+				"subtitle": "Paste data to auto-detect collection fields.",
+				"jsonHint": "Object keys become field names. Types are inferred from values. Arrays of objects are also supported.",
+				"csvHint": "First row is used as headers. Column types are inferred from data values.",
+				"yamlHint": "Each key: value pair becomes a field. Also supports frontmatter (--- delimited).",
+				"detectFields": "Detect Fields"
+			},
+			"aiGenerate": {
+				"title": "AI Generate",
+				"subtitle": "Describe your collection and we'll create the schema.",
+				"promptLabel": "Describe your collection and the fields it should have",
+				"promptPlaceholder": "e.g. A product catalog with name, price, SKU, category, description, stock count, and whether it's featured",
+				"generating": "Generating…",
+				"generate": "Generate Schema",
+				"requiresFeature": "AI schema generation requires the AI Assistant feature.",
+				"upgradePrompt": "Upgrade to Pro to unlock AI-powered schema creation."
+			},
+			"copyExisting": {
+				"title": "Copy from Existing",
+				"subtitle": "Duplicate an existing collection's schema.",
+				"moreFields": "+{{count}} more"
+			},
+			"manual": {
+				"title": "Manual Input",
+				"subtitle": "Define your collection fields one by one."
+			},
+			"configure": {
+				"title": "Review & Create",
+				"subtitle_one": "{{count}} field detected. Review and adjust before creating.",
+				"subtitle_other": "{{count}} fields detected. Review and adjust before creating."
+			},
+			"fields": {
+				"label": "Label",
+				"name": "Name",
+				"description": "Description",
+				"labelPlaceholder": "e.g. Articles, Products, FAQ",
+				"descriptionPlaceholder": "What this collection is for"
+			},
+			"fieldEditor": {
+				"title": "Fields",
+				"addField": "+ Add Field",
+				"emptyHint": "No fields yet. Every collection gets markdown content by default.",
+				"fieldNamePlaceholder": "Field name",
+				"required": "Required",
+				"i18n": "i18n"
+			},
+			"errors": {
+				"labelRequired": "Label is required",
+				"saveFailed": "Save failed",
+				"aiNoFields": "No fields generated. Try a more detailed description.",
+				"aiGenerateFailed": "Failed to generate schema",
+				"invalidJson": "Invalid JSON.",
+				"expectedArrayOfObjects": "Expected an array of objects.",
+				"expectedObjectOrArray": "Expected a JSON object or array of objects.",
+				"noFieldsFound": "No fields found.",
+				"pasteCsv": "Please paste some CSV data.",
+				"noHeaders": "Could not detect headers.",
+				"noFieldsYaml": "No fields detected. Use key: value format.",
+				"pasteJsonFirst": "Paste some JSON data first.",
+				"pasteCsvFirst": "Paste some CSV data first.",
+				"pasteYamlFirst": "Paste some YAML data first."
+			}
+		},
+		"detail": {
+			"newRecord": "New",
+			"readOnly": "Read Only",
+			"readOnlyLive": "This is live data from the external database. Sync the collection to cache it locally and enable editing.",
+			"readOnlyContent": "This content is read-only. The external database connection is configured as read-only.",
+			"couldntLoad": "Couldn't load this record",
+			"backTo": "Back to {{name}}",
+			"titlePlaceholder": "Enter title",
+			"tagsPlaceholder": "Add a tag and press Enter",
+			"save": "Save",
+			"saving": "Saving…",
+			"submit": "Submit",
+			"approve": "Approve",
+			"publish": "Publish",
+			"hideAi": "Hide AI",
+			"aiAssistant": "AI Assistant",
+			"additionalFields": "Additional fields ({{count}})",
+			"fields": {
+				"slug": "Slug",
+				"status": "Status",
+				"tags": "Tags",
+				"version": "Version",
+				"externalId": "External ID"
+			},
+			"statusOptions": {
+				"draft": "Draft",
+				"pendingReview": "Pending Review",
+				"published": "Published",
+				"archived": "Archived"
+			},
+			"draftRestore": {
+				"message": "You have unsaved changes from a previous session.",
+				"restore": "Restore",
+				"dismiss": "Dismiss"
+			},
+			"addField": {
+				"title": "Add field",
+				"label": "Field name",
+				"confirm": "Add field",
+				"button": "+ Add field",
+				"customButton": "+ Add custom field"
+			},
+			"reject": {
+				"button": "Reject",
+				"title": "Reject content",
+				"message": "Add an optional reason for rejecting this content.",
+				"reasonLabel": "Rejection reason",
+				"reasonPlaceholder": "Optional",
+				"confirm": "Reject"
+			},
+			"locale": {
+				"detectedAriaLabel_one": "Detected {{count}} unconfigured language — review",
+				"detectedAriaLabel_other": "Detected {{count}} unconfigured languages — review",
+				"detectedTitle": "Detected {{langs}} in this record but not in project settings — click to review"
+			},
+			"localePrompt": {
+				"title": "Add detected languages?",
+				"message_one": "This record has content in {{labels}}, but it isn't in your project locales yet. Add it so you can use the locale switcher to edit it? Picking \"Not now\" hides the switcher and falls back to JSON editing.",
+				"message_other": "This record has content in {{labels}}, but they aren't in your project locales yet. Add them so you can use the locale switcher to edit them? Picking \"Not now\" hides the switcher and falls back to JSON editing.",
+				"confirm": "Add to project",
+				"cancel": "Not now",
+				"addedToast": "Added {{labels}} to project locales"
+			},
+			"translate": {
+				"nothingToTranslate": "Nothing to translate — {{lang}} is empty",
+				"nothingOnRecord": "Nothing to translate on this record",
+				"replaceTitle": "Replace translation?",
+				"replaceMessage": "The {{lang}} value for \"{{field}}\" already has content. Replace it with a new AI translation?",
+				"replace": "Replace",
+				"failed": "Translation failed",
+				"localizedFieldsLabel_one": "{{count}} localized field",
+				"localizedFieldsLabel_other": "{{count}} localized fields",
+				"documentBody": "the document body",
+				"joinAnd": " and ",
+				"translateTitle": "Translate document?",
+				"translateMessage": "Translate {{what}} from {{source}} to {{target}} with AI? Existing {{target}} values will be replaced.{{saveFirstNote}}",
+				"saveFirstNote": " Save the record first to also translate the document body.",
+				"translate": "Translate",
+				"translatedDocument": "Translated document to {{lang}}",
+				"translatedFields": "Translated fields to {{lang}}"
+			},
+			"errors": {
+				"loadFailed": "Failed to load this record",
+				"saveFailed": "Save failed",
+				"publishFailed": "Publish failed",
+				"submitFailed": "Submit failed",
+				"approveFailed": "Approve failed",
+				"rejectFailed": "Reject failed",
+				"readOnlyCollection": "This collection is read-only",
+				"updateProject": "Failed to update project",
+				"noCollection": "No collection"
+			}
+		},
+		"edit": {
+			"title": "Edit: {{name}}",
+			"breadcrumb": "Edit Schema",
+			"notFound": "Collection not found.",
+			"saving": "Saving…",
+			"saveChanges": "Save Changes",
+			"deleteCollection": "Delete Collection",
+			"addField": "+ Add Field",
+			"fieldName": "Field name",
+			"enumOptionsPlaceholder": "Dropdown options (comma-separated)",
+			"required": "Required",
+			"i18n": "i18n",
+			"remove": "Remove",
+			"hideAdvanced": "Hide advanced",
+			"showAdvanced": "Show advanced",
+			"noFieldsHint": "No fields yet. Every collection gets markdown content by default.",
+			"sidebarVisibility": "Sidebar visibility",
+			"sidebarHint": "Auto hides collections that another collection references via a relation field, so lookup-only collections (tags, authors, categories) don't clutter the sidebar.",
+			"titleFieldAuto": "Auto (smart heuristic)",
+			"titleFieldHint": "Used as the row label in list views and reference pickers. Auto picks title → name → a name-like field → the first text field.",
+			"widgetDefault": "{{name}} (default)",
+			"fields": {
+				"title": "Fields",
+				"label": "Label",
+				"name": "Name",
+				"description": "Description",
+				"descriptionPlaceholder": "What this collection is for",
+				"displayTitleField": "Display title field"
+			},
+			"sidebar": {
+				"auto": "Auto (hide when used only as a relation target)",
+				"show": "Always show",
+				"hide": "Always hide (accessible via relations only)"
+			},
+			"advanced": {
+				"placeholder": "Placeholder",
+				"placeholderHint": "Shown inside the empty input",
+				"helpText": "Help text",
+				"helpTextHint": "Short hint shown below the input",
+				"rows": "Rows",
+				"chipSeparator": "Chip separator",
+				"enterOnly": "Enter only (default)",
+				"enterOrComma": "Enter or comma",
+				"readOnly": "Read-only (system-managed)",
+				"hidden": "Hidden from form"
+			},
+			"delete": {
+				"title": "Delete collection",
+				"message": "Delete \"{{name}}\" and all its content? This cannot be undone.",
+				"confirm": "Delete"
+			},
+			"scan": {
+				"rescan": "Re-scan from DB",
+				"scanning": "Scanning…",
+				"found_one": "Found {{count}} new field",
+				"found_other": "Found {{count}} new fields",
+				"nothing": "No new fields found",
+				"failed": "Scan failed"
+			},
+			"errors": {
+				"labelRequired": "Label is required",
+				"saveFailed": "Save failed",
+				"deleteFailed": "Delete failed",
+				"noExternalDb": "No external DB config"
+			}
+		}
+	},
+	"content": {
+		"titlePlaceholder": "Article title",
+		"bodyPlaceholder": "Write your content in markdown…",
+		"openAiAssistant": "Open AI Assistant",
+		"save": "Save",
+		"saving": "Saving…",
+		"submit": "Submit",
+		"approve": "Approve",
+		"publish": "Publish",
+		"selectCollection": "Select collection",
+		"tagsPlaceholder": "tag1, tag2, tag3",
+		"id": "ID: {{id}}",
+		"fields": { "slug": "Slug", "status": "Status", "collection": "Collection", "tags": "Tags" },
+		"statusOptions": {
+			"draft": "Draft",
+			"pendingReview": "Pending Review",
+			"published": "Published",
+			"archived": "Archived"
+		},
+		"reject": {
+			"button": "Reject",
+			"title": "Reject content",
+			"message": "Add an optional reason for rejecting this content.",
+			"reasonLabel": "Rejection reason",
+			"reasonPlaceholder": "Optional",
+			"confirm": "Reject"
+		},
+		"errors": {
+			"saveFailed": "Save failed",
+			"publishFailed": "Publish failed",
+			"submitFailed": "Submit failed",
+			"approveFailed": "Approve failed",
+			"rejectFailed": "Reject failed"
+		}
+	},
+	"mediaRoute": {
+		"featureLabel": "Media Library",
+		"title": "Media",
+		"tabs": { "uploaded": "Uploaded", "unsplash": "Unsplash" },
+		"filter": { "all": "All types", "images": "Images", "videos": "Videos", "files": "Files" },
+		"upload": "Upload",
+		"uploading": "Uploading…",
+		"types": { "video": "Video", "file": "File" },
+		"dropHere": "Drop files here or click Upload",
+		"empty": {
+			"title": "No media files yet",
+			"subtitle": "Upload images, videos, or files by dragging them into the drop zone or clicking Upload.",
+			"uploadFirst": "Upload Your First File"
+		},
+		"delete": {
+			"title": "Delete file",
+			"message": "Delete this file permanently? This cannot be undone.",
+			"confirm": "Delete"
+		},
+		"details": {
+			"title": "Details",
+			"filename": "Filename",
+			"type": "Type",
+			"size": "Size",
+			"url": "URL",
+			"copyUrl": "Copy URL",
+			"uploaded": "Uploaded",
+			"altText": "Alt text",
+			"altPlaceholder": "Describe this image for search engines and screen readers",
+			"saveAlt": "Save alt text",
+			"savingAlt": "Saving…",
+			"delete": "Delete",
+			"close": "Close"
+		}
+	},
+	"reviewQueue": {
+		"title": "Review Queue",
+		"subtitle": "Content awaiting editorial approval",
+		"empty": "No content pending review.",
+		"approve": "Approve",
+		"columns": { "title": "Title", "slug": "Slug", "updated": "Updated", "actions": "Actions" },
+		"reject": {
+			"button": "Reject",
+			"title": "Reject content",
+			"message": "Add an optional reason for rejecting this content.",
+			"reasonLabel": "Rejection reason",
+			"reasonPlaceholder": "Optional",
+			"confirm": "Reject"
+		},
+		"pagination": {
+			"summary": "{{total}} items — page {{page}}",
+			"previous": "Previous",
+			"next": "Next"
+		},
+		"errors": { "approveFailed": "Approve failed", "rejectFailed": "Reject failed" }
+	},
+	"settingsPage": {
+		"title": "Project Settings",
+		"tabs": {
+			"general": "General",
+			"access": "Access",
+			"ai": "AI",
+			"storage": "Content Storage",
+			"developer": "Developer",
+			"license": "License"
+		},
+		"sections": {
+			"team": { "title": "Team Members", "description": "Manage who has access to this project and their roles." },
+			"sso": { "title": "Single Sign-On (SSO)", "description": "Let your team sign in with SAML or OIDC." },
+			"aiModels": { "title": "AI Models", "description": "Configure AI providers and the default model." },
+			"semanticSearch": { "title": "Semantic Search", "description": "Vector embeddings that power semantic content search." },
+			"database": { "title": "Database", "description": "Connect and map an external database." },
+			"mediaStorage": { "title": "Media Storage", "description": "Choose where uploaded media files are stored." },
+			"apiKeys": { "title": "API Keys", "description": "Generate and manage keys for the public API." },
+			"webhooks": { "title": "Webhooks", "description": "Send events to external services." },
+			"customDomain": { "title": "Custom Domain", "description": "Serve this project from your own domain." }
+		},
+		"featureLabels": {
+			"sso": "Single Sign-On (SAML & OIDC)",
+			"semanticSearch": "Semantic Search",
+			"webhooks": "Webhooks",
+			"customDomain": "Custom Domain"
+		},
+		"embedding": {
+			"intro": "Semantic search uses vector embeddings to find content by meaning, not just keywords. Requires an OpenAI API key (configured in AI Models).",
+			"coverage": "Embedding coverage",
+			"itemsFraction": "{{done}} / {{total}} items",
+			"allIndexed": "All content is indexed for semantic search.",
+			"notYetEmbedded": "{{count}} items not yet embedded. Enable auto-embed below or trigger manually via the API.",
+			"autoEmbedLabel": "Auto-generate embeddings on content create/update",
+			"saveFailed": "Failed to save"
+		},
+		"apiKeys": {
+			"intro": "Generate keys for AI agents and external integrations",
+			"createApiKey": "Create API Key",
+			"saveNowWarning": "Save this key now. It will not be shown again.",
+			"copy": "Copy",
+			"copied": "Copied",
+			"claudeDesktopConfig": "Claude Desktop config",
+			"dismiss": "Dismiss",
+			"keyName": "Key name",
+			"keyNamePlaceholder": "e.g. Claude Agent, CI Pipeline",
+			"generateApiKey": "Generate API Key",
+			"createFailed": "Failed to create key",
+			"revokeTitle": "Revoke API key",
+			"revokeMessage": "Revoke this API key? This cannot be undone.",
+			"revokeConfirm": "Revoke",
+			"revoke": "Revoke",
+			"never": "Never",
+			"columns": { "name": "Name", "key": "Key", "created": "Created", "lastUsed": "Last Used" },
+			"empty": {
+				"title": "No API keys yet",
+				"subtitle": "API keys let Claude, AI agents, and external services access your content via the REST API and MCP server.",
+				"createFirst": "Create Your First API Key"
+			}
+		}
+	}
+}

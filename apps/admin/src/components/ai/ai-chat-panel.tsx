@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 
 interface ChatMessage {
@@ -18,6 +19,7 @@ interface AiChatPanelProps {
 }
 
 export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiChatPanelProps) {
+	const { t } = useTranslation()
 	const [messages, setMessages] = useState<ChatMessage[]>([])
 	const [input, setInput] = useState('')
 	const [loading, setLoading] = useState(false)
@@ -76,7 +78,9 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 				{
 					id: crypto.randomUUID(),
 					role: 'assistant',
-					text: `Error: ${err instanceof Error ? err.message : 'Failed'}`,
+					text: t('ai.chat.errorPrefix', {
+						message: err instanceof Error ? err.message : t('common.failed'),
+					}),
 				},
 			])
 		} finally {
@@ -89,10 +93,11 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 			{/* Header */}
 			<div className="flex items-center justify-between px-4 py-3 border-b border-border">
 				<div>
-					<h3 className="text-sm font-semibold">AI Assistant</h3>
+					<h3 className="text-sm font-semibold">{t('ai.chat.title')}</h3>
 					{targetField && (
 						<p className="text-[10px] text-text-secondary mt-0.5">
-							Targeting: <span className="text-text-muted">{targetField}</span>
+							{t('ai.chat.targeting')}{' '}
+							<span className="text-text-muted">{targetField}</span>
 						</p>
 					)}
 				</div>
@@ -101,7 +106,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 					onClick={onClose}
 					className="text-text-secondary hover:text-text text-xs p-1"
 				>
-					Close
+					{t('ai.chat.close')}
 				</button>
 			</div>
 
@@ -109,8 +114,8 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 			<div className="flex-1 overflow-auto px-4 py-3 space-y-3">
 				{messages.length === 0 && (
 					<div className="text-center text-text-secondary text-xs py-8">
-						<p>Select text in a field and use quick actions,</p>
-						<p>or type a prompt below.</p>
+						<p>{t('ai.chat.emptyLine1')}</p>
+						<p>{t('ai.chat.emptyLine2')}</p>
 					</div>
 				)}
 				{messages.map((msg) => (
@@ -142,7 +147,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 											onClick={() => msg.field && onApply(msg.field, msg.text)}
 											className="px-3 py-1 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover transition-colors"
 										>
-											Apply to {msg.field}
+											{t('ai.chat.applyTo', { field: msg.field })}
 										</button>
 										<button
 											type="button"
@@ -151,7 +156,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 											}}
 											className="px-3 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover transition-colors"
 										>
-											Copy
+											{t('ai.chat.copy')}
 										</button>
 									</div>
 								)}
@@ -173,11 +178,11 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 			{selectedText && (
 				<div className="px-4 py-2 border-t border-border flex flex-wrap gap-1.5">
 					{[
-						{ label: 'Rewrite', action: 'rewrite' },
-						{ label: 'Shorter', action: 'shorter' },
-						{ label: 'Longer', action: 'longer' },
-						{ label: 'Fix Grammar', action: 'fix-grammar' },
-						{ label: 'SEO', action: 'seo' },
+						{ label: t('ai.actions.rewrite'), action: 'rewrite' },
+						{ label: t('ai.actions.shorter'), action: 'shorter' },
+						{ label: t('ai.actions.longer'), action: 'longer' },
+						{ label: t('ai.actions.fixGrammar'), action: 'fix-grammar' },
+						{ label: t('ai.actions.seo'), action: 'seo' },
 					].map(({ label, action }) => (
 						<button
 							key={action}
@@ -205,7 +210,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 								send()
 							}
 						}}
-						placeholder="Ask AI to help..."
+						placeholder={t('ai.chat.inputPlaceholder')}
 						rows={2}
 						className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm resize-none focus:outline-none focus:border-border-strong"
 					/>
@@ -215,7 +220,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 						disabled={loading || !input.trim()}
 						className="px-3 self-end py-2 bg-btn-primary text-btn-primary-text rounded-lg text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-30 transition-colors"
 					>
-						Send
+						{t('ai.chat.send')}
 					</button>
 				</div>
 			</div>
