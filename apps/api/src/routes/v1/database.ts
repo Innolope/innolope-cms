@@ -972,6 +972,27 @@ export async function databaseRoutes(app: FastifyInstance) {
 			}
 			externalDb.mediaStorage = nextMap
 
+			// Auto-promote: if the wizard just attached a `cloudflare-images` library and
+			// this project's native upload adapter is still the default (`local`), and the
+			// server has the Cloudflare env vars set, also flip `mediaAdapter` to
+			// `cloudflare` so new uploads via /v1/media/upload land in Cloudflare too.
+			// Without this the wizard's "Cloudflare Images" choice silently applies only to
+			// the imported library, while fresh uploads keep going to the local disk.
+			let adapterPromoted = false
+			const hasCloudflareImagesEntry = nextMap
+				? Object.values(nextMap).some((entry) => entry.adapter === 'cloudflare-images')
+				: false
+			const currentAdapter = (settings.mediaAdapter as string | undefined) || 'local'
+			const serverHasCfEnv = Boolean(
+				process.env.CLOUDFLARE_ACCOUNT_ID &&
+					process.env.CLOUDFLARE_API_TOKEN &&
+					process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH,
+			)
+			if (hasCloudflareImagesEntry && currentAdapter === 'local' && serverHasCfEnv) {
+				settings.mediaAdapter = 'cloudflare'
+				adapterPromoted = true
+			}
+
 			const [updated] = await app.db
 				.update(projects)
 				.set({
@@ -981,7 +1002,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				.where(eq(projects.id, getProject(request).id))
 				.returning()
 
-			return { project: sanitizeProject(updated) }
+			return { project: sanitizeProject(updated), adapterPromoted }
 		},
 	)
 

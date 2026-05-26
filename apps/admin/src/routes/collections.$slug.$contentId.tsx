@@ -1547,10 +1547,14 @@ function CollectionContentEditor() {
 
 			{/* Sidebar — widens for compare mode only when localized fields actually render
 			    here (article layout). Form-shaped records put their localized fields in the
-			    central column, where there's already room for side-by-side. */}
+			    central column, where there's already room for side-by-side. Gate on
+			    `hasLocalizedField` so an empty/non-localized record keeps the narrow sidebar
+			    even when compare mode is the persisted preference. */}
 			<div
 				className={`${
-					isArticleLayout && localeUi.mode === 'compare' ? 'w-[36rem]' : 'w-72'
+					isArticleLayout && localeUi.mode === 'compare' && hasLocalizedField
+						? 'w-[36rem]'
+						: 'w-72'
 				} border-l border-border p-6 space-y-4 overflow-auto shrink-0 transition-[width] duration-150`}
 			>
 				<div className="flex gap-2">

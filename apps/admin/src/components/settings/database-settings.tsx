@@ -2095,13 +2095,17 @@ function ImportedMediaStorage() {
 				}
 				map[name] = entry
 			}
-			await api.put(`/api/v1/projects/${currentProject.id}/database/media-storage`, {
-				mediaStorage: Object.keys(map).length > 0 ? map : undefined,
-			})
+			const res = await api.put<{ adapterPromoted?: boolean }>(
+				`/api/v1/projects/${currentProject.id}/database/media-storage`,
+				{ mediaStorage: Object.keys(map).length > 0 ? map : undefined },
+			)
 			await refreshProjects()
 			setSaved(true)
 			setDirty(false)
 			setTimeout(() => setSaved(false), 2000)
+			if (res?.adapterPromoted) {
+				toast('Also using Cloudflare Images for new uploads.', 'success')
+			}
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to save', 'error')
 		} finally {
