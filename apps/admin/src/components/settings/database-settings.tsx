@@ -1947,9 +1947,7 @@ function CollapsibleCard({
 					)}
 				</span>
 			</button>
-			{open && (
-				<div className={borderless ? 'pl-8 pt-2' : 'pl-12 pr-4 pb-4'}>{children}</div>
-			)}
+			{open && <div className={borderless ? 'pl-8 pt-2' : 'pl-12 pr-4 pb-4'}>{children}</div>}
 		</div>
 	)
 }

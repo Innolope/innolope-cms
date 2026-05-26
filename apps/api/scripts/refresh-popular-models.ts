@@ -63,8 +63,7 @@ const FETCHERS: Record<Exclude<AiProviderName, 'openrouter'>, Fetcher> = {
 	google: fetchGoogle,
 	mistral: (k) => fetchOpenAIShape(k, 'https://api.mistral.ai/v1/models'),
 	deepseek: (k) => fetchOpenAIShape(k, 'https://api.deepseek.com/v1/models'),
-	qwen: (k) =>
-		fetchOpenAIShape(k, 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models'),
+	qwen: (k) => fetchOpenAIShape(k, 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models'),
 	moonshot: (k) => fetchOpenAIShape(k, 'https://api.moonshot.ai/v1/models'),
 	zhipu: (k) => fetchOpenAIShape(k, 'https://open.bigmodel.cn/api/paas/v4/models'),
 }
@@ -95,7 +94,7 @@ function pickLatest(models: RawModel[]): string | undefined {
 	// and version-suffixed IDs (gemini-3.1-pro-preview).
 	const allDated = models.every((m) => m.createdAt)
 	if (allDated) {
-		return [...models].sort((a, b) => (a.createdAt! < b.createdAt! ? 1 : -1))[0].id
+		return [...models].sort((a, b) => ((a.createdAt ?? '') < (b.createdAt ?? '') ? 1 : -1))[0].id
 	}
 	return [...models].sort((a, b) => (a.id < b.id ? 1 : -1))[0].id
 }
@@ -106,7 +105,8 @@ async function resolveProvider(provider: Exclude<AiProviderName, 'openrouter'>):
 	reason?: string
 }> {
 	const apiKey = getApiKey(provider)
-	if (!apiKey) return { picks: POPULAR_MODEL_IDS[provider], source: 'skipped', reason: 'no API key' }
+	if (!apiKey)
+		return { picks: POPULAR_MODEL_IDS[provider], source: 'skipped', reason: 'no API key' }
 
 	let models: RawModel[]
 	try {
@@ -154,7 +154,9 @@ async function main() {
 		resolved[provider] = r.picks
 		const tag = r.source === 'fetched' ? 'ok' : r.source
 		const detail = r.reason ? ` (${r.reason})` : ''
-		console.log(`${provider.padEnd(10)} ${tag.padEnd(8)} ${r.picks.join(', ') || '(none)'}${detail}`)
+		console.log(
+			`${provider.padEnd(10)} ${tag.padEnd(8)} ${r.picks.join(', ') || '(none)'}${detail}`,
+		)
 	}
 
 	// Rewrite the auto-gen block in popular-models.ts

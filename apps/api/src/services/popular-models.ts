@@ -39,7 +39,11 @@ export const MODEL_FAMILIES: ModelFamily[] = [
 		family: 'gemini-flash',
 		match: (id) => /gemini.*flash/i.test(id) && !/lite/i.test(id),
 	},
-	{ provider: 'google', family: 'gemini-flash-lite', match: (id) => /gemini.*flash.*lite/i.test(id) },
+	{
+		provider: 'google',
+		family: 'gemini-flash-lite',
+		match: (id) => /gemini.*flash.*lite/i.test(id),
+	},
 
 	// Mistral
 	{ provider: 'mistral', family: 'mistral-large', match: (id) => /mistral-large/i.test(id) },
@@ -74,15 +78,15 @@ export const MODEL_FAMILIES: ModelFamily[] = [
 
 // --- POPULAR_MODEL_IDS-START (auto-generated; do not edit by hand) ---
 export const POPULAR_MODEL_IDS: Record<AiProviderName, string[]> = {
-	anthropic: ["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5-20251001"],
-	openai: ["gpt-5.4-2026-03-05","gpt-5.4-mini-2026-03-17"],
-	google: ["gemini-3.1-pro-preview","gemini-3.1-flash-lite-preview"],
+	anthropic: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+	openai: ['gpt-5.4-2026-03-05', 'gpt-5.4-mini-2026-03-17'],
+	google: ['gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview'],
 	openrouter: [],
-	mistral: ["mistral-large-latest","mistral-medium-latest","mistral-small-latest"],
-	deepseek: ["deepseek-chat","deepseek-reasoner"],
-	qwen: ["qwen-max","qwen-plus","qwen-turbo"],
-	moonshot: ["kimi-k2-0905-preview","moonshot-v1-128k"],
-	zhipu: ["glm-4.6","glm-4-air"],
+	mistral: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
+	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+	qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
+	moonshot: ['kimi-k2-0905-preview', 'moonshot-v1-128k'],
+	zhipu: ['glm-4.6', 'glm-4-air'],
 }
 // --- POPULAR_MODEL_IDS-END ---
 

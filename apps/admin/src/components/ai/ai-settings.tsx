@@ -207,8 +207,7 @@ export function AiSettingsPanel() {
 		setRows((prev) => prev.map((r) => (r.id === id ? { ...r, apiKey } : r)))
 	}
 
-	const sameProviderCount = (provider: string) =>
-		rows.filter((r) => r.provider === provider).length
+	const sameProviderCount = (provider: string) => rows.filter((r) => r.provider === provider).length
 
 	const removeRow = async (row: ProviderRow) => {
 		const ok = await confirm({
@@ -365,8 +364,8 @@ export function AiSettingsPanel() {
 				<span className="text-sm">
 					<span className="font-medium">Fall back to other providers on rate limit or error</span>
 					<span className="block text-xs text-text-secondary mt-0.5">
-						If the selected model's provider returns a 429 or 5xx, try the next enabled provider
-						in the list (using that provider's default model).
+						If the selected model's provider returns a 429 or 5xx, try the next enabled provider in
+						the list (using that provider's default model).
 					</span>
 				</span>
 			</label>

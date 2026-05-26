@@ -1,5 +1,5 @@
-import { aiSettings } from '@innolope/db'
 import { randomUUID } from 'node:crypto'
+import { aiSettings } from '@innolope/db'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { getProject } from '../../plugins/project.js'
@@ -16,9 +16,9 @@ import { popularityRank } from '../../services/popular-models.js'
 // users see in the "+ Add provider" menu.
 const PROVIDER_ORDER = new Map(PROVIDER_NAMES.map((p, i) => [p as string, i]))
 
-function sortDynamicModels<
-	T extends { provider: string; modelId: string; name: string },
->(models: T[]): T[] {
+function sortDynamicModels<T extends { provider: string; modelId: string; name: string }>(
+	models: T[],
+): T[] {
 	return [...models].sort((a, b) => {
 		const provDelta =
 			(PROVIDER_ORDER.get(a.provider) ?? 99) - (PROVIDER_ORDER.get(b.provider) ?? 99)

@@ -664,7 +664,8 @@ async function fetchAnthropicModels(apiKey: string): Promise<DynamicModel[]> {
 // OpenAI's /v1/models returns embeddings, whisper, dall-e, moderation, tts, etc.
 // Keep only chat-capable model families.
 const OPENAI_CHAT_PREFIX = /^(gpt-|o1|o3|o4|chatgpt-)/
-const OPENAI_NONCHAT = /(realtime|audio|transcribe|tts|embedding|dall-e|whisper|image|moderation|instruct|search)/i
+const OPENAI_NONCHAT =
+	/(realtime|audio|transcribe|tts|embedding|dall-e|whisper|image|moderation|instruct|search)/i
 
 async function fetchOpenAIModels(apiKey: string): Promise<DynamicModel[]> {
 	const res = await fetch('https://api.openai.com/v1/models', {
@@ -781,11 +782,7 @@ async function fetchProviderModels(
 		case 'moonshot':
 			return fetchOpenAICompatModels('https://api.moonshot.ai/v1/models', apiKey, 'moonshot')
 		case 'zhipu':
-			return fetchOpenAICompatModels(
-				'https://open.bigmodel.cn/api/paas/v4/models',
-				apiKey,
-				'zhipu',
-			)
+			return fetchOpenAICompatModels('https://open.bigmodel.cn/api/paas/v4/models', apiKey, 'zhipu')
 		default:
 			return []
 	}
