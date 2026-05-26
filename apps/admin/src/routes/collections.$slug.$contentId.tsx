@@ -659,7 +659,7 @@ function CollectionContentEditor() {
 				})
 				.finally(() => setLoading(false))
 		}
-	}, [contentId, isNew, navigate, slug, draftKey, collection])
+	}, [contentId, isNew, draftKey, collection])
 
 	// Prefill date-typed schema fields with today for new records
 	useEffect(() => {
@@ -1552,9 +1552,7 @@ function CollectionContentEditor() {
 			    even when compare mode is the persisted preference. */}
 			<div
 				className={`${
-					isArticleLayout && localeUi.mode === 'compare' && hasLocalizedField
-						? 'w-[36rem]'
-						: 'w-72'
+					isArticleLayout && localeUi.mode === 'compare' && hasLocalizedField ? 'w-[36rem]' : 'w-72'
 				} border-l border-border p-6 space-y-4 overflow-auto shrink-0 transition-[width] duration-150`}
 			>
 				<div className="flex gap-2">
