@@ -80,6 +80,29 @@ export interface FieldRendererProps {
 }
 
 /**
+ * Field names that conventionally hold multi-paragraph copy. Used to
+ * auto-promote a text field to the textarea/multiline widget when the
+ * schema doesn't pick one explicitly. Adding a name here also lights
+ * up the `multiline` branch on the localized renderer.
+ */
+const LONG_FORM_FIELD_NAMES = new Set([
+	'bio',
+	'biography',
+	'description',
+	'summary',
+	'excerpt',
+	'body',
+	'content',
+	'about',
+	'notes',
+	'overview',
+])
+
+function isLongFormName(name: string): boolean {
+	return LONG_FORM_FIELD_NAMES.has(name.toLowerCase())
+}
+
+/**
  * Effective widget id for a field — caller's override or the smart default.
  * Kept exported so the schema editor can stay in sync with the runtime.
  */
@@ -88,6 +111,11 @@ export function defaultWidgetFor(field: CollectionField): string {
 	if (w) return w
 	switch (field.type) {
 		case 'text':
+			// Long-form names (bio, description, ...) get a multiline editor
+			// even when the schema doesn't say so explicitly. A 400-word bio
+			// in a single-line input is unusable, and the sync wizard has no
+			// way to know intent from a column type alone.
+			if (isLongFormName(field.name)) return field.localized ? 'localized' : 'textarea'
 			return field.localized ? 'localized' : 'input'
 		case 'number':
 			return 'input'
@@ -201,7 +229,7 @@ export function FieldRenderer({
 					translating={translating}
 					onChange={(v) => onChange(v)}
 					disabled={ro}
-					multiline={f.ui?.widget === 'textarea'}
+					multiline={f.ui?.widget === 'textarea' || isLongFormName(f.name)}
 				/>
 			)
 		}
@@ -293,6 +321,7 @@ export function FieldRenderer({
 				translating={translating}
 				onChange={(v) => onChange(v)}
 				disabled={ro}
+				multiline={widget === 'textarea' || isLongFormName(f.name)}
 			/>
 		)
 	}
