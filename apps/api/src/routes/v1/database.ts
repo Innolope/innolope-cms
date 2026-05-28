@@ -215,6 +215,169 @@ function classifyMongoValue(value: unknown): {
 	return { type: 'object', isObjectId: false, isArray: false }
 }
 
+/**
+ * Build a sub-field descriptor from a detected key. URL-like keys get
+ * `type: 'text'` with a sensible placeholder. The `platform` key is
+ * special-cased into an enum if every observed value is in the known
+ * social-platforms list — otherwise it stays free-text so a value the user
+ * actually relies on isn't silently lost when the editor restricts options.
+ */
+function buildSubField(key: string, shape: ObjectArrayShape): CollectionField {
+	if (key === 'platform') {
+		const seen = shape.stringValues.get(key)
+		if (seen && seen.size > 0 && [...seen].every((v) => KNOWN_SOCIAL_PLATFORMS.has(v))) {
+			const observed = [...seen]
+			const merged = [
+				...observed,
+				...[...KNOWN_SOCIAL_PLATFORMS].filter((p) => !observed.includes(p)),
+			]
+			return {
+				name: 'platform',
+				type: 'enum',
+				options: merged,
+			}
+		}
+	}
+	return { name: key, type: 'text' }
+}
+
+/** Common social-platform values, used to auto-promote a `platform` sub-field to an enum. */
+const KNOWN_SOCIAL_PLATFORMS = new Set([
+	'linkedin',
+	'twitter',
+	'x',
+	'instagram',
+	'facebook',
+	'youtube',
+	'tiktok',
+	'github',
+	'mastodon',
+	'threads',
+	'website',
+])
+
+interface ObjectArrayShape {
+	/** Union of keys observed across sampled array elements (first-appearance order). */
+	keys: string[]
+	/** Per-key observed string values, used to infer enum options. Bounded to 20 samples per key. */
+	stringValues: Map<string, Set<string>>
+}
+
+/**
+ * Sample documents from the named MongoDB collections and detect, for each
+ * array-typed top-level column, the union of keys across object elements
+ * (e.g. `socialLinks: [{ platform, url }]`). The shape is used to seed the
+ * editor's structured repeater so a new record gets a row with the right
+ * fields instead of falling back to a generic pill input.
+ */
+async function detectMongoArrayShapes(
+	connectionString: string,
+	database: string | undefined,
+	tableNames: string[],
+): Promise<Map<string, Map<string, ObjectArrayShape>>> {
+	const { MongoClient } = await import('mongodb')
+	const client = new MongoClient(connectionString, { serverSelectionTimeoutMS: 10000 })
+	const result = new Map<string, Map<string, ObjectArrayShape>>()
+	try {
+		await client.connect()
+		const db = database ? client.db(database) : client.db()
+		for (const name of tableNames) {
+			let samples: unknown[] = []
+			try {
+				samples = await db.collection(name).find().limit(20).toArray()
+			} catch {
+				continue
+			}
+			const perColumn = new Map<string, ObjectArrayShape>()
+			for (const doc of samples) {
+				if (!doc || typeof doc !== 'object') continue
+				for (const [colName, colValue] of Object.entries(doc as Record<string, unknown>)) {
+					if (!Array.isArray(colValue) || colValue.length === 0) continue
+					// Only treat as object-array if every sampled element is a plain object
+					// (not a string, not an ObjectId). One stray string kills the inference;
+					// that's intentional — mixed arrays should stay as the generic pill widget.
+					const allObjects = colValue.every(
+						(el) => el !== null && typeof el === 'object' && !Array.isArray(el),
+					)
+					if (!allObjects) continue
+					let shape = perColumn.get(colName)
+					if (!shape) {
+						shape = { keys: [], stringValues: new Map() }
+						perColumn.set(colName, shape)
+					}
+					for (const el of colValue) {
+						for (const [k, v] of Object.entries(el as Record<string, unknown>)) {
+							if (!shape.keys.includes(k)) shape.keys.push(k)
+							if (typeof v === 'string') {
+								let set = shape.stringValues.get(k)
+								if (!set) {
+									set = new Set()
+									shape.stringValues.set(k, set)
+								}
+								if (set.size < 20) set.add(v.toLowerCase())
+							}
+						}
+					}
+				}
+			}
+			if (perColumn.size > 0) result.set(name, perColumn)
+		}
+	} finally {
+		await client.close().catch(() => undefined)
+	}
+	return result
+}
+
+/**
+ * Sample documents from the named MongoDB collections and return the union of
+ * 2-character keys found in object-valued fields whose values are strings
+ * across multiple documents. This is the convention this CMS uses for
+ * localized text (`{ en: "...", ua: "..." }`) — so the set of keys is a
+ * faithful proxy for which locales the data is authored in.
+ *
+ * Bounded: samples at most 20 docs per collection and only inspects the top
+ * level of each document. A key needs ≥2 string-valued occurrences across all
+ * samples to qualify, which keeps incidental short-keyed objects (e.g. a
+ * configuration blob with a 2-letter shortcode) from polluting the result.
+ */
+async function detectMongoLocales(
+	connectionString: string,
+	database: string | undefined,
+	tableNames: string[],
+): Promise<string[]> {
+	const { MongoClient } = await import('mongodb')
+	const client = new MongoClient(connectionString, { serverSelectionTimeoutMS: 10000 })
+	try {
+		await client.connect()
+		const db = database ? client.db(database) : client.db()
+		const counts = new Map<string, number>()
+		for (const name of tableNames) {
+			let samples: unknown[] = []
+			try {
+				samples = await db.collection(name).find().limit(20).toArray()
+			} catch {
+				continue
+			}
+			for (const doc of samples) {
+				if (!doc || typeof doc !== 'object') continue
+				for (const value of Object.values(doc as Record<string, unknown>)) {
+					if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+					for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+						// Only keep plausible 2-letter ISO-ish codes mapping to non-empty
+						// strings; rules out `_id`/`__v`/numeric flags/etc.
+						if (typeof v !== 'string' || v.length === 0) continue
+						if (!/^[a-z]{2}$/.test(k)) continue
+						counts.set(k, (counts.get(k) ?? 0) + 1)
+					}
+				}
+			}
+		}
+		return [...counts.entries()].filter(([, n]) => n >= 2).map(([code]) => code)
+	} finally {
+		await client.close().catch(() => undefined)
+	}
+}
+
 /** Parse a Firebase service-account JSON connection string, failing with a clear 400. */
 export function parseFirebaseCredentials(connStr: string): Record<string, unknown> {
 	let parsed: unknown
@@ -735,6 +898,74 @@ export async function databaseRoutes(app: FastifyInstance) {
 				}
 			}
 
+			// Auto-detect localized content. When the external DB is MongoDB and one or
+			// more selected collections store their text fields as `{ <locale>: string }`
+			// objects (the convention used by this CMS), union those locale codes into
+			// `settings.locales` so the editor's dual-mode/translate UI lights up
+			// without requiring the admin to manually edit "Available locales".
+			// Bounded work: sample at most 20 docs per selected collection.
+			if (
+				type === 'mongodb' &&
+				effectiveConnectionString &&
+				Array.isArray(tables) &&
+				tables.length > 0
+			) {
+				try {
+					const detected = await detectMongoLocales(
+						effectiveConnectionString,
+						effectiveDatabase || undefined,
+						tables.map((t) => t.name),
+					)
+					if (detected.length > 0) {
+						const existing = Array.isArray(settings.locales)
+							? (settings.locales as string[])
+							: ['en']
+						const merged: string[] = []
+						const seen = new Set<string>()
+						for (const code of [...existing, ...detected]) {
+							if (!seen.has(code)) {
+								seen.add(code)
+								merged.push(code)
+							}
+						}
+						const added = merged.filter((c) => !existing.includes(c))
+						if (added.length > 0) {
+							settings.locales = merged
+							warnings.push(
+								`Detected ${added.length === 1 ? 'locale' : 'locales'} ${added.join(', ')} in your content. Added to project locales.`,
+							)
+						}
+					}
+				} catch (err) {
+					app.log.warn({ err }, 'Locale auto-detection failed; leaving settings.locales as-is')
+				}
+			}
+
+			// Detect array-of-object shapes so the editor renders structured rows
+			// (e.g. `socialLinks: [{ platform, url }]`) instead of a flat pill input.
+			// Computed up-front and consulted when building each collection's `fields`
+			// below so existing collections also pick up shapes on re-sync.
+			let arrayShapes: Map<string, Map<string, ObjectArrayShape>> = new Map()
+			if (
+				type === 'mongodb' &&
+				effectiveConnectionString &&
+				Array.isArray(tables) &&
+				tables.length > 0
+			) {
+				try {
+					arrayShapes = await detectMongoArrayShapes(
+						effectiveConnectionString,
+						effectiveDatabase || undefined,
+						tables.map((t) => t.name),
+					)
+				} catch (err) {
+					app.log.warn(
+						{ err },
+						'Array-shape auto-detection failed; arrays will use the generic widget',
+					)
+				}
+			}
+
 			// Update project settings
 			const [updated] = await app.db
 				.update(projects)
@@ -792,18 +1023,54 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 					// Map column types to field types. MongoDB scan columns already carry a
 					// resolved CollectionField type; SQL columns carry a raw data_type string.
+					// System-managed timestamp/version columns are kept (the user wants to see
+					// them in the editor) but marked read-only so the form renders them as
+					// metadata rather than editable inputs.
+					const SYSTEM_FIELDS = new Set([
+						'createdAt',
+						'updatedAt',
+						'created_at',
+						'updated_at',
+						'__v',
+					])
+					// `slug` is also kept out of the schema fields list — it's already
+					// represented at the top level of every content row as `content.slug`,
+					// and the editor renders a dedicated slug input. Letting it through
+					// as a schema field produced a duplicate input AND a duplicate value
+					// in the saved payload (top-level + metadata.slug).
+					const tableShapes = arrayShapes.get(table.name)
 					const fields = table.columns
-						.filter((c) => c.name !== '_id' && c.name !== 'id')
-						.map((c) => ({
-							name: c.name,
-							type: (FIELD_TYPES.has(c.type)
-								? c.type
-								: mapColumnType(c.type)) as CollectionField['type'],
-							required: false,
-							localized: false,
-							...(c.relationTo && { relationTo: c.relationTo }),
-							...(c.relationIsArray && { relationIsArray: true }),
-						}))
+						.filter((c) => c.name !== '_id' && c.name !== 'id' && c.name !== 'slug')
+						.map((c) => {
+							const isSystem = SYSTEM_FIELDS.has(c.name)
+							const resolvedType = (
+								FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)
+							) as CollectionField['type']
+
+							// Build the optional UI hint blob. Read-only (system fields)
+							// and subFields (array-of-object shape) coexist when both
+							// apply; the spread keeps the field shape compact when
+							// neither does.
+							let ui: { readOnly?: boolean; subFields?: CollectionField[] } | undefined
+							if (isSystem) ui = { ...(ui ?? {}), readOnly: true }
+							const shape = resolvedType === 'array' ? tableShapes?.get(c.name) : undefined
+							if (shape && shape.keys.length > 0) {
+								ui = {
+									...(ui ?? {}),
+									subFields: shape.keys.map((key) => buildSubField(key, shape)),
+								}
+							}
+
+							return {
+								name: c.name,
+								type: resolvedType,
+								required: false,
+								localized: false,
+								...(c.relationTo && { relationTo: c.relationTo }),
+								...(c.relationIsArray && { relationIsArray: true }),
+								...(ui && { ui }),
+							}
+						})
 
 					// Collection already imported — refresh its detected field schema so
 					// re-running the wizard upgrades types (e.g. text → relation/date).

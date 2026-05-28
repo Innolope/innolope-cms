@@ -601,6 +601,24 @@ function CollectionContentEditor() {
 	const editorContainerRef = useRef<HTMLDivElement>(null)
 
 	const reviewWorkflowsLicensed = hasFeature(license, 'review-workflows')
+
+	// Project-level review configuration. `requireReview` only matters when the
+	// license is present — without it, every save publishes directly via the
+	// /publish endpoint (which is not license-gated).
+	const requireReview = reviewWorkflowsLicensed && projectSettings.requireReview === true
+
+	// Per-member publish authority. Mirrors `resolveCanPublishDirectly()` on
+	// the server side so the UI doesn't render a button the API will reject.
+	const memberCanPublishDirectly = currentProject?.canPublishDirectly as boolean | null | undefined
+	const canPublishDirectly = !requireReview
+		? true
+		: memberCanPublishDirectly === true
+			? true
+			: memberCanPublishDirectly === false
+				? false
+				: currentProject?.role === 'owner' || currentProject?.role === 'admin'
+
+	const canApprove = currentProject?.role === 'owner' || currentProject?.role === 'admin'
 	const [showDraftRestore, setShowDraftRestore] = useState(false)
 	// Collection-scoped so a new record (`contentId === 'new'`) in collection A doesn't
 	// collide with a new record in collection B.
@@ -790,11 +808,27 @@ function CollectionContentEditor() {
 		return derived
 	}
 
-	const collectMetadata = (autoTitle: string) => ({
-		...extraFields,
-		title: title || autoTitle,
-		tags: tags.map((t) => t.trim()).filter(Boolean),
-	})
+	const collectMetadata = (autoTitle: string) => {
+		// Strip read-only schema fields (createdAt/updatedAt/__v and friends) from the
+		// save payload. They're server-managed; sending the user-loaded value back is
+		// harmless but noisy, and a tampered devtools edit could overwrite the source
+		// of truth. Also strip `slug` — it's already serialized at the top level
+		// of the request (`{ slug, metadata }`); keeping it in metadata produced a
+		// duplicate and let the two drift.
+		const readOnlyNames = new Set(
+			(collection?.fields ?? []).filter((f) => f.ui?.readOnly).map((f) => f.name),
+		)
+		const cleanExtras: Record<string, unknown> = {}
+		for (const [k, v] of Object.entries(extraFields)) {
+			if (readOnlyNames.has(k) || k === 'slug') continue
+			cleanExtras[k] = v
+		}
+		return {
+			...cleanExtras,
+			title: title || autoTitle,
+			tags: tags.map((t) => t.trim()).filter(Boolean),
+		}
+	}
 
 	const save = async () => {
 		if (!collection) return
@@ -853,39 +887,6 @@ function CollectionContentEditor() {
 		}
 	}
 
-	const publish = async () => {
-		if (!collection) return
-		if (isReadOnly) {
-			toast(t('collections.detail.errors.readOnlyCollection'), 'error')
-			return
-		}
-		const prevStatus = status
-		setSaving(true)
-		try {
-			// Persist the current editor state alongside the status change — publishing
-			// must not discard unsaved markdown/metadata (e.g. a just-uploaded image).
-			await api.put(`/api/v1/content/${contentId}`, {
-				slug: contentSlug,
-				markdown,
-				metadata: collectMetadata(resolveAutoTitle()),
-				status: 'published',
-			})
-			setStatus('published')
-			setDirty(false)
-			try {
-				localStorage.removeItem(draftKey)
-			} catch {}
-		} catch (err) {
-			setStatus(prevStatus)
-			toast(
-				err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'),
-				'error',
-			)
-		} finally {
-			setSaving(false)
-		}
-	}
-
 	const submitForReview = async () => {
 		setSaving(true)
 		try {
@@ -894,6 +895,60 @@ function CollectionContentEditor() {
 		} catch (err) {
 			toast(
 				err instanceof Error ? err.message : t('collections.detail.errors.submitFailed'),
+				'error',
+			)
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	/**
+	 * One-step publish — saves the current editor state, then flips status
+	 * to `published` via the dedicated /publish endpoint. Used in place of
+	 * Submit when the project doesn't require review or the member is
+	 * permitted to bypass it.
+	 */
+	const publishDirectly = async () => {
+		if (!collection) return
+		if (isReadOnly) {
+			toast(t('collections.detail.errors.readOnlyCollection'), 'error')
+			return
+		}
+		setSaving(true)
+		try {
+			// Persist editor state first so the publish reflects the latest copy.
+			const autoTitle = resolveAutoTitle()
+			const metadata = collectMetadata(autoTitle)
+			const effectiveSlug = (contentSlug || generateSlug(autoTitle || title) || null) as
+				| string
+				| null
+			if (isNew) {
+				const created = await api.post<{ id: string }>('/api/v1/content', {
+					slug: effectiveSlug,
+					collectionId: collection.id,
+					markdown,
+					metadata,
+					status: 'draft',
+				})
+				await api.post(`/api/v1/content/${created.id}/publish`, {})
+				refreshCollections()
+				navigate({ to: `/collections/${slug}/${created.id}` })
+				return
+			}
+			await api.put(`/api/v1/content/${contentId}`, {
+				slug: effectiveSlug,
+				markdown,
+				metadata,
+			})
+			await api.post(`/api/v1/content/${contentId}/publish`, {})
+			setStatus('published')
+			setDirty(false)
+			try {
+				localStorage.removeItem(draftKey)
+			} catch {}
+		} catch (err) {
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'),
 				'error',
 			)
 		} finally {
@@ -980,8 +1035,15 @@ function CollectionContentEditor() {
 	// Drop fields marked `ui.hidden` from the form entirely — this is how
 	// system-managed columns (e.g. `updatedAt`, `viewsCount`) get kept out of
 	// the editor without removing them from the schema.
+	// Also drop `slug` regardless: it lives at the top level of `content` and
+	// has its own dedicated sidebar input. Including it as a schema field
+	// rendered a duplicate input and serialized to both `slug` and
+	// `metadata.slug` on save. This filter handles collections imported before
+	// the sync-side `slug` exclusion landed.
 	const visibleSchemaFields =
-		collection?.fields?.filter((f) => !HIDDEN_FIELDS.has(f.name) && !f.ui?.hidden) ?? []
+		collection?.fields?.filter(
+			(f) => !HIDDEN_FIELDS.has(f.name) && !f.ui?.hidden && f.name !== 'slug',
+		) ?? []
 
 	/**
 	 * Treat a field as localized for the purposes of dispatch. Combines three sources:
@@ -994,9 +1056,11 @@ function CollectionContentEditor() {
 		isLocaleMap(extraFields[f.name], projectLocales, allowKnownCodes) ||
 		knownLocalizedFields.has(f.name)
 
-	// AI translation — only wired into the UI when the AI assistant is licensed and
-	// the record is editable. Reuses the licensed `/api/v1/ai/complete` endpoint.
-	const canTranslate = aiLicensed && !isReadOnly
+	// AI translation — only wired into the UI when the AI assistant is licensed,
+	// the record is editable, AND the project actually has ≥2 locales to translate
+	// between. With one locale, "Translate EN → EN" is meaningless noise.
+	// Reuses the licensed `/api/v1/ai/complete` endpoint.
+	const canTranslate = aiLicensed && !isReadOnly && effectiveLocales.length >= 2
 
 	const translateText = async (
 		text: string,
@@ -1558,7 +1622,25 @@ function CollectionContentEditor() {
 							{saving ? t('collections.detail.saving') : t('collections.detail.save')}
 						</button>
 					)}
-					{!isNew && !isReadOnly && status === 'draft' && reviewWorkflowsLicensed && (
+					{/*
+					 * Primary publish action — adapts to project + member config:
+					 *   - canPublishDirectly → "Publish" (or "Save & publish" for a new record)
+					 *   - else, requireReview → "Submit for review"
+					 * Approve/Reject still appear for admins on a pending_review item
+					 * regardless. The legacy "Publish" button for un-licensed projects
+					 * goes away — direct publish is now the default for solo projects.
+					 */}
+					{!isReadOnly && status !== 'published' && canPublishDirectly && (
+						<button
+							type="button"
+							onClick={publishDirectly}
+							disabled={saving}
+							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+						>
+							{t('collections.detail.publish')}
+						</button>
+					)}
+					{!isNew && !isReadOnly && status === 'draft' && !canPublishDirectly && requireReview && (
 						<button
 							type="button"
 							onClick={submitForReview}
@@ -1568,74 +1650,69 @@ function CollectionContentEditor() {
 							{t('collections.detail.submit')}
 						</button>
 					)}
-					{!isNew && !isReadOnly && status === 'pending_review' && reviewWorkflowsLicensed && (
-						<>
-							<button
-								type="button"
-								onClick={approveContent}
-								disabled={saving}
-								className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-							>
-								{t('collections.detail.approve')}
-							</button>
-							<button
-								type="button"
-								onClick={rejectContent}
-								disabled={saving}
-								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
-							>
-								{t('collections.detail.reject.button')}
-							</button>
-						</>
-					)}
-					{!isNew && !isReadOnly && status !== 'published' && !reviewWorkflowsLicensed && (
-						<button
-							type="button"
-							onClick={publish}
-							disabled={saving}
-							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
-						>
-							{t('collections.detail.publish')}
-						</button>
-					)}
+					{!isNew &&
+						!isReadOnly &&
+						status === 'pending_review' &&
+						reviewWorkflowsLicensed &&
+						canApprove && (
+							<>
+								<button
+									type="button"
+									onClick={approveContent}
+									disabled={saving}
+									className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+								>
+									{t('collections.detail.approve')}
+								</button>
+								<button
+									type="button"
+									onClick={rejectContent}
+									disabled={saving}
+									className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+								>
+									{t('collections.detail.reject.button')}
+								</button>
+							</>
+						)}
 				</div>
 
-				{/* For internal collections: slug + status */}
-				{!isExternal && (
-					<>
-						<Field label={t('collections.detail.fields.slug')}>
-							<input
-								type="text"
-								value={contentSlug}
-								onChange={(e) => {
-									setContentSlug(e.target.value)
-									setDirty(true)
-								}}
-								className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
-							/>
-						</Field>
+				{/* slug + status — always rendered.
+				    The slug input was previously gated on `!isExternal`, but external
+				    (MongoDB-backed) collections also have `content.slug` at the row
+				    level and need an editable input for it. Status is universal too. */}
+				<>
+					<Field label={t('collections.detail.fields.slug')}>
+						<input
+							type="text"
+							value={contentSlug}
+							onChange={(e) => {
+								setContentSlug(e.target.value)
+								setDirty(true)
+							}}
+							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
+						/>
+					</Field>
 
-						<Field label={t('collections.detail.fields.status')}>
-							<Dropdown
-								value={status}
-								onChange={(v) => {
-									setStatus(v)
-									setDirty(true)
-								}}
-								options={[
-									{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
-									{
-										value: 'pending_review',
-										label: t('collections.detail.statusOptions.pendingReview'),
-									},
-									{ value: 'published', label: t('collections.detail.statusOptions.published') },
-									{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
-								]}
-								className="w-full"
-							/>
-						</Field>
-					</>
-				)}
+					<Field label={t('collections.detail.fields.status')}>
+						<Dropdown
+							value={status}
+							onChange={(v) => {
+								setStatus(v)
+								setDirty(true)
+							}}
+							options={[
+								{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
+								{
+									value: 'pending_review',
+									label: t('collections.detail.statusOptions.pendingReview'),
+								},
+								{ value: 'published', label: t('collections.detail.statusOptions.published') },
+								{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
+							]}
+							className="w-full"
+						/>
+					</Field>
+				</>
 
 				{/* Tags get a dedicated editor only when the collection actually models them
 				    (schema has a `tags` field) OR the loaded record already has tags. Otherwise
@@ -1664,6 +1741,10 @@ function CollectionContentEditor() {
 				{(() => {
 					const schemaNames = new Set(collection?.fields.map((f) => f.name) ?? [])
 					schemaNames.add('title')
+					// `slug` is a top-level content field — never surface it as an
+					// "additional" metadata field even if a legacy record stored it
+					// inside metadata.
+					schemaNames.add('slug')
 					if (!isExternal) {
 						schemaNames.add('tags')
 					}

@@ -98,7 +98,9 @@ function ReviewQueue() {
 								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.title')}</th>
 								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.slug')}</th>
 								<th className="px-4 py-3 font-medium">{t('reviewQueue.columns.updated')}</th>
-								<th className="px-4 py-3 font-medium text-right">{t('reviewQueue.columns.actions')}</th>
+								<th className="px-4 py-3 font-medium text-right">
+									{t('reviewQueue.columns.actions')}
+								</th>
 							</tr>
 						</thead>
 						<tbody>

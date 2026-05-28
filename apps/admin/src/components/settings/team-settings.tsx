@@ -16,6 +16,11 @@ interface Member {
 	userEmail: string
 	/** null ⇒ unrestricted (full access); array ⇒ scoped to these collection ids. */
 	collectionIds: string[] | null
+	/**
+	 * null ⇒ inherit project default; true/false ⇒ explicit override.
+	 * Only meaningful when the project has `settings.requireReview === true`.
+	 */
+	canPublishDirectly?: boolean | null
 }
 
 interface Invite {
@@ -26,6 +31,7 @@ interface Invite {
 	expiresAt: string
 	accepted: boolean
 	collectionIds: string[] | null
+	canPublishDirectly?: boolean | null
 }
 
 const ROLES = ['viewer', 'editor', 'admin'] as const
@@ -42,6 +48,14 @@ export function TeamSettings() {
 	const [email, setEmail] = useState('')
 	const [role, setRole] = useState<string>('viewer')
 	const [inviteCollectionIds, setInviteCollectionIds] = useState<string[] | null>(null)
+	const [inviteCanPublish, setInviteCanPublish] = useState(false)
+
+	// Reflect the project-level toggle so the per-member checkbox is only
+	// surfaced when it can actually take effect.
+	const projectRequiresReview =
+		((currentProject?.settings as Record<string, unknown> | undefined)?.requireReview as
+			| boolean
+			| undefined) === true
 	const [sending, setSending] = useState(false)
 	const [sent, setSent] = useState('')
 	const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
@@ -86,10 +100,13 @@ export function TeamSettings() {
 				email,
 				role,
 				collectionIds: inviteCollectionIds,
+				// Only meaningful for editor — admin always publishes, viewer never does.
+				canPublishDirectly: role === 'editor' ? inviteCanPublish : null,
 			})
 			setSent(email)
 			setEmail('')
 			setInviteCollectionIds(null)
+			setInviteCanPublish(false)
 			setTimeout(() => setSent(''), 3000)
 			fetchData()
 		} catch (err) {
@@ -120,6 +137,18 @@ export function TeamSettings() {
 		if (!currentProject) return
 		try {
 			await api.put(`/api/v1/projects/${currentProject.id}/members/${userId}`, { role: newRole })
+			fetchData()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.team.updateRoleFailed'), 'error')
+		}
+	}
+
+	const updatePublishPermission = async (userId: string, canPublishDirectly: boolean | null) => {
+		if (!currentProject) return
+		try {
+			await api.put(`/api/v1/projects/${currentProject.id}/members/${userId}`, {
+				canPublishDirectly,
+			})
 			fetchData()
 		} catch (err) {
 			toast(err instanceof Error ? err.message : t('settings.team.updateRoleFailed'), 'error')
@@ -217,6 +246,25 @@ export function TeamSettings() {
 											onChange={setEditingScope}
 											disabled={isOwnerOrAdmin}
 										/>
+										{/* Publish permission — only surfaced for editors when the
+										    project is in review mode. Admin always bypasses,
+										    viewer can never publish; the toggle would be misleading
+										    for either role. */}
+										{projectRequiresReview && m.role === 'editor' && (
+											<label className="flex items-center gap-2 text-xs cursor-pointer">
+												<input
+													type="checkbox"
+													checked={m.canPublishDirectly === true}
+													onChange={(e) =>
+														updatePublishPermission(m.userId, e.target.checked ? true : null)
+													}
+													className="rounded"
+												/>
+												<span>
+													{t('settings.team.canPublishDirectly', 'Can publish without review')}
+												</span>
+											</label>
+										)}
 										{!isOwnerOrAdmin && (
 											<div className="flex justify-end gap-2">
 												<button
@@ -323,6 +371,22 @@ export function TeamSettings() {
 							disabled={role === 'admin'}
 						/>
 					</div>
+					{projectRequiresReview && role === 'editor' && (
+						<label className="flex items-center gap-2 mt-3 text-xs text-text-secondary cursor-pointer">
+							<input
+								type="checkbox"
+								checked={inviteCanPublish}
+								onChange={(e) => setInviteCanPublish(e.target.checked)}
+								className="rounded"
+							/>
+							<span>
+								{t(
+									'settings.team.invite.canPublishDirectly',
+									'Let this editor publish without review',
+								)}
+							</span>
+						</label>
+					)}
 					{sent && (
 						<p className="text-xs text-text-secondary mt-2">
 							{t('settings.team.inviteSent', { email: sent })}

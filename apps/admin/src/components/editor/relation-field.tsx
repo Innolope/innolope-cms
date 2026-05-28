@@ -326,9 +326,7 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 
 			{urlField && !disabled && canWrite && (
 				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-					{uploading
-						? t('editor.relationField.uploading')
-						: t('editor.relationField.uploadImage')}
+					{uploading ? t('editor.relationField.uploading') : t('editor.relationField.uploadImage')}
 					<input
 						type="file"
 						accept="image/*"

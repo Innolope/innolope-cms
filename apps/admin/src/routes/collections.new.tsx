@@ -149,8 +149,7 @@ function coerceCSVValue(val: string): unknown {
 function inferFieldsFromCSV(input: string): { fields: CollectionField[]; errorKey?: string } {
 	const raw = input.replace(/^\uFEFF/, '')
 	const lines = raw.split(/\r?\n/).filter((l) => l.trim())
-	if (lines.length === 0)
-		return { fields: [], errorKey: 'collections.new.errors.pasteCsv' }
+	if (lines.length === 0) return { fields: [], errorKey: 'collections.new.errors.pasteCsv' }
 	const headers = parseCSVLine(lines[0])
 	if (headers.length === 0 || headers.every((h) => !h.trim()))
 		return { fields: [], errorKey: 'collections.new.errors.noHeaders' }
@@ -198,8 +197,7 @@ function inferFieldsFromYAML(input: string): { fields: CollectionField[]; errorK
 		else if (trimmed.startsWith('[')) type = 'array'
 		fields.push({ name, type, required: false, localized: false })
 	}
-	if (fields.length === 0)
-		return { fields: [], errorKey: 'collections.new.errors.noFieldsYaml' }
+	if (fields.length === 0) return { fields: [], errorKey: 'collections.new.errors.noFieldsYaml' }
 	return { fields }
 }
 
@@ -836,9 +834,7 @@ function NewCollectionPage() {
 						<h3 className="font-semibold text-text-secondary mb-1">
 							{t('collections.new.template.blankTitle')}
 						</h3>
-						<p className="text-xs text-text-muted">
-							{t('collections.new.template.blankDesc')}
-						</p>
+						<p className="text-xs text-text-muted">{t('collections.new.template.blankDesc')}</p>
 					</button>
 				</div>
 			</ScreenLayout>
@@ -1083,7 +1079,9 @@ function NewCollectionPage() {
 								{aiLoading && (
 									<div className="w-3.5 h-3.5 border-2 border-btn-primary-text border-t-transparent rounded-full animate-spin" />
 								)}
-								{aiLoading ? t('collections.new.aiGenerate.generating') : t('collections.new.aiGenerate.generate')}
+								{aiLoading
+									? t('collections.new.aiGenerate.generating')
+									: t('collections.new.aiGenerate.generate')}
 							</button>
 						</div>
 					</div>
@@ -1300,9 +1298,7 @@ function FieldEditor({
 				</button>
 			</div>
 			{fields.length === 0 ? (
-				<p className="text-text-secondary text-sm">
-					{t('collections.new.fieldEditor.emptyHint')}
-				</p>
+				<p className="text-text-secondary text-sm">{t('collections.new.fieldEditor.emptyHint')}</p>
 			) : (
 				<div className="divide-y divide-border">
 					{fields.map((field, i) => (

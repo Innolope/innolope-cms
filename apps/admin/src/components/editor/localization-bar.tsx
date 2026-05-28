@@ -198,8 +198,9 @@ export function LocalizationBar({
 			</div>
 			{/* Translate button — animated reveal, compare mode only. `overflow-hidden` is
 			    safe here (no popup menu); `max-w` is used because `width: auto` isn't
-			    transitionable. Bulk-translates left → right locale. */}
-			{onTranslate && (
+			    transitionable. Bulk-translates left → right locale.
+			    Hidden when source == target — "translate EN → EN" is meaningless. */}
+			{onTranslate && leftLocale !== rightLocale && (
 				<div
 					aria-hidden={mode !== 'compare'}
 					className={`flex items-stretch origin-left overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
@@ -211,7 +212,7 @@ export function LocalizationBar({
 					<button
 						type="button"
 						onClick={onTranslate}
-						disabled={translating || leftLocale === rightLocale}
+						disabled={translating}
 						title={t('editor.localizationBar.translateWithAiTitle', {
 							source: leftLocale.toUpperCase(),
 							target: rightLocale.toUpperCase(),

@@ -315,7 +315,9 @@ export function UnsplashPicker({ onSave, onSelect }: UnsplashPickerProps) {
 										? 'bg-white/90 text-green-600 opacity-100'
 										: 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-black/70'
 								} disabled:cursor-default`}
-								title={isSaved ? t('media.unsplash.savedToLibrary') : t('media.unsplash.saveToLibrary')}
+								title={
+									isSaved ? t('media.unsplash.savedToLibrary') : t('media.unsplash.saveToLibrary')
+								}
 							>
 								{isSaving ? (
 									<svg width="16" height="16" viewBox="0 0 16 16" className="animate-spin">

@@ -254,7 +254,9 @@ function Dashboard() {
 									</div>
 									<div className="flex items-center gap-2 ml-3">
 										<StatusBadge status={item.status} />
-										<span className="text-xs text-text-secondary">{timeAgo(item.updatedAt, t)}</span>
+										<span className="text-xs text-text-secondary">
+											{timeAgo(item.updatedAt, t)}
+										</span>
 									</div>
 								</Link>
 							))}
@@ -427,9 +429,7 @@ function StatsCustomizeModal({
 						</svg>
 					</button>
 				</div>
-				<p className="text-sm text-text-secondary mb-4">
-					{t('dashboard.customizeDescription')}
-				</p>
+				<p className="text-sm text-text-secondary mb-4">{t('dashboard.customizeDescription')}</p>
 				<div className="space-y-1 mb-6 max-h-80 overflow-y-auto">
 					{ALL_STATS.map((stat) => {
 						const checked = visibleSet.has(stat.id)
@@ -503,9 +503,7 @@ function EmptyDashboard() {
 				<div className="max-w-4xl w-full">
 					<div className="text-center mb-10">
 						<h2 className="text-2xl font-bold mb-2">{t('dashboard.empty.welcomeTitle')}</h2>
-						<p className="text-text-secondary text-sm">
-							{t('dashboard.empty.welcomeSubtitle')}
-						</p>
+						<p className="text-text-secondary text-sm">{t('dashboard.empty.welcomeSubtitle')}</p>
 					</div>
 
 					<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -533,9 +531,7 @@ function EmptyDashboard() {
 								<h3 className="font-semibold text-white mb-1.5">
 									{t('dashboard.empty.connectDb.title')}
 								</h3>
-								<p className="text-sm text-white/70">
-									{t('dashboard.empty.connectDb.desc')}
-								</p>
+								<p className="text-sm text-white/70">{t('dashboard.empty.connectDb.desc')}</p>
 							</div>
 						</button>
 
@@ -563,9 +559,7 @@ function EmptyDashboard() {
 								<h3 className="font-semibold text-white mb-1.5">
 									{t('dashboard.empty.uploadFiles.title')}
 								</h3>
-								<p className="text-sm text-white/70">
-									{t('dashboard.empty.uploadFiles.desc')}
-								</p>
+								<p className="text-sm text-white/70">{t('dashboard.empty.uploadFiles.desc')}</p>
 							</div>
 						</button>
 
@@ -591,9 +585,7 @@ function EmptyDashboard() {
 								<h3 className="font-semibold text-white mb-1.5">
 									{t('dashboard.empty.fromScratch.title')}
 								</h3>
-								<p className="text-sm text-white/70">
-									{t('dashboard.empty.fromScratch.desc')}
-								</p>
+								<p className="text-sm text-white/70">{t('dashboard.empty.fromScratch.desc')}</p>
 							</div>
 						</Link>
 					</div>
@@ -627,12 +619,8 @@ function EmptyDashboard() {
 				<div className="flex justify-center min-h-[70vh]">
 					<div className="max-w-4xl w-full">
 						<div className="text-center mb-10">
-							<h2 className="text-2xl font-bold mb-2">
-								{t('dashboard.empty.connectDb.title')}
-							</h2>
-							<p className="text-text-secondary text-sm">
-								{t('dashboard.empty.connectDb.intro')}
-							</p>
+							<h2 className="text-2xl font-bold mb-2">{t('dashboard.empty.connectDb.title')}</h2>
+							<p className="text-text-secondary text-sm">{t('dashboard.empty.connectDb.intro')}</p>
 						</div>
 						<DatabaseSettings onChangeDatabase={() => setStep('choose')} />
 					</div>
@@ -667,9 +655,7 @@ function EmptyDashboard() {
 					<div className="max-w-lg w-full">
 						<div className="text-center mb-10">
 							<h2 className="text-2xl font-bold mb-2">{t('dashboard.empty.upload.title')}</h2>
-							<p className="text-text-secondary text-sm">
-								{t('dashboard.empty.upload.intro')}
-							</p>
+							<p className="text-text-secondary text-sm">{t('dashboard.empty.upload.intro')}</p>
 						</div>
 						<div className="flex gap-3 justify-center mb-8">
 							<button
@@ -777,7 +763,10 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 	)
 }
 
-function timeAgo(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
+function timeAgo(
+	dateStr: string,
+	t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
 	const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
 	if (seconds < 60) return t('common.time.justNow')
 	const minutes = Math.floor(seconds / 60)

@@ -13,11 +13,18 @@ export function GeneralSettings() {
 	const [slug, setSlug] = useState('')
 	const [defaultLocale, setDefaultLocale] = useState('en')
 	const [locales, setLocales] = useState('en')
+	const [requireReview, setRequireReview] = useState(false)
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [showDelete, setShowDelete] = useState(false)
 	const [dangerOpen, setDangerOpen] = useState(false)
-	const initialRef = useRef({ name: '', slug: '', defaultLocale: 'en', locales: 'en' })
+	const initialRef = useRef({
+		name: '',
+		slug: '',
+		defaultLocale: 'en',
+		locales: 'en',
+		requireReview: false,
+	})
 
 	useEffect(() => {
 		if (currentProject) {
@@ -27,11 +34,13 @@ export function GeneralSettings() {
 				slug: currentProject.slug,
 				defaultLocale: (settings.defaultLocale as string) || 'en',
 				locales: ((settings.locales as string[]) || ['en']).join(', '),
+				requireReview: settings.requireReview === true,
 			}
 			setName(init.name)
 			setSlug(init.slug)
 			setDefaultLocale(init.defaultLocale)
 			setLocales(init.locales)
+			setRequireReview(init.requireReview)
 			initialRef.current = init
 		}
 	}, [currentProject])
@@ -40,7 +49,8 @@ export function GeneralSettings() {
 		name !== initialRef.current.name ||
 		slug !== initialRef.current.slug ||
 		defaultLocale !== initialRef.current.defaultLocale ||
-		locales !== initialRef.current.locales
+		locales !== initialRef.current.locales ||
+		requireReview !== initialRef.current.requireReview
 
 	const save = async () => {
 		if (!currentProject) return
@@ -57,6 +67,7 @@ export function GeneralSettings() {
 					...(currentProject.settings as Record<string, unknown>),
 					defaultLocale,
 					locales: localeList,
+					requireReview,
 				},
 			})
 			setSaved(true)
@@ -123,6 +134,27 @@ export function GeneralSettings() {
 				/>
 				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.localesHelp')}</p>
 			</div>
+			<div className="pt-2">
+				<label className="flex items-start gap-3 max-w-xl cursor-pointer">
+					<input
+						type="checkbox"
+						checked={requireReview}
+						onChange={(e) => setRequireReview(e.target.checked)}
+						className="mt-0.5 rounded"
+					/>
+					<span>
+						<span className="block text-sm text-text font-medium">
+							{t('settings.general.requireReview', 'Require review before publishing')}
+						</span>
+						<span className="block text-[11px] text-text-muted mt-0.5">
+							{t(
+								'settings.general.requireReviewHelp',
+								'When on, editors must submit content for review and an admin must approve it before it publishes. Per-member overrides live in Team settings.',
+							)}
+						</span>
+					</span>
+				</label>
+			</div>
 			<SaveBar
 				dirty={dirty}
 				saving={saving}
@@ -133,6 +165,7 @@ export function GeneralSettings() {
 					setSlug(initialRef.current.slug)
 					setDefaultLocale(initialRef.current.defaultLocale)
 					setLocales(initialRef.current.locales)
+					setRequireReview(initialRef.current.requireReview)
 				}}
 			/>
 

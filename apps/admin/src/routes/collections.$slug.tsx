@@ -257,7 +257,12 @@ function buildFilters(collection: CollectionWithCount, t: Translator): FilterDes
 		label: t(STATUS_OPTION_KEYS[value]),
 	}))
 	const builtins: FilterDescriptor[] = [
-		{ id: 'status', label: t('collections.list.columns.status'), type: 'enum', options: statusOptions },
+		{
+			id: 'status',
+			label: t('collections.list.columns.status'),
+			type: 'enum',
+			options: statusOptions,
+		},
 		{ id: 'locale', label: t('collections.list.columns.locale'), type: 'text' },
 		{ id: 'updatedAt', label: t('collections.list.columns.lastEdited'), type: 'date-range' },
 		{ id: 'createdAt', label: t('collections.list.columns.created'), type: 'date-range' },
@@ -728,13 +733,13 @@ function CollectionContentList() {
 							</svg>
 							<span>
 								{importStatus?.total != null
-										? t('collections.list.import.progress', {
-												processed: importStatus.processed,
-												total: importStatus.total,
-											})
-										: t('collections.list.import.progressUnknownTotal', {
-												processed: importStatus?.processed ?? 0,
-											})}
+									? t('collections.list.import.progress', {
+											processed: importStatus.processed,
+											total: importStatus.total,
+										})
+									: t('collections.list.import.progressUnknownTotal', {
+											processed: importStatus?.processed ?? 0,
+										})}
 							</span>
 						</div>
 					)}
@@ -755,10 +760,10 @@ function CollectionContentList() {
 							</svg>
 							<span>
 								{importStatus.error
-										? t('collections.list.import.failedWithError', {
-												error: importStatus.error,
-											})
-										: t('collections.list.import.failed')}
+									? t('collections.list.import.failedWithError', {
+											error: importStatus.error,
+										})
+									: t('collections.list.import.failed')}
 							</span>
 						</div>
 					)}
@@ -849,7 +854,9 @@ function CollectionContentList() {
 											<line x1="16" y1="17" x2="8" y2="17" />
 										</svg>
 									</div>
-									<h3 className="font-semibold text-text mb-1">{t('collections.list.empty.title')}</h3>
+									<h3 className="font-semibold text-text mb-1">
+										{t('collections.list.empty.title')}
+									</h3>
 									<p className="text-sm text-text-secondary max-w-xs mb-5">
 										{t('collections.list.empty.subtitle', {
 											name: collection.label.toLowerCase(),
@@ -935,8 +942,12 @@ function CollectionContentList() {
 								<tr className="text-left text-text-secondary border-b border-border">
 									<th className="px-4 py-3 font-medium">{t('collections.list.columns.title')}</th>
 									<th className="px-4 py-3 font-medium">{t('collections.list.columns.slug')}</th>
-									<th className="px-4 py-3 font-medium">{t('collections.list.columns.lastEdited')}</th>
-									<th className="px-4 py-3 font-medium text-right">{t('collections.list.columns.actions')}</th>
+									<th className="px-4 py-3 font-medium">
+										{t('collections.list.columns.lastEdited')}
+									</th>
+									<th className="px-4 py-3 font-medium text-right">
+										{t('collections.list.columns.actions')}
+									</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -1038,13 +1049,21 @@ function SyncPreviewDialog({
 										className="grid grid-cols-[160px_1fr_1fr] gap-3 p-3 text-xs"
 									>
 										<div className="font-mono text-text-secondary">{change.field}</div>
-										<DiffValue label={t('collections.list.syncDialog.local')} value={change.local} />
-										<DiffValue label={t('collections.list.syncDialog.external')} value={change.external} />
+										<DiffValue
+											label={t('collections.list.syncDialog.local')}
+											value={change.local}
+										/>
+										<DiffValue
+											label={t('collections.list.syncDialog.external')}
+											value={change.external}
+										/>
 									</div>
 								))}
 								{item.changes.length > 6 && (
 									<div className="px-3 py-2 text-xs text-text-muted">
-										{t('collections.list.syncDialog.moreFields', { count: item.changes.length - 6 })}
+										{t('collections.list.syncDialog.moreFields', {
+											count: item.changes.length - 6,
+										})}
 									</div>
 								)}
 							</div>
@@ -1076,8 +1095,8 @@ function SyncPreviewDialog({
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 					>
 						{syncing
-								? t('collections.list.sync.syncing')
-								: t('collections.list.syncDialog.overwrite')}
+							? t('collections.list.sync.syncing')
+							: t('collections.list.syncDialog.overwrite')}
 					</button>
 				</div>
 			</div>

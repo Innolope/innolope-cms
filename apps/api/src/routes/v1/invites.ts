@@ -15,11 +15,14 @@ export async function inviteRoutes(app: FastifyInstance) {
 			email,
 			role = 'viewer',
 			collectionIds,
+			canPublishDirectly,
 		} = request.body as {
 			email: string
 			role?: 'admin' | 'editor' | 'viewer'
 			// null/undefined ⇒ unrestricted (full access). [] ⇒ no collections. [...] ⇒ subset.
 			collectionIds?: string[] | null
+			// null/undefined ⇒ inherit project default; true/false ⇒ explicit override.
+			canPublishDirectly?: boolean | null
 		}
 
 		// Check if user already exists and is already a member
@@ -52,9 +55,14 @@ export async function inviteRoutes(app: FastifyInstance) {
 			role === 'admin' || !Array.isArray(collectionIds) ? null : collectionIds
 		const scopeJson = scopedCollectionIds === null ? null : JSON.stringify(scopedCollectionIds)
 
+		// Admin role inherits publish authority unconditionally; never persist an
+		// explicit override for them. Viewers don't get publish anyway.
+		const persistedCanPublish =
+			role === 'editor' && typeof canPublishDirectly === 'boolean' ? canPublishDirectly : null
+
 		await app.db.execute(
-			sql`INSERT INTO invites ("projectId", email, role, "tokenHash", "invitedBy", "expiresAt", "collectionIds")
-					VALUES (${getProject(request).id}, ${email}, ${role}, ${tokenHash}, ${getUser(request).id}, ${expiresAt}::timestamptz, ${scopeJson}::jsonb)`,
+			sql`INSERT INTO invites ("projectId", email, role, "tokenHash", "invitedBy", "expiresAt", "collectionIds", "canPublishDirectly")
+					VALUES (${getProject(request).id}, ${email}, ${role}, ${tokenHash}, ${getUser(request).id}, ${expiresAt}::timestamptz, ${scopeJson}::jsonb, ${persistedCanPublish})`,
 		)
 
 		// Send email
@@ -90,7 +98,7 @@ export async function inviteRoutes(app: FastifyInstance) {
 		const tokenHash = createHash('sha256').update(token).digest('hex')
 
 		const result = await app.db.execute(
-			sql`SELECT id, "projectId", email, role, "collectionIds" FROM invites WHERE "tokenHash" = ${tokenHash} AND accepted = false AND "expiresAt" > now() LIMIT 1`,
+			sql`SELECT id, "projectId", email, role, "collectionIds", "canPublishDirectly" FROM invites WHERE "tokenHash" = ${tokenHash} AND accepted = false AND "expiresAt" > now() LIMIT 1`,
 		)
 
 		const invite = (
@@ -100,6 +108,7 @@ export async function inviteRoutes(app: FastifyInstance) {
 				email: string
 				role: string
 				collectionIds: string[] | null
+				canPublishDirectly: boolean | null
 			}[]
 		)[0]
 		if (!invite) {
@@ -137,6 +146,7 @@ export async function inviteRoutes(app: FastifyInstance) {
 					projectId: invite.projectId,
 					userId: user.id,
 					role: invite.role as 'admin' | 'editor' | 'viewer',
+					canPublishDirectly: invite.canPublishDirectly,
 				})
 				.returning({ id: projectMembers.id })
 			membershipId = inserted.id

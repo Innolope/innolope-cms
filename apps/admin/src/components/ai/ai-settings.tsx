@@ -241,8 +241,7 @@ export function AiSettingsPanel() {
 		})
 	}
 
-	if (!settings)
-		return <p className="text-text-secondary text-sm">{t('ai.settings.loading')}</p>
+	if (!settings) return <p className="text-text-secondary text-sm">{t('ai.settings.loading')}</p>
 
 	const modelOptions =
 		settings.availableModels.length > 0
@@ -324,16 +323,12 @@ export function AiSettingsPanel() {
 									value={row.apiKey}
 									onChange={(e) => updateKey(row.id, e.target.value)}
 									placeholder={
-										row.connected
-											? t('ai.settings.connectedReplace')
-											: t('ai.settings.pasteApiKey')
+										row.connected ? t('ai.settings.connectedReplace') : t('ai.settings.pasteApiKey')
 									}
 									className="flex-1 min-w-0 px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 								/>
 								{row.connected && (
-									<span className="text-xs text-text shrink-0">
-										{t('ai.settings.connected')}
-									</span>
+									<span className="text-xs text-text shrink-0">{t('ai.settings.connected')}</span>
 								)}
 								<button
 									type="button"

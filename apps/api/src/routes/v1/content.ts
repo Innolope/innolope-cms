@@ -1357,11 +1357,76 @@ export async function contentRoutes(app: FastifyInstance) {
 		},
 	)
 
+	// Publish content directly (editor+, project-scoped). Distinct from the
+	// review workflow's submit/approve dance: this is the single-step path used
+	// when `settings.requireReview === false` OR the caller has been granted
+	// `canPublishDirectly` on their membership. Not license-gated — direct
+	// publish is a core capability; the review workflow is the premium add-on.
+	app.post<{ Params: { id: string } }>(
+		'/:id/publish',
+		{ preHandler: [app.requireProject('editor')] },
+		async (request, reply) => {
+			if (!request.canPublishDirectly) {
+				return reply
+					.status(403)
+					.send({ error: 'Direct publish not allowed — submit for review instead.' })
+			}
+
+			const [item] = await app.db
+				.select()
+				.from(content)
+				.where(
+					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+				)
+				.limit(1)
+
+			if (!item) return reply.status(404).send({ error: 'Content not found' })
+			if (item.status === 'published') return item
+
+			try {
+				await syncExternalStatus(
+					app,
+					getProject(request).id,
+					item.collectionId,
+					item.externalId,
+					'published',
+					new Date(),
+				)
+			} catch (err) {
+				app.log.warn(err, 'Failed to sync direct publish to external DB')
+				return reply.status(502).send({ error: 'Failed to sync to external database' })
+			}
+
+			const [updated] = await app.db
+				.update(content)
+				.set({ status: 'published', publishedAt: new Date(), updatedAt: new Date() })
+				.where(eq(content.id, request.params.id))
+				.returning()
+
+			app.events.emit({
+				type: 'content:published',
+				data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
+				timestamp: new Date().toISOString(),
+			})
+
+			return updated
+		},
+	)
+
 	// Submit for review (editor+, project-scoped, license-gated)
 	app.post<{ Params: { id: string } }>(
 		'/:id/submit-for-review',
 		{ preHandler: [app.requireProject('editor'), app.requireLicense('review-workflows')] },
 		async (request, reply) => {
+			// If the caller can publish directly there's no point routing
+			// through review — return a hint so the client can switch endpoints
+			// rather than silently no-op'ing the user's intent.
+			if (request.canPublishDirectly && !request.requireReview) {
+				return reply.status(409).send({
+					error: 'Review is disabled for this project — use POST /:id/publish instead.',
+				})
+			}
+
 			const [item] = await app.db
 				.select()
 				.from(content)

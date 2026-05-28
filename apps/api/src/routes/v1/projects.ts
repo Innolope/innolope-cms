@@ -17,7 +17,11 @@ async function assertProjectParam(request: FastifyRequest, reply: FastifyReply) 
 	}
 }
 
-function sanitizeProject(project: typeof projects.$inferSelect, role?: string) {
+function sanitizeProject(
+	project: typeof projects.$inferSelect,
+	role?: string,
+	canPublishDirectly?: boolean | null,
+) {
 	const settings = { ...((project.settings as unknown as Record<string, unknown>) || {}) }
 	const externalDb = settings.externalDb as Record<string, unknown> | undefined
 	if (externalDb) {
@@ -50,7 +54,7 @@ function sanitizeProject(project: typeof projects.$inferSelect, role?: string) {
 			...(sanitizedMedia ? { mediaStorage: sanitizedMedia } : {}),
 		}
 	}
-	return { ...project, settings, role }
+	return { ...project, settings, role, canPublishDirectly: canPublishDirectly ?? null }
 }
 
 export async function projectRoutes(app: FastifyInstance) {
@@ -60,12 +64,13 @@ export async function projectRoutes(app: FastifyInstance) {
 			.select({
 				project: projects,
 				role: projectMembers.role,
+				canPublishDirectly: projectMembers.canPublishDirectly,
 			})
 			.from(projectMembers)
 			.innerJoin(projects, eq(projects.id, projectMembers.projectId))
 			.where(eq(projectMembers.userId, getUser(request).id))
 
-		return memberships.map((m) => sanitizeProject(m.project, m.role))
+		return memberships.map((m) => sanitizeProject(m.project, m.role, m.canPublishDirectly))
 	})
 
 	// Get project by ID
@@ -79,7 +84,17 @@ export async function projectRoutes(app: FastifyInstance) {
 				.where(eq(projects.id, getProject(request).id))
 				.limit(1)
 
-			return sanitizeProject(project, request.projectRole)
+			// Also surface the membership's publish permission so the editor
+			// can render the right primary action without an extra round-trip.
+			const [membership] = request.membershipId
+				? await app.db
+						.select({ canPublishDirectly: projectMembers.canPublishDirectly })
+						.from(projectMembers)
+						.where(eq(projectMembers.id, request.membershipId))
+						.limit(1)
+				: [{ canPublishDirectly: null as boolean | null }]
+
+			return sanitizeProject(project, request.projectRole, membership?.canPublishDirectly ?? null)
 		},
 	)
 
@@ -102,12 +117,22 @@ export async function projectRoutes(app: FastifyInstance) {
 			}
 		}
 
+		// Solo projects ship with review disabled — there's nobody else to
+		// review the work, so forcing the editor through a pending_review step
+		// adds friction without value. Admins can toggle it on in Settings →
+		// General once they invite teammates.
 		const [project] = await app.db
 			.insert(projects)
 			.values({
 				name,
 				slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
 				ownerId: getUser(request).id,
+				settings: {
+					locales: ['en'],
+					defaultLocale: 'en',
+					mediaAdapter: 'local',
+					requireReview: false,
+				},
 			})
 			.returning()
 
@@ -209,6 +234,7 @@ export async function projectRoutes(app: FastifyInstance) {
 					id: projectMembers.id,
 					userId: projectMembers.userId,
 					role: projectMembers.role,
+					canPublishDirectly: projectMembers.canPublishDirectly,
 					createdAt: projectMembers.createdAt,
 					userName: users.name,
 					userEmail: users.email,
@@ -287,16 +313,29 @@ export async function projectRoutes(app: FastifyInstance) {
 		},
 	)
 
-	// Update member role
+	// Update member role and/or publish permission.
+	// Body accepts `role` and/or `canPublishDirectly` (boolean | null). NULL
+	// resets the member to the project's role-based default.
 	app.put<{ Params: { id: string; userId: string } }>(
 		'/:id/members/:userId',
 		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
-			const { role } = request.body as { role: 'owner' | 'admin' | 'editor' | 'viewer' }
+			const body =
+				(request.body as {
+					role?: 'owner' | 'admin' | 'editor' | 'viewer'
+					canPublishDirectly?: boolean | null
+				}) || {}
+
+			const patch: { role?: typeof body.role; canPublishDirectly?: boolean | null } = {}
+			if (body.role !== undefined) patch.role = body.role
+			if (body.canPublishDirectly !== undefined) patch.canPublishDirectly = body.canPublishDirectly
+			if (Object.keys(patch).length === 0) {
+				return reply.status(400).send({ error: 'Provide role and/or canPublishDirectly' })
+			}
 
 			const [updated] = await app.db
 				.update(projectMembers)
-				.set({ role })
+				.set(patch)
 				.where(
 					and(
 						eq(projectMembers.projectId, request.params.id),

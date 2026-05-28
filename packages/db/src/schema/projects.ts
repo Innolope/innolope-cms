@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { users } from './users.js'
 
 export const projects = pgTable('projects', {
@@ -36,6 +36,14 @@ export const projectMembers = pgTable(
 		role: text({ enum: ['owner', 'admin', 'editor', 'viewer'] })
 			.notNull()
 			.default('viewer'),
+		/**
+		 * Per-member override for the project's review requirement.
+		 *   NULL  → use the project default (owner/admin bypass, editor/viewer review)
+		 *   TRUE  → can publish directly, skipping the pending_review state
+		 *   FALSE → must always submit for review, even if role would normally bypass
+		 * Only meaningful when `settings.requireReview` is true on the project.
+		 */
+		canPublishDirectly: boolean('canPublishDirectly'),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	},
 	(table) => [uniqueIndex('member_project_user_idx').on(table.projectId, table.userId)],
@@ -45,6 +53,15 @@ export interface ProjectSettings {
 	locales: string[]
 	defaultLocale: string
 	mediaAdapter: 'local' | 'cloudflare' | 's3'
+	/**
+	 * When true, content goes through `draft → pending_review → published`.
+	 * When false or undefined, "Submit" publishes directly.
+	 *
+	 * Defaults to off on solo projects (the auto-default at project creation
+	 * sets it to false when the project has a single member). Admins can flip
+	 * the toggle in Project Settings → General once a team is in place.
+	 */
+	requireReview?: boolean
 	cloudflare?: {
 		accountId?: string
 		apiToken?: string

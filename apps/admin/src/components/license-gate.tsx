@@ -127,7 +127,9 @@ export function UpgradePrompt({ feature, plan = 'Pro' }: { feature: string; plan
 			<h3 className="text-lg font-semibold mb-2">{feature}</h3>
 			<p className="text-sm text-text-secondary max-w-sm mb-6">
 				{t('licenseGate.requiresLicense', { plan })}
-				{plan === 'Pro' ? ` ${t('licenseGate.proUnlocks')}` : ` ${t('licenseGate.enterpriseUnlocks')}`}
+				{plan === 'Pro'
+					? ` ${t('licenseGate.proUnlocks')}`
+					: ` ${t('licenseGate.enterpriseUnlocks')}`}
 			</p>
 			{/* Violet gradient (matches ProBadge); `px-4 py-2 rounded` matches the Save button. */}
 			<a

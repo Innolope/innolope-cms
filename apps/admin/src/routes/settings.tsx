@@ -170,7 +170,10 @@ function Settings() {
 					title={t('settingsPage.sections.semanticSearch.title')}
 					description={t('settingsPage.sections.semanticSearch.description')}
 				>
-					<LicenseGate feature="ai-assistant" featureLabel={t('settingsPage.featureLabels.semanticSearch')}>
+					<LicenseGate
+						feature="ai-assistant"
+						featureLabel={t('settingsPage.featureLabels.semanticSearch')}
+					>
 						<EmbeddingSettings />
 					</LicenseGate>
 				</SettingsSection>
@@ -210,7 +213,10 @@ function Settings() {
 					title={t('settingsPage.sections.customDomain.title')}
 					description={t('settingsPage.sections.customDomain.description')}
 				>
-					<LicenseGate feature="custom-domain" featureLabel={t('settingsPage.featureLabels.customDomain')}>
+					<LicenseGate
+						feature="custom-domain"
+						featureLabel={t('settingsPage.featureLabels.customDomain')}
+					>
 						<CustomDomainSettings />
 					</LicenseGate>
 				</SettingsSection>
@@ -300,9 +306,7 @@ function EmbeddingSettings() {
 								/>
 							</div>
 							{pct === 100 && status.totalContent > 0 && (
-								<p className="text-xs text-text-muted">
-									{t('settingsPage.embedding.allIndexed')}
-								</p>
+								<p className="text-xs text-text-muted">{t('settingsPage.embedding.allIndexed')}</p>
 							)}
 							{pct < 100 && status.totalContent > 0 && (
 								<p className="text-xs text-text-muted">

@@ -177,8 +177,10 @@ export function LocalizedTextField({
 			</div>
 			{/* Translate button — sits in the gap between the two panes. Animated reveal
 			    matching the right pane: visible only in compare mode. `-ml-2` cancels the
-			    parent's `gap-2` when collapsed so it leaves no seam in single mode. */}
-			{onTranslate && (
+			    parent's `gap-2` when collapsed so it leaves no seam in single mode.
+			    Hidden entirely when source == target (a same-locale "translate" makes
+			    no sense and the disabled state is just visual noise). */}
+			{onTranslate && leftLocale !== rightLocale && (
 				<div
 					aria-hidden={mode !== 'compare'}
 					className={`shrink-0 origin-left overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
@@ -190,7 +192,7 @@ export function LocalizedTextField({
 					<button
 						type="button"
 						onClick={() => onTranslate(leftLocale, rightLocale)}
-						disabled={disabled || translating || leftLocale === rightLocale}
+						disabled={disabled || translating}
 						aria-label={t('editor.localizedTextField.translateAria', {
 							source: leftLocale.toUpperCase(),
 							target: rightLocale.toUpperCase(),

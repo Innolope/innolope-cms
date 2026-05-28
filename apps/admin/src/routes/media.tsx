@@ -240,7 +240,9 @@ function MediaLibraryContent() {
 											/>
 										) : (
 											<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
-												{item.type === 'video' ? t('mediaRoute.types.video') : t('mediaRoute.types.file')}
+												{item.type === 'video'
+													? t('mediaRoute.types.video')
+													: t('mediaRoute.types.file')}
 												<br />
 												{item.filename}
 											</div>

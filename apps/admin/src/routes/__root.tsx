@@ -57,15 +57,12 @@ function AuthGate() {
 	}, [user, loading, isPublicPage])
 
 	if (loading) {
-		return (
-			<div className="min-h-screen bg-bg flex items-center justify-center">
-				<div className="flex gap-1.5">
-					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse" />
-					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse [animation-delay:150ms]" />
-					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse [animation-delay:300ms]" />
-				</div>
-			</div>
-		)
+		// Show a skeleton shell rather than a blank full-page spinner. Hard
+		// reloads of any in-app route now look like the layout the user is
+		// about to see, with the same sidebar width and header band, instead
+		// of a full-screen flash of three dots. The spinner moves into the
+		// content area, which is where the actual loading happens anyway.
+		return <ShellSkeleton />
 	}
 
 	if (!user && !isPublicPage) return null
@@ -79,6 +76,27 @@ function AuthGate() {
 	if (!currentProject) return <NoProjectView />
 
 	return <AppLayout />
+}
+
+/**
+ * Layout-preserving loading state. Mirrors `AppLayout`'s grid (sidebar + main
+ * content) so that hard reloads and slow auth checks don't flash a blank
+ * full-screen spinner before the shell paints. The actual loading affordance
+ * (three pulsing dots) sits inside the content area where new data will land.
+ */
+function ShellSkeleton() {
+	return (
+		<div className="flex h-screen bg-bg">
+			<aside className="w-60 shrink-0 bg-bg border-r border-border" aria-hidden="true" />
+			<main className="flex-1 overflow-auto bg-bg flex items-center justify-center">
+				<div className="flex gap-1.5" role="status" aria-label="Loading">
+					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse" />
+					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse [animation-delay:150ms]" />
+					<span className="w-2 h-2 bg-text-muted rounded-full animate-pulse [animation-delay:300ms]" />
+				</div>
+			</main>
+		</div>
+	)
 }
 
 function DomainAccessDeniedView({ projectName }: { projectName: string | null }) {

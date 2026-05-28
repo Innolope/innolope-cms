@@ -56,10 +56,13 @@ async function ensureTables(connectionUrl: string) {
 			"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			role TEXT NOT NULL DEFAULT 'viewer',
+			"canPublishDirectly" BOOLEAN,
 			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
 			UNIQUE("projectId", "userId")
 		)
 	`
+	// Idempotent migration for existing installs created before 0009.
+	await sql`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS "canPublishDirectly" BOOLEAN`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS collections (
@@ -180,9 +183,11 @@ async function ensureTables(connectionUrl: string) {
 			"invitedBy" UUID NOT NULL REFERENCES users(id),
 			"expiresAt" TIMESTAMPTZ NOT NULL,
 			accepted BOOLEAN NOT NULL DEFAULT false,
+			"canPublishDirectly" BOOLEAN,
 			"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
 	`
+	await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS "canPublishDirectly" BOOLEAN`
 
 	await sql`
 		CREATE TABLE IF NOT EXISTS refresh_tokens (

@@ -18,6 +18,17 @@ declare module 'fastify' {
 		projectRole?: ProjectRole
 		/** projectMembers.id for the authenticated user in the current project. */
 		membershipId?: string
+		/**
+		 * Resolved publish authority for the authenticated member in the current
+		 * project. True iff this user can move content to `published` without
+		 * going through `pending_review`. Combines `settings.requireReview`,
+		 * role, and the per-member `canPublishDirectly` override.
+		 *
+		 * Use this in route handlers instead of recomputing the policy.
+		 */
+		canPublishDirectly?: boolean
+		/** Mirror of `project.settings.requireReview` after default coercion. */
+		requireReview?: boolean
 	}
 	interface FastifyInstance {
 		requireProject: (
@@ -27,6 +38,27 @@ declare module 'fastify' {
 }
 
 export type ProjectContext = { id: string; slug: string; name: string }
+
+/**
+ * Compute whether a member can move content from draft to published in one
+ * step. Single source of truth for the workflow gating logic.
+ *
+ * Policy:
+ *   - `requireReview === false` → anyone can publish directly
+ *   - per-member `canPublishDirectly === true`  → publish directly
+ *   - per-member `canPublishDirectly === false` → must go through review
+ *   - otherwise: owner/admin publish directly; editor/viewer go through review
+ */
+export function resolveCanPublishDirectly(
+	requireReview: boolean,
+	role: ProjectRole,
+	memberOverride: boolean | null | undefined,
+): boolean {
+	if (!requireReview) return true
+	if (memberOverride === true) return true
+	if (memberOverride === false) return false
+	return role === 'owner' || role === 'admin'
+}
 
 /** Returns the project context set by the `requireProject` preHandler. Throws if absent. */
 export function getProject(request: FastifyRequest): ProjectContext {
@@ -124,6 +156,13 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 			request.project = { id: project.id, slug: project.slug, name: project.name }
 			request.projectRole = membership.role as ProjectRole
 			request.membershipId = membership.id
+			const settings = (project.settings as unknown as { requireReview?: boolean } | null) ?? {}
+			request.requireReview = !!settings.requireReview
+			request.canPublishDirectly = resolveCanPublishDirectly(
+				request.requireReview,
+				membership.role as ProjectRole,
+				(membership as { canPublishDirectly?: boolean | null }).canPublishDirectly ?? null,
+			)
 		}
 
 	app.decorate('requireProject', requireProject)

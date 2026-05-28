@@ -96,8 +96,7 @@ export function AiChatPanel({ targetField, selectedText, onApply, onClose }: AiC
 					<h3 className="text-sm font-semibold">{t('ai.chat.title')}</h3>
 					{targetField && (
 						<p className="text-[10px] text-text-secondary mt-0.5">
-							{t('ai.chat.targeting')}{' '}
-							<span className="text-text-muted">{targetField}</span>
+							{t('ai.chat.targeting')} <span className="text-text-muted">{targetField}</span>
 						</p>
 					)}
 				</div>

@@ -105,9 +105,7 @@ function Onboarding() {
 				{step === 1 && (
 					<div>
 						<h1 className="text-2xl font-bold text-center mb-2">{t('onboarding.chooseTitle')}</h1>
-						<p className="text-text-secondary text-center mb-8">
-							{t('onboarding.chooseSubtitle')}
-						</p>
+						<p className="text-text-secondary text-center mb-8">{t('onboarding.chooseSubtitle')}</p>
 						<div className="grid md:grid-cols-3 gap-4 mb-8">
 							{TIERS.map((tier) => (
 								<div

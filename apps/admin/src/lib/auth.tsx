@@ -23,6 +23,14 @@ interface Project {
 	slug: string
 	role: string
 	settings: Record<string, unknown>
+	/**
+	 * Per-member override for the project's review requirement (the same field
+	 * stored on `project_members.canPublishDirectly`). null means the
+	 * role-based default applies (owner/admin bypass review, editor follows
+	 * `settings.requireReview`). Only meaningful when `settings.requireReview`
+	 * is true.
+	 */
+	canPublishDirectly?: boolean | null
 }
 
 interface AuthState {

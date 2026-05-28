@@ -226,8 +226,24 @@ export function FieldRenderer({
 
 	// `array` ──────────────────────────────────────────────────────────────────
 	if (f.type === 'array') {
-		if (isObjectArray(value)) {
-			return <ObjectArrayField value={value} onChange={(v) => onChange(v)} disabled={ro} />
+		// Schema declared a row shape (`ui.subFields`) → always use the structured
+		// repeater so new records still get the right widget. Without subFields, fall
+		// back to the value-based heuristic so legacy arrays keep their old UI.
+		const declaredSubFields = f.ui?.subFields
+		if ((declaredSubFields && declaredSubFields.length > 0) || isObjectArray(value)) {
+			return (
+				<ObjectArrayField
+					value={value}
+					onChange={(v) => onChange(v)}
+					disabled={ro}
+					subFields={declaredSubFields?.map((sf) => ({
+						name: sf.name,
+						type: sf.type,
+						label: sf.label,
+						options: sf.options,
+					}))}
+				/>
+			)
 		}
 		return (
 			<PillInput

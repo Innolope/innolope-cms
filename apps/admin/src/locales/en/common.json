@@ -883,7 +883,10 @@
 		"verifying": "Verifying…",
 		"activateAndContinue": "Activate & Continue",
 		"skip": "Skip — continue on Community",
-		"errors": { "pasteOrSkip": "Paste your license key, or skip for now.", "activateFailed": "Could not activate license." },
+		"errors": {
+			"pasteOrSkip": "Paste your license key, or skip for now.",
+			"activateFailed": "Could not activate license."
+		},
 		"tiers": {
 			"community": {
 				"name": "Community",
@@ -1081,12 +1084,24 @@
 			"createCollection": "Create Collection",
 			"saving": "Saving…",
 			"methods": {
-				"template": { "title": "Choose Template", "desc": "Pick from pre-built collection schemas" },
-				"importFile": { "title": "Import from File", "desc": "Upload a CSV, JSON, or Markdown file" },
-				"importPaste": { "title": "Import with Paste", "desc": "Paste JSON, CSV, or Markdown data" },
+				"template": {
+					"title": "Choose Template",
+					"desc": "Pick from pre-built collection schemas"
+				},
+				"importFile": {
+					"title": "Import from File",
+					"desc": "Upload a CSV, JSON, or Markdown file"
+				},
+				"importPaste": {
+					"title": "Import with Paste",
+					"desc": "Paste JSON, CSV, or Markdown data"
+				},
 				"aiGenerate": { "title": "AI Generate", "desc": "Describe and auto-create fields" },
 				"manual": { "title": "Manual Input", "desc": "Define fields one by one" },
-				"copyExisting": { "title": "Copy from Existing", "desc": "Duplicate an existing collection schema" }
+				"copyExisting": {
+					"title": "Copy from Existing",
+					"desc": "Duplicate an existing collection schema"
+				}
 			},
 			"template": {
 				"title": "Choose a Template",
@@ -1097,17 +1112,50 @@
 			"templates": {
 				"showLess": "Show less",
 				"showMore": "+{{count}} more fields",
-				"seoArticle": { "label": "SEO Article", "description": "Content optimized for search engines with full SEO and Open Graph metadata" },
-				"knowledgeBase": { "label": "Knowledge Base", "description": "Structured articles for AI agent retrieval and customer self-service" },
-				"faq": { "label": "FAQ", "description": "Question-answer pairs optimized for AI-powered support agents" },
-				"productCatalog": { "label": "Product Catalog", "description": "Structured product data for AI-driven recommendations and search" },
-				"documentation": { "label": "Documentation", "description": "Technical docs with section ordering for developer-facing AI assistants" },
-				"crm": { "label": "CRM", "description": "Customer contacts and deals for AI-assisted sales workflows" },
-				"apiReference": { "label": "API Reference", "description": "Endpoint documentation for API-aware AI agents and developer tools" },
-				"changelog": { "label": "Changelog", "description": "Version history and release notes for product updates" },
-				"blog": { "label": "Blog", "description": "Articles and posts with SEO metadata for content marketing" },
-				"jobBoard": { "label": "Job Board", "description": "Open positions with structured requirements for recruiting agents" },
-				"events": { "label": "Events", "description": "Webinars, meetups, and conferences with scheduling and registration data" }
+				"seoArticle": {
+					"label": "SEO Article",
+					"description": "Content optimized for search engines with full SEO and Open Graph metadata"
+				},
+				"knowledgeBase": {
+					"label": "Knowledge Base",
+					"description": "Structured articles for AI agent retrieval and customer self-service"
+				},
+				"faq": {
+					"label": "FAQ",
+					"description": "Question-answer pairs optimized for AI-powered support agents"
+				},
+				"productCatalog": {
+					"label": "Product Catalog",
+					"description": "Structured product data for AI-driven recommendations and search"
+				},
+				"documentation": {
+					"label": "Documentation",
+					"description": "Technical docs with section ordering for developer-facing AI assistants"
+				},
+				"crm": {
+					"label": "CRM",
+					"description": "Customer contacts and deals for AI-assisted sales workflows"
+				},
+				"apiReference": {
+					"label": "API Reference",
+					"description": "Endpoint documentation for API-aware AI agents and developer tools"
+				},
+				"changelog": {
+					"label": "Changelog",
+					"description": "Version history and release notes for product updates"
+				},
+				"blog": {
+					"label": "Blog",
+					"description": "Articles and posts with SEO metadata for content marketing"
+				},
+				"jobBoard": {
+					"label": "Job Board",
+					"description": "Open positions with structured requirements for recruiting agents"
+				},
+				"events": {
+					"label": "Events",
+					"description": "Webinars, meetups, and conferences with scheduling and registration data"
+				}
 			},
 			"importFile": {
 				"title": "Import from File",
@@ -1440,15 +1488,36 @@
 			"license": "License"
 		},
 		"sections": {
-			"team": { "title": "Team Members", "description": "Manage who has access to this project and their roles." },
-			"sso": { "title": "Single Sign-On (SSO)", "description": "Let your team sign in with SAML or OIDC." },
-			"aiModels": { "title": "AI Models", "description": "Configure AI providers and the default model." },
-			"semanticSearch": { "title": "Semantic Search", "description": "Vector embeddings that power semantic content search." },
+			"team": {
+				"title": "Team Members",
+				"description": "Manage who has access to this project and their roles."
+			},
+			"sso": {
+				"title": "Single Sign-On (SSO)",
+				"description": "Let your team sign in with SAML or OIDC."
+			},
+			"aiModels": {
+				"title": "AI Models",
+				"description": "Configure AI providers and the default model."
+			},
+			"semanticSearch": {
+				"title": "Semantic Search",
+				"description": "Vector embeddings that power semantic content search."
+			},
 			"database": { "title": "Database", "description": "Connect and map an external database." },
-			"mediaStorage": { "title": "Media Storage", "description": "Choose where uploaded media files are stored." },
-			"apiKeys": { "title": "API Keys", "description": "Generate and manage keys for the public API." },
+			"mediaStorage": {
+				"title": "Media Storage",
+				"description": "Choose where uploaded media files are stored."
+			},
+			"apiKeys": {
+				"title": "API Keys",
+				"description": "Generate and manage keys for the public API."
+			},
 			"webhooks": { "title": "Webhooks", "description": "Send events to external services." },
-			"customDomain": { "title": "Custom Domain", "description": "Serve this project from your own domain." }
+			"customDomain": {
+				"title": "Custom Domain",
+				"description": "Serve this project from your own domain."
+			}
 		},
 		"featureLabels": {
 			"sso": "Single Sign-On (SAML & OIDC)",
