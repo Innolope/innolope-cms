@@ -50,6 +50,20 @@
       "when": 1780000000000,
       "tag": "0006_sync_cursor",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779805231185,
+      "tag": "0007_manual_login_unblock",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779808832241,
+      "tag": "0008_slug_nullable_field_label",
+      "breakpoints": true
     }
   ]
 }

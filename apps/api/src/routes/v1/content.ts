@@ -50,7 +50,7 @@ function buildExternalData(
 	input: {
 		metadata?: Record<string, unknown>
 		markdown?: string
-		slug?: string
+		slug?: string | null
 		status?: string
 		createdAt?: string | Date
 		updatedAt?: string | Date
@@ -707,19 +707,24 @@ export async function contentRoutes(app: FastifyInstance) {
 			return reply.status(403).send({ error: 'This collection is read-only' })
 		}
 
-		const [duplicate] = await app.db
-			.select({ id: content.id })
-			.from(content)
-			.where(
-				and(
-					eq(content.projectId, getProject(request).id),
-					eq(content.slug, input.slug),
-					eq(content.locale, input.locale || 'en'),
-				),
-			)
-			.limit(1)
-		if (duplicate)
-			return reply.status(409).send({ error: 'Content with this slug and locale already exists' })
+		// Only enforce the slug-uniqueness check when a slug is actually provided.
+		// Null-slug rows (typically imported records without a source slug) all
+		// coexist; their identity comes from `id`/`externalId` instead.
+		if (input.slug) {
+			const [duplicate] = await app.db
+				.select({ id: content.id })
+				.from(content)
+				.where(
+					and(
+						eq(content.projectId, getProject(request).id),
+						eq(content.slug, input.slug),
+						eq(content.locale, input.locale || 'en'),
+					),
+				)
+				.limit(1)
+			if (duplicate)
+				return reply.status(409).send({ error: 'Content with this slug and locale already exists' })
+		}
 
 		let externalId: string | undefined
 		if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {

@@ -40,6 +40,13 @@ interface LocalizedTextFieldProps {
 	onTranslate?: (sourceLocale: string, targetLocale: string) => void
 	translating?: boolean
 	disabled?: boolean
+	/**
+	 * When true, render an auto-growing `<textarea>` (good for body copy /
+	 * paragraphs). When false (the default), render a single-line `<input>`
+	 * — titles, names, slugs all look right as a one-liner and an empty
+	 * textarea looked oversized for a single-word field like courseName.
+	 */
+	multiline?: boolean
 }
 
 /** Coerce `value` into a `{ locale: string }` map, seeding bare strings under the default locale. */
@@ -65,20 +72,43 @@ function LocaleInput({
 	value,
 	onChange,
 	disabled,
+	multiline,
 }: {
 	locale: string
 	value: string
 	onChange: (v: string) => void
 	disabled?: boolean
+	multiline?: boolean
 }) {
-	// Always an auto-growing `<textarea rows={1}>`: it looks like a single-line input
-	// when empty/short and grows seamlessly as content is added — no `<input>`↔
-	// `<textarea>` element swap (which would lose focus mid-typing) and no fixed
-	// multi-row minimum height.
 	// Padding-right makes room for the locale tag inside the input frame.
 	// `pr-12` (3rem) fits 2-3 character codes (`EN`, `UA`, `EN-US`) comfortably.
 	const inputWithTag = `${inputClass} pr-12`
 	const textareaRef = useAutoSizeTextarea(value)
+
+	if (!multiline) {
+		// Single-line input by default — titles, names, slugs all look right as a
+		// one-liner and a textarea looks oversized for a one-word field.
+		return (
+			<div className="relative">
+				<input
+					type="text"
+					value={value}
+					disabled={disabled}
+					onChange={(e) => onChange(e.target.value)}
+					className={inputWithTag}
+				/>
+				<span
+					aria-hidden="true"
+					className="pointer-events-none absolute right-2.5 top-2.5 text-[10px] font-mono font-medium uppercase tracking-wider text-text-muted/70 select-none"
+				>
+					{locale}
+				</span>
+			</div>
+		)
+	}
+
+	// Auto-growing `<textarea rows={1}>`: looks like a single-line input when
+	// empty/short and grows seamlessly as content is added.
 	return (
 		<div className="relative">
 			<textarea
@@ -87,12 +117,8 @@ function LocaleInput({
 				disabled={disabled}
 				onChange={(e) => onChange(e.target.value)}
 				rows={1}
-				// `max-h-80` (20rem ≈ 320px) caps the auto-grow; past this the textarea
-				// becomes scrollable. `resize-none` because we manage height in JS now.
 				className={`${inputWithTag} max-h-80 resize-none overflow-y-auto`}
 			/>
-			{/* Locale tag — faded, lives at the right edge of the input frame. Anchored to
-			    the top so it stays put once the textarea grows past one line. */}
 			<span
 				aria-hidden="true"
 				className="pointer-events-none absolute right-2.5 top-2.5 text-[10px] font-mono font-medium uppercase tracking-wider text-text-muted/70 select-none"
@@ -124,6 +150,7 @@ export function LocalizedTextField({
 	onTranslate,
 	translating,
 	disabled,
+	multiline,
 }: LocalizedTextFieldProps) {
 	const { t } = useTranslation()
 	const map = toLocaleMap(value, defaultLocale)
@@ -145,6 +172,7 @@ export function LocalizedTextField({
 					value={map[primaryLocale] ?? ''}
 					onChange={(v) => setLocale(primaryLocale, v)}
 					disabled={disabled}
+					multiline={multiline}
 				/>
 			</div>
 			{/* Translate button — sits in the gap between the two panes. Animated reveal
@@ -222,6 +250,7 @@ export function LocalizedTextField({
 					value={map[rightLocale] ?? ''}
 					onChange={(v) => setLocale(rightLocale, v)}
 					disabled={disabled}
+					multiline={multiline}
 				/>
 			</div>
 		</div>

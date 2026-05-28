@@ -37,12 +37,22 @@ export interface ResolveDisplayTitleCtx {
 }
 
 /** Regex used by the smart heuristic — matches name-bearing field names. */
-const LABEL_NAME_PATTERN = /(^|[_ -])(title|name|label|heading)([_ ]|$)/i
+const LABEL_NAME_PATTERN = /(title|name|label|heading)/i
+
+/**
+ * Normalize a field identifier so a regex written in `lower_snake_case` matches
+ * camelCase too. `courseName` → `course_name`; `firstName` → `first_name`;
+ * `MyTitle` → `_my_title`. Without this the heuristic missed `courseName`
+ * entirely because Name is preceded by lowercase "e", not a delimiter.
+ */
+function splitCamel(name: string): string {
+	return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
 
 /**
  * Pick which schema field most likely holds a human label for this collection.
  * Priority: configured `titleField` → exact `title` → exact `name` →
- *           regex-name match → first localized text/string field → first text/string field.
+ *           camelCase-aware regex match → first localized text/string field → first text/string field.
  */
 export function pickTitleField(collection: MinimalCollection): string | null {
 	if (collection.titleField) return collection.titleField
@@ -53,7 +63,13 @@ export function pickTitleField(collection: MinimalCollection): string | null {
 	if (byName('title')) return 'title'
 	if (byName('name')) return 'name'
 
-	const regexHit = fields.find((f) => LABEL_NAME_PATTERN.test(f.name))
+	// Match `title|name|label|heading` as a whole word AFTER splitting camelCase
+	// into snake_case. The bounding `(?:^|_)` + `(?:_|$)` keeps us from matching
+	// substrings like "container" or "subname".
+	const regexHit = fields.find((f) => {
+		const norm = splitCamel(f.name)
+		return new RegExp(`(?:^|_)${LABEL_NAME_PATTERN.source}(?:_|$)`, 'i').test(norm)
+	})
 	if (regexHit) return regexHit.name
 
 	// localized text is more likely a title than plain text

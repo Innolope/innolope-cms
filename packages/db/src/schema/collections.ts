@@ -41,6 +41,8 @@ export const collections = pgTable(
 
 export interface CollectionField {
 	name: string
+	/** Optional human-readable label shown by the form instead of `name`. */
+	label?: string
 	type: 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'relation' | 'object' | 'array'
 	required?: boolean
 	localized?: boolean

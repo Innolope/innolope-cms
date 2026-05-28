@@ -153,8 +153,11 @@ export function LocalizationBar({
 			</div>
 			{/* `p-1` gives the mode-toggle container 4px padding on all four sides — horizontal
 			    matches vertical, and the resulting outer height (4 + 28 + 4 + 2 border = 38px)
-			    aligns perfectly with the Dropdown's intrinsic height. */}
-			<div className="flex items-center gap-0.5 shrink-0 p-1 rounded bg-input border border-border">
+			    aligns perfectly with the Dropdown's intrinsic height.
+			    Hidden when the project only has one locale — there's nothing to compare. */}
+			<div
+				className={`flex items-center gap-0.5 shrink-0 p-1 rounded bg-input border border-border ${locales.length < 2 ? 'hidden' : ''}`}
+			>
 				<ModeButton
 					active={mode === 'single'}
 					onClick={() => onModeChange('single')}

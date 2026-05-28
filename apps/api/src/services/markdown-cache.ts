@@ -88,7 +88,8 @@ export interface SyncChange {
 export interface SyncPreviewItem {
 	externalId: string
 	contentId?: string
-	slug: string
+	/** Null when the source row has no title/name/slug-bearing field. */
+	slug: string | null
 	changeType: 'created' | 'updated'
 	changes: SyncChange[]
 }
@@ -153,20 +154,29 @@ function formatYamlValue(value: unknown): string {
 	return JSON.stringify(value)
 }
 
-/** Generate a slug from document metadata or ID */
-export function generateSlugFromDoc(metadata: Record<string, unknown>, externalId: string): string {
+/**
+ * Generate a slug from document metadata, or `null` if the source has no
+ * slug-bearing field. Previously fell back to the externalId-as-slug; that
+ * invented values the source never had and confused downstream consumers
+ * (and showed up as the title in lists when no proper label-field was set).
+ *
+ * Returns null when none of `title`, `name`, or `slug` exist on the metadata.
+ * Callers preserve the null all the way to the DB column (`content.slug` is
+ * nullable).
+ */
+export function generateSlugFromDoc(
+	metadata: Record<string, unknown>,
+	_externalId: string,
+): string | null {
 	const raw = metadata.title ?? metadata.name ?? metadata.slug
 	const title = typeof raw === 'string' ? raw : typeof raw === 'number' ? String(raw) : undefined
-	if (title) {
-		return (
-			title
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, '-')
-				.replace(/^-|-$/g, '')
-				.slice(0, 80) || externalId
-		)
-	}
-	return externalId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+	if (!title) return null
+	const slugified = title
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '')
+		.slice(0, 80)
+	return slugified || null
 }
 
 /** Populate markdown cache for all documents in an external collection */
@@ -292,7 +302,7 @@ async function applySyncBatch(
 		existingRows.map((r) => [r.externalId as string, r] as const),
 	)
 
-	const toInsert: Array<CachedContentValues & { slug: string }> = []
+	const toInsert: Array<CachedContentValues & { slug: string | null }> = []
 	const toUpdate: Array<{ existing: (typeof existingRows)[number]; next: CachedContentValues }> = []
 
 	for (const doc of docs) {
@@ -303,7 +313,10 @@ async function applySyncBatch(
 				toUpdate.push({ existing, next: values })
 			}
 		} else {
-			toInsert.push({ ...values, slug: `${slug}-${doc._id.slice(-6)}` })
+			// Append the last-6 of externalId to make slugs unique within the
+			// (locale, project) index. If the source has no slug at all,
+			// preserve null — don't invent one.
+			toInsert.push({ ...values, slug: slug ? `${slug}-${doc._id.slice(-6)}` : null })
 		}
 	}
 
@@ -400,7 +413,7 @@ export async function cacheMissingDocs(
 		.filter((doc) => !cached.has(doc._id))
 		.map((doc) => {
 			const { values, slug } = buildCachedContentValues(doc, collection, opts)
-			return { ...values, slug: `${slug}-${doc._id.slice(-6)}` }
+			return { ...values, slug: slug ? `${slug}-${doc._id.slice(-6)}` : null }
 		})
 	if (rows.length === 0) return 0
 
@@ -464,7 +477,7 @@ export async function previewMarkdownCacheSync(
 				if (discrepancies.length < limit) {
 					discrepancies.push({
 						externalId: doc._id,
-						slug: `${slug}-${doc._id.slice(-6)}`,
+						slug: slug ? `${slug}-${doc._id.slice(-6)}` : null,
 						changeType: 'created',
 						changes: [{ field: 'content', local: null, external: 'new external row' }],
 					})
@@ -517,7 +530,8 @@ export function externalDocToContentItem(
 	},
 ): Record<string, unknown> {
 	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
-	const slug = `${generateSlugFromDoc(metadata, doc._id)}-${doc._id.slice(-6)}`
+	const baseSlug = generateSlugFromDoc(metadata, doc._id)
+	const slug = baseSlug ? `${baseSlug}-${doc._id.slice(-6)}` : null
 	const createdAt = toDate(metadata.createdAt) || objectIdCreatedAt(doc._id)
 	const updatedAt = toDate(metadata.updatedAt)
 	const publishedAt = toDate(metadata.publishedAt)
@@ -552,7 +566,7 @@ function buildCachedContentValues(
 		fields: CollectionField[]
 	},
 	opts: Pick<SyncOptions, 'userId'>,
-): { values: CachedContentValues; slug: string } {
+): { values: CachedContentValues; slug: string | null } {
 	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
 	const slug = generateSlugFromDoc(metadata, doc._id)
 

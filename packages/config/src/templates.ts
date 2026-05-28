@@ -17,6 +17,7 @@ export interface CollectionFieldUi {
 
 export interface CollectionField {
 	name: string
+	label?: string
 	type: 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'relation' | 'object' | 'array'
 	required?: boolean
 	localized?: boolean

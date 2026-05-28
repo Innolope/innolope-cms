@@ -175,7 +175,7 @@ export async function statsRoutes(app: FastifyInstance) {
 			contentMap = Object.fromEntries(
 				items.map((i) => [
 					i.id,
-					((i.metadata as Record<string, unknown>)?.title as string) || i.slug,
+					((i.metadata as Record<string, unknown>)?.title as string) || i.slug || i.id,
 				]),
 			)
 		}

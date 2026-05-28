@@ -23,6 +23,7 @@ import { LocalizedTextField } from './localized-text-field'
 import { ObjectArrayField } from './object-array-field'
 import { PillInput } from './pill-input'
 import { RelationField } from './relation-field'
+import { SubformField } from './subform-field'
 
 /** Normalize a stored value (array or comma string) to a string array. */
 function toStringArray(v: unknown): string[] {
@@ -99,7 +100,10 @@ export function defaultWidgetFor(field: CollectionField): string {
 		case 'array':
 			return 'chips'
 		case 'object':
-			return field.localized ? 'localized' : 'json'
+			// Default to a structured subform — raw JSON in the UI is opt-in via
+			// ui.widget = 'json'. Localized text objects (`{en, ua}` shapes) take
+			// precedence over both.
+			return field.localized ? 'localized' : 'subform'
 		case 'relation':
 			return 'picker'
 		default:
@@ -197,10 +201,27 @@ export function FieldRenderer({
 					translating={translating}
 					onChange={(v) => onChange(v)}
 					disabled={ro}
+					multiline={f.ui?.widget === 'textarea'}
 				/>
 			)
 		}
-		return <JsonField value={value} onChange={(v) => onChange(v)} disabled={ro} />
+		// Opt-in raw JSON. Default is the structured subform — splits the value
+		// into a labelled control per key so editors never see JSON syntax.
+		if (widget === 'json') {
+			return <JsonField value={value} onChange={(v) => onChange(v)} disabled={ro} />
+		}
+		return (
+			<SubformField
+				value={value}
+				onChange={(v) => onChange(v)}
+				disabled={ro}
+				subFields={f.ui?.subFields?.map((sf) => ({
+					name: sf.name,
+					label: sf.label,
+					type: sf.type,
+				}))}
+			/>
+		)
 	}
 
 	// `array` ──────────────────────────────────────────────────────────────────

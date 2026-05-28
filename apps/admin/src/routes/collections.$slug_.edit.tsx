@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
+import { KebabMenu } from '../components/kebab-menu'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
@@ -24,6 +25,7 @@ interface CollectionFieldUi {
 
 interface CollectionField {
 	name: string
+	label?: string
 	type: string
 	required?: boolean
 	localized?: boolean
@@ -247,9 +249,7 @@ function CollectionSchemaEditor() {
 							...fields.filter((f) => f.name.trim()).map((f) => ({ value: f.name, label: f.name })),
 						]}
 					/>
-					<p className="mt-1 text-xs text-text-muted">
-						{t('collections.edit.titleFieldHint')}
-					</p>
+					<p className="mt-1 text-xs text-text-muted">{t('collections.edit.titleFieldHint')}</p>
 				</Field>
 
 				<Field label={t('collections.edit.sidebarVisibility')}>
@@ -262,9 +262,7 @@ function CollectionSchemaEditor() {
 							{ value: 'hide', label: t('collections.edit.sidebar.hide') },
 						]}
 					/>
-					<p className="mt-1 text-xs text-text-muted">
-						{t('collections.edit.sidebarHint')}
-					</p>
+					<p className="mt-1 text-xs text-text-muted">{t('collections.edit.sidebarHint')}</p>
 				</Field>
 
 				<div>
@@ -320,7 +318,10 @@ function CollectionSchemaEditor() {
 												}
 											}
 										} catch (err) {
-											toast(err instanceof Error ? err.message : t('collections.edit.scan.failed'), 'error')
+											toast(
+												err instanceof Error ? err.message : t('collections.edit.scan.failed'),
+												'error',
+											)
 										} finally {
 											setScanning(false)
 										}
@@ -330,7 +331,9 @@ function CollectionSchemaEditor() {
 									{scanning && (
 										<div className="w-3 h-3 border-2 border-text-muted border-t-transparent rounded-full animate-spin" />
 									)}
-									{scanning ? t('collections.edit.scan.scanning') : t('collections.edit.scan.rescan')}
+									{scanning
+										? t('collections.edit.scan.scanning')
+										: t('collections.edit.scan.rescan')}
 								</button>
 							)}
 							<button
@@ -344,9 +347,7 @@ function CollectionSchemaEditor() {
 					</div>
 
 					{fields.length === 0 ? (
-						<p className="text-text-secondary text-sm">
-							{t('collections.edit.noFieldsHint')}
-						</p>
+						<p className="text-text-secondary text-sm">{t('collections.edit.noFieldsHint')}</p>
 					) : (
 						<div className="space-y-2">
 							{fields.map((field, i) => (
@@ -393,7 +394,7 @@ function CollectionSchemaEditor() {
 											})
 										}
 										options={FIELD_TYPES.map((t) => ({ value: t, label: t }))}
-										className="w-32 shrink-0"
+										className="w-28 shrink-0"
 									/>
 									{(WIDGETS_BY_TYPE[field.type] ?? []).length > 1 && (
 										<Dropdown
@@ -404,9 +405,12 @@ function CollectionSchemaEditor() {
 													widget: v === WIDGETS_BY_TYPE[field.type]?.[0] ? undefined : v,
 												})
 											}
-											options={(WIDGETS_BY_TYPE[field.type] ?? []).map((w, idx) => ({
+											options={(WIDGETS_BY_TYPE[field.type] ?? []).map((w) => ({
 												value: w,
-												label: idx === 0 ? t('collections.edit.widgetDefault', { name: w }) : w,
+												// Plain widget name — the "(default)" suffix bloated the dropdown
+												// button and forced 2-line wrapping. The current selection makes
+												// the chosen widget obvious; no need to label it twice.
+												label: w,
 											}))}
 											className="w-32 shrink-0"
 										/>
@@ -427,22 +431,19 @@ function CollectionSchemaEditor() {
 										/>{' '}
 										{t('collections.edit.i18n')}
 									</label>
-									<button
-										type="button"
-										onClick={() => toggleExpanded(i)}
-										className="text-text-secondary hover:text-text text-xs px-2"
-										aria-expanded={expandedRows.has(i)}
-										title={expandedRows.has(i) ? t('collections.edit.hideAdvanced') : t('collections.edit.showAdvanced')}
-									>
-										…
-									</button>
-									<button
-										type="button"
-										onClick={() => removeField(i)}
-										className="text-danger hover:opacity-80 text-xs px-2"
-									>
-										{t('collections.edit.remove')}
-									</button>
+									<KebabMenu
+										items={[
+											{
+												label: expandedRows.has(i) ? 'Hide details' : 'Edit details',
+												onClick: () => toggleExpanded(i),
+											},
+											{
+												label: 'Delete field',
+												onClick: () => removeField(i),
+												danger: true,
+											},
+										]}
+									/>
 									{field.type === 'enum' && (
 										<input
 											type="text"
@@ -461,6 +462,16 @@ function CollectionSchemaEditor() {
 									)}
 									{expandedRows.has(i) && (
 										<div className="w-full mt-2 pt-2 border-t border-border space-y-2">
+											<label className="block text-xs text-text-secondary">
+												Label
+												<input
+													type="text"
+													value={field.label ?? ''}
+													onChange={(e) => updateField(i, { label: e.target.value || undefined })}
+													placeholder="Human-readable name — shown on the record page instead of the raw field name"
+													className="mt-1 w-full px-2 py-1.5 bg-input border border-border rounded text-sm focus:outline-none"
+												/>
+											</label>
 											<label className="block text-xs text-text-secondary">
 												{t('collections.edit.advanced.placeholder')}
 												<input
@@ -515,7 +526,10 @@ function CollectionSchemaEditor() {
 														}
 														options={[
 															{ value: 'enter', label: t('collections.edit.advanced.enterOnly') },
-															{ value: 'comma', label: t('collections.edit.advanced.enterOrComma') },
+															{
+																value: 'comma',
+																label: t('collections.edit.advanced.enterOrComma'),
+															},
 														]}
 														className="mt-1 w-48"
 													/>

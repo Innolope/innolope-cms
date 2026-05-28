@@ -1,11 +1,16 @@
 import { z } from 'zod'
 
 export const contentInputSchema = z.object({
+	// Slug is optional — when null/missing, the record has no permalink (used by
+	// imported collections where the source had no slug-like field). When
+	// provided, it must be URL-shaped and within the standard bounds.
 	slug: z
 		.string()
 		.min(1)
 		.max(200)
-		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+		.nullable()
+		.optional(),
 	collectionId: z.string().uuid(),
 	metadata: z.record(z.unknown()).optional(),
 	markdown: z.string(),

@@ -658,7 +658,9 @@ function CollectionContentEditor() {
 				.catch((err) => {
 					// Don't silently bounce to the list — a transient 500/network error is
 					// indistinguishable from a real 404 that way. Surface it in place.
-					setLoadError(err instanceof Error ? err.message : t('collections.detail.errors.loadFailed'))
+					setLoadError(
+						err instanceof Error ? err.message : t('collections.detail.errors.loadFailed'),
+					)
 				})
 				.finally(() => setLoading(false))
 		}
@@ -805,7 +807,12 @@ function CollectionContentEditor() {
 		try {
 			const autoTitle = resolveAutoTitle()
 			const metadata = collectMetadata(autoTitle)
-			const effectiveSlug = contentSlug || generateSlug(autoTitle || title)
+			// Auto-derive slug from the resolved title when the user hasn't typed
+			// one. If neither title nor source slug exists, send null — content.slug
+			// is nullable and the API treats null-slug as "no permalink"; we never
+			// invent a slug from a URL or random fallback.
+			const derived = generateSlug(autoTitle || title)
+			const effectiveSlug = (contentSlug || derived || null) as string | null
 			if (isNew) {
 				const created = await api.post<{ id: string }>('/api/v1/content', {
 					slug: effectiveSlug,
@@ -870,7 +877,10 @@ function CollectionContentEditor() {
 			} catch {}
 		} catch (err) {
 			setStatus(prevStatus)
-			toast(err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'), 'error')
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'),
+				'error',
+			)
 		} finally {
 			setSaving(false)
 		}
@@ -882,7 +892,10 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/submit-for-review`, {})
 			setStatus('pending_review')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : t('collections.detail.errors.submitFailed'), 'error')
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.submitFailed'),
+				'error',
+			)
 		} finally {
 			setSaving(false)
 		}
@@ -894,7 +907,10 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/approve`, {})
 			setStatus('published')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : t('collections.detail.errors.approveFailed'), 'error')
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.approveFailed'),
+				'error',
+			)
 		} finally {
 			setSaving(false)
 		}
@@ -915,7 +931,10 @@ function CollectionContentEditor() {
 			await api.post(`/api/v1/content/${contentId}/reject`, { reason: reason || undefined })
 			setStatus('draft')
 		} catch (err) {
-			toast(err instanceof Error ? err.message : t('collections.detail.errors.rejectFailed'), 'error')
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.rejectFailed'),
+				'error',
+			)
 		} finally {
 			setSaving(false)
 		}
@@ -1192,7 +1211,12 @@ function CollectionContentEditor() {
 	// every widget honours the same `ui` blob (placeholder, readOnly, separator,
 	// helpText, …) instead of just the text branch.
 	const renderSchemaField = (f: (typeof visibleSchemaFields)[number]) => (
-		<Field key={f.name} label={f.name} error={fieldErrors[f.name]} helpText={f.ui?.helpText}>
+		<Field
+			key={f.name}
+			label={f.label?.trim() || f.name}
+			error={fieldErrors[f.name]}
+			helpText={f.ui?.helpText}
+		>
 			<FieldRenderer
 				field={f}
 				value={extraFields[f.name]}
@@ -1274,7 +1298,9 @@ function CollectionContentEditor() {
 								extractLabel(extraFields.title, defaultLocale) ||
 								title.trim() ||
 								null
-							const primary = isNew ? t('collections.detail.newRecord') : friendlyLabel || contentSlug
+							const primary = isNew
+								? t('collections.detail.newRecord')
+								: friendlyLabel || contentSlug
 							const secondary = !isNew && friendlyLabel ? contentSlug : null
 							return (
 								<div className="min-w-0 flex-1">
@@ -1598,7 +1624,10 @@ function CollectionContentEditor() {
 								}}
 								options={[
 									{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
-									{ value: 'pending_review', label: t('collections.detail.statusOptions.pendingReview') },
+									{
+										value: 'pending_review',
+										label: t('collections.detail.statusOptions.pendingReview'),
+									},
 									{ value: 'published', label: t('collections.detail.statusOptions.published') },
 									{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
 								]}

@@ -19,7 +19,11 @@ export const content = pgTable(
 		projectId: uuid()
 			.notNull()
 			.references(() => projects.id, { onDelete: 'cascade' }),
-		slug: text().notNull(),
+		// Nullable: imported records whose source row carried no title/name/slug-like
+		// field leave this null. Manual new records auto-derive from the resolved
+		// display title at save time. Postgres treats nulls as distinct in the
+		// unique index, so multiple null-slug rows can coexist.
+		slug: text(),
 		status: text({ enum: ['draft', 'pending_review', 'published', 'archived'] })
 			.notNull()
 			.default('draft'),

@@ -92,7 +92,9 @@ export function Dropdown({
 				onClick={() => setOpen(!open)}
 				className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-text focus:outline-none focus:border-border-strong text-left"
 			>
-				<span className={selected ? 'text-text' : 'text-text-muted'}>
+				<span
+					className={`truncate whitespace-nowrap ${selected ? 'text-text' : 'text-text-muted'}`}
+				>
 					{selected?.label || placeholder || t('dropdown.selectPlaceholder')}
 				</span>
 				<svg

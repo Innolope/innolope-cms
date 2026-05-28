@@ -75,7 +75,7 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 				chunkText: string
 				chunkIndex: number
 				similarity: number
-				slug: string
+				slug: string | null
 				status: string
 				metadata: Record<string, unknown>
 				collectionId: string
@@ -120,8 +120,9 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 					if (!existingIds.has(kr.id)) {
 						results.push({
 							contentId: kr.id,
-							slug: kr.slug,
-							title: ((kr.metadata as Record<string, unknown>)?.title as string) || kr.slug,
+							slug: kr.slug ?? null,
+							title:
+								((kr.metadata as Record<string, unknown>)?.title as string) || kr.slug || kr.id,
 							status: kr.status,
 							similarity: 0, // keyword match, no vector score
 							matchedChunk: '',
