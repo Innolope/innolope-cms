@@ -3,7 +3,7 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import type { CollectionField } from '@innolope/config'
 import { collections, content, importJobs, projects } from '@innolope/db'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
@@ -1148,6 +1148,22 @@ export async function databaseRoutes(app: FastifyInstance) {
 					warnings.push(
 						`"${tableName}" references ${[...targets].join(', ')} which ${targets.size === 1 ? 'was' : 'were'} not imported. Relation fields pointing to ${targets.size === 1 ? 'it' : 'them'} will not be editable.`,
 					)
+				}
+
+				// The wizard's selection is authoritative for sidebar visibility: any
+				// external collection the user left out this round is hidden. Kept, not
+				// deleted, so its cached content survives if it's re-selected later.
+				if (hasVisibilitySignal) {
+					await app.db
+						.update(collections)
+						.set({ sidebarMode: 'hide', updatedAt: new Date() })
+						.where(
+							and(
+								eq(collections.projectId, getProject(request).id),
+								eq(collections.source, 'external'),
+								notInArray(collections.name, [...selectedNames]),
+							),
+						)
 				}
 
 				// Queue a background import to fill the markdown cache, if the
