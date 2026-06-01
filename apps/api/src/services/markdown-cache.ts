@@ -94,6 +94,26 @@ export interface SyncPreviewItem {
 	changes: SyncChange[]
 }
 
+/**
+ * Recursively remove NUL (`\u0000`) bytes from every string in a value. Postgres
+ * `text`/`jsonb` cannot store NUL — a single source record carrying one (common
+ * in data migrated out of MongoDB) makes the whole 100-row import batch fail with
+ * `22P05: unsupported Unicode escape sequence`. Dates and other non-plain objects
+ * are returned untouched.
+ */
+function stripNullBytes<T>(value: T): T {
+	if (typeof value === 'string') {
+		return (value.includes('\u0000') ? value.replace(/\u0000/g, '') : value) as T
+	}
+	if (Array.isArray(value)) return value.map(stripNullBytes) as T
+	if (value !== null && typeof value === 'object' && value.constructor === Object) {
+		const out: Record<string, unknown> = {}
+		for (const [k, v] of Object.entries(value)) out[k] = stripNullBytes(v)
+		return out as T
+	}
+	return value
+}
+
 /** Convert an external document to markdown with YAML frontmatter */
 export function documentToMarkdown(
 	doc: ExternalDocument,
@@ -106,9 +126,9 @@ export function documentToMarkdown(
 	for (const [key, value] of Object.entries(doc)) {
 		if (key === '_id') continue
 		if (key === bodyField) {
-			bodyContent = String(value ?? '')
+			bodyContent = stripNullBytes(String(value ?? ''))
 		} else {
-			metadata[key] = value
+			metadata[key] = stripNullBytes(value)
 		}
 	}
 
