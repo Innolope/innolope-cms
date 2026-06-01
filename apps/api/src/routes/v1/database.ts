@@ -835,7 +835,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 		'/:id/database',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const { type, connectionString, database, tables, accessMode, mediaStorage } =
+			const { type, connectionString, database, tables, accessMode, mediaStorage, visibleTables } =
 				request.body as {
 					type: string | null
 					connectionString: string | null
@@ -852,7 +852,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}>
 					accessMode?: 'read-write' | 'read-only'
 					mediaStorage?: Record<string, { adapter: string; pathColumn: string; baseUrl?: string }>
+					// Names of tables the user *explicitly* selected in the wizard, as opposed to
+					// relation targets the client auto-includes to keep relation fields editable.
+					// Explicit picks get `sidebarMode: 'show'` so a selected collection always
+					// appears in the sidebar; auto-pulled targets stay on `auto` (hidden when
+					// another collection references them). Absent ⇒ leave visibility untouched.
+					visibleTables?: string[]
 				}
+
+			// When the client sends the explicit selection, the wizard becomes the source of
+			// truth for sidebar visibility.
+			const hasVisibilitySignal = Array.isArray(visibleTables)
+			const visibleTableSet = new Set(visibleTables ?? [])
 
 			if (connectionString) {
 				const ssrfErr3 = await validateConnectionString(connectionString)
@@ -1077,7 +1088,20 @@ export async function databaseRoutes(app: FastifyInstance) {
 					if (existing) {
 						const [refreshed] = await app.db
 							.update(collections)
-							.set({ fields, updatedAt: new Date() })
+							.set({
+								fields,
+								updatedAt: new Date(),
+								// Re-selecting a table in the wizard re-asserts its visibility: an explicit
+								// pick ⇒ show, an auto-pulled relation target ⇒ auto (hidden). No signal ⇒
+								// leave whatever visibility the collection already has.
+								...(hasVisibilitySignal
+									? {
+											sidebarMode: visibleTableSet.has(table.name)
+												? ('show' as const)
+												: ('auto' as const),
+										}
+									: {}),
+							})
 							.where(eq(collections.id, existing.id))
 							.returning()
 						if (refreshed) cacheTargets.push(refreshed)
@@ -1095,6 +1119,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 							source: 'external',
 							externalTable: table.name,
 							accessMode: effectiveMode,
+							// Explicitly-selected tables show in the sidebar; relation targets the
+							// client auto-included stay on `auto` (hidden when referenced).
+							sidebarMode: visibleTableSet.has(table.name) ? 'show' : 'auto',
 						})
 						.returning()
 

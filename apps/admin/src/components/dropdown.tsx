@@ -7,6 +7,7 @@ interface DropdownProps {
 	options: { value: string; label: string; disabled?: boolean }[]
 	className?: string
 	placeholder?: string
+	disabled?: boolean
 	/**
 	 * Optional. When provided, the dropdown renders a trailing row that lets
 	 * the user mint a new option inline. The handler is responsible for the
@@ -28,6 +29,7 @@ export function Dropdown({
 	options,
 	className = '',
 	placeholder,
+	disabled = false,
 	onAddOption,
 	addOptionLabel,
 }: DropdownProps) {
@@ -89,8 +91,9 @@ export function Dropdown({
 		<div className={`relative ${className}`} ref={ref}>
 			<button
 				type="button"
+				disabled={disabled}
 				onClick={() => setOpen(!open)}
-				className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-text focus:outline-none focus:border-border-strong text-left"
+				className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-text focus:outline-none focus:border-border-strong text-left disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<span
 					className={`truncate whitespace-nowrap ${selected ? 'text-text' : 'text-text-muted'}`}

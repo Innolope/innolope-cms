@@ -697,6 +697,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				connectionString: dbType === 'built-in' ? null : connectionString,
 				database: selectedDb || null,
 				tables: selectedTableData,
+				// Every table here was explicitly ticked, so all of them should show.
+				visibleTables: selectedTableData.map((t) => t.name),
 				accessMode,
 				mediaStorage: Object.keys(mediaStorage).length > 0 ? mediaStorage : undefined,
 			})
@@ -894,6 +896,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					connectionString: null,
 					database: ext.database || null,
 					tables: tablesToSave,
+					// Only the tables the user actually ticked become sidebar-visible; the
+					// relation targets auto-added above stay hidden on `auto`.
+					visibleTables: tablesToSave.filter((t) => resyncSelected.has(t.name)).map((t) => t.name),
 					accessMode: ext.accessMode || 'read-write',
 				},
 			)
