@@ -142,11 +142,37 @@ async function runJob(app: FastifyInstance, job: ImportJob) {
 			.set({ status: 'completed', completedAt: done, updatedAt: done })
 			.where(eq(importJobs.id, job.id))
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error'
+		const message = describeImportError(err)
 		app.log.error(err, `Import job ${job.id} failed`)
 		await app.db
 			.update(importJobs)
 			.set({ status: 'failed', error: message, updatedAt: new Date() })
 			.where(eq(importJobs.id, job.id))
 	}
+}
+
+/**
+ * A failed bulk insert throws a Drizzle `DrizzleQueryError`, whose `.message` is
+ * the entire SQL statement plus every bind parameter (100 rows × 12 cols per
+ * batch — ~100 KB) while the real Postgres failure lives on `.cause`. Storing
+ * `.message` both buried the actual reason and rendered an unusable blob in the
+ * admin UI, so unwrap the cause and cap the length.
+ */
+function describeImportError(err: unknown): string {
+	const MAX = 500
+	const cause =
+		err && typeof err === 'object' && 'cause' in err
+			? (err as { cause?: unknown }).cause
+			: undefined
+	const root = cause ?? err
+	let message: string
+	if (root && typeof root === 'object') {
+		const e = root as { message?: string; code?: string; detail?: string }
+		message =
+			[e.code ? `[${e.code}]` : null, e.message, e.detail].filter(Boolean).join(' ').trim() ||
+			'Unknown error'
+	} else {
+		message = err instanceof Error ? err.message : 'Unknown error'
+	}
+	return message.length > MAX ? `${message.slice(0, MAX)}…` : message
 }

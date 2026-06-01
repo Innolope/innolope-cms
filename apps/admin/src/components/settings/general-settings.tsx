@@ -2,27 +2,35 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
+import { CONTENT_LOCALES, localeLabel } from '../../lib/content-locales'
 import { useToast } from '../../lib/toast'
+import { Dropdown } from '../dropdown'
 import { SaveBar } from '../save-bar'
 
 export function GeneralSettings() {
-	const { t } = useTranslation()
+	const { t, i18n } = useTranslation()
 	const { currentProject, refreshProjects } = useAuth()
 	const toast = useToast()
 	const [name, setName] = useState('')
 	const [slug, setSlug] = useState('')
 	const [defaultLocale, setDefaultLocale] = useState('en')
-	const [locales, setLocales] = useState('en')
+	const [locales, setLocales] = useState<string[]>(['en'])
 	const [requireReview, setRequireReview] = useState(false)
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [showDelete, setShowDelete] = useState(false)
 	const [dangerOpen, setDangerOpen] = useState(false)
-	const initialRef = useRef({
+	const initialRef = useRef<{
+		name: string
+		slug: string
+		defaultLocale: string
+		locales: string[]
+		requireReview: boolean
+	}>({
 		name: '',
 		slug: '',
 		defaultLocale: 'en',
-		locales: 'en',
+		locales: ['en'],
 		requireReview: false,
 	})
 
@@ -33,7 +41,7 @@ export function GeneralSettings() {
 				name: currentProject.name,
 				slug: currentProject.slug,
 				defaultLocale: (settings.defaultLocale as string) || 'en',
-				locales: ((settings.locales as string[]) || ['en']).join(', '),
+				locales: (settings.locales as string[]) || ['en'],
 				requireReview: settings.requireReview === true,
 			}
 			setName(init.name)
@@ -49,24 +57,20 @@ export function GeneralSettings() {
 		name !== initialRef.current.name ||
 		slug !== initialRef.current.slug ||
 		defaultLocale !== initialRef.current.defaultLocale ||
-		locales !== initialRef.current.locales ||
+		locales.join(',') !== initialRef.current.locales.join(',') ||
 		requireReview !== initialRef.current.requireReview
 
 	const save = async () => {
 		if (!currentProject) return
 		setSaving(true)
 		try {
-			const localeList = locales
-				.split(',')
-				.map((l) => l.trim())
-				.filter(Boolean)
 			await api.put(`/api/v1/projects/${currentProject.id}`, {
 				name,
 				slug,
 				settings: {
 					...(currentProject.settings as Record<string, unknown>),
 					defaultLocale,
-					locales: localeList,
+					locales,
 					requireReview,
 				},
 			})
@@ -79,6 +83,36 @@ export function GeneralSettings() {
 			setSaving(false)
 		}
 	}
+
+	const addLocale = (code: string) => {
+		if (!code) return
+		setLocales((prev) => (prev.includes(code) ? prev : [...prev, code]))
+	}
+
+	const removeLocale = (code: string) => {
+		setLocales((prev) => {
+			const next = prev.filter((c) => c !== code)
+			if (code === defaultLocale) setDefaultLocale(next[0] ?? '')
+			return next
+		})
+	}
+
+	const availableOptions = CONTENT_LOCALES.filter((c) => !locales.includes(c))
+		.map((code) => ({
+			value: code,
+			label: localeLabel(code, i18n.language),
+		}))
+		.sort((a, b) => a.label.localeCompare(b.label, i18n.language))
+
+	const defaultLocaleCodes = locales.includes(defaultLocale)
+		? locales
+		: defaultLocale
+			? [...locales, defaultLocale]
+			: locales
+	const defaultLocaleOptions = defaultLocaleCodes.map((code) => ({
+		value: code,
+		label: localeLabel(code, i18n.language),
+	}))
 
 	return (
 		<div className="space-y-4">
@@ -108,31 +142,56 @@ export function GeneralSettings() {
 				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.slugHelp')}</p>
 			</div>
 			<div>
-				<label htmlFor="gs-default-locale" className="block text-xs text-text-secondary mb-1.5">
-					{t('settings.general.defaultLocale')}
-				</label>
-				<input
-					id="gs-default-locale"
-					type="text"
-					value={defaultLocale}
-					onChange={(e) => setDefaultLocale(e.target.value)}
-					placeholder="en"
-					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
-				/>
+				<div className="block text-xs text-text-secondary mb-1.5">
+					{t('settings.general.availableLocales')}
+				</div>
+				<div className="max-w-sm">
+					<Dropdown
+						value=""
+						onChange={addLocale}
+						options={availableOptions}
+						placeholder={t('settings.general.addLocale')}
+						disabled={availableOptions.length === 0}
+					/>
+				</div>
+				{locales.length > 0 && (
+					<div className="flex flex-wrap gap-1.5 mt-2">
+						{locales.map((code) => {
+							const label = localeLabel(code, i18n.language)
+							return (
+								<span
+									key={code}
+									className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-alt text-text-secondary text-xs"
+								>
+									{label}
+									<button
+										type="button"
+										onClick={() => removeLocale(code)}
+										className="text-text-muted hover:text-text leading-none text-sm"
+										aria-label={t('settings.general.removeLocale', { label })}
+									>
+										&times;
+									</button>
+								</span>
+							)
+						})}
+					</div>
+				)}
+				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.localesHelp')}</p>
 			</div>
 			<div>
-				<label htmlFor="gs-available-locales" className="block text-xs text-text-secondary mb-1.5">
-					{t('settings.general.availableLocales')}
-				</label>
-				<input
-					id="gs-available-locales"
-					type="text"
-					value={locales}
-					onChange={(e) => setLocales(e.target.value)}
-					placeholder="en, es, fr, de"
-					className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
-				/>
-				<p className="text-[11px] text-text-muted mt-1">{t('settings.general.localesHelp')}</p>
+				<div className="block text-xs text-text-secondary mb-1.5">
+					{t('settings.general.defaultLocale')}
+				</div>
+				<div className="max-w-sm">
+					<Dropdown
+						value={defaultLocale}
+						onChange={setDefaultLocale}
+						options={defaultLocaleOptions}
+						placeholder={t('settings.general.selectDefaultLocale')}
+						disabled={defaultLocaleOptions.length === 0}
+					/>
+				</div>
 			</div>
 			<div className="pt-2">
 				<label className="flex items-start gap-3 max-w-xl cursor-pointer">
