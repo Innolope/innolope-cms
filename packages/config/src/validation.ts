@@ -30,8 +30,14 @@ export const contentListSchema = z.object({
 	search: z.string().optional(),
 	page: z.coerce.number().int().positive().default(1),
 	limit: z.coerce.number().int().min(1).max(100).default(25),
-	sortBy: z.enum(['createdAt', 'updatedAt', 'publishedAt']).default('createdAt'),
-	sortOrder: z.enum(['asc', 'desc']).default('desc'),
+	// Real columns (createdAt|updatedAt|publishedAt|slug|status|locale) or a metadata
+	// field reference (`meta:<identifier>`). The regex keeps injection out at the boundary —
+	// only an identifier can follow `meta:`. Bad values fall back to createdAt instead of 400ing.
+	sortBy: z
+		.string()
+		.regex(/^(createdAt|updatedAt|publishedAt|slug|status|locale|meta:[a-zA-Z_][a-zA-Z0-9_]*)$/)
+		.catch('createdAt'),
+	sortOrder: z.enum(['asc', 'desc']).catch('desc'),
 	updatedFrom: z.string().optional(),
 	updatedTo: z.string().optional(),
 	createdFrom: z.string().optional(),

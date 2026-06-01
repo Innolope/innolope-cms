@@ -8,7 +8,7 @@ import {
 	media,
 	projects,
 } from '@innolope/db'
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
@@ -478,14 +478,50 @@ export async function contentRoutes(app: FastifyInstance) {
 
 		const where = and(...conditions)
 		const orderDir = sortOrder === 'asc' ? asc : desc
-		const orderCol = content[sortBy]
+
+		// Resolve the requested sort into an order expression. Real columns sort directly;
+		// `meta:<field>` sorts on the JSONB metadata blob — text by default, or a guarded
+		// numeric cast for number-typed fields (non-numeric rows become NULL → sorted last).
+		// Anything unrecognized falls back to createdAt. A secondary id order keeps pagination
+		// deterministic when the primary values tie.
+		const realCols: Record<string, AnyColumn> = {
+			createdAt: content.createdAt,
+			updatedAt: content.updatedAt,
+			publishedAt: content.publishedAt,
+			slug: content.slug,
+			status: content.status,
+			locale: content.locale,
+		}
+		let primaryOrder = orderDir(content.createdAt)
+		if (sortBy.startsWith('meta:')) {
+			const field = sortBy.slice(5)
+			const fieldDef =
+				/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field) && collection
+					? collection.fields.find((f) => f.name === field)
+					: undefined
+			if (
+				fieldDef &&
+				['text', 'string', 'number', 'boolean', 'date', 'enum'].includes(fieldDef.type)
+			) {
+				const dir = sql.raw(sortOrder === 'asc' ? 'asc' : 'desc')
+				// `field` passed the identifier regex above — same guarantee the metadata filter relies on.
+				const key = sql.raw(`'${field}'`)
+				const expr =
+					fieldDef.type === 'number'
+						? sql`CASE WHEN ${content.metadata}->>${key} ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (${content.metadata}->>${key})::numeric END`
+						: sql`${content.metadata}->>${key}`
+				primaryOrder = sql`${expr} ${dir} nulls last`
+			}
+		} else if (realCols[sortBy]) {
+			primaryOrder = orderDir(realCols[sortBy])
+		}
 
 		const [items, countResult] = await Promise.all([
 			app.db
 				.select()
 				.from(content)
 				.where(where)
-				.orderBy(orderDir(orderCol))
+				.orderBy(primaryOrder, desc(content.id))
 				.limit(limit)
 				.offset(offset),
 			app.db.select({ count: sql<number>`count(*)` }).from(content).where(where),

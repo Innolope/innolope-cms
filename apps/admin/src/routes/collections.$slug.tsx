@@ -22,6 +22,7 @@ import { absoluteDate, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
 import { type FilterMap, useUrlFilters } from '../lib/use-url-filters'
+import { useUrlSort } from '../lib/use-url-sort'
 
 export const Route = createFileRoute('/collections/$slug')({
 	component: CollectionLayout,
@@ -106,7 +107,15 @@ interface ColumnDescriptor {
 	id: string
 	label: string
 	render: (item: ContentItem, ctx: ColumnRenderCtx) => ReactNode
+	/** Whether this column can be sorted server-side. */
+	sortable: boolean
+	/** Backend `sortBy` value sent when this column is the active sort. */
+	sortKey?: string
 }
+
+// Field types whose values are scalar enough to order meaningfully. Mirrors the
+// server-side whitelist in apps/api/src/routes/v1/content.ts.
+const SORTABLE_FIELD_TYPES = new Set(['text', 'string', 'number', 'boolean', 'date', 'enum'])
 
 type Translator = (key: string, opts?: Record<string, unknown>) => string
 
@@ -121,10 +130,22 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 			? t('collections.list.columns.name')
 			: t('collections.list.columns.title')
 
+	// The title cell renders `metadata[primaryField]` (or slug when no title field
+	// exists), so sorting it maps to that underlying key. A non-scalar title field
+	// (e.g. a localized object) isn't orderable.
+	const primaryFieldDef = primaryField ? fields.find((f) => f.name === primaryField) : undefined
+	const titleSortKey = primaryField
+		? primaryFieldDef && SORTABLE_FIELD_TYPES.has(primaryFieldDef.type)
+			? `meta:${primaryField}`
+			: undefined
+		: 'slug'
+
 	const builtins: ColumnDescriptor[] = [
 		{
 			id: 'title',
 			label: primaryLabel,
+			sortable: Boolean(titleSortKey),
+			sortKey: titleSortKey,
 			render: (item, ctx) => {
 				const label = resolveDisplayTitle(item, collection, {
 					defaultLocale: ctx.defaultLocale,
@@ -143,11 +164,15 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		{
 			id: 'slug',
 			label: t('collections.list.columns.slug'),
+			sortable: true,
+			sortKey: 'slug',
 			render: (item) => <span className="text-text-secondary font-mono text-xs">{item.slug}</span>,
 		},
 		{
 			id: 'status',
 			label: t('collections.list.columns.status'),
+			sortable: true,
+			sortKey: 'status',
 			render: (item) => (
 				<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
 					{STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
@@ -157,11 +182,15 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		{
 			id: 'locale',
 			label: t('collections.list.columns.locale'),
+			sortable: true,
+			sortKey: 'locale',
 			render: (item) => <span className="text-text-secondary text-xs">{item.locale}</span>,
 		},
 		{
 			id: 'updatedAt',
 			label: t('collections.list.columns.lastEdited'),
+			sortable: true,
+			sortKey: 'updatedAt',
 			render: (item) => {
 				if (!item.updatedAt) return <span className="text-text-muted">—</span>
 				const created = item.createdAt ? new Date(item.createdAt).getTime() : Number.NaN
@@ -184,6 +213,8 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		{
 			id: 'createdAt',
 			label: t('collections.list.columns.created'),
+			sortable: true,
+			sortKey: 'createdAt',
 			render: (item) =>
 				item.createdAt ? (
 					<span className="text-text-secondary" title={absoluteDate(item.createdAt)}>
@@ -196,6 +227,8 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		{
 			id: 'publishedAt',
 			label: t('collections.list.columns.published'),
+			sortable: true,
+			sortKey: 'publishedAt',
 			render: (item) =>
 				item.publishedAt ? (
 					<span className="text-text-secondary" title={absoluteDate(item.publishedAt)}>
@@ -212,6 +245,8 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		.map((f) => ({
 			id: `meta:${f.name}`,
 			label: f.name,
+			sortable: SORTABLE_FIELD_TYPES.has(f.type),
+			sortKey: SORTABLE_FIELD_TYPES.has(f.type) ? `meta:${f.name}` : undefined,
 			render: (item, ctx) => renderMetadataValue(item.metadata?.[f.name], ctx),
 		}))
 
@@ -373,6 +408,16 @@ function CollectionContentList() {
 	const [previewLoading, setPreviewLoading] = useState(false)
 
 	const { filters, setFilter, clearAll } = useUrlFilters()
+	const { sort, toggleSort } = useUrlSort()
+
+	// Sorting changes which rows fall on the first page, so reset pagination too.
+	const handleSort = useCallback(
+		(key: string) => {
+			toggleSort(key)
+			setPage(1)
+		},
+		[toggleSort],
+	)
 
 	const allColumns: ColumnDescriptor[] = useMemo(
 		() => (collection ? buildColumns(collection, t) : []),
@@ -450,6 +495,8 @@ function CollectionContentList() {
 		params.set('page', String(page))
 		params.set('limit', '25')
 		params.set('collectionId', collection.id)
+		params.set('sortBy', sort.key)
+		params.set('sortOrder', sort.dir)
 		if (search) params.set('search', search)
 		// Merge active filters
 		for (const [k, v] of new URLSearchParams(filterQuery)) params.set(k, v)
@@ -463,7 +510,7 @@ function CollectionContentList() {
 			})
 			.catch(() => {})
 			.finally(() => setReady(true))
-	}, [page, search, filterQuery, collection])
+	}, [page, search, filterQuery, collection, sort])
 
 	useEffect(() => {
 		fetchContent()
@@ -625,7 +672,7 @@ function CollectionContentList() {
 	const importActive = importStatus?.status === 'pending' || importStatus?.status === 'running'
 
 	return (
-		<div className="p-8 pt-5 flex flex-col h-full">
+		<div className="p-8 pt-5 flex flex-col min-h-full">
 			<div className="flex items-center justify-between mb-6">
 				<div className="flex items-center gap-4">
 					<h2 className="text-2xl font-bold">{collection.label}</h2>
@@ -877,11 +924,40 @@ function CollectionContentList() {
 							<table className="w-full text-sm">
 								<thead>
 									<tr className="text-left text-text-secondary border-b border-border">
-										{visibleColumns.map((col) => (
-											<th key={col.id} className="px-4 py-3 font-medium">
-												{col.label}
-											</th>
-										))}
+										{visibleColumns.map((col) => {
+											const sortKey = col.sortable ? col.sortKey : undefined
+											const active = sortKey != null && sort.key === sortKey
+											return (
+												<th
+													key={col.id}
+													className="px-4 py-3 font-medium"
+													aria-sort={
+														active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
+													}
+												>
+													{sortKey ? (
+														<button
+															type="button"
+															onClick={() => handleSort(sortKey)}
+															className="group inline-flex items-center gap-1 hover:text-text transition-colors"
+														>
+															{col.label}
+															<span
+																className={
+																	active
+																		? 'text-text'
+																		: 'text-text-muted opacity-0 transition-opacity group-hover:opacity-100'
+																}
+															>
+																{active ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+															</span>
+														</button>
+													) : (
+														col.label
+													)}
+												</th>
+											)
+										})}
 									</tr>
 								</thead>
 								<tbody>

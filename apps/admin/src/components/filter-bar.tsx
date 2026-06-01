@@ -18,6 +18,10 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 	const { t } = useTranslation()
 	const [pickerOpen, setPickerOpen] = useState(false)
 	const [editing, setEditing] = useState<string | null>(null) // chip currently being edited
+	// Filters that have been added from the picker but don't yet have a value.
+	// Empty values aren't persisted to the URL, so we keep their chips alive here
+	// until the user either picks a value or closes the editor.
+	const [pending, setPending] = useState<string[]>([])
 	const pickerRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
@@ -29,15 +33,16 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 		return () => document.removeEventListener('mousedown', handler)
 	}, [pickerOpen])
 
-	const activeIds = Object.keys(filters)
+	const filterIds = Object.keys(filters)
+	const activeIds = [...filterIds, ...pending.filter((id) => !filterIds.includes(id))]
 	const inactive = available.filter((f) => !activeIds.includes(f.id))
 
 	const addFilter = (id: string) => {
-		// Add with empty initial value, immediately open the editor
+		// Show the chip + open its editor immediately. The value stays empty
+		// (and unpersisted) until the user picks one, so track it in `pending`.
 		const desc = available.find((d) => d.id === id)
 		if (!desc) return
-		const initial: FilterValue = desc.type === 'date-range' ? {} : ''
-		onChange(id, initial)
+		setPending((p) => (p.includes(id) ? p : [...p, id]))
 		setEditing(id)
 		setPickerOpen(false)
 	}
@@ -47,18 +52,24 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 			{activeIds.map((id) => {
 				const desc = available.find((d) => d.id === id)
 				if (!desc) return null
+				const value: FilterValue = filters[id] ?? (desc.type === 'date-range' ? {} : '')
 				return (
 					<FilterChip
 						key={id}
 						desc={desc}
-						value={filters[id]}
+						value={value}
 						isEditing={editing === id}
 						onOpen={() => setEditing(id)}
-						onClose={() => setEditing(null)}
+						onClose={() => {
+							setEditing(null)
+							// Discard the chip if the user closed it without picking a value.
+							if (filters[id] === undefined) setPending((p) => p.filter((x) => x !== id))
+						}}
 						onChange={(v) => onChange(id, v)}
 						onRemove={() => {
 							onChange(id, undefined)
 							setEditing(null)
+							setPending((p) => p.filter((x) => x !== id))
 						}}
 					/>
 				)
@@ -105,7 +116,11 @@ export function FilterBar({ available, filters, onChange, onClearAll }: Props) {
 			{activeIds.length > 0 && (
 				<button
 					type="button"
-					onClick={onClearAll}
+					onClick={() => {
+						onClearAll()
+						setPending([])
+						setEditing(null)
+					}}
 					className="text-xs text-text-muted hover:text-text px-1"
 				>
 					{t('filterBar.clearAll')}
