@@ -103,7 +103,7 @@ export interface SyncPreviewItem {
  */
 function stripNullBytes<T>(value: T): T {
 	if (typeof value === 'string') {
-		return (value.includes('\u0000') ? value.replace(/\u0000/g, '') : value) as T
+		return (value.includes('\u0000') ? value.split('\u0000').join('') : value) as T
 	}
 	if (Array.isArray(value)) return value.map(stripNullBytes) as T
 	if (value !== null && typeof value === 'object' && value.constructor === Object) {
