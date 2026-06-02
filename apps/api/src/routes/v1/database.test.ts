@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { parseFirebaseCredentials, validateConnectionString } from './database.js'
+import {
+	parseFirebaseCredentials,
+	validateConnectionString,
+} from '../../adapters/connection-guard.js'
 
 describe('validateConnectionString (SSRF blocklist)', () => {
 	const blocked = [

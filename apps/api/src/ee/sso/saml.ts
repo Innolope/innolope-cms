@@ -131,7 +131,7 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 		{ preHandler: preLicense },
 		async (request, reply) => {
 			const connection = await loadConnectionBySlug(app, request.params.slug)
-			if (!connection || connection.protocol !== 'saml') {
+			if (connection?.protocol !== 'saml') {
 				return reply.status(404).send({ error: 'Not found' })
 			}
 			try {
@@ -152,7 +152,7 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 		{ preHandler: preLicense, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
 		async (request, reply) => {
 			const connection = await loadConnectionBySlug(app, request.params.slug)
-			if (!connection || connection.protocol !== 'saml') {
+			if (connection?.protocol !== 'saml') {
 				return reply.status(404).send({ error: 'Not found' })
 			}
 

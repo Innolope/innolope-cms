@@ -28,11 +28,68 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Surfaces known CVEs without blocking the build yet; tighten to blocking once the baseline is clean.
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
       - name: Lint (Biome)
         run: pnpm lint
 
       - name: Build
         run: pnpm build
 
-      - name: Test
-        run: pnpm test
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test (with coverage)
+        run: pnpm test:coverage
+
+  # Integration tests boot the full API against a real Postgres (with pgvector)
+  # and exercise HTTP routes via app.inject(). The unit job above skips these
+  # because TEST_DATABASE_URL is unset there.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: innolope
+          POSTGRES_PASSWORD: innolope
+          POSTGRES_DB: innolope_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U innolope"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://innolope:innolope@localhost:5432/innolope_test
+      TEST_DATABASE_URL: postgres://innolope:innolope@localhost:5432/innolope_test
+      AUTH_SECRET: ci-test-secret-at-least-32-characters-long
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.8.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run database migrations
+        run: pnpm --filter @innolope/db db:migrate
+
+      - name: Integration tests
+        run: pnpm --filter @innolope/api test

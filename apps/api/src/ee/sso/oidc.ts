@@ -1,7 +1,7 @@
 import { ssoAuthStates, ssoConnections } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { generators, Issuer } from 'openid-client'
+import * as oidcClient from 'openid-client'
 import { decryptSecret } from '../../lib/crypto.js'
 import { completeSsoLogin, extractProfile, SsoError } from '../../services/sso-login.js'
 import { newNonce, sanitizeNext, signState, verifyState } from '../../services/sso-state.js'
@@ -23,21 +23,21 @@ export async function loadConnectionBySlug(app: FastifyInstance, slug: string) {
 	return connection ?? null
 }
 
-async function buildClient(connection: Awaited<ReturnType<typeof loadConnectionBySlug>>) {
-	if (!connection || connection.protocol !== 'oidc') {
+async function buildConfig(connection: Awaited<ReturnType<typeof loadConnectionBySlug>>) {
+	if (connection?.protocol !== 'oidc') {
 		throw new SsoError('not_oidc', 400, 'Connection is not OIDC')
 	}
 	if (!connection.oidcIssuer || !connection.oidcClientId || !connection.oidcClientSecretEnc) {
 		throw new SsoError('oidc_config_incomplete', 400, 'OIDC connection not fully configured')
 	}
-	const issuer = await Issuer.discover(connection.oidcIssuer)
 	const secret = decryptSecret(connection.oidcClientSecretEnc)
-	return new issuer.Client({
-		client_id: connection.oidcClientId,
-		client_secret: secret,
-		redirect_uris: [callbackUrl(connection.slug)],
-		response_types: ['code'],
-	})
+	// Preserve the v5 default of `client_secret_basic` token-endpoint auth.
+	return oidcClient.discovery(
+		new URL(connection.oidcIssuer),
+		connection.oidcClientId,
+		undefined,
+		oidcClient.ClientSecretBasic(secret),
+	)
 }
 
 /**
@@ -49,11 +49,11 @@ export async function initiateOidc(
 	connection: NonNullable<Awaited<ReturnType<typeof loadConnectionBySlug>>>,
 	opts: { next?: string; intent: 'login' | 'link' | 'test'; linkUserId?: string },
 ): Promise<string> {
-	const client = await buildClient(connection)
+	const config = await buildConfig(connection)
 	const state = newNonce()
 	const nonce = newNonce()
-	const codeVerifier = generators.codeVerifier()
-	const codeChallenge = generators.codeChallenge(codeVerifier)
+	const codeVerifier = oidcClient.randomPKCECodeVerifier()
+	const codeChallenge = await oidcClient.calculatePKCECodeChallenge(codeVerifier)
 	const expiresAt = new Date(Date.now() + CALLBACK_TTL_MIN * 60 * 1000)
 
 	await app.db.insert(ssoAuthStates).values({
@@ -76,13 +76,15 @@ export async function initiateOidc(
 		linkUserId: opts.linkUserId,
 	})
 
-	return client.authorizationUrl({
+	return oidcClient.buildAuthorizationUrl(config, {
+		redirect_uri: callbackUrl(connection.slug),
+		response_type: 'code',
 		scope: (connection.oidcScopes ?? ['openid', 'email', 'profile']).join(' '),
 		state: stateJwt,
 		nonce,
 		code_challenge: codeChallenge,
 		code_challenge_method: 'S256',
-	})
+	}).href
 }
 
 export async function ssoOidcRoutes(app: FastifyInstance) {
@@ -94,7 +96,7 @@ export async function ssoOidcRoutes(app: FastifyInstance) {
 		Querystring: { code?: string; state?: string; error?: string }
 	}>('/:slug/oidc/callback', { preHandler: preLicense }, async (request, reply) => {
 		const connection = await loadConnectionBySlug(app, request.params.slug)
-		if (!connection || connection.protocol !== 'oidc') {
+		if (connection?.protocol !== 'oidc') {
 			return reply.status(404).send({ error: 'Not found' })
 		}
 
@@ -133,25 +135,27 @@ export async function ssoOidcRoutes(app: FastifyInstance) {
 		// Consume: delete first so the same state cannot be replayed concurrently
 		await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, stateRow.id))
 
-		let client: Awaited<ReturnType<typeof buildClient>>
+		let config: Awaited<ReturnType<typeof buildConfig>>
 		try {
-			client = await buildClient(connection)
+			config = await buildConfig(connection)
 		} catch (err) {
 			const e = err as Error
 			return reply.status(500).send({ error: e.message })
 		}
 
-		let tokenSet: Awaited<ReturnType<typeof client.callback>>
+		// authorizationCodeGrant reads the authorization response off a full URL.
+		const currentUrl = new URL(callbackUrl(connection.slug))
+		currentUrl.searchParams.set('code', code)
+		currentUrl.searchParams.set('state', stateJwt)
+
+		let tokens: Awaited<ReturnType<typeof oidcClient.authorizationCodeGrant>>
 		try {
-			tokenSet = await client.callback(
-				callbackUrl(connection.slug),
-				{ code, state: stateJwt },
-				{
-					code_verifier: stateRow.verifier,
-					state: stateJwt,
-					nonce: stateRow.nonce ?? undefined,
-				},
-			)
+			tokens = await oidcClient.authorizationCodeGrant(config, currentUrl, {
+				pkceCodeVerifier: stateRow.verifier,
+				expectedState: stateJwt,
+				expectedNonce: stateRow.nonce ?? undefined,
+				idTokenExpected: true,
+			})
 		} catch (err) {
 			const e = err as Error
 			app.log.warn({ err: e }, 'OIDC token exchange failed')
@@ -163,19 +167,23 @@ export async function ssoOidcRoutes(app: FastifyInstance) {
 			return reply.status(400).send({ error: 'Token exchange failed' })
 		}
 
-		const claims = tokenSet.claims()
+		const claims = tokens.claims()
+		const subject = claims?.sub
+		if (!subject) return reply.status(400).send({ error: 'No sub claim' })
+
 		let userInfo: Record<string, unknown> = {}
 		try {
-			if (tokenSet.access_token) {
-				userInfo = (await client.userinfo(tokenSet.access_token)) as Record<string, unknown>
+			if (tokens.access_token) {
+				userInfo = (await oidcClient.fetchUserInfo(config, tokens.access_token, subject)) as Record<
+					string,
+					unknown
+				>
 			}
 		} catch (err) {
 			app.log.warn({ err }, 'OIDC userinfo failed (continuing with id_token claims)')
 		}
 
 		const merged = { ...claims, ...userInfo } as Record<string, unknown>
-		const subject = claims.sub
-		if (!subject) return reply.status(400).send({ error: 'No sub claim' })
 
 		const profile = extractProfile(connection, merged, subject)
 

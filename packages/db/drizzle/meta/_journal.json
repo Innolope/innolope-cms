@@ -64,6 +64,13 @@
       "when": 1779808832241,
       "tag": "0008_slug_nullable_field_label",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780388921308,
+      "tag": "0009_audit_logs",
+      "breakpoints": true
     }
   ]
 }

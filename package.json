@@ -8,7 +8,9 @@
 		"dev": "turbo dev",
 		"build": "turbo build",
 		"test": "turbo test",
-		"lint": "biome check .",
+		"test:coverage": "turbo test:coverage",
+		"typecheck": "turbo typecheck",
+		"lint": "biome check --error-on-warnings .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"db:generate": "turbo db:generate",
@@ -28,8 +30,8 @@
 		}
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.15",
-		"turbo": "^2.9.5",
-		"typescript": "^6.0.2"
+		"@biomejs/biome": "^2.4.16",
+		"turbo": "^2.9.16",
+		"typescript": "^6.0.3"
 	}
 }

@@ -26,12 +26,12 @@
 	"dependencies": {
 		"bcrypt": "^6.0.0",
 		"drizzle-orm": "^0.45.2",
-		"postgres": "^3.4.7"
+		"postgres": "^3.4.9"
 	},
 	"devDependencies": {
 		"@types/bcrypt": "^6.0.0",
-		"@types/node": "^25.5.2",
-		"drizzle-kit": "^0.31.4",
-		"typescript": "^6.0.2"
+		"@types/node": "^25.9.1",
+		"drizzle-kit": "^0.31.10",
+		"typescript": "^6.0.3"
 	}
 }

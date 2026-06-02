@@ -371,7 +371,7 @@ function CollectionContentList() {
 
 	// An imported media collection backed by writable external storage can receive uploads.
 	const mediaUpload = useMemo(() => {
-		if (!collection || collection.source !== 'external' || collection.accessMode !== 'read-write') {
+		if (collection?.source !== 'external' || collection.accessMode !== 'read-write') {
 			return null
 		}
 		const externalDb = (currentProject?.settings as Record<string, unknown> | undefined)
@@ -518,7 +518,7 @@ function CollectionContentList() {
 
 	// Poll the background-import status while a job is in progress.
 	useEffect(() => {
-		if (!collection || collection.source !== 'external') {
+		if (collection?.source !== 'external') {
 			setImportStatus(null)
 			return
 		}
@@ -596,7 +596,7 @@ function CollectionContentList() {
 	}
 
 	const previewExternalSync = async () => {
-		if (!collection || collection.source !== 'external') return
+		if (collection?.source !== 'external') return
 		setPreviewLoading(true)
 		try {
 			const preview = await api.get<SyncPreview>(
@@ -615,7 +615,7 @@ function CollectionContentList() {
 	}
 
 	const syncExternalContent = async () => {
-		if (!collection || collection.source !== 'external') return
+		if (collection?.source !== 'external') return
 		setSyncing(true)
 		try {
 			const result = await api.post<{ created: number; updated: number }>(

@@ -625,6 +625,7 @@ function CollectionContentEditor() {
 	const draftKey = `innolope:draft:${slug}:${contentId}`
 
 	// Load content
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `t` is only read in the error fallback; re-running this loader when the i18n function identity changes would re-fetch and clobber unsaved edits — it should key only on the record identity.
 	useEffect(() => {
 		if (!isNew && contentId && collection) {
 			setLoadError(null)
@@ -1680,39 +1681,37 @@ function CollectionContentEditor() {
 				    The slug input was previously gated on `!isExternal`, but external
 				    (MongoDB-backed) collections also have `content.slug` at the row
 				    level and need an editable input for it. Status is universal too. */}
-				<>
-					<Field label={t('collections.detail.fields.slug')}>
-						<input
-							type="text"
-							value={contentSlug}
-							onChange={(e) => {
-								setContentSlug(e.target.value)
-								setDirty(true)
-							}}
-							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
-						/>
-					</Field>
+				<Field label={t('collections.detail.fields.slug')}>
+					<input
+						type="text"
+						value={contentSlug}
+						onChange={(e) => {
+							setContentSlug(e.target.value)
+							setDirty(true)
+						}}
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
+					/>
+				</Field>
 
-					<Field label={t('collections.detail.fields.status')}>
-						<Dropdown
-							value={status}
-							onChange={(v) => {
-								setStatus(v)
-								setDirty(true)
-							}}
-							options={[
-								{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
-								{
-									value: 'pending_review',
-									label: t('collections.detail.statusOptions.pendingReview'),
-								},
-								{ value: 'published', label: t('collections.detail.statusOptions.published') },
-								{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
-							]}
-							className="w-full"
-						/>
-					</Field>
-				</>
+				<Field label={t('collections.detail.fields.status')}>
+					<Dropdown
+						value={status}
+						onChange={(v) => {
+							setStatus(v)
+							setDirty(true)
+						}}
+						options={[
+							{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
+							{
+								value: 'pending_review',
+								label: t('collections.detail.statusOptions.pendingReview'),
+							},
+							{ value: 'published', label: t('collections.detail.statusOptions.published') },
+							{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
+						]}
+						className="w-full"
+					/>
+				</Field>
 
 				{/* Tags get a dedicated editor only when the collection actually models them
 				    (schema has a `tags` field) OR the loaded record already has tags. Otherwise

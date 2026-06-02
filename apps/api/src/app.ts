@@ -8,7 +8,7 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
 import { ZodError } from 'zod'
-import { auditLogRoutes } from './ee/audit-log.js'
+import { auditLogRoutes, auditPlugin } from './ee/audit-log.js'
 import { schedulingRoutes } from './ee/scheduling.js'
 import { meIdentitiesRoutes, ssoAdminRoutes, ssoRoutes } from './ee/sso/index.js'
 import { scimRoutes, scimTokenAdminRoutes } from './ee/sso/scim.js'
@@ -150,6 +150,7 @@ export async function buildApp() {
 	await app.register(authPlugin)
 	await app.register(projectPlugin)
 	await app.register(eventsPlugin)
+	await app.register(auditPlugin)
 	await app.register(posthogPlugin)
 	initWebhookDispatcher(app)
 	initAutoEmbedding(app)

@@ -156,6 +156,7 @@ export function AiSettingsPanel() {
 		initialRows.current = loaded
 	}
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: one-shot load on mount; `loadFrom` is recreated every render, so listing it would re-run the fetch on every render.
 	useEffect(() => {
 		api
 			.get<AiSettingsData>('/api/v1/ai/settings')
@@ -289,6 +290,7 @@ export function AiSettingsPanel() {
 				<div className="flex gap-8 items-start">
 					<div className="flex-1 min-w-0 space-y-2">
 						{rows.map((row, i) => (
+							// biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder drop target, not an interactive control; the handlers only reorder provider rows.
 							<div
 								key={row.id}
 								onDragOver={(e) => {
@@ -301,6 +303,7 @@ export function AiSettingsPanel() {
 									dragOverIndex === i ? 'border-border-strong' : 'border-transparent'
 								}`}
 							>
+								{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for reordering rows; the grip is a visual affordance, not a clickable control. */}
 								<span
 									draggable
 									onDragStart={() => {
