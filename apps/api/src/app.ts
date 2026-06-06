@@ -6,6 +6,7 @@ import formbody from '@fastify/formbody'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
+import { ensureTables } from '@innolope/db'
 import Fastify from 'fastify'
 import { ZodError } from 'zod'
 import { auditLogRoutes, auditPlugin } from './ee/audit-log.js'
@@ -76,6 +77,24 @@ export async function buildApp() {
 		disableRequestLogging: true,
 		bodyLimit: 10 * 1024 * 1024, // 10MB
 	})
+
+	// Materialize the schema before any plugins/routes register — as a plain
+	// awaited call here, NOT inside a Fastify plugin. ensureTables() issues ~40
+	// idempotent DDL statements (several of them online schema changes on the
+	// production database) and can take well over avvio's default 10s per-plugin
+	// start timeout. Running it inside dbPlugin made the API crash-loop on boot
+	// with AVV_ERR_PLUGIN_EXEC_TIMEOUT (Sentry INNOLOPE-CMS-3); out here it can
+	// take as long as it needs. A failure is logged but does not block boot —
+	// the connection still opens and routes surface query errors as before.
+	const dbUrl = process.env.DATABASE_URL
+	if (dbUrl) {
+		try {
+			await ensureTables(dbUrl)
+			app.log.info('Database tables ensured')
+		} catch (err) {
+			app.log.error(err, 'Failed to ensure database tables')
+		}
+	}
 
 	await app.register(helmet, {
 		contentSecurityPolicy: {

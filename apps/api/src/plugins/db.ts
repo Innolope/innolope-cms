@@ -1,4 +1,4 @@
-import { createDb, type Database, ensureTables } from '@innolope/db'
+import { createDb, type Database } from '@innolope/db'
 import fp from 'fastify-plugin'
 
 declare module 'fastify' {
@@ -17,15 +17,9 @@ export const dbPlugin = fp(async (app) => {
 		return
 	}
 
-	// Schema is materialized here on every boot — there are no migration files.
-	// See ensureTables() in @innolope/db (packages/db/src/ensure.ts).
-	try {
-		await ensureTables(url)
-		app.log.info('Database tables ensured')
-	} catch (err) {
-		app.log.error(err, 'Failed to ensure database tables')
-	}
-
+	// Schema materialization runs in buildApp() before plugins register (it can
+	// outlast avvio's per-plugin timeout — see the ensureTables() note in app.ts).
+	// This plugin only opens the connection pool the ORM queries through.
 	const db = createDb(url)
 	app.decorate('db', db)
 	app.log.info('Database connected')
