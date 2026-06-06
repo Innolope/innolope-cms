@@ -18,8 +18,6 @@
 	"scripts": {
 		"build": "tsc --build",
 		"clean": "rm -rf dist *.tsbuildinfo",
-		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"db:seed": "tsx src/seed.ts"
 	},

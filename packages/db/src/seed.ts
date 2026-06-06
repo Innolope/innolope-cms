@@ -1,11 +1,15 @@
 import bcrypt from 'bcrypt'
 import { sql } from 'drizzle-orm'
+import { ensureTables } from './ensure.js'
 import { createDb } from './index.js'
 import { collections } from './schema/collections.js'
 import { projectMembers, projects } from './schema/projects.js'
 import { users } from './schema/users.js'
 
 export async function seed(databaseUrl: string) {
+	// There are no migration files — make sure the schema exists before seeding.
+	await ensureTables(databaseUrl)
+
 	const db = createDb(databaseUrl)
 
 	const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(users)

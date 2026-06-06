@@ -16,6 +16,12 @@ interface RelationFieldProps {
 	relationTo?: string
 	disabled?: boolean
 	onChange: (value: string) => void
+	/**
+	 * Render a large, full-width image preview above the picker instead of the small
+	 * inline thumbnail. Used for a record's primary image (e.g. featuredImage) in the
+	 * editor sidebar.
+	 */
+	imagePreview?: boolean
 }
 
 /**
@@ -34,9 +40,15 @@ const splitCamel = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
 
 /** Pick the field in a related collection most likely to hold an image/file URL. */
 function pickUrlField(fields: { name: string; type: string }[]): string | undefined {
-	return fields
-		.filter((f) => f.type === 'text' || f.type === 'string')
-		.find((f) => URL_FIELD_PATTERN.test(splitCamel(f.name)))?.name
+	const textFields = fields.filter((f) => f.type === 'text' || f.type === 'string')
+	// Prefer an explicit image/photo/thumbnail token, then fall back to a field named
+	// exactly `url`/`src`/`href` — media-backed collections store the asset URL in a
+	// plain `url` column. The exact-name check keeps `courseUrl` (a website link) from
+	// being misread as an image, which the bare-substring match used to do.
+	return (
+		textFields.find((f) => URL_FIELD_PATTERN.test(splitCamel(f.name)))?.name ??
+		textFields.find((f) => /^(url|src|href)$/i.test(f.name))?.name
+	)
 }
 
 /** Resolve a possibly-localized ({ en, ua, … }) value to a plain display string. */
@@ -93,7 +105,13 @@ function Thumb({ url, className }: { url: string; className: string }) {
 	)
 }
 
-export function RelationField({ value, relationTo, disabled, onChange }: RelationFieldProps) {
+export function RelationField({
+	value,
+	relationTo,
+	disabled,
+	onChange,
+	imagePreview,
+}: RelationFieldProps) {
 	const { t } = useTranslation()
 	const toast = useToast()
 	const { getCollectionByName } = useCollections()
@@ -221,125 +239,168 @@ export function RelationField({ value, relationTo, disabled, onChange }: Relatio
 
 	return (
 		<div className="space-y-1.5">
-			<div className="flex items-center gap-2">
-				{urlField && (
-					<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
-						<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
-					</div>
-				)}
-				<div className="relative flex-1 min-w-0" ref={ref}>
-					<button
-						type="button"
-						disabled={disabled}
-						onClick={() => !disabled && setOpen((o) => !o)}
-						className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
-					>
-						<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
-							{current
-								? docLabel(current)
-								: value || t('editor.relationField.selectLabel', { label: related.label })}
-						</span>
-						<svg
-							width="12"
-							height="12"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							className={`text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
-							aria-hidden="true"
-						>
-							<polyline points="6 9 12 15 18 9" />
-						</svg>
-					</button>
-
-					{open && !disabled && (
-						<div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border-strong rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
-							{value && (
-								<button
-									type="button"
-									onClick={() => {
-										onChange('')
-										setOpen(false)
-									}}
-									className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
-								>
-									{t('editor.relationField.none')}
-								</button>
-							)}
-							{loading ? (
-								<p className="px-3 py-2 text-sm text-text-muted">{t('common.loading')}</p>
-							) : docs.length === 0 ? (
-								<p className="px-3 py-2 text-sm text-text-muted">
-									{t('editor.relationField.noRecordsYet')}
-								</p>
-							) : (
-								docs.map((doc) => {
-									const id = docId(doc)
-									const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
-									return (
-										<button
-											key={id}
-											type="button"
-											onClick={() => {
-												onChange(id)
-												setOpen(false)
-											}}
-											className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm transition-colors ${
-												id === value
-													? 'bg-surface-alt text-text font-medium'
-													: 'text-text-secondary hover:bg-surface-alt hover:text-text'
-											}`}
-										>
-											{urlField && (
-												<Thumb
-													key={docUrl}
-													url={docUrl}
-													className="h-6 w-6 shrink-0 rounded object-cover"
-												/>
-											)}
-											<span className="truncate">{docLabel(doc)}</span>
-										</button>
-									)
-								})
-							)}
-							{!disabled && canWrite && labelField && (
-								<button
-									type="button"
-									onClick={() => {
-										setOpen(false)
-										setCreating(true)
-									}}
-									className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
-								>
-									{t('editor.relationField.createNew', { label: related.label })}
-								</button>
-							)}
+			{imagePreview && urlField && (
+				<div className="w-full aspect-video rounded border border-border overflow-hidden bg-input">
+					<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
+				</div>
+			)}
+			{!imagePreview && (
+				<div className="flex items-center gap-2">
+					{urlField && (
+						<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
+							<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
 						</div>
 					)}
+					<div className="relative flex-1 min-w-0" ref={ref}>
+						<button
+							type="button"
+							disabled={disabled}
+							onClick={() => !disabled && setOpen((o) => !o)}
+							className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
+						>
+							<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
+								{current
+									? docLabel(current)
+									: value || t('editor.relationField.selectLabel', { label: related.label })}
+							</span>
+							<svg
+								width="12"
+								height="12"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className={`text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
+								aria-hidden="true"
+							>
+								<polyline points="6 9 12 15 18 9" />
+							</svg>
+						</button>
+
+						{open && !disabled && (
+							<div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border-strong rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+								{value && (
+									<button
+										type="button"
+										onClick={() => {
+											onChange('')
+											setOpen(false)
+										}}
+										className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
+									>
+										{t('editor.relationField.none')}
+									</button>
+								)}
+								{loading ? (
+									<p className="px-3 py-2 text-sm text-text-muted">{t('common.loading')}</p>
+								) : docs.length === 0 ? (
+									<p className="px-3 py-2 text-sm text-text-muted">
+										{t('editor.relationField.noRecordsYet')}
+									</p>
+								) : (
+									docs.map((doc) => {
+										const id = docId(doc)
+										const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
+										return (
+											<button
+												key={id}
+												type="button"
+												onClick={() => {
+													onChange(id)
+													setOpen(false)
+												}}
+												className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm transition-colors ${
+													id === value
+														? 'bg-surface-alt text-text font-medium'
+														: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+												}`}
+											>
+												{urlField && (
+													<Thumb
+														key={docUrl}
+														url={docUrl}
+														className="h-6 w-6 shrink-0 rounded object-cover"
+													/>
+												)}
+												<span className="truncate">{docLabel(doc)}</span>
+											</button>
+										)
+									})
+								)}
+								{!disabled && canWrite && labelField && (
+									<button
+										type="button"
+										onClick={() => {
+											setOpen(false)
+											setCreating(true)
+										}}
+										className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
+									>
+										{t('editor.relationField.createNew', { label: related.label })}
+									</button>
+								)}
+							</div>
+						)}
+					</div>
 				</div>
-			</div>
-
-			{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
-
-			{urlField && !disabled && canWrite && (
-				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-					{uploading ? t('editor.relationField.uploading') : t('editor.relationField.uploadImage')}
-					<input
-						type="file"
-						accept="image/*"
-						className="hidden"
-						disabled={uploading}
-						onChange={(e) => {
-							const file = e.target.files?.[0]
-							if (file) handleUpload(file)
-							e.target.value = ''
-						}}
-					/>
-				</label>
 			)}
+
+			{!imagePreview && value && (
+				<p className="text-[10px] text-text-muted font-mono truncate">{value}</p>
+			)}
+
+			{urlField &&
+				!disabled &&
+				canWrite &&
+				(imagePreview ? (
+					// Featured-image mode: simple Change / Remove buttons, no dropdown.
+					<div className="flex flex-wrap gap-2">
+						<label className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover cursor-pointer">
+							{uploading
+								? t('editor.relationField.uploading')
+								: t('editor.relationField.changeImage')}
+							<input
+								type="file"
+								accept="image/*"
+								className="hidden"
+								disabled={uploading}
+								onChange={(e) => {
+									const file = e.target.files?.[0]
+									if (file) handleUpload(file)
+									e.target.value = ''
+								}}
+							/>
+						</label>
+						{value && (
+							<button
+								type="button"
+								onClick={() => onChange('')}
+								className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
+							>
+								{t('editor.relationField.removeImage')}
+							</button>
+						)}
+					</div>
+				) : (
+					<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
+						{uploading
+							? t('editor.relationField.uploading')
+							: t('editor.relationField.uploadImage')}
+						<input
+							type="file"
+							accept="image/*"
+							className="hidden"
+							disabled={uploading}
+							onChange={(e) => {
+								const file = e.target.files?.[0]
+								if (file) handleUpload(file)
+								e.target.value = ''
+							}}
+						/>
+					</label>
+				))}
 
 			{creating && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">

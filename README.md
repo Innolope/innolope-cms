@@ -49,10 +49,6 @@ pnpm install
 cp .env.example .env
 # Edit .env with your DATABASE_URL and AUTH_SECRET (min 32 chars)
 
-# Generate and run database migrations
-pnpm db:generate
-pnpm db:migrate
-
 # Seed default admin + project + collections
 ADMIN_PASSWORD=your-secure-password DATABASE_URL=your-db-url pnpm --filter @innolope/db db:seed
 

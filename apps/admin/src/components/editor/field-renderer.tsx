@@ -17,6 +17,7 @@
 
 import type { CollectionField } from '@innolope/config'
 import { useTranslation } from 'react-i18next'
+import { useAutoSizeTextarea } from '../../lib/use-autosize-textarea'
 import { Dropdown } from '../dropdown'
 import { JsonField } from './json-field'
 import { LocalizedTextField } from './localized-text-field'
@@ -154,6 +155,9 @@ export function FieldRenderer({
 	const ro = !!disabled
 	const placeholder = f.ui?.placeholder
 	const widget = defaultWidgetFor(f)
+	// Auto-grow the plain textarea widget to fit its content (the localized widget
+	// handles its own auto-sizing). The ref is only attached in the textarea branch.
+	const textareaRef = useAutoSizeTextarea(String(value ?? ''))
 	const inputCls =
 		'w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60'
 
@@ -330,12 +334,13 @@ export function FieldRenderer({
 	if (widget === 'textarea') {
 		return (
 			<textarea
+				ref={textareaRef}
 				value={String(value ?? '')}
 				onChange={(e) => onChange(e.target.value)}
 				disabled={ro}
-				rows={f.ui?.rows ?? 4}
+				rows={f.ui?.rows ?? 2}
 				placeholder={placeholder}
-				className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60 resize-y"
+				className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60 max-h-80 resize-none overflow-y-auto"
 			/>
 		)
 	}

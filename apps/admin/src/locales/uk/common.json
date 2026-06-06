@@ -18,7 +18,8 @@
 		"newCollection": "Нова колекція",
 		"accountSettings": "Налаштування акаунта",
 		"expandSidebar": "Розгорнути бічну панель",
-		"collapseSidebar": "Згорнути бічну панель"
+		"collapseSidebar": "Згорнути бічну панель",
+		"resizeSidebar": "Змінити ширину панелі"
 	},
 	"confirm": { "typeToConfirm": "Введіть <code>{{text}}</code> для підтвердження" },
 	"domainAccess": {
@@ -264,6 +265,8 @@
 			"noRecordsYet": "Записів ще немає.",
 			"createNew": "+ Створити новий {{label}}",
 			"uploadImage": "Завантажити зображення",
+			"changeImage": "Змінити зображення",
+			"removeImage": "Видалити зображення",
 			"uploading": "Завантаження…",
 			"newDialogTitle": "Новий {{label}}",
 			"namePlaceholder": "Назва",

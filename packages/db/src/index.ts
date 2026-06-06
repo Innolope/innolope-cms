@@ -14,4 +14,5 @@ export function createDb(connectionUrl: string) {
 
 export type Database = ReturnType<typeof createDb>
 
+export { ensureTables } from './ensure.js'
 export * from './schema/index.js'

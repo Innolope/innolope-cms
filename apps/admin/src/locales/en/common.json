@@ -20,7 +20,8 @@
 		"newCollection": "New Collection",
 		"accountSettings": "Account settings",
 		"expandSidebar": "Expand sidebar",
-		"collapseSidebar": "Collapse sidebar"
+		"collapseSidebar": "Collapse sidebar",
+		"resizeSidebar": "Resize sidebar"
 	},
 	"confirm": {
 		"typeToConfirm": "Type <code>{{text}}</code> to confirm"
@@ -283,6 +284,8 @@
 			"noRecordsYet": "No records yet.",
 			"createNew": "+ Create new {{label}}",
 			"uploadImage": "Upload image",
+			"changeImage": "Change image",
+			"removeImage": "Remove image",
 			"uploading": "Uploading…",
 			"newDialogTitle": "New {{label}}",
 			"namePlaceholder": "Name",

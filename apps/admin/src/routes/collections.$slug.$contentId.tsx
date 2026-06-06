@@ -11,6 +11,7 @@ import { LocalizedTextField } from '../components/editor/localized-text-field'
 import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
+import { RelationField } from '../components/editor/relation-field'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { VersionPanel } from '../components/versions/version-panel'
 import { ApiError, api } from '../lib/api-client'
@@ -45,10 +46,15 @@ function toLocaleValueMap(value: unknown, defaultLocale: string): Record<string,
 }
 
 /**
- * Schema fields not rendered as their own input: `title`/`content`/`body`/`tags` have
- * dedicated editors above, and `__v` is the Mongo version key maintained by the database.
+ * Schema fields not rendered as their own generic input: `title`/`content`/`body`/`tags`
+ * have dedicated editors above, `status` has the built-in publish-status dropdown in the
+ * sidebar (a user-defined `status` field would otherwise render a confusing second
+ * "status" control), and `__v` is the Mongo version key maintained by the database.
  */
-const HIDDEN_FIELDS = new Set(['title', 'content', 'body', 'tags', '__v'])
+const HIDDEN_FIELDS = new Set(['title', 'content', 'body', 'tags', 'status', '__v'])
+
+/** Relation fields whose name reads like an image — surfaced as a full-width preview. */
+const IMAGE_FIELD_NAME_RE = /image|photo|cover|banner|thumbnail|avatar|logo|featured|picture/i
 
 export const Route = createFileRoute('/collections/$slug/$contentId')({
 	component: CollectionContentEditor,
@@ -1046,6 +1052,18 @@ function CollectionContentEditor() {
 			(f) => !HIDDEN_FIELDS.has(f.name) && !f.ui?.hidden && f.name !== 'slug',
 		) ?? []
 
+	// The collection's primary image — a relation to a media-backed collection, or a
+	// relation whose name reads like an image. It's rendered as a full-width preview near
+	// the top of the sidebar instead of inline among the other fields, and excluded from
+	// the generic schema-field block below so it isn't shown twice.
+	const imageField =
+		visibleSchemaFields.find(
+			(f) =>
+				f.type === 'relation' &&
+				(getCollectionByName(f.relationTo ?? '')?.source === 'media' ||
+					IMAGE_FIELD_NAME_RE.test(f.name)),
+		) ?? null
+
 	/**
 	 * Treat a field as localized for the purposes of dispatch. Combines three sources:
 	 * 1. Schema flag `f.localized` (definitive).
@@ -1316,9 +1334,13 @@ function CollectionContentEditor() {
 	// inputs at full-width feel wasteful. Pairing happens only for back-to-back
 	// dates in the schema order so the visual flow isn't reordered.
 	const schemaFieldsBlock: React.ReactNode[] = []
-	for (let i = 0; i < visibleSchemaFields.length; i++) {
-		const f = visibleSchemaFields[i]
-		const next = visibleSchemaFields[i + 1]
+	// The image field is rendered separately at the top of the sidebar.
+	const blockFields = imageField
+		? visibleSchemaFields.filter((f) => f !== imageField)
+		: visibleSchemaFields
+	for (let i = 0; i < blockFields.length; i++) {
+		const f = blockFields[i]
+		const next = blockFields[i + 1]
 		if (f.type === 'date' && next?.type === 'date') {
 			schemaFieldsBlock.push(
 				<div key={`date-pair-${f.name}-${next.name}`} className="grid grid-cols-2 gap-4">
@@ -1610,341 +1632,403 @@ function CollectionContentEditor() {
 			<div
 				className={`${
 					isArticleLayout && localeUi.mode === 'compare' && hasLocalizedField ? 'w-[36rem]' : 'w-72'
-				} border-l border-border p-6 space-y-4 overflow-auto shrink-0 transition-[width] duration-150`}
+				} border-l border-border flex flex-col overflow-hidden shrink-0 relative transition-[width] duration-150`}
 			>
-				<div className="flex gap-2">
-					{!isReadOnly && (
-						<button
-							type="button"
-							onClick={save}
-							disabled={saving}
-							className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-						>
-							{saving ? t('collections.detail.saving') : t('collections.detail.save')}
-						</button>
-					)}
-					{/*
-					 * Primary publish action — adapts to project + member config:
-					 *   - canPublishDirectly → "Publish" (or "Save & publish" for a new record)
-					 *   - else, requireReview → "Submit for review"
-					 * Approve/Reject still appear for admins on a pending_review item
-					 * regardless. The legacy "Publish" button for un-licensed projects
-					 * goes away — direct publish is now the default for solo projects.
-					 */}
-					{!isReadOnly && status !== 'published' && canPublishDirectly && (
-						<button
-							type="button"
-							onClick={publishDirectly}
-							disabled={saving}
-							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
-						>
-							{t('collections.detail.publish')}
-						</button>
-					)}
-					{!isNew && !isReadOnly && status === 'draft' && !canPublishDirectly && requireReview && (
-						<button
-							type="button"
-							onClick={submitForReview}
-							disabled={saving}
-							className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
-						>
-							{t('collections.detail.submit')}
-						</button>
-					)}
-					{!isNew &&
-						!isReadOnly &&
-						status === 'pending_review' &&
-						reviewWorkflowsLicensed &&
-						canApprove && (
-							<>
+				<div className="flex-1 overflow-auto p-6 space-y-4">
+					<div className="flex gap-2">
+						{!isReadOnly && (
+							<button
+								type="button"
+								onClick={save}
+								disabled={saving}
+								className="flex-1 px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+							>
+								{saving ? t('collections.detail.saving') : t('collections.detail.save')}
+							</button>
+						)}
+						{/*
+						 * Primary publish action — adapts to project + member config:
+						 *   - canPublishDirectly → "Publish" (or "Save & publish" for a new record)
+						 *   - else, requireReview → "Submit for review"
+						 * Approve/Reject still appear for admins on a pending_review item
+						 * regardless. The legacy "Publish" button for un-licensed projects
+						 * goes away — direct publish is now the default for solo projects.
+						 */}
+						{!isReadOnly && status !== 'published' && canPublishDirectly && (
+							<button
+								type="button"
+								onClick={publishDirectly}
+								disabled={saving}
+								className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+							>
+								{t('collections.detail.publish')}
+							</button>
+						)}
+						{!isNew &&
+							!isReadOnly &&
+							status === 'draft' &&
+							!canPublishDirectly &&
+							requireReview && (
 								<button
 									type="button"
-									onClick={approveContent}
-									disabled={saving}
-									className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-								>
-									{t('collections.detail.approve')}
-								</button>
-								<button
-									type="button"
-									onClick={rejectContent}
+									onClick={submitForReview}
 									disabled={saving}
 									className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
 								>
-									{t('collections.detail.reject.button')}
+									{t('collections.detail.submit')}
 								</button>
-							</>
-						)}
-				</div>
+							)}
+						{!isNew &&
+							!isReadOnly &&
+							status === 'pending_review' &&
+							reviewWorkflowsLicensed &&
+							canApprove && (
+								<>
+									<button
+										type="button"
+										onClick={approveContent}
+										disabled={saving}
+										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+									>
+										{t('collections.detail.approve')}
+									</button>
+									<button
+										type="button"
+										onClick={rejectContent}
+										disabled={saving}
+										className="px-4 py-2 bg-btn-secondary text-text rounded text-sm font-medium hover:bg-btn-secondary-hover disabled:opacity-50"
+									>
+										{t('collections.detail.reject.button')}
+									</button>
+								</>
+							)}
+					</div>
 
-				{/* slug + status — always rendered.
-				    The slug input was previously gated on `!isExternal`, but external
-				    (MongoDB-backed) collections also have `content.slug` at the row
-				    level and need an editable input for it. Status is universal too. */}
-				<Field label={t('collections.detail.fields.slug')}>
-					<input
-						type="text"
-						value={contentSlug}
-						onChange={(e) => {
-							setContentSlug(e.target.value)
-							setDirty(true)
-						}}
-						className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
-					/>
-				</Field>
+					{/* Sidebar field order: status → image preview → slug → tags → the rest.
+				    status + slug are always rendered — external (MongoDB-backed) collections
+				    also have `content.status` and `content.slug` at the row level. */}
+					<Field label={t('collections.detail.fields.status')}>
+						<Dropdown
+							value={status}
+							onChange={(v) => {
+								setStatus(v)
+								setDirty(true)
+							}}
+							options={[
+								{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
+								{
+									value: 'pending_review',
+									label: t('collections.detail.statusOptions.pendingReview'),
+								},
+								{ value: 'published', label: t('collections.detail.statusOptions.published') },
+								{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
+							]}
+							className="w-full"
+						/>
+					</Field>
 
-				<Field label={t('collections.detail.fields.status')}>
-					<Dropdown
-						value={status}
-						onChange={(v) => {
-							setStatus(v)
-							setDirty(true)
-						}}
-						options={[
-							{ value: 'draft', label: t('collections.detail.statusOptions.draft') },
-							{
-								value: 'pending_review',
-								label: t('collections.detail.statusOptions.pendingReview'),
-							},
-							{ value: 'published', label: t('collections.detail.statusOptions.published') },
-							{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
-						]}
-						className="w-full"
-					/>
-				</Field>
+					{/* Full-width preview of the collection's image (e.g. featuredImage). The
+				    RelationField in `imagePreview` mode shows the actual image at sidebar
+				    width plus the picker/upload control to change it. */}
+					{imageField && (
+						<Field label={imageField.label?.trim() || imageField.name}>
+							<RelationField
+								value={String(extraFields[imageField.name] ?? '')}
+								relationTo={imageField.relationTo}
+								disabled={isReadOnly || !!imageField.ui?.readOnly}
+								onChange={(v) => {
+									setExtraFields((prev) => ({ ...prev, [imageField.name]: v }))
+									setDirty(true)
+								}}
+								imagePreview
+							/>
+						</Field>
+					)}
 
-				{/* Tags get a dedicated editor only when the collection actually models them
+					<Field label={t('collections.detail.fields.slug')}>
+						<input
+							type="text"
+							value={contentSlug}
+							onChange={(e) => {
+								setContentSlug(e.target.value)
+								setDirty(true)
+							}}
+							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong font-mono"
+						/>
+					</Field>
+
+					{/* Tags get a dedicated editor only when the collection actually models them
 				    (schema has a `tags` field) OR the loaded record already has tags. Otherwise
 				    rendering an empty pill input on every collection — including ones whose
 				    external schema has no `tags` column — is just noise. */}
-				{(collection?.fields?.some((f) => f.name === 'tags') || tags.length > 0) && (
-					<Field label={t('collections.detail.fields.tags')}>
-						<PillInput
-							value={tags}
-							onChange={(v) => {
-								setTags(v)
-								setDirty(true)
-							}}
-							placeholder={t('collections.detail.tagsPlaceholder')}
-							disabled={isReadOnly}
-						/>
-					</Field>
-				)}
+					{(collection?.fields?.some((f) => f.name === 'tags') || tags.length > 0) && (
+						<Field label={t('collections.detail.fields.tags')}>
+							<PillInput
+								value={tags}
+								onChange={(v) => {
+									setTags(v)
+									setDirty(true)
+								}}
+								placeholder={t('collections.detail.tagsPlaceholder')}
+								disabled={isReadOnly}
+							/>
+						</Field>
+					)}
 
-				{/* Schema fields render here only when this is an article-shaped record
+					{/* Schema fields render here only when this is an article-shaped record
 				    (title+markdown in the center). For form-shaped records they're rendered
 				    in the central column above; the sidebar keeps only save/meta. */}
-				{isArticleLayout && schemaFieldsBlock}
+					{isArticleLayout && schemaFieldsBlock}
 
-				{/* Additional fields — fields in metadata not in the schema */}
-				{(() => {
-					const schemaNames = new Set(collection?.fields.map((f) => f.name) ?? [])
-					schemaNames.add('title')
-					// `slug` is a top-level content field — never surface it as an
-					// "additional" metadata field even if a legacy record stored it
-					// inside metadata.
-					schemaNames.add('slug')
-					if (!isExternal) {
-						schemaNames.add('tags')
-					}
-					const additionalEntries = Object.entries(extraFields).filter(
-						([key]) => !schemaNames.has(key),
-					)
-					if (additionalEntries.length === 0) return null
-					return (
-						<div>
-							<button
-								type="button"
-								onClick={() => setShowExtraFields(!showExtraFields)}
-								className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text transition-colors w-full"
-							>
-								<svg
-									width="10"
-									height="10"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
+					{/* Additional fields — fields in metadata not in the schema */}
+					{(() => {
+						const schemaNames = new Set(collection?.fields.map((f) => f.name) ?? [])
+						schemaNames.add('title')
+						// `slug` and `status` are top-level content fields with dedicated sidebar
+						// controls — never surface them as an "additional" metadata field even if a
+						// legacy record stored them inside metadata (the `status` case is the
+						// duplicate-"Status" bug).
+						schemaNames.add('slug')
+						schemaNames.add('status')
+						if (!isExternal) {
+							schemaNames.add('tags')
+						}
+						const additionalEntries = Object.entries(extraFields).filter(
+							([key]) => !schemaNames.has(key),
+						)
+						if (additionalEntries.length === 0) return null
+						return (
+							<div>
+								<button
+									type="button"
+									onClick={() => setShowExtraFields(!showExtraFields)}
+									className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text transition-colors w-full"
 								>
-									<polyline points="9 18 15 12 9 6" />
-								</svg>
-								{t('collections.detail.additionalFields', { count: additionalEntries.length })}
-							</button>
-							{showExtraFields && (
-								<div className="mt-2 space-y-2">
-									{additionalEntries.map(([key, val]) => (
-										<div key={key}>
-											<label
-												htmlFor={`meta-field-${key}`}
-												className="block text-[10px] text-text-muted mb-0.5 font-mono"
-											>
-												{key}
-											</label>
-											{isLocaleMap(val, projectLocales, allowKnownCodes) ? (
-												<LocalizedTextField
-													value={val}
-													mode={localeUi.mode}
-													activeLocale={localeUi.activeLocale}
-													leftLocale={localeUi.leftLocale}
-													rightLocale={localeUi.rightLocale}
-													defaultLocale={defaultLocale}
-													onTranslate={
-														canTranslate
-															? (src, tgt) => handleFieldTranslate(key, src, tgt)
-															: undefined
+									<svg
+										width="10"
+										height="10"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className={`transition-transform ${showExtraFields ? 'rotate-90' : ''}`}
+									>
+										<polyline points="9 18 15 12 9 6" />
+									</svg>
+									{t('collections.detail.additionalFields', { count: additionalEntries.length })}
+								</button>
+								{showExtraFields && (
+									<div className="mt-2 space-y-2">
+										{additionalEntries.map(([key, val]) => (
+											<div key={key}>
+												<label
+													htmlFor={`meta-field-${key}`}
+													className="block text-[10px] text-text-muted mb-0.5 font-mono"
+												>
+													{key}
+												</label>
+												{isLocaleMap(val, projectLocales, allowKnownCodes) ? (
+													<LocalizedTextField
+														value={val}
+														mode={localeUi.mode}
+														activeLocale={localeUi.activeLocale}
+														leftLocale={localeUi.leftLocale}
+														rightLocale={localeUi.rightLocale}
+														defaultLocale={defaultLocale}
+														onTranslate={
+															canTranslate
+																? (src, tgt) => handleFieldTranslate(key, src, tgt)
+																: undefined
+														}
+														translating={translatingFields.has(key) || bulkTranslating}
+														onChange={(v) => {
+															setExtraFields((prev) => ({ ...prev, [key]: v }))
+															setDirty(true)
+														}}
+														disabled={isReadOnly}
+													/>
+												) : isObjectArray(val) ? (
+													<ObjectArrayField
+														value={val}
+														onChange={(v) => {
+															setExtraFields((prev) => ({ ...prev, [key]: v }))
+															setDirty(true)
+														}}
+														disabled={isReadOnly}
+													/>
+												) : val !== null && typeof val === 'object' ? (
+													<JsonField
+														value={val}
+														onChange={(v) => {
+															setExtraFields((prev) => ({ ...prev, [key]: v }))
+															setDirty(true)
+														}}
+														disabled={isReadOnly}
+													/>
+												) : (
+													<input
+														id={`meta-field-${key}`}
+														type="text"
+														value={String(val ?? '')}
+														onChange={(e) => {
+															setExtraFields((prev) => ({ ...prev, [key]: e.target.value }))
+															setDirty(true)
+														}}
+														disabled={isReadOnly}
+														className="w-full px-2 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60"
+													/>
+												)}
+											</div>
+										))}
+										{!isReadOnly && (
+											<button
+												type="button"
+												onClick={async () => {
+													const key = await prompt({
+														title: t('collections.detail.addField.title'),
+														label: t('collections.detail.addField.label'),
+														required: true,
+														confirmLabel: t('collections.detail.addField.confirm'),
+													})
+													if (key?.trim()) {
+														setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
+														setDirty(true)
+														setShowExtraFields(true)
 													}
-													translating={translatingFields.has(key) || bulkTranslating}
-													onChange={(v) => {
-														setExtraFields((prev) => ({ ...prev, [key]: v }))
-														setDirty(true)
-													}}
-													disabled={isReadOnly}
-												/>
-											) : isObjectArray(val) ? (
-												<ObjectArrayField
-													value={val}
-													onChange={(v) => {
-														setExtraFields((prev) => ({ ...prev, [key]: v }))
-														setDirty(true)
-													}}
-													disabled={isReadOnly}
-												/>
-											) : val !== null && typeof val === 'object' ? (
-												<JsonField
-													value={val}
-													onChange={(v) => {
-														setExtraFields((prev) => ({ ...prev, [key]: v }))
-														setDirty(true)
-													}}
-													disabled={isReadOnly}
-												/>
-											) : (
-												<input
-													id={`meta-field-${key}`}
-													type="text"
-													value={String(val ?? '')}
-													onChange={(e) => {
-														setExtraFields((prev) => ({ ...prev, [key]: e.target.value }))
-														setDirty(true)
-													}}
-													disabled={isReadOnly}
-													className="w-full px-2 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong disabled:opacity-60"
-												/>
-											)}
-										</div>
-									))}
-									{!isReadOnly && (
-										<button
-											type="button"
-											onClick={async () => {
-												const key = await prompt({
-													title: t('collections.detail.addField.title'),
-													label: t('collections.detail.addField.label'),
-													required: true,
-													confirmLabel: t('collections.detail.addField.confirm'),
-												})
-												if (key?.trim()) {
-													setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
-													setDirty(true)
-													setShowExtraFields(true)
-												}
-											}}
-											className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
-										>
-											{t('collections.detail.addField.button')}
-										</button>
-									)}
-								</div>
-							)}
-						</div>
-					)
-				})()}
+												}}
+												className="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+											>
+												{t('collections.detail.addField.button')}
+											</button>
+										)}
+									</div>
+								)}
+							</div>
+						)
+					})()}
 
-				{/* Add field button when no extra fields exist yet */}
-				{Object.keys(extraFields).length === 0 && !isReadOnly && !isNew && (
-					<button
-						type="button"
-						onClick={async () => {
-							const key = await prompt({
-								title: t('collections.detail.addField.title'),
-								label: t('collections.detail.addField.label'),
-								required: true,
-								confirmLabel: t('collections.detail.addField.confirm'),
-							})
-							if (key?.trim()) {
-								setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
-								setDirty(true)
-								setShowExtraFields(true)
-							}
-						}}
-						className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-					>
-						{t('collections.detail.addField.customButton')}
-					</button>
-				)}
+					{/* Add field button when no extra fields exist yet */}
+					{Object.keys(extraFields).length === 0 && !isReadOnly && !isNew && (
+						<button
+							type="button"
+							onClick={async () => {
+								const key = await prompt({
+									title: t('collections.detail.addField.title'),
+									label: t('collections.detail.addField.label'),
+									required: true,
+									confirmLabel: t('collections.detail.addField.confirm'),
+								})
+								if (key?.trim()) {
+									setExtraFields((prev) => ({ ...prev, [key.trim()]: '' }))
+									setDirty(true)
+									setShowExtraFields(true)
+								}
+							}}
+							className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+						>
+							{t('collections.detail.addField.customButton')}
+						</button>
+					)}
 
-				{/* Collection name is redundant here — the breadcrumb in the central column
+					{/* Collection name is redundant here — the breadcrumb in the central column
 				    already shows `Collection Name / Record`. */}
 
-				{!isNew && (
-					<Field label={t('collections.detail.fields.version')}>
-						<p className="text-sm text-text-secondary">v{version}</p>
-					</Field>
-				)}
+					{!isNew && (
+						<Field label={t('collections.detail.fields.version')}>
+							<p className="text-sm text-text-secondary">v{version}</p>
+						</Field>
+					)}
 
-				{externalId && (
-					<Field label={t('collections.detail.fields.externalId')}>
-						<p className="text-xs text-text-muted font-mono break-all">{externalId}</p>
-					</Field>
-				)}
+					{externalId && (
+						<Field label={t('collections.detail.fields.externalId')}>
+							<p className="text-xs text-text-muted font-mono break-all">{externalId}</p>
+						</Field>
+					)}
 
-				{!isNew && !isExternal && (
-					<VersionPanel
-						contentId={contentId}
-						currentVersion={version}
-						onRevert={() => {
-							api
-								.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(
-									`/api/v1/content/${contentId}`,
-								)
-								.then((item) => {
-									const { body, meta } = parseFrontmatter(item.markdown)
-									setMarkdown(body.trim())
-									setTitle((meta.title as string) || (item.metadata?.title as string) || '')
-									setVersion(item.version)
-									setDirty(false)
-								})
-						}}
-					/>
-				)}
+					{!isNew && !isExternal && (
+						<VersionPanel
+							contentId={contentId}
+							currentVersion={version}
+							onRevert={() => {
+								api
+									.get<{ markdown: string; metadata: Record<string, unknown>; version: number }>(
+										`/api/v1/content/${contentId}`,
+									)
+									.then((item) => {
+										const { body, meta } = parseFrontmatter(item.markdown)
+										setMarkdown(body.trim())
+										setTitle((meta.title as string) || (item.metadata?.title as string) || '')
+										setVersion(item.version)
+										setDirty(false)
+									})
+							}}
+						/>
+					)}
+				</div>
 
-				{aiLicensed ? (
+				{/* AI assistant — pinned to the bottom of the sidebar so it stays visible
+				    no matter how far the fields above are scrolled. Violet gradient matches
+				    the Pro badge (it's a Pro feature); `px-6` aligns its width with the
+				    inputs above. Unlicensed users get the upgrade prompt in the panel. */}
+				<div className="border-t border-border px-6 py-4 shrink-0">
 					<button
 						type="button"
 						onClick={() => setShowAi(!showAi)}
-						className="w-full px-3 py-2 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover transition-colors"
+						className="w-full px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded text-sm font-medium hover:opacity-90 transition-opacity"
 					>
 						{showAi ? t('collections.detail.hideAi') : t('collections.detail.aiAssistant')}
 					</button>
-				) : (
-					<UpgradePrompt feature="AI Assistant" plan="Pro" />
+				</div>
+
+				{/* The AI assistant overlays THIS sidebar rather than opening a second
+				    column to the right. It covers the fields + button; close from within. */}
+				{showAi && (
+					<div className="absolute inset-0 z-20 flex flex-col bg-bg">
+						{aiLicensed ? (
+							<AiChatPanel
+								targetField={aiTargetField}
+								selectedText={aiSelectedText}
+								onApply={(_field: string, text: string) => {
+									setMarkdown((prev) => `${prev}\n\n${text}`)
+									setDirty(true)
+								}}
+								onClose={() => setShowAi(false)}
+							/>
+						) : (
+							<>
+								<div className="flex justify-end border-b border-border p-2">
+									<button
+										type="button"
+										onClick={() => setShowAi(false)}
+										aria-label={t('collections.detail.hideAi')}
+										className="p-1.5 text-text-muted hover:text-text rounded hover:bg-surface-alt transition-colors"
+									>
+										<svg
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											aria-hidden="true"
+										>
+											<path d="M18 6 6 18" />
+											<path d="m6 6 12 12" />
+										</svg>
+									</button>
+								</div>
+								<div className="flex-1 overflow-auto">
+									<UpgradePrompt feature="AI Assistant" plan="Pro" />
+								</div>
+							</>
+						)}
+					</div>
 				)}
 			</div>
-
-			{showAi && aiLicensed && (
-				<AiChatPanel
-					targetField={aiTargetField}
-					selectedText={aiSelectedText}
-					onApply={(_field: string, text: string) => {
-						setMarkdown((prev) => `${prev}\n\n${text}`)
-						setDirty(true)
-					}}
-					onClose={() => setShowAi(false)}
-				/>
-			)}
 		</div>
 	)
 }

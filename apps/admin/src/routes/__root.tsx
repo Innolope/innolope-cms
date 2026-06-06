@@ -1,7 +1,7 @@
 import { createRootRoute, Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 // AuthGate no longer uses navigate (it does a hard redirect for the cross-boundary case),
 // but other components below still import it from the same line above.
-import { useEffect, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
@@ -200,14 +200,83 @@ function AppLayout() {
 	const license = useLicense()
 	const mediaLocked = !hasFeature(license, 'media-integrations')
 	const navigate = useNavigate()
-	const [collapsed, setCollapsed] = useState(
+	const { pathname } = useLocation()
+
+	// Below this viewport width we switch to a tablet layout: the sidebar drops to
+	// the icon rail so the content gets full width, and the toggle opens it as an
+	// overlay drawer instead of pushing the content.
+	const TABLET_BREAKPOINT = 1024
+	const [isNarrow, setIsNarrow] = useState(
+		() => typeof window !== 'undefined' && window.innerWidth < TABLET_BREAKPOINT,
+	)
+	const [mobileOpen, setMobileOpen] = useState(false)
+	const [manualCollapsed, setManualCollapsed] = useState(
 		() => localStorage.getItem('innolope_sidebar') === 'collapsed',
 	)
 
+	// Effective rail state used throughout the render: on tablet the rail shows
+	// unless the drawer is open; on desktop it follows the user's manual choice.
+	const collapsed = isNarrow ? !mobileOpen : manualCollapsed
+	// True when the expanded sidebar floats over the content (tablet drawer).
+	const overlay = isNarrow && mobileOpen
+
+	useEffect(() => {
+		const onResize = () => {
+			const narrow = window.innerWidth < TABLET_BREAKPOINT
+			setIsNarrow(narrow)
+			if (!narrow) setMobileOpen(false)
+		}
+		window.addEventListener('resize', onResize)
+		return () => window.removeEventListener('resize', onResize)
+	}, [])
+
+	// Close the tablet drawer whenever the route changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: close on navigation; setter is stable.
+	useEffect(() => {
+		setMobileOpen(false)
+	}, [pathname])
+
 	const toggleSidebar = () => {
-		const next = !collapsed
-		setCollapsed(next)
+		if (isNarrow) {
+			setMobileOpen((o) => !o)
+			return
+		}
+		const next = !manualCollapsed
+		setManualCollapsed(next)
 		localStorage.setItem('innolope_sidebar', next ? 'collapsed' : 'expanded')
+	}
+
+	// Expanded-sidebar width is drag-resizable on desktop (the collapsed rail and
+	// the tablet drawer stay fixed-width). Persisted across sessions and clamped.
+	const SIDEBAR_MIN = 200
+	const SIDEBAR_MAX = 480
+	const [width, setWidth] = useState(() => {
+		const stored = Number(localStorage.getItem('innolope_sidebar_width'))
+		return stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX ? stored : 256
+	})
+	const [resizing, setResizing] = useState(false)
+
+	useEffect(() => {
+		if (!isNarrow && !manualCollapsed) {
+			localStorage.setItem('innolope_sidebar_width', String(width))
+		}
+	}, [width, isNarrow, manualCollapsed])
+
+	const startResize = (e: ReactMouseEvent) => {
+		e.preventDefault()
+		setResizing(true)
+		const startX = e.clientX
+		const startWidth = width
+		const onMove = (ev: MouseEvent) => {
+			setWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + ev.clientX - startX)))
+		}
+		const onUp = () => {
+			setResizing(false)
+			window.removeEventListener('mousemove', onMove)
+			window.removeEventListener('mouseup', onUp)
+		}
+		window.addEventListener('mousemove', onMove)
+		window.addEventListener('mouseup', onUp)
 	}
 
 	const handleLogout = () => {
@@ -217,8 +286,18 @@ function AppLayout() {
 
 	return (
 		<div className="flex h-screen bg-bg text-text relative">
+			{/* Tablet drawer backdrop — tap to dismiss the floating sidebar. */}
+			{overlay && (
+				<button
+					type="button"
+					aria-label={t('nav.collapseSidebar')}
+					onClick={() => setMobileOpen(false)}
+					className="absolute inset-0 z-30 bg-black/40"
+				/>
+			)}
 			<aside
-				className={`${collapsed ? 'w-16' : 'w-64'} bg-surface border-r border-border flex flex-col transition-all duration-200 shrink-0`}
+				style={overlay ? { width: 256 } : collapsed ? undefined : { width }}
+				className={`${collapsed ? 'w-16' : ''} bg-surface border-r border-border flex flex-col ${resizing ? '' : 'transition-all duration-200'} shrink-0 ${overlay ? 'absolute top-0 left-0 h-full z-40 shadow-2xl' : 'relative'}`}
 			>
 				{/* Project selector / favicon */}
 				{collapsed ? (
@@ -231,11 +310,23 @@ function AppLayout() {
 					</div>
 				)}
 
-				{/* Collapse toggle — centered on sidebar edge */}
+				{/* Drag handle to resize the expanded sidebar (desktop only; the rail and
+				    the tablet drawer are fixed-width). */}
+				{!isNarrow && !manualCollapsed && (
+					<button
+						type="button"
+						aria-label={t('nav.resizeSidebar')}
+						onMouseDown={startResize}
+						className="absolute top-0 right-0 z-20 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-border-strong/50 active:bg-border-strong"
+					/>
+				)}
+
+				{/* Collapse toggle — centered on sidebar edge, tracks the current width */}
 				<button
 					type="button"
 					onClick={toggleSidebar}
-					className={`absolute top-1/2 -translate-y-1/2 z-10 w-6 h-6 rounded-md bg-surface border border-border shadow-sm flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt transition-colors ${collapsed ? 'left-[47px]' : 'left-[243px]'}`}
+					style={{ left: (collapsed ? 64 : overlay ? 256 : width) - 13 }}
+					className="absolute top-1/2 -translate-y-1/2 z-30 w-6 h-6 rounded-md bg-surface border border-border shadow-sm flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-alt transition-colors"
 					title={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
 				>
 					<svg

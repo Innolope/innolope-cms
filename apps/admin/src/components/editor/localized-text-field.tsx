@@ -1,28 +1,5 @@
-import { useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-
-/**
- * Auto-grow a textarea to fit its content, up to a CSS-imposed `max-h`.
- *
- * Approach: each render, reset the height to `auto` (forces the browser to
- * recompute `scrollHeight` for the current content), then set the height to
- * that scrollHeight. CSS `max-h-*` clamps the visual height; the browser keeps
- * the textarea scrollable once content exceeds the cap.
- *
- * `useLayoutEffect` runs before paint so users don't see a one-frame flash
- * of the textarea at its default `rows` height before settling.
- */
-function useAutoSizeTextarea(value: string) {
-	const ref = useRef<HTMLTextAreaElement>(null)
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` triggers re-measurement when content changes; the effect doesn't read it directly but it's the right trigger.
-	useLayoutEffect(() => {
-		const el = ref.current
-		if (!el) return
-		el.style.height = 'auto'
-		el.style.height = `${el.scrollHeight}px`
-	}, [value])
-	return ref
-}
+import { useAutoSizeTextarea } from '../../lib/use-autosize-textarea'
 
 interface LocalizedTextFieldProps {
 	value: unknown

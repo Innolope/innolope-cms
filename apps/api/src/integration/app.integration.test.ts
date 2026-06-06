@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildTestApp, hasTestDb } from '../test/harness.js'
 
-// Skipped unless TEST_DATABASE_URL points at a migrated Postgres (CI service).
+// Skipped unless TEST_DATABASE_URL points at a Postgres (CI service). The schema
+// is created on boot by ensureTables() — no migration step required.
 // This is the seed for HTTP-level integration coverage — extend it with the
 // content CRUD, auth, and multi-DB adapter critical paths.
 describe.skipIf(!hasTestDb)('API integration (real Postgres)', () => {
