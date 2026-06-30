@@ -34,7 +34,7 @@
 		"fast-xml-parser": "^4.5.6",
 		"fastify": "^5.8.5",
 		"fastify-plugin": "^5.1.0",
-		"firebase-admin": "^13.10.0",
+		"firebase-admin": "^14.1.0",
 		"image-size": "^2.0.2",
 		"isomorphic-dompurify": "^3.15.0",
 		"jose": "^6.2.3",
