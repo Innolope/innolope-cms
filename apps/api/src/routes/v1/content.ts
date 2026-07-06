@@ -2,8 +2,10 @@ import { contentInputSchema, contentListSchema } from '@innolope/config'
 import { collections, content, contentAnalytics, contentVersions, media } from '@innolope/db'
 import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { marked } from 'marked'
-import { checkCollectionAccess, loadMemberCollectionAccess } from '../../lib/collection-access.js'
+import {
+	checkCollectionAccess,
+	resolveReadableCollectionScope,
+} from '../../lib/collection-access.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -17,7 +19,7 @@ import {
 	httpError,
 	hydrateRelations,
 	insertIntoExternalDb,
-	sanitizeHtml,
+	renderMarkdown,
 	syncExternalStatus,
 	updateExternalDb,
 } from '../../services/external-content.js'
@@ -88,21 +90,15 @@ export async function contentRoutes(app: FastifyInstance) {
 		const conditions = [eq(content.projectId, pid)]
 		if (status) conditions.push(eq(content.status, status))
 		if (collectionId) conditions.push(eq(content.collectionId, collectionId))
-		// When the caller has no specific collectionId filter and is a restricted
-		// editor/viewer, narrow the list to only their allowed collections so they
-		// don't see content from collections they cannot access.
-		if (
-			!collectionId &&
-			request.projectRole !== 'owner' &&
-			request.projectRole !== 'admin' &&
-			request.membershipId
-		) {
-			const access = await loadMemberCollectionAccess(app.db, request.membershipId)
-			if (!access.unrestricted) {
-				if (access.allowedIds.size === 0) {
+		// When the caller has no specific collectionId filter, narrow the list to
+		// the collections they may read (single source of truth for read scoping).
+		if (!collectionId) {
+			const scope = await resolveReadableCollectionScope(request)
+			if (scope.scoped) {
+				if (scope.allowedIds.length === 0) {
 					return { data: [], pagination: { page, limit, total: 0, totalPages: 0 } }
 				}
-				conditions.push(inArray(content.collectionId, Array.from(access.allowedIds)))
+				conditions.push(inArray(content.collectionId, scope.allowedIds))
 			}
 		}
 		if (locale) conditions.push(eq(content.locale, locale))
@@ -333,6 +329,13 @@ export async function contentRoutes(app: FastifyInstance) {
 			if (!item && request.query.collectionId) {
 				try {
 					const collectionId = request.query.collectionId
+					// Gate the live read the same way the cached path is gated below —
+					// otherwise a restricted member could read an out-of-scope external
+					// collection by falling through to the live fallback.
+					const liveAccess = await checkCollectionAccess(request, collectionId, 'read')
+					if (!liveAccess.ok) {
+						return reply.status(liveAccess.status).send({ error: liveAccess.error })
+					}
 					const live = await fetchLiveExternalRecord(
 						app,
 						getProject(request).id,
@@ -386,7 +389,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		const input = contentInputSchema.parse(request.body)
 		const writeAccess = await checkCollectionAccess(request, input.collectionId, 'write')
 		if (!writeAccess.ok) return reply.status(writeAccess.status).send({ error: writeAccess.error })
-		const html = sanitizeHtml(await marked(input.markdown))
+		const html = await renderMarkdown(input.markdown)
 		const [col] = await app.db
 			.select()
 			.from(collections)
@@ -466,6 +469,11 @@ export async function contentRoutes(app: FastifyInstance) {
 					},
 				)
 			}
+			// A slug that raced past the pre-check collides on the unique index
+			// (Postgres 23505). Surface the intended 409 instead of a generic 500.
+			if ((err as { cause?: { code?: string } })?.cause?.code === '23505') {
+				return reply.status(409).send({ error: 'Content with this slug and locale already exists' })
+			}
 			throw err
 		}
 
@@ -515,6 +523,19 @@ export async function contentRoutes(app: FastifyInstance) {
 			}
 		}
 
+		// Prefetch every referenced collection in one query instead of one per item.
+		const createColIds = [...new Set(items.map((i) => i.collectionId))]
+		const createCols = await app.db
+			.select()
+			.from(collections)
+			.where(
+				and(
+					inArray(collections.id, createColIds),
+					eq(collections.projectId, getProject(request).id),
+				),
+			)
+		const createColMap = new Map(createCols.map((c) => [c.id, c]))
+
 		const insertedExternalRows: Array<{
 			col: typeof collections.$inferSelect
 			externalId: string
@@ -524,17 +545,8 @@ export async function contentRoutes(app: FastifyInstance) {
 			created = await app.db.transaction(async (tx) => {
 				const results = []
 				for (const item of items) {
-					const html = sanitizeHtml(await marked(item.markdown))
-					const [col] = await tx
-						.select()
-						.from(collections)
-						.where(
-							and(
-								eq(collections.id, item.collectionId),
-								eq(collections.projectId, getProject(request).id),
-							),
-						)
-						.limit(1)
+					const html = await renderMarkdown(item.markdown)
+					const col = createColMap.get(item.collectionId)
 
 					if (!col) throw httpError(`Collection not found: ${item.collectionId}`, 400)
 					if (col.source === 'external' && col.accessMode === 'read-only') {
@@ -648,12 +660,31 @@ export async function contentRoutes(app: FastifyInstance) {
 		const updated = await app.db.transaction(async (tx) => {
 			const results = []
 			const accessChecked = new Set<string>()
+
+			// Prefetch the target rows and their collections in two queries rather
+			// than two per item.
+			const updateIds = [...new Set(items.map((i) => i.id))]
+			const currentRows = await tx
+				.select()
+				.from(content)
+				.where(and(inArray(content.id, updateIds), eq(content.projectId, getProject(request).id)))
+			const currentMap = new Map(currentRows.map((r) => [r.id, r]))
+			const updateColIds = [...new Set(currentRows.map((r) => r.collectionId))]
+			const updateCols = updateColIds.length
+				? await tx
+						.select()
+						.from(collections)
+						.where(
+							and(
+								inArray(collections.id, updateColIds),
+								eq(collections.projectId, getProject(request).id),
+							),
+						)
+				: []
+			const updateColMap = new Map(updateCols.map((c) => [c.id, c]))
+
 			for (const item of items) {
-				const [current] = await tx
-					.select()
-					.from(content)
-					.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
-					.limit(1)
+				const current = currentMap.get(item.id)
 				if (!current) throw httpError(`Content not found: ${item.id}`, 404)
 				if (!accessChecked.has(current.collectionId)) {
 					accessChecked.add(current.collectionId)
@@ -661,16 +692,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					if (!access.ok) throw httpError(access.error, access.status)
 				}
 
-				const [col] = await tx
-					.select()
-					.from(collections)
-					.where(
-						and(
-							eq(collections.id, current.collectionId),
-							eq(collections.projectId, getProject(request).id),
-						),
-					)
-					.limit(1)
+				const col = updateColMap.get(current.collectionId)
 
 				let externalId = current.externalId
 				if (col?.source === 'external' && col.accessMode === 'read-only') {
@@ -711,7 +733,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					createdBy: getUser(request).id,
 				})
 
-				const html = item.markdown ? sanitizeHtml(await marked(item.markdown)) : undefined
+				const html = item.markdown ? await renderMarkdown(item.markdown) : undefined
 				const [result] = await tx
 					.update(content)
 					.set({
@@ -746,47 +768,69 @@ export async function contentRoutes(app: FastifyInstance) {
 	})
 
 	// Query content by metadata fields (viewer+, project-scoped)
-	app.post('/query-by-fields', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const {
-			collectionId,
-			filters,
-			page = 1,
-			limit = 25,
-		} = request.body as {
-			collectionId: string
-			filters: Record<string, unknown>
-			page?: number
-			limit?: number
-		}
+	app.post(
+		'/query-by-fields',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+			const {
+				collectionId,
+				filters,
+				page = 1,
+				limit = 25,
+			} = request.body as {
+				collectionId: string
+				filters: Record<string, unknown>
+				page?: number
+				limit?: number
+			}
 
-		const conditions = [eq(content.projectId, getProject(request).id)]
-		if (collectionId) conditions.push(eq(content.collectionId, collectionId))
+			const conditions = [eq(content.projectId, getProject(request).id)]
+			if (collectionId) {
+				// A specific collection was requested — gate it exactly like GET /:id does.
+				const access = await checkCollectionAccess(request, collectionId, 'read')
+				if (!access.ok) return reply.status(access.status).send({ error: access.error })
+				conditions.push(eq(content.collectionId, collectionId))
+			} else {
+				// No collection filter: narrow to the collections this member may read.
+				const scope = await resolveReadableCollectionScope(request)
+				if (scope.scoped) {
+					if (scope.allowedIds.length === 0) {
+						return { data: [], pagination: { page: Number(page), limit: Number(limit), total: 0 } }
+					}
+					conditions.push(inArray(content.collectionId, scope.allowedIds))
+				}
+			}
 
-		// Add JSONB field filters (field names validated to prevent injection)
-		for (const [field, value] of Object.entries(filters || {})) {
-			if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) continue
-			conditions.push(sql`${content.metadata}->>${sql.raw(`'${field}'`)} = ${String(value)}`)
-		}
+			// Add JSONB field filters (field names validated to prevent injection)
+			for (const [field, value] of Object.entries(filters || {})) {
+				if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) continue
+				conditions.push(sql`${content.metadata}->>${sql.raw(`'${field}'`)} = ${String(value)}`)
+			}
 
-		const where = and(...conditions)
-		const offset = (Number(page) - 1) * Number(limit)
+			const where = and(...conditions)
+			const offset = (Number(page) - 1) * Number(limit)
 
-		const [items, countResult] = await Promise.all([
-			app.db
-				.select()
-				.from(content)
-				.where(where)
-				.orderBy(desc(content.updatedAt))
-				.limit(Number(limit))
-				.offset(offset),
-			app.db.select({ count: sql<number>`count(*)` }).from(content).where(where),
-		])
+			const [items, countResult] = await Promise.all([
+				app.db
+					.select()
+					.from(content)
+					.where(where)
+					.orderBy(desc(content.updatedAt))
+					.limit(Number(limit))
+					.offset(offset),
+				app.db.select({ count: sql<number>`count(*)` }).from(content).where(where),
+			])
 
-		return {
-			data: items,
-			pagination: { page: Number(page), limit: Number(limit), total: Number(countResult[0].count) },
-		}
-	})
+			return {
+				data: items,
+				pagination: {
+					page: Number(page),
+					limit: Number(limit),
+					total: Number(countResult[0].count),
+				},
+			}
+		},
+	)
 
 	// Update content (editor+, project-scoped)
 	app.put<{ Params: { id: string } }>(
@@ -872,7 +916,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				createdBy: getUser(request).id,
 			})
 
-			const html = input.markdown ? sanitizeHtml(await marked(input.markdown)) : undefined
+			const html = input.markdown ? await renderMarkdown(input.markdown) : undefined
 			const newVersion = current.version + 1
 
 			const [updated] = await app.db
@@ -966,7 +1010,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				metadata: current.metadata,
 			})
 
-			const html = sanitizeHtml(await marked(version.markdown))
+			const html = await renderMarkdown(version.markdown)
 			const [reverted] = await app.db
 				.update(content)
 				.set({
@@ -1003,13 +1047,18 @@ export async function contentRoutes(app: FastifyInstance) {
 		async (request, reply) => {
 			// Verify content belongs to this project before returning versions
 			const [item] = await app.db
-				.select({ id: content.id })
+				.select({ id: content.id, collectionId: content.collectionId })
 				.from(content)
 				.where(
 					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
 				)
 				.limit(1)
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
+
+			// Restricted members must not read version history of collections they
+			// cannot access — same gate as GET /:id.
+			const access = await checkCollectionAccess(request, item.collectionId, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 
 			return app.db
 				.select()

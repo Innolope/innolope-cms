@@ -3,6 +3,26 @@ import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { AiProviderConfig } from './ai.js'
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Run `fn`, retrying up to `attempts` times with exponential backoff. Used by the
+ * auto-embed subscriber so a transient embedding-provider failure (rate limit,
+ * network blip) doesn't silently drop a document's vector until its next edit.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseDelayMs = 1000): Promise<T> {
+	let lastErr: unknown
+	for (let i = 0; i < attempts; i++) {
+		try {
+			return await fn()
+		} catch (err) {
+			lastErr = err
+			if (i < attempts - 1) await sleep(baseDelayMs * 2 ** i)
+		}
+	}
+	throw lastErr
+}
+
 export function chunkText(text: string, maxChunkSize = 500): string[] {
 	if (!text || text.length === 0) return []
 
@@ -130,10 +150,10 @@ export function initAutoEmbedding(app: FastifyInstance) {
 
 			if (!item) return
 
-			// Embed asynchronously
-			await embedContent(app, contentId, item.markdown, providers, cloudMode)
+			// Embed asynchronously, retrying transient provider failures with backoff.
+			await withRetry(() => embedContent(app, contentId, item.markdown, providers, cloudMode))
 		} catch (err) {
-			app.log.warn(err, `Auto-embed failed for content ${contentId}`)
+			app.log.warn(err, `Auto-embed failed for content ${contentId} after retries`)
 		}
 	})
 

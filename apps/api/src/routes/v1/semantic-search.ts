@@ -1,7 +1,11 @@
 import { aiSettings, content, contentAnalytics } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import {
+	checkCollectionAccess,
+	resolveReadableCollectionScope,
+} from '../../lib/collection-access.js'
 import { getProject } from '../../plugins/project.js'
 import type { AiProviderConfig } from '../../services/ai.js'
 import { generateEmbeddings } from '../../services/embedding.js'
@@ -21,6 +25,21 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 		async (request, reply) => {
 			const params = semanticSearchSchema.parse(request.body)
 			const pid = getProject(request).id
+
+			// Enforce per-member collection access: a specific collection is gated
+			// directly; an unscoped search is narrowed to the member's readable set so
+			// results never leak content from collections they cannot access.
+			let allowedCollectionIds: string[] | null = null
+			if (params.collectionId) {
+				const access = await checkCollectionAccess(request, params.collectionId, 'read')
+				if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			} else {
+				const scope = await resolveReadableCollectionScope(request)
+				if (scope.scoped) {
+					if (scope.allowedIds.length === 0) return { data: [], query: params.query }
+					allowedCollectionIds = scope.allowedIds
+				}
+			}
 
 			// Get OpenAI API key for embedding the query
 			const [aiConfig] = await app.db
@@ -45,10 +64,13 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 			const [queryEmbedding] = await generateEmbeddings([params.query], apiKey)
 			const vectorStr = `[${queryEmbedding.join(',')}]`
 
-			// Build collection filter
+			// Build collection filter: a specific collection, or the member's readable
+			// allowlist when scoped, or nothing (owner/admin/unrestricted).
 			const collectionFilter = params.collectionId
 				? sql`AND c."collectionId" = ${params.collectionId}`
-				: sql``
+				: allowedCollectionIds
+					? sql`AND c."collectionId" = ANY(${allowedCollectionIds})`
+					: sql``
 
 			// Vector similarity search
 			const vectorResults = (await app.db.execute(sql`
@@ -102,6 +124,8 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 				]
 				if (params.collectionId)
 					keywordConditions.push(eq(content.collectionId, params.collectionId))
+				else if (allowedCollectionIds)
+					keywordConditions.push(inArray(content.collectionId, allowedCollectionIds))
 
 				const keywordResults = await app.db
 					.select({

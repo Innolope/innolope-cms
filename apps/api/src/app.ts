@@ -302,19 +302,12 @@ export async function buildApp() {
 				app.log.error(e)
 			}
 		}
+		// Never surface raw Postgres error text (message/detail/hint/schema) to the
+		// client — it's captured in the server log and Sentry above. Clients get a
+		// generic 5xx; 4xx keep their own (already client-safe) message.
 		reply.status(statusCode).send({
 			error: statusCode >= 500 ? 'Internal server error' : error.message,
 			statusCode,
-			...(statusCode >= 500 && pgCause?.message
-				? {
-						cause: {
-							message: pgCause.message,
-							...(pgCause.code && { code: pgCause.code }),
-							...(pgCause.detail && { detail: pgCause.detail }),
-							...(pgCause.hint && { hint: pgCause.hint }),
-						},
-					}
-				: {}),
 		})
 	})
 

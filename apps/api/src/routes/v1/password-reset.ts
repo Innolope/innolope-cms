@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { users } from '@innolope/db'
 import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { hashPassword, validatePasswordComplexity } from '../../plugins/auth.js'
+import { hashPassword, normalizeEmail, validatePasswordComplexity } from '../../plugins/auth.js'
 import { passwordResetEmail } from '../../services/email.js'
 
 export async function passwordResetRoutes(app: FastifyInstance) {
@@ -14,9 +14,16 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 		{ config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } },
 		async (request, _reply) => {
 			const { email } = request.body as { email: string }
+			if (!email?.trim()) {
+				return { message: 'If that email exists, a reset link has been sent.' }
+			}
 
 			// Always return success (don't leak whether email exists)
-			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
+			const [user] = await app.db
+				.select()
+				.from(users)
+				.where(eq(users.email, normalizeEmail(email)))
+				.limit(1)
 
 			if (!user) {
 				return { message: 'If that email exists, a reset link has been sent.' }
@@ -64,12 +71,16 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 
 			const tokenHash = createHash('sha256').update(token).digest('hex')
 
-			// Find valid token
-			const result = await app.db.execute(
-				sql`SELECT id, "userId" FROM password_reset_tokens WHERE "tokenHash" = ${tokenHash} AND used = false AND "expiresAt" > now() LIMIT 1`,
+			// Atomically claim the token: the UPDATE ... RETURNING only succeeds for a
+			// row that is still unused and unexpired, so two concurrent requests can't
+			// both consume the same token (the second gets zero rows).
+			const claimed = await app.db.execute(
+				sql`UPDATE password_reset_tokens SET used = true
+					WHERE "tokenHash" = ${tokenHash} AND used = false AND "expiresAt" > now()
+					RETURNING "userId"`,
 			)
 
-			const row = (result as unknown as { id: string; userId: string }[])[0]
+			const row = (claimed as unknown as { userId: string }[])[0]
 			if (!row) {
 				return reply.status(400).send({ error: 'Invalid or expired reset token.' })
 			}
@@ -80,9 +91,6 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 				.update(users)
 				.set({ passwordHash, updatedAt: new Date() })
 				.where(eq(users.id, row.userId))
-
-			// Mark token as used
-			await app.db.execute(sql`UPDATE password_reset_tokens SET used = true WHERE id = ${row.id}`)
 
 			return { message: 'Password updated. You can now log in.' }
 		},

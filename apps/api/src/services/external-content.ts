@@ -2,6 +2,7 @@ import { collections, importJobs, projects } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
+import { marked } from 'marked'
 import { createExternalDbAdapter, type ExternalDocument } from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
@@ -9,6 +10,16 @@ import { externalDocToContentItem } from './markdown-cache.js'
 
 export function sanitizeHtml(html: string): string {
 	return DOMPurify.sanitize(html)
+}
+
+/**
+ * Single markdown→HTML pipeline for stored content. Every write path must go
+ * through this so the parse + sanitize configuration can never diverge between
+ * create, update, bulk, and version-restore (a divergence would be a stored-XSS
+ * vector). Returns sanitized HTML.
+ */
+export async function renderMarkdown(markdown: string): Promise<string> {
+	return sanitizeHtml(await marked(markdown))
 }
 
 type ExternalDbConfig = {

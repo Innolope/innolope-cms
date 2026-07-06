@@ -2,7 +2,11 @@ import { createHmac, randomBytes } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { validatePublicUrl } from '../adapters/connection-guard.js'
 import { getProject } from '../plugins/project.js'
+
+/** Minimum entropy (hex chars) for a caller-supplied webhook signing secret. */
+const MIN_WEBHOOK_SECRET_LENGTH = 32
 
 export async function webhookRoutes(app: FastifyInstance) {
 	// List webhooks (admin+, project-scoped, requires license)
@@ -33,6 +37,14 @@ export async function webhookRoutes(app: FastifyInstance) {
 
 			if (!url) return reply.status(400).send({ error: 'URL is required' })
 
+			const urlError = await validatePublicUrl(url)
+			if (urlError) return reply.status(400).send({ error: urlError })
+
+			if (secret !== undefined && secret.length < MIN_WEBHOOK_SECRET_LENGTH) {
+				return reply.status(400).send({
+					error: `Webhook secret must be at least ${MIN_WEBHOOK_SECRET_LENGTH} characters.`,
+				})
+			}
 			const webhookSecret = secret || randomBytes(32).toString('hex')
 
 			const [created] = await app.db
@@ -60,6 +72,11 @@ export async function webhookRoutes(app: FastifyInstance) {
 				url?: string
 				events?: string[]
 				active?: boolean
+			}
+
+			if (url !== undefined) {
+				const urlError = await validatePublicUrl(url)
+				if (urlError) return reply.status(400).send({ error: urlError })
 			}
 
 			const [updated] = await app.db
@@ -151,6 +168,11 @@ export async function webhookRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!webhook) return reply.status(404).send({ error: 'Webhook not found' })
+
+			// Re-validate at send time: a hostname that was public at create time can
+			// later resolve to a private address (DNS rebind).
+			const urlError = await validatePublicUrl(webhook.url)
+			if (urlError) return reply.status(400).send({ error: urlError })
 
 			const payload = {
 				type: 'webhook:test',

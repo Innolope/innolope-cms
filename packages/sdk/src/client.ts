@@ -1,3 +1,4 @@
+import { httpRequest } from './http.js'
 import type {
 	Collection,
 	Content,
@@ -25,25 +26,7 @@ export class InnolopeCMS {
 	}
 
 	private async request<T>(path: string, options?: RequestInit): Promise<T> {
-		const headers: Record<string, string> = {
-			'Content-Type': 'application/json',
-		}
-		if (this.apiKey) {
-			headers.Authorization = `Bearer ${this.apiKey}`
-		}
-
-		const response = await fetch(`${this.baseUrl}${path}`, {
-			headers: { ...headers, ...options?.headers },
-			...options,
-		})
-
-		if (!response.ok) {
-			const err = await response.json().catch(() => ({ error: response.statusText }))
-			throw new Error(`Innolope API ${response.status}: ${(err as { error: string }).error}`)
-		}
-
-		if (response.status === 204) return undefined as T
-		return response.json() as Promise<T>
+		return httpRequest<T>(this.baseUrl, path, { ...options, apiKey: this.apiKey })
 	}
 
 	// Content

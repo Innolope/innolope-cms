@@ -7,6 +7,7 @@ import {
 	getUser,
 	hashApiKey,
 	hashPassword,
+	normalizeEmail,
 	revokeAllUserRefreshTokens,
 	revokeRefreshTokenFamily,
 	rotateRefreshToken,
@@ -79,7 +80,7 @@ export async function authRoutes(app: FastifyInstance) {
 		const passwordHash = await hashPassword(password)
 		const [user] = await app.db
 			.insert(users)
-			.values({ email, name, passwordHash, role: 'admin' })
+			.values({ email: normalizeEmail(email), name, passwordHash, role: 'admin' })
 			.returning()
 
 		await setAuthCookies(reply, app.db, user)
@@ -105,7 +106,11 @@ export async function authRoutes(app: FastifyInstance) {
 			if (!email?.trim() || !password)
 				return reply.status(400).send({ error: 'Email and password are required.' })
 
-			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
+			const [user] = await app.db
+				.select()
+				.from(users)
+				.where(eq(users.email, normalizeEmail(email)))
+				.limit(1)
 			if (!user?.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
 				return reply.status(401).send({ error: 'Invalid credentials' })
 			}
@@ -173,11 +178,12 @@ export async function authRoutes(app: FastifyInstance) {
 			return reply.status(400).send({ error: 'Unsupported UI locale' })
 		}
 
-		if (email && email !== getUser(request).email) {
+		const normalizedEmail = email ? normalizeEmail(email) : undefined
+		if (normalizedEmail && normalizedEmail !== getUser(request).email) {
 			const [existing] = await app.db
 				.select({ id: users.id })
 				.from(users)
-				.where(eq(users.email, email))
+				.where(eq(users.email, normalizedEmail))
 				.limit(1)
 			if (existing && existing.id !== getUser(request).id) {
 				return reply.status(409).send({ error: 'Email already in use' })
@@ -186,7 +192,7 @@ export async function authRoutes(app: FastifyInstance) {
 
 		const updates: Record<string, unknown> = { updatedAt: new Date() }
 		if (name) updates.name = name.trim()
-		if (email) updates.email = email.trim().toLowerCase()
+		if (normalizedEmail) updates.email = normalizedEmail
 		if (uiLocale !== undefined) updates.uiLocale = uiLocale
 
 		const [updated] = await app.db
