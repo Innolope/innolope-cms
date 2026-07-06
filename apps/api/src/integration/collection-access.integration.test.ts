@@ -88,13 +88,23 @@ describe.skipIf(!hasTestDb)('collection access boundary (real Postgres)', () => 
 		await app?.close()
 	})
 
-	const headers = () => ({ authorization: authHeader, 'x-project-id': projectId })
+	// Double-submit CSRF token: the app rejects non-GET requests unless the
+	// innolope_csrf cookie matches the x-csrf-token header. Any matching pair
+	// satisfies it, so POST tests must send both to reach the access logic.
+	const CSRF = 'test-csrf-token'
+	const headers = () => ({
+		authorization: authHeader,
+		'x-project-id': projectId,
+		'x-csrf-token': CSRF,
+	})
+	const csrfCookies = { innolope_csrf: CSRF }
 
 	it('denies query-by-fields for an out-of-scope collection', async () => {
 		const res = await app.inject({
 			method: 'POST',
 			url: '/api/v1/content/query-by-fields',
 			headers: headers(),
+			cookies: csrfCookies,
 			payload: { collectionId: collB, filters: {} },
 		})
 		expect(res.statusCode).toBe(403)
@@ -105,6 +115,7 @@ describe.skipIf(!hasTestDb)('collection access boundary (real Postgres)', () => 
 			method: 'POST',
 			url: '/api/v1/content/query-by-fields',
 			headers: headers(),
+			cookies: csrfCookies,
 			payload: { filters: {} },
 		})
 		expect(res.statusCode).toBe(200)
@@ -145,6 +156,7 @@ describe.skipIf(!hasTestDb)('collection access boundary (real Postgres)', () => 
 			method: 'POST',
 			url: '/api/v1/content/query-by-fields',
 			headers: headers(),
+			cookies: csrfCookies,
 			payload: { collectionId: collA, filters: {} },
 		})
 		expect(res.statusCode).toBe(200)
