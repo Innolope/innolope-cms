@@ -1,3 +1,5 @@
+import { httpRequest } from '@innolope/sdk'
+
 export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
@@ -10,27 +12,12 @@ export class InnolopeClient {
 	}
 
 	private async request<T>(path: string, options?: RequestInit): Promise<T> {
-		const headers: Record<string, string> = {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${this.apiKey}`,
-		}
-		// API key is already project-scoped, but explicit header is a fallback
-		if (this.projectId) {
-			headers['X-Project-Id'] = this.projectId
-		}
-
-		const response = await fetch(`${this.baseUrl}${path}`, {
-			headers: { ...headers, ...options?.headers },
+		// API key is already project-scoped, but explicit header is a fallback.
+		return httpRequest<T>(this.baseUrl, path, {
 			...options,
+			apiKey: this.apiKey,
+			projectId: this.projectId,
 		})
-
-		if (!response.ok) {
-			const err = await response.json().catch(() => ({ error: response.statusText }))
-			throw new Error(`API error ${response.status}: ${(err as { error: string }).error}`)
-		}
-
-		if (response.status === 204) return undefined as T
-		return response.json() as Promise<T>
 	}
 
 	async listCollections() {
@@ -193,19 +180,11 @@ export class InnolopeClient {
 		}
 		const qs = query.toString()
 		// Return raw text (JSONL)
-		const headers: Record<string, string> = {
-			Authorization: `Bearer ${this.apiKey}`,
-		}
-		if (this.projectId) headers['X-Project-Id'] = this.projectId
-
-		const response = await fetch(`${this.baseUrl}/api/v1/content/export${qs ? `?${qs}` : ''}`, {
-			headers,
+		return httpRequest<string>(this.baseUrl, `/api/v1/content/export${qs ? `?${qs}` : ''}`, {
+			apiKey: this.apiKey,
+			projectId: this.projectId,
+			raw: true,
 		})
-		if (!response.ok) {
-			const err = await response.json().catch(() => ({ error: response.statusText }))
-			throw new Error(`API error ${response.status}: ${(err as { error: string }).error}`)
-		}
-		return response.text()
 	}
 
 	async trackAnalytics(data: {

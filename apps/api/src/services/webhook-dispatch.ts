@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
 import { and, eq, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { validatePublicUrl } from '../adapters/connection-guard.js'
 
 export function initWebhookDispatcher(app: FastifyInstance) {
 	if (!app.db) return
@@ -70,6 +71,23 @@ async function dispatchDelivery(
 ) {
 	const body = JSON.stringify(delivery.payload)
 	const signature = createHmac('sha256', webhook.secret).update(body).digest('hex')
+
+	// SSRF guard at send time — the stored URL may resolve to a private address now
+	// even if it was public when created (DNS rebind). Mark the delivery failed
+	// without retry rather than firing the request.
+	const urlError = await validatePublicUrl(webhook.url)
+	if (urlError) {
+		await app.db
+			.update(webhookDeliveries)
+			.set({
+				status: 'failed',
+				attempts: delivery.attempts + 1,
+				responseBody: urlError,
+				nextRetry: null,
+			})
+			.where(eq(webhookDeliveries.id, delivery.id))
+		return
+	}
 
 	try {
 		const response = await fetch(webhook.url, {

@@ -279,6 +279,9 @@ importers:
       '@innolope/config':
         specifier: workspace:*
         version: link:../config
+      '@innolope/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)

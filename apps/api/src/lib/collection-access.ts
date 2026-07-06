@@ -108,6 +108,41 @@ export async function loadReferencedCollectionIds(
 }
 
 /**
+ * Resolve the set of collection ids the current member may READ across a whole
+ * project, for list/search/export endpoints that don't target one collection.
+ *
+ * Returns `{ scoped: false }` when the caller sees everything (owner/admin, or an
+ * unrestricted member), and `{ scoped: true, allowedIds }` otherwise — where
+ * `allowedIds` already folds in relation targets reachable from in-scope
+ * collections (read access flows transitively, matching `checkCollectionAccess`).
+ * An empty `allowedIds` means "no collections" and callers should return nothing.
+ *
+ * This is the single source of truth for multi-collection read scoping. Any list
+ * endpoint that filters content by project MUST apply it, or it leaks other
+ * collections' rows to a restricted member.
+ */
+export async function resolveReadableCollectionScope(
+	request: FastifyRequest,
+): Promise<{ scoped: false } | { scoped: true; allowedIds: string[] }> {
+	const role = request.projectRole
+	const membershipId = request.membershipId
+	const projectId = request.project?.id
+	if (!role || !membershipId || !projectId) {
+		// No context resolved — fail closed to nothing rather than everything.
+		return { scoped: true, allowedIds: [] }
+	}
+	if (role === 'owner' || role === 'admin') return { scoped: false }
+
+	const db = request.server.db
+	const access = await loadMemberCollectionAccess(db, membershipId)
+	if (access.unrestricted) return { scoped: false }
+
+	const referenced = await loadReferencedCollectionIds(db, projectId, access.allowedIds)
+	const allowedIds = new Set([...access.allowedIds, ...referenced])
+	return { scoped: true, allowedIds: [...allowedIds] }
+}
+
+/**
  * Gate access to a specific collection for the current authenticated member.
  *
  * - Owner/admin always pass.

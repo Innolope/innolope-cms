@@ -1,7 +1,11 @@
 import { content } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import {
+	checkCollectionAccess,
+	resolveReadableCollectionScope,
+} from '../../lib/collection-access.js'
 import { getProject } from '../../plugins/project.js'
 
 const exportQuerySchema = z.object({
@@ -19,7 +23,23 @@ export async function exportRoutes(app: FastifyInstance) {
 		const params = exportQuerySchema.parse(request.query)
 
 		const conditions = [eq(content.projectId, getProject(request).id)]
-		if (params.collectionId) conditions.push(eq(content.collectionId, params.collectionId))
+		if (params.collectionId) {
+			// Exporting one collection — gate it like the content read paths do.
+			const access = await checkCollectionAccess(request, params.collectionId, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			conditions.push(eq(content.collectionId, params.collectionId))
+		} else {
+			// Whole-project export — restrict a scoped member to their readable set,
+			// otherwise export would leak every collection's content.
+			const scope = await resolveReadableCollectionScope(request)
+			if (scope.scoped) {
+				if (scope.allowedIds.length === 0) {
+					reply.header('Content-Type', 'application/x-ndjson')
+					return ''
+				}
+				conditions.push(inArray(content.collectionId, scope.allowedIds))
+			}
+		}
 		if (params.status) conditions.push(eq(content.status, params.status))
 		if (params.locale) conditions.push(eq(content.locale, params.locale))
 		if (params.startDate) conditions.push(sql`${content.createdAt} >= ${params.startDate}`)

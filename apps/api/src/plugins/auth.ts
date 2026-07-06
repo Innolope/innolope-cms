@@ -61,6 +61,15 @@ export function hashApiKey(key: string): string {
 	return createHash('sha256').update(key).digest('hex')
 }
 
+/**
+ * Canonical form of an email for storage and lookup. Emails are case-insensitive
+ * in practice, so we lowercase and trim to keep a single account per address and
+ * prevent case-mismatch login lockouts. Must be applied at every write and lookup.
+ */
+export function normalizeEmail(email: string): string {
+	return email.trim().toLowerCase()
+}
+
 /** Validate password complexity: 8+ chars, uppercase, lowercase, digit. */
 export function validatePasswordComplexity(password: string): string | null {
 	if (!password || password.length < 8) return 'Password must be at least 8 characters.'

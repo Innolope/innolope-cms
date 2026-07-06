@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { projectMemberCollections, projectMembers, users } from '@innolope/db'
 import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { getUser } from '../../plugins/auth.js'
+import { getUser, normalizeEmail } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import { teamInviteEmail } from '../../services/email.js'
 
@@ -12,7 +12,7 @@ export async function inviteRoutes(app: FastifyInstance) {
 	// Send invite (admin+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
 		const {
-			email,
+			email: rawEmail,
 			role = 'viewer',
 			collectionIds,
 			canPublishDirectly,
@@ -24,6 +24,9 @@ export async function inviteRoutes(app: FastifyInstance) {
 			// null/undefined ⇒ inherit project default; true/false ⇒ explicit override.
 			canPublishDirectly?: boolean | null
 		}
+
+		if (!rawEmail?.trim()) return reply.status(400).send({ error: 'Email is required.' })
+		const email = normalizeEmail(rawEmail)
 
 		// Check if user already exists and is already a member
 		const [existingUser] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
@@ -119,7 +122,8 @@ export async function inviteRoutes(app: FastifyInstance) {
 		const [user] = await app.db.select().from(users).where(eq(users.email, invite.email)).limit(1)
 
 		if (!user) {
-			// User needs to register first — return info so frontend can redirect
+			// User needs to register first — return info so frontend can redirect.
+			// Do NOT consume the invite yet, so it survives until the re-submit.
 			return reply.status(200).send({
 				action: 'register',
 				email: invite.email,
@@ -127,6 +131,18 @@ export async function inviteRoutes(app: FastifyInstance) {
 				message: 'Create an account to accept this invite.',
 				token, // pass back so frontend can re-submit after registration
 			})
+		}
+
+		// Atomically consume the invite before granting membership. The guarded
+		// UPDATE returns zero rows if another concurrent request already accepted it,
+		// making the token strictly single-use.
+		const consumed = await app.db.execute(
+			sql`UPDATE invites SET accepted = true
+				WHERE id = ${invite.id} AND accepted = false AND "expiresAt" > now()
+				RETURNING id`,
+		)
+		if ((consumed as unknown as { id: string }[]).length === 0) {
+			return reply.status(400).send({ error: 'Invalid or expired invite.' })
 		}
 
 		// Add as project member
@@ -164,9 +180,6 @@ export async function inviteRoutes(app: FastifyInstance) {
 				.values(invite.collectionIds.map((cid) => ({ memberId: membershipId, collectionId: cid })))
 				.onConflictDoNothing()
 		}
-
-		// Mark invite as accepted
-		await app.db.execute(sql`UPDATE invites SET accepted = true WHERE id = ${invite.id}`)
 
 		return { message: 'Invite accepted. You now have access to the project.' }
 	})

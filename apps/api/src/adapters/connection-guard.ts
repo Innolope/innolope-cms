@@ -1,38 +1,40 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
+/** Literal substrings that flag a private/internal target before DNS resolution. */
+const LITERAL_BLOCKED_PATTERNS = [
+	'localhost',
+	'127.0.0.1',
+	'::1',
+	'0.0.0.0',
+	'10.',
+	'172.16.',
+	'172.17.',
+	'172.18.',
+	'172.19.',
+	'172.20.',
+	'172.21.',
+	'172.22.',
+	'172.23.',
+	'172.24.',
+	'172.25.',
+	'172.26.',
+	'172.27.',
+	'172.28.',
+	'172.29.',
+	'172.30.',
+	'172.31.',
+	'192.168.',
+	'169.254.',
+	'.internal',
+	'.local',
+	'metadata.google',
+]
+
 /** Block connection strings targeting private/internal networks (SSRF protection). */
 export async function validateConnectionString(connStr: string): Promise<string | null> {
 	const lc = connStr.toLowerCase()
-	const blockedPatterns = [
-		'localhost',
-		'127.0.0.1',
-		'::1',
-		'0.0.0.0',
-		'10.',
-		'172.16.',
-		'172.17.',
-		'172.18.',
-		'172.19.',
-		'172.20.',
-		'172.21.',
-		'172.22.',
-		'172.23.',
-		'172.24.',
-		'172.25.',
-		'172.26.',
-		'172.27.',
-		'172.28.',
-		'172.29.',
-		'172.30.',
-		'172.31.',
-		'192.168.',
-		'169.254.',
-		'.internal',
-		'.local',
-		'metadata.google',
-	]
-	for (const pattern of blockedPatterns) {
+	for (const pattern of LITERAL_BLOCKED_PATTERNS) {
 		if (lc.includes(pattern)) {
 			return `Connection to private/internal addresses is not allowed (matched: ${pattern}).`
 		}
@@ -40,7 +42,43 @@ export async function validateConnectionString(connStr: string): Promise<string 
 
 	const hostname = extractHostname(connStr)
 	if (!hostname) return null
+	return resolveHostnameGuard(hostname, 'Connection')
+}
 
+/**
+ * Block outbound HTTP(S) requests to private/internal networks (SSRF protection)
+ * for user-supplied URLs — webhooks, external content fetches, etc. Mirrors the
+ * DB connection-string guard: literal-pattern screen, then DNS resolution so a
+ * public hostname that resolves to a private address is still rejected.
+ *
+ * Returns an error string if the URL must be blocked, or null if it is allowed.
+ */
+export async function validatePublicUrl(rawUrl: string): Promise<string | null> {
+	let parsed: URL
+	try {
+		parsed = new URL(rawUrl)
+	} catch {
+		return 'Invalid URL.'
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		return 'Only http and https URLs are allowed.'
+	}
+	const hostname = parsed.hostname.replace(/^\[|\]$/g, '')
+	if (!hostname) return 'Invalid URL host.'
+	const lc = hostname.toLowerCase()
+	for (const pattern of LITERAL_BLOCKED_PATTERNS) {
+		if (lc === pattern || lc.includes(pattern)) {
+			return `Requests to private/internal addresses are not allowed (matched: ${pattern}).`
+		}
+	}
+	return resolveHostnameGuard(hostname, 'Request')
+}
+
+/** Resolve a hostname and reject if any resolved address is private/internal. */
+async function resolveHostnameGuard(
+	hostname: string,
+	subject: 'Connection' | 'Request',
+): Promise<string | null> {
 	let addresses: string[]
 	if (isIP(hostname)) {
 		addresses = [hostname]
@@ -55,7 +93,7 @@ export async function validateConnectionString(connStr: string): Promise<string 
 
 	for (const address of addresses) {
 		if (isPrivateAddress(address)) {
-			return `Connection to private/internal addresses is not allowed (resolved: ${address}).`
+			return `${subject} to private/internal addresses is not allowed (resolved: ${address}).`
 		}
 	}
 	return null

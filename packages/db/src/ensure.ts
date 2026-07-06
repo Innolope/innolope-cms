@@ -460,6 +460,19 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS sso_auth_states_expires_idx ON sso_auth_states("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS sso_replay_cache_expires_idx ON sso_replay_cache("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS scim_tokens_conn_idx ON scim_tokens("connectionId")`
+
+		// Case-insensitive unique email. Guarded on its own so that a legacy database
+		// carrying case-variant duplicate emails (created before write-time
+		// normalization) logs a warning instead of aborting the whole DDL run. New
+		// writes normalize email to lowercase, so duplicates can't accumulate.
+		try {
+			await sql`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users(lower(email))`
+		} catch (err) {
+			console.warn(
+				'[ensure] Could not create users_email_lower_idx (likely pre-existing case-variant duplicate emails); resolve manually.',
+				err,
+			)
+		}
 	} finally {
 		await sql.end()
 	}

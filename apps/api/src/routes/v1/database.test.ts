@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	parseFirebaseCredentials,
 	validateConnectionString,
+	validatePublicUrl,
 } from '../../adapters/connection-guard.js'
 
 describe('validateConnectionString (SSRF blocklist)', () => {
@@ -22,6 +23,37 @@ describe('validateConnectionString (SSRF blocklist)', () => {
 			expect(result).toMatch(/not allowed/i)
 		})
 	}
+})
+
+describe('validatePublicUrl (webhook SSRF guard)', () => {
+	const blocked = [
+		'http://localhost/hook',
+		'http://127.0.0.1:6379/',
+		'http://169.254.169.254/latest/meta-data/',
+		'https://metadata.google.internal/computeMetadata/v1/',
+		'http://10.0.0.5/hook',
+		'http://192.168.1.10/hook',
+		'http://internal.local/hook',
+	]
+	for (const url of blocked) {
+		it(`rejects ${url}`, async () => {
+			const result = await validatePublicUrl(url)
+			expect(result).not.toBeNull()
+		})
+	}
+
+	it('rejects non-http(s) schemes', async () => {
+		expect(await validatePublicUrl('file:///etc/passwd')).toMatch(/http/i)
+		expect(await validatePublicUrl('gopher://127.0.0.1/')).not.toBeNull()
+	})
+
+	it('rejects malformed URLs', async () => {
+		expect(await validatePublicUrl('not a url')).not.toBeNull()
+	})
+
+	it('allows a normal public https URL', async () => {
+		expect(await validatePublicUrl('https://example.com/webhooks/incoming')).toBeNull()
+	})
 })
 
 describe('parseFirebaseCredentials', () => {

@@ -6,8 +6,9 @@ import {
 	media,
 	projectMembers,
 } from '@innolope/db'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { resolveReadableCollectionScope } from '../../lib/collection-access.js'
 import { getProject } from '../../plugins/project.js'
 
 export async function statsRoutes(app: FastifyInstance) {
@@ -159,18 +160,20 @@ export async function statsRoutes(app: FastifyInstance) {
 				.groupBy(contentAnalytics.source),
 		])
 
-		// Enrich top content with titles
+		// Enrich top content with titles. Restricted members must not learn the
+		// titles or even the existence/read-counts of content in collections they
+		// cannot access, so the lookup is scoped to their readable collections and
+		// out-of-scope rows are dropped from the result entirely.
+		const scope = await resolveReadableCollectionScope(request)
 		const contentIds = topContent.map((c) => c.contentId).filter(Boolean) as string[]
 		let contentMap: Record<string, string> = {}
-		if (contentIds.length > 0) {
+		if (contentIds.length > 0 && !(scope.scoped && scope.allowedIds.length === 0)) {
+			const idFilter = inArray(content.id, contentIds)
 			const items = await app.db
 				.select({ id: content.id, slug: content.slug, metadata: content.metadata })
 				.from(content)
 				.where(
-					sql`${content.id} IN (${sql.join(
-						contentIds.map((id) => sql`${id}`),
-						sql`, `,
-					)})`,
+					scope.scoped ? and(idFilter, inArray(content.collectionId, scope.allowedIds)) : idFilter,
 				)
 			contentMap = Object.fromEntries(
 				items.map((i) => [
@@ -181,11 +184,15 @@ export async function statsRoutes(app: FastifyInstance) {
 		}
 
 		return {
-			topContent: topContent.map((c) => ({
-				contentId: c.contentId,
-				title: c.contentId ? contentMap[c.contentId] || 'Unknown' : 'Deleted',
-				reads: Number(c.reads),
-			})),
+			// When scoped, only surface rows we could resolve within the readable
+			// set; unrestricted callers keep the "Deleted"/"Unknown" fallbacks.
+			topContent: topContent
+				.filter((c) => !scope.scoped || (c.contentId && contentMap[c.contentId]))
+				.map((c) => ({
+					contentId: c.contentId,
+					title: c.contentId ? contentMap[c.contentId] || 'Unknown' : 'Deleted',
+					reads: Number(c.reads),
+				})),
 			topQueries: topQueries.map((q) => ({
 				query: q.query,
 				total: Number(q.total),

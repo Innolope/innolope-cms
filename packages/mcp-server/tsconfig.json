@@ -7,5 +7,5 @@
 		"types": ["node"]
 	},
 	"include": ["src"],
-	"references": [{ "path": "../../packages/config" }]
+	"references": [{ "path": "../../packages/config" }, { "path": "../../packages/sdk" }]
 }

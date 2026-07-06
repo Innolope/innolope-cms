@@ -1,7 +1,7 @@
 import { projectMemberCollections, projectMembers, projects, users } from '@innolope/db'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { getUser } from '../../plugins/auth.js'
+import { getUser, normalizeEmail } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 
 /**
@@ -275,11 +275,13 @@ export async function projectRoutes(app: FastifyInstance) {
 		'/:id/members',
 		{ preHandler: [app.requireProject('admin'), assertProjectParam] },
 		async (request, reply) => {
-			const { email, role = 'viewer' } = request.body as {
+			const { email: rawEmail, role = 'viewer' } = request.body as {
 				email: string
 				role?: 'owner' | 'admin' | 'editor' | 'viewer'
 			}
 
+			if (!rawEmail?.trim()) return reply.status(400).send({ error: 'Email is required.' })
+			const email = normalizeEmail(rawEmail)
 			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
 
 			if (!user) {
