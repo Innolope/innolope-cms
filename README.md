@@ -158,6 +158,7 @@ docker-compose up
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `AUTH_SECRET` | Yes | JWT secret (min 32 chars) |
+| `MCP_JWT_SECRET` | No | Dedicated signing key (min 32 chars) for remote-MCP OAuth access tokens. Falls back to `AUTH_SECRET`; set it to isolate MCP tokens from web sessions. |
 | `PUBLIC_URL` | No | Externally-reachable origin, used in OAuth/MCP discovery URLs (e.g. `https://cms.example.com`). Falls back to `X-Forwarded-*` / request host. |
 | `API_PORT` | No | API port (default: 3001) |
 | `API_HOST` | No | API host (default: 0.0.0.0) |

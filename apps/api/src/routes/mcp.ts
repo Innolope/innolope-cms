@@ -4,14 +4,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { type AuthUser, verifyJwt } from '../plugins/auth.js'
-import { publicBaseUrl } from '../services/oauth-metadata.js'
+import { type AuthUser, createJwt, verifyOAuthAccessToken } from '../plugins/auth.js'
+import { mcpResourceUrl, publicBaseUrl } from '../services/oauth-metadata.js'
 
 declare module 'fastify' {
 	interface FastifyRequest {
-		/** Raw bearer token accepted for `/mcp` — forwarded to the API on the user's behalf. */
-		mcpToken?: string
-		/** User resolved from the `/mcp` bearer token. */
+		/** User resolved from the `/mcp` OAuth access token. */
 		mcpUser?: AuthUser
 	}
 }
@@ -46,14 +44,16 @@ export async function mcpRoutes(app: FastifyInstance) {
 		sessions.clear()
 	})
 
-	// Bearer auth for every /mcp method. Accepts login JWTs and OAuth access tokens
-	// (both AUTH_SECRET-signed). On failure, point clients at the protected-resource
-	// metadata per RFC 9728 so they can start the OAuth flow.
+	// Bearer auth for every /mcp method. Only accepts a genuine MCP OAuth access
+	// token: right signing key, audience pinned to this server's `/mcp` resource,
+	// and `token_use: "access"` — a web-login JWT does not qualify. On failure,
+	// point clients at the protected-resource metadata per RFC 9728 to start OAuth.
 	const authenticateMcp = async (request: FastifyRequest, reply: FastifyReply) => {
 		const header = request.headers.authorization
 		const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined
-		const user = token ? await verifyJwt(token) : null
-		if (!token || !user) {
+		const audience = mcpResourceUrl(publicBaseUrl(request))
+		const user = token ? await verifyOAuthAccessToken(token, { audience }) : null
+		if (!user) {
 			reply.header(
 				'WWW-Authenticate',
 				`Bearer resource_metadata="${publicBaseUrl(request)}/.well-known/oauth-protected-resource"`,
@@ -62,7 +62,6 @@ export async function mcpRoutes(app: FastifyInstance) {
 				.status(401)
 				.send({ error: 'invalid_token', error_description: 'Missing or invalid access token' })
 		}
-		request.mcpToken = token
 		request.mcpUser = user
 	}
 
@@ -95,8 +94,11 @@ export async function mcpRoutes(app: FastifyInstance) {
 			if (!isInitializeRequest(request.body)) {
 				return badRequest(reply, 'No session ID provided and body is not an initialize request')
 			}
-			// New session: build an isolated server + client bound to this user's token.
-			const client = new InnolopeClient(internalApiUrl, request.mcpToken as string)
+			// New session: build an isolated server + client. The client calls the REST
+			// API over loopback with a freshly minted INTERNAL token (AUTH_SECRET), not
+			// the external MCP token — keeping the two credentials fully separate.
+			const internalToken = await createJwt(request.mcpUser as AuthUser)
+			const client = new InnolopeClient(internalApiUrl, internalToken)
 			const server = new McpServer({ name: 'innolope-cms', version: '0.1.0' })
 			registerTools(server, client)
 			const transport = new StreamableHTTPServerTransport({

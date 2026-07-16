@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { createOAuthAccessToken, verifyJwt } from '../plugins/auth.js'
+import { createJwt, createOAuthAccessToken, verifyOAuthAccessToken } from '../plugins/auth.js'
 import {
 	authorizationServerMetadata,
 	mcpResourceUrl,
@@ -61,19 +61,36 @@ describe('OAuth metadata documents', () => {
 	})
 })
 
-describe('OAuth access token', () => {
-	it('is a JWT that verifyJwt accepts, carrying the user identity', async () => {
-		const user = { id: 'u1', email: 'a@b.com', name: 'A', role: 'admin' as const }
+describe('MCP OAuth access token', () => {
+	const audience = 'https://cms.example.com/mcp'
+	const user = { id: 'u1', email: 'a@b.com', name: 'A', role: 'admin' as const }
+
+	it('verifies with the correct audience + token_use and carries identity', async () => {
 		const token = await createOAuthAccessToken(user, {
 			scope: 'mcp',
 			clientId: 'mcp_123',
-			audience: 'https://cms.example.com/mcp',
+			audience,
 		})
-		const decoded = await verifyJwt(token)
+		const decoded = await verifyOAuthAccessToken(token, { audience })
 		expect(decoded).not.toBeNull()
 		expect(decoded?.id).toBe('u1')
-		expect(decoded?.email).toBe('a@b.com')
 		expect(decoded?.role).toBe('admin')
+	})
+
+	it('rejects a token minted for a different audience', async () => {
+		const token = await createOAuthAccessToken(user, {
+			scope: 'mcp',
+			clientId: 'mcp_123',
+			audience,
+		})
+		expect(
+			await verifyOAuthAccessToken(token, { audience: 'https://evil.example.com/mcp' }),
+		).toBeNull()
+	})
+
+	it('rejects a plain web-login JWT (no audience / token_use) at the MCP boundary', async () => {
+		const login = await createJwt(user)
+		expect(await verifyOAuthAccessToken(login, { audience })).toBeNull()
 	})
 })
 

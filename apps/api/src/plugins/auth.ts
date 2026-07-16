@@ -97,6 +97,19 @@ export function getJwtSecret(): Uint8Array {
 	return new TextEncoder().encode(secret)
 }
 
+/**
+ * Signing key for remote-MCP OAuth access tokens. Prefers a dedicated
+ * `MCP_JWT_SECRET` (defense in depth: MCP tokens and web-session JWTs are then
+ * cryptographically distinct and rotate independently), falling back to
+ * `AUTH_SECRET` when unset. Either way, `/mcp` also pins the token's audience and
+ * `token_use`, so a web-login JWT is never accepted as an MCP token.
+ */
+export function getMcpJwtSecret(): Uint8Array {
+	const secret = process.env.MCP_JWT_SECRET
+	if (secret && secret.length >= 32) return new TextEncoder().encode(secret)
+	return getJwtSecret()
+}
+
 export async function createJwt(user: AuthUser): Promise<string> {
 	return new SignJWT({ sub: user.id, email: user.email, role: user.role, name: user.name })
 		.setProtectedHeader({ alg: 'HS256' })
@@ -106,11 +119,12 @@ export async function createJwt(user: AuthUser): Promise<string> {
 }
 
 /**
- * Mint an OAuth 2.1 access token for the remote MCP resource. Signed with the same
- * AUTH_SECRET as login JWTs and carrying the same identity claims, so the standard
- * `authenticate` path (and `verifyJwt`) accepts it — the MCP tools can forward it to
- * the REST API on the user's behalf. Extra `scope`/`client_id`/`aud` claims are for
- * the resource server; `verifyJwt` ignores them.
+ * Mint an OAuth 2.1 access token for the remote MCP resource. Signed with the
+ * MCP signing key and audience-bound to the `/mcp` resource, with `token_use:
+ * "access"`. It is deliberately NOT interchangeable with a web-login JWT — `/mcp`
+ * validates the audience + `token_use` (and, when `MCP_JWT_SECRET` is set, a
+ * different key). The MCP layer re-mints a short-lived internal `createJwt` token
+ * for its loopback REST calls rather than forwarding this one inward.
  */
 export async function createOAuthAccessToken(
 	user: AuthUser,
@@ -129,7 +143,32 @@ export async function createOAuthAccessToken(
 		.setIssuedAt()
 		.setAudience(opts.audience)
 		.setExpirationTime('1h')
-		.sign(getJwtSecret())
+		.sign(getMcpJwtSecret())
+}
+
+/**
+ * Verify a remote-MCP OAuth access token: correct signature (MCP key), audience
+ * pinned to this server's `/mcp` resource, and `token_use === "access"`. Returns
+ * the user or null. Rejects web-login JWTs (wrong/absent audience + token_use),
+ * closing the gap where any AUTH_SECRET-signed JWT could reach `/mcp`.
+ */
+export async function verifyOAuthAccessToken(
+	token: string,
+	opts: { audience: string },
+): Promise<AuthUser | null> {
+	try {
+		const { payload } = await jwtVerify(token, getMcpJwtSecret(), { audience: opts.audience })
+		if (payload.token_use !== 'access') return null
+		if (typeof payload.sub !== 'string') return null
+		return {
+			id: payload.sub,
+			email: payload.email as string,
+			name: payload.name as string,
+			role: payload.role as UserRole,
+		}
+	} catch {
+		return null
+	}
 }
 
 const REFRESH_TOKEN_EXPIRY_DAYS = 30

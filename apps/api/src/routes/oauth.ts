@@ -189,12 +189,23 @@ export async function oauthRoutes(app: FastifyInstance) {
 				.send({ error: 'invalid_redirect_uri', error_description: 'redirect_uris is required' })
 		}
 		for (const uri of redirectUris) {
+			let parsed: URL
 			try {
-				new URL(uri)
+				parsed = new URL(uri)
 			} catch {
 				return reply.status(400).send({
 					error: 'invalid_redirect_uri',
 					error_description: `Invalid redirect_uri: ${uri}`,
+				})
+			}
+			// Require https, or http only for loopback (native dev clients). Rejecting
+			// plaintext remote redirects keeps an authorization code from ever being
+			// delivered over an interceptable channel.
+			const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+			if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+				return reply.status(400).send({
+					error: 'invalid_redirect_uri',
+					error_description: 'redirect_uris must use https (http allowed only for localhost)',
 				})
 			}
 		}
