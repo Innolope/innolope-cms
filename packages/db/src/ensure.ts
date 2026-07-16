@@ -381,6 +381,48 @@ export async function ensureTables(connectionUrl: string) {
 			)
 		`
 
+		await sql`
+			CREATE TABLE IF NOT EXISTS oauth_clients (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"clientId" TEXT NOT NULL UNIQUE,
+				"clientName" TEXT,
+				"redirectUris" JSONB NOT NULL DEFAULT '[]'::jsonb,
+				"grantTypes" JSONB NOT NULL DEFAULT '["authorization_code","refresh_token"]'::jsonb,
+				scope TEXT,
+				"tokenEndpointAuthMethod" TEXT NOT NULL DEFAULT 'none',
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
+			CREATE TABLE IF NOT EXISTS oauth_auth_codes (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"codeHash" TEXT NOT NULL UNIQUE,
+				"clientId" TEXT NOT NULL,
+				"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				"redirectUri" TEXT NOT NULL,
+				"codeChallenge" TEXT NOT NULL,
+				"codeChallengeMethod" TEXT NOT NULL DEFAULT 'S256',
+				scope TEXT,
+				"expiresAt" TIMESTAMPTZ NOT NULL,
+				"consumedAt" TIMESTAMPTZ,
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
+			CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"tokenHash" TEXT NOT NULL UNIQUE,
+				"clientId" TEXT NOT NULL,
+				"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				scope TEXT,
+				"expiresAt" TIMESTAMPTZ NOT NULL,
+				revoked BOOLEAN NOT NULL DEFAULT false,
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
 		// pgvector: extension + embeddings table + HNSW index. Each step degrades
 		// gracefully when the extension is unavailable — semantic search is disabled
 		// but the rest of the schema still comes up.
@@ -460,6 +502,8 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS sso_auth_states_expires_idx ON sso_auth_states("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS sso_replay_cache_expires_idx ON sso_replay_cache("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS scim_tokens_conn_idx ON scim_tokens("connectionId")`
+		await sql`CREATE INDEX IF NOT EXISTS oauth_auth_codes_user_idx ON oauth_auth_codes("userId")`
+		await sql`CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_user_idx ON oauth_refresh_tokens("userId")`
 
 		// Case-insensitive unique email. Guarded on its own so that a legacy database
 		// carrying case-variant duplicate emails (created before write-time

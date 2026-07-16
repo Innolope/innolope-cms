@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import cookie from '@fastify/cookie'
-import cors from '@fastify/cors'
+import cors, { type FastifyCorsOptions } from '@fastify/cors'
 import formbody from '@fastify/formbody'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -22,6 +22,8 @@ import { licensePlugin } from './plugins/license.js'
 import { mediaPlugin } from './plugins/media.js'
 import { posthogPlugin } from './plugins/posthog.js'
 import { projectPlugin } from './plugins/project.js'
+import { mcpRoutes } from './routes/mcp.js'
+import { oauthRoutes, wellKnownRoutes } from './routes/oauth.js'
 import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { collectionRoutes } from './routes/v1/collections.js'
@@ -123,23 +125,58 @@ export async function buildApp() {
 	// SAML ACS and SCIM clients post application/x-www-form-urlencoded bodies.
 	await app.register(formbody)
 
-	// CORS: only ever allow a single concrete origin. A wildcard with credentials is
-	// invalid per spec and a misconfigured ADMIN_URL must not silently widen access.
+	// CORS: the admin API only ever allows a single concrete origin with credentials.
+	// The remote-MCP surface (`/mcp`) and its OAuth discovery/token endpoints are
+	// public, browser-reachable, and token-authenticated (no ambient cookies), so
+	// they reflect any origin without credentials. A path-aware delegate keeps this
+	// to a single CORS registration instead of fighting duplicate header hooks.
 	const corsOrigin = resolveCorsOrigin(process.env.ADMIN_URL)
 	app.log.info(`CORS origin: ${corsOrigin}`)
-	await app.register(cors, {
-		origin: corsOrigin,
-		credentials: true,
-	})
+	const isPublicMcpPath = (url: string) => {
+		const path = url.split('?')[0]
+		return (
+			path === '/mcp' ||
+			path.startsWith('/mcp/') ||
+			path.startsWith('/.well-known/oauth-') ||
+			path.startsWith('/oauth/')
+		)
+	}
+	await app.register(
+		cors,
+		() =>
+			(req: { url?: string }, cb: (err: Error | null, options?: FastifyCorsOptions) => void) => {
+				if (isPublicMcpPath(req.url ?? '')) {
+					cb(null, {
+						origin: true,
+						credentials: false,
+						methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+						allowedHeaders: [
+							'Content-Type',
+							'Authorization',
+							'Mcp-Session-Id',
+							'MCP-Protocol-Version',
+							'Last-Event-ID',
+						],
+						exposedHeaders: ['Mcp-Session-Id', 'WWW-Authenticate'],
+					})
+					return
+				}
+				cb(null, { origin: corsOrigin, credentials: true })
+			},
+	)
 
 	await app.register(rateLimit, { max: 200, timeWindow: '1 minute' })
 
 	// CSRF protection: validate double-submit cookie on state-changing requests
 	app.addHook('onRequest', async (request, reply) => {
 		if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return
-		// Skip CSRF for API key auth (machine-to-machine)
+		// Skip CSRF for any Authorization: Bearer request. CSRF only threatens
+		// ambient credentials the browser attaches automatically (our cookies); a
+		// bearer token in a custom header cannot be set cross-site, so header-token
+		// auth (API keys `ink_…`, login JWTs, OAuth access tokens for `/mcp`) is
+		// immune. The admin SPA authenticates via cookies and is unaffected.
 		const authHeader = request.headers.authorization
-		if (authHeader?.startsWith('Bearer ink_')) return
+		if (authHeader?.startsWith('Bearer ')) return
 		// Skip for public auth endpoints that don't have a session yet
 		const path = request.url.split('?')[0]
 		const csrfExemptPaths = [
@@ -150,6 +187,13 @@ export async function buildApp() {
 			'/api/v1/auth/forgot-password',
 			'/api/v1/auth/reset-password',
 			'/api/v1/invites/accept',
+			// OAuth endpoints: token/register are machine calls with no cookie; the
+			// server-rendered authorize form is protected by a signed ticket + PKCE.
+			'/oauth/',
+			// The MCP transport is bearer/token-authenticated (never cookies), so CSRF
+			// does not apply. Exempting it also lets an unauthenticated probe reach the
+			// 401 + WWW-Authenticate that drives OAuth discovery, instead of a CSRF 403.
+			'/mcp',
 		]
 		if (csrfExemptPaths.some((p) => path.startsWith(p))) return
 		// SAML ACS is a POST from the IdP — no way for it to carry our CSRF cookie; SCIM is bearer-auth machine-to-machine
@@ -211,6 +255,13 @@ export async function buildApp() {
 
 	// On-demand TLS authorization endpoint for Caddy (public)
 	await app.register(tlsRoutes, { prefix: '/api/v1/tls' })
+
+	// Remote MCP transport for AI agents (OAuth-bearer authenticated, not under /api/v1)
+	await app.register(mcpRoutes, { prefix: '/mcp' })
+
+	// OAuth 2.1 authorization server + discovery for the remote MCP resource
+	await app.register(wellKnownRoutes)
+	await app.register(oauthRoutes, { prefix: '/oauth' })
 
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })

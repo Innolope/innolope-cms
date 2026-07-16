@@ -13,6 +13,27 @@ export interface HttpRequestOptions extends RequestInit {
 	raw?: boolean
 }
 
+/**
+ * Thrown on a non-2xx response. Carries the HTTP `status` and the parsed error
+ * `body` so callers can branch on them (e.g. surface a 403 license/upgrade
+ * message) instead of string-matching `message`. `message` keeps the historical
+ * `Innolope API <status>: <error>` format so existing catches still read.
+ */
+export class InnolopeApiError extends Error {
+	readonly status: number
+	readonly body: unknown
+	constructor(status: number, body: unknown) {
+		const detail =
+			body && typeof body === 'object' && 'error' in body
+				? String((body as { error: unknown }).error)
+				: 'Request failed'
+		super(`Innolope API ${status}: ${detail}`)
+		this.name = 'InnolopeApiError'
+		this.status = status
+		this.body = body
+	}
+}
+
 export async function httpRequest<T>(
 	baseUrl: string,
 	path: string,
@@ -31,7 +52,7 @@ export async function httpRequest<T>(
 
 	if (!response.ok) {
 		const err = await response.json().catch(() => ({ error: response.statusText }))
-		throw new Error(`Innolope API ${response.status}: ${(err as { error: string }).error}`)
+		throw new InnolopeApiError(response.status, err)
 	}
 
 	if (response.status === 204) return undefined as T

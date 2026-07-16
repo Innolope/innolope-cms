@@ -89,7 +89,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 	return bcrypt.compare(password, stored)
 }
 
-function getJwtSecret(): Uint8Array {
+export function getJwtSecret(): Uint8Array {
 	const secret = process.env.AUTH_SECRET
 	if (!secret || secret.length < 32) {
 		throw new Error('AUTH_SECRET must be set and at least 32 characters')
@@ -101,6 +101,33 @@ export async function createJwt(user: AuthUser): Promise<string> {
 	return new SignJWT({ sub: user.id, email: user.email, role: user.role, name: user.name })
 		.setProtectedHeader({ alg: 'HS256' })
 		.setIssuedAt()
+		.setExpirationTime('1h')
+		.sign(getJwtSecret())
+}
+
+/**
+ * Mint an OAuth 2.1 access token for the remote MCP resource. Signed with the same
+ * AUTH_SECRET as login JWTs and carrying the same identity claims, so the standard
+ * `authenticate` path (and `verifyJwt`) accepts it — the MCP tools can forward it to
+ * the REST API on the user's behalf. Extra `scope`/`client_id`/`aud` claims are for
+ * the resource server; `verifyJwt` ignores them.
+ */
+export async function createOAuthAccessToken(
+	user: AuthUser,
+	opts: { scope?: string; clientId: string; audience: string },
+): Promise<string> {
+	return new SignJWT({
+		sub: user.id,
+		email: user.email,
+		role: user.role,
+		name: user.name,
+		scope: opts.scope,
+		client_id: opts.clientId,
+		token_use: 'access',
+	})
+		.setProtectedHeader({ alg: 'HS256' })
+		.setIssuedAt()
+		.setAudience(opts.audience)
 		.setExpirationTime('1h')
 		.sign(getJwtSecret())
 }

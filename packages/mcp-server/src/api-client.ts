@@ -11,13 +11,150 @@ export class InnolopeClient {
 		this.projectId = projectId
 	}
 
-	private async request<T>(path: string, options?: RequestInit): Promise<T> {
-		// API key is already project-scoped, but explicit header is a fallback.
+	/** The base API URL this client targets (used to build a connection string). */
+	get apiUrl(): string {
+		return this.baseUrl
+	}
+
+	/**
+	 * Select the active project for subsequent calls. A project-scoped `ink_` key
+	 * ignores this (its own project wins server-side), but an account-scoped key or
+	 * an OAuth-user session uses it to send `X-Project-Id`.
+	 */
+	setProject(projectId: string): void {
+		this.projectId = projectId
+	}
+
+	getProjectId(): string | undefined {
+		return this.projectId
+	}
+
+	private async request<T>(
+		path: string,
+		options?: RequestInit,
+		projectIdOverride?: string,
+	): Promise<T> {
+		// API key is already project-scoped, but explicit header is a fallback and
+		// the selection mechanism for account/OAuth callers. A per-call override lets
+		// a tool target a project before `setProject` has run (e.g. right after create).
 		return httpRequest<T>(this.baseUrl, path, {
 			...options,
 			apiKey: this.apiKey,
-			projectId: this.projectId,
+			projectId: projectIdOverride ?? this.projectId,
 		})
+	}
+
+	// --- Project & provisioning ------------------------------------------------
+
+	async listProjects() {
+		return this.request<ProjectItem[]>('/api/v1/projects')
+	}
+
+	async createProject(input: { name: string; slug: string }) {
+		return this.request<ProjectItem>('/api/v1/projects', {
+			method: 'POST',
+			body: JSON.stringify(input),
+		})
+	}
+
+	async createCollection(
+		input: {
+			name: string
+			label: string
+			description?: string
+			fields?: unknown[]
+			titleField?: string | null
+		},
+		projectIdOverride?: string,
+	) {
+		return this.request<CollectionItem>(
+			'/api/v1/collections',
+			{ method: 'POST', body: JSON.stringify(input) },
+			projectIdOverride,
+		)
+	}
+
+	/** Mint a project-scoped `ink_` API key (the per-project connection string). */
+	async createProjectApiKey(
+		input: { name: string; permissions?: string[] },
+		projectIdOverride?: string,
+	) {
+		return this.request<{
+			id: string
+			name: string
+			key: string
+			keyPrefix: string
+			projectId: string
+			permissions: string[]
+			createdAt: string
+			warning: string
+		}>('/api/v1/auth/api-keys', { method: 'POST', body: JSON.stringify(input) }, projectIdOverride)
+	}
+
+	private requireProjectId(): string {
+		const id = this.projectId
+		if (!id)
+			throw new Error('No active project selected. Call create_project or use_project first.')
+		return id
+	}
+
+	// --- External database import ---------------------------------------------
+
+	async testExternalDatabase(input: { type: string; connectionString: string; database?: string }) {
+		const id = this.requireProjectId()
+		return this.request<{ ok: boolean; message: string }>(`/api/v1/projects/${id}/database/test`, {
+			method: 'POST',
+			body: JSON.stringify(input),
+		})
+	}
+
+	async scanExternalDatabase(input: { type: string; connectionString: string; database?: string }) {
+		const id = this.requireProjectId()
+		return this.request<{
+			tables: Array<{
+				name: string
+				columns: Array<{ name: string; type: string }>
+				count: number
+				sizeBytes: number
+			}>
+		}>(`/api/v1/projects/${id}/database/scan`, { method: 'POST', body: JSON.stringify(input) })
+	}
+
+	async configureExternalDatabase(input: {
+		type: string
+		connectionString?: string
+		database?: string
+		tables?: Array<{ name: string; columns: Array<{ name: string; type: string }>; count?: number }>
+		accessMode?: 'read-write' | 'read-only'
+		visibleTables?: string[]
+	}) {
+		const id = this.requireProjectId()
+		return this.request<Record<string, unknown>>(`/api/v1/projects/${id}/database`, {
+			method: 'PUT',
+			body: JSON.stringify(input),
+		})
+	}
+
+	async getImportStatus() {
+		const id = this.requireProjectId()
+		return this.request<{
+			summary: {
+				total: number
+				pending: number
+				running: number
+				completed: number
+				failed: number
+			}
+			jobs: Array<{
+				collectionId: string
+				collectionName: string | null
+				externalTable: string
+				status: string
+				total: number | null
+				processed: number
+				error: string | null
+			}>
+		}>(`/api/v1/projects/${id}/database/import-status`)
 	}
 
 	async listCollections() {
@@ -227,6 +364,15 @@ interface ContentItem {
 	createdAt: string
 	updatedAt: string
 	publishedAt: string | null
+}
+
+interface ProjectItem {
+	id: string
+	slug: string
+	name: string
+	role?: string
+	ownerId?: string
+	createdAt?: string
 }
 
 interface CollectionItem {

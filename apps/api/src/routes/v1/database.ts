@@ -193,6 +193,40 @@ export async function databaseRoutes(app: FastifyInstance) {
 		},
 	)
 
+	// Import progress for the project's external-DB import jobs. Lets an MCP agent
+	// (or the UI) poll until a configured import finishes. Returns per-collection
+	// job rows plus an aggregate summary.
+	app.get<{ Params: { id: string } }>(
+		'/:id/database/import-status',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request) => {
+			const jobs = await app.db
+				.select({
+					collectionId: importJobs.collectionId,
+					collectionName: collections.name,
+					externalTable: importJobs.externalTable,
+					status: importJobs.status,
+					total: importJobs.total,
+					processed: importJobs.processed,
+					error: importJobs.error,
+					startedAt: importJobs.startedAt,
+					completedAt: importJobs.completedAt,
+				})
+				.from(importJobs)
+				.leftJoin(collections, eq(collections.id, importJobs.collectionId))
+				.where(eq(importJobs.projectId, getProject(request).id))
+
+			const summary = {
+				total: jobs.length,
+				pending: jobs.filter((j) => j.status === 'pending').length,
+				running: jobs.filter((j) => j.status === 'running').length,
+				completed: jobs.filter((j) => j.status === 'completed').length,
+				failed: jobs.filter((j) => j.status === 'failed').length,
+			}
+			return { summary, jobs }
+		},
+	)
+
 	// Scan external database tables/collections
 	app.post<{ Params: { id: string } }>(
 		'/:id/database/scan',

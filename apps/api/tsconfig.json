@@ -9,6 +9,8 @@
 	"references": [
 		{ "path": "../../packages/types" },
 		{ "path": "../../packages/db" },
-		{ "path": "../../packages/config" }
+		{ "path": "../../packages/config" },
+		{ "path": "../../packages/sdk" },
+		{ "path": "../../packages/mcp-server" }
 	]
 }

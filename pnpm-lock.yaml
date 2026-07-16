@@ -153,9 +153,18 @@ importers:
       '@innolope/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@innolope/mcp-server':
+        specifier: workspace:*
+        version: link:../../packages/mcp-server
+      '@innolope/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@innolope/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
       '@node-saml/node-saml':
         specifier: ^5.1.0
         version: 5.1.0

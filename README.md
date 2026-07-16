@@ -75,8 +75,38 @@ innolope-cms/
 
 ## Connect Claude
 
-1. Create an API key in **Settings > API Keys**
-2. Add to your Claude config:
+Two ways to connect an AI agent, depending on whether you want a local process or a hosted endpoint.
+
+### Remote MCP (OAuth) — set up a project from scratch, hands-free
+
+Add the CMS as a **remote MCP connector** and authorize it once in the browser — no keys to
+create or paste. The agent then provisions everything itself: create a project, add collections,
+import content, and mint the project's connection string.
+
+Point your MCP client (Claude, Cursor, MCP Inspector) at:
+
+```
+https://your-cms-host/mcp
+```
+
+On first use the client discovers the OAuth server (`/.well-known/oauth-protected-resource`),
+registers itself, and opens a browser page where you sign in and approve access. After that the
+agent can, unattended:
+
+- `create_project` → a new empty project (you become its owner)
+- `create_collection` → content types (optionally from a template like `knowledge-base`)
+- `import_content` / `configure_external_database` → author content, or import from an existing
+  Postgres/MySQL/MongoDB/etc. database (`test_external_database` → `scan_external_database` →
+  `configure_external_database` → `get_import_status`)
+- `get_connection_string` → mint a project-scoped API key + URL to wire into your app/SDK
+
+The access token represents your account with your project memberships; every call is still checked
+against project roles and the plan's project limit. Set `PUBLIC_URL` so discovery URLs match your
+externally-reachable origin (e.g. `https://cms.example.com`).
+
+### Local MCP (stdio) — project-scoped API key
+
+For a single project, run the stdio server with a key created in **Settings > API Keys**:
 
 ```json
 {
@@ -93,13 +123,15 @@ innolope-cms/
 }
 ```
 
-3. Claude can now create, read, update, publish, and search content.
+Either way, Claude can create, read, update, publish, search, and import content.
 
 ## API Routes
 
 | Prefix | Description | Auth |
 |--------|-------------|------|
 | `/api/v1/health` | Health check | Public |
+| `/mcp` | Remote MCP transport (Streamable HTTP) | OAuth bearer |
+| `/oauth/*` + `/.well-known/oauth-*` | OAuth 2.1 authorization server + discovery | Public / user |
 | `/api/v1/auth` | Login, register, API keys | Mixed |
 | `/api/v1/projects` | Project CRUD + member management | User-scoped |
 | `/api/v1/content` | Content CRUD + versioning + revert | Project-scoped |
@@ -126,6 +158,7 @@ docker-compose up
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `AUTH_SECRET` | Yes | JWT secret (min 32 chars) |
+| `PUBLIC_URL` | No | Externally-reachable origin, used in OAuth/MCP discovery URLs (e.g. `https://cms.example.com`). Falls back to `X-Forwarded-*` / request host. |
 | `API_PORT` | No | API port (default: 3001) |
 | `API_HOST` | No | API host (default: 0.0.0.0) |
 | `ADMIN_URL` | No | Admin origin for CORS |
