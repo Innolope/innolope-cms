@@ -14,7 +14,7 @@ const PROJECT_ROLE_HIERARCHY: Record<ProjectRole, number> = {
 
 declare module 'fastify' {
 	interface FastifyRequest {
-		project?: { id: string; slug: string; name: string }
+		project?: ProjectContext
 		projectRole?: ProjectRole
 		/** projectMembers.id for the authenticated user in the current project. */
 		membershipId?: string
@@ -37,7 +37,15 @@ declare module 'fastify' {
 	}
 }
 
-export type ProjectContext = { id: string; slug: string; name: string }
+export type ProjectContext = {
+	id: string
+	slug: string
+	name: string
+	/** Locales configured for the project (settings.locales, default ['en']). */
+	locales: string[]
+	/** The project's default locale (settings.defaultLocale, default 'en'). */
+	defaultLocale: string
+}
 
 /**
  * Compute whether a member can move content from draft to published in one
@@ -153,7 +161,23 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 				return reply.status(403).send({ error: 'Insufficient project permissions' })
 			}
 
-			request.project = { id: project.id, slug: project.slug, name: project.name }
+			const localeSettings =
+				(project.settings as unknown as { locales?: string[]; defaultLocale?: string } | null) ?? {}
+			const locales =
+				Array.isArray(localeSettings.locales) && localeSettings.locales.length > 0
+					? localeSettings.locales
+					: ['en']
+			const defaultLocale =
+				typeof localeSettings.defaultLocale === 'string' && localeSettings.defaultLocale
+					? localeSettings.defaultLocale
+					: (locales[0] ?? 'en')
+			request.project = {
+				id: project.id,
+				slug: project.slug,
+				name: project.name,
+				locales,
+				defaultLocale,
+			}
 			request.projectRole = membership.role as ProjectRole
 			request.membershipId = membership.id
 			const settings = (project.settings as unknown as { requireReview?: boolean } | null) ?? {}

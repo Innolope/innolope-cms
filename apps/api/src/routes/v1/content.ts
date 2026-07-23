@@ -11,6 +11,7 @@ import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import {
 	contentValidationError,
+	detectLocaleScriptMismatch,
 	validateContentMetadata,
 } from '../../services/content-validation.js'
 import {
@@ -411,6 +412,20 @@ export async function contentRoutes(app: FastifyInstance) {
 			return reply.status(403).send({ error: 'This collection is read-only' })
 		}
 
+		// Locale must be one of the project's configured locales — a silently
+		// accepted typo (or a client default of "en" on a uk-only project) creates
+		// records the admin UI can never surface. The default is the project's
+		// default locale, not a hardcoded "en".
+		const { locales, defaultLocale } = getProject(request)
+		if (input.locale && !locales.includes(input.locale)) {
+			return reply.status(400).send({
+				error: `Locale "${input.locale}" is not configured for this project`,
+				locales,
+				defaultLocale,
+			})
+		}
+		const locale = input.locale || defaultLocale
+
 		// Validate metadata against the collection's field schema. Required fields
 		// are enforced only when publishing; drafts may be incomplete. Extra keys
 		// are ignored. On failure, echo the schema so the caller can self-correct.
@@ -432,7 +447,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					and(
 						eq(content.projectId, getProject(request).id),
 						eq(content.slug, input.slug),
-						eq(content.locale, input.locale || 'en'),
+						eq(content.locale, locale),
 					),
 				)
 				.limit(1)
@@ -472,7 +487,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					metadata: cachedMetadata,
 					markdown: input.markdown,
 					html,
-					locale: input.locale || 'en',
+					locale,
 					status: input.status || 'draft',
 					createdBy: getUser(request).id,
 					...(externalId && { externalId }),
@@ -508,7 +523,14 @@ export async function contentRoutes(app: FastifyInstance) {
 			timestamp: new Date().toISOString(),
 		})
 
-		return reply.status(201).send(created)
+		// Advisory only: warn when the text's script contradicts the declared locale
+		// (e.g. Ukrainian text filed under "en" because the client left the default).
+		const languageWarning = detectLocaleScriptMismatch(
+			`${String((input.metadata as Record<string, unknown> | undefined)?.title ?? '')} ${input.markdown}`,
+			locale,
+			locales,
+		)
+		return reply.status(201).send(languageWarning ? { ...created, languageWarning } : created)
 	})
 
 	// Bulk create content (editor+, project-scoped)
@@ -558,14 +580,17 @@ export async function contentRoutes(app: FastifyInstance) {
 		const createColMap = new Map(createCols.map((c) => [c.id, c]))
 
 		// Validate the whole batch before writing anything, mirroring the single-item
-		// create path (collection exists, writable, metadata matches the field schema).
-		// Every bad item is reported — not just the first — so a caller can fix the
-		// batch in one pass. The transaction below stays all-or-nothing.
+		// create path (collection exists, writable, configured locale, metadata
+		// matches the field schema). Every bad item is reported — not just the
+		// first — so a caller can fix the batch in one pass. The transaction below
+		// stays all-or-nothing.
+		const { locales, defaultLocale } = getProject(request)
 		const itemErrors: Array<{
 			index: number
 			slug?: string
 			errors: Array<{ field: string; message: string }>
 		}> = []
+		const languageWarnings: Array<{ index: number; warning: string }> = []
 		for (const [index, item] of items.entries()) {
 			const col = createColMap.get(item.collectionId)
 			if (!col) {
@@ -586,10 +611,32 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				continue
 			}
+			if (item.locale && !locales.includes(item.locale)) {
+				itemErrors.push({
+					index,
+					slug: item.slug,
+					errors: [
+						{
+							field: 'locale',
+							message: `Locale "${item.locale}" is not configured for this project. Configured: ${locales.join(', ')} (default: ${defaultLocale}).`,
+						},
+					],
+				})
+				continue
+			}
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
 			})
-			if (errors.length > 0) itemErrors.push({ index, slug: item.slug, errors })
+			if (errors.length > 0) {
+				itemErrors.push({ index, slug: item.slug, errors })
+				continue
+			}
+			const warning = detectLocaleScriptMismatch(
+				`${String((item.metadata as Record<string, unknown> | undefined)?.title ?? '')} ${item.markdown}`,
+				item.locale || defaultLocale,
+				locales,
+			)
+			if (warning) languageWarnings.push({ index, warning })
 		}
 
 		// Duplicate-slug pre-check across the batch (the transaction re-checks, this
@@ -605,7 +652,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		const batchKeys = new Set<string>()
 		for (const [index, item] of items.entries()) {
 			if (!item.slug) continue
-			const key = `${item.slug} ${item.locale || 'en'}`
+			const key = `${item.slug} ${item.locale || defaultLocale}`
 			const conflict = existingKeys.has(key)
 				? 'Content with this slug and locale already exists'
 				: batchKeys.has(key)
@@ -644,6 +691,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				valid: items.length - new Set(itemErrors.map((e) => e.index)).size,
 				total: items.length,
 				errors: itemErrors,
+				...(languageWarnings.length > 0 && { warnings: languageWarnings }),
 				...(itemErrors.length > 0 && { schemas: errorSchemas() }),
 			})
 		}
@@ -683,7 +731,7 @@ export async function contentRoutes(app: FastifyInstance) {
 							and(
 								eq(content.projectId, getProject(request).id),
 								eq(content.slug, item.slug),
-								eq(content.locale, item.locale || 'en'),
+								eq(content.locale, item.locale || defaultLocale),
 							),
 						)
 						.limit(1)
@@ -721,7 +769,7 @@ export async function contentRoutes(app: FastifyInstance) {
 							metadata: item.metadata || {},
 							markdown: item.markdown,
 							html,
-							locale: item.locale || 'en',
+							locale: item.locale || defaultLocale,
 							status: (item.status || 'draft') as 'draft' | 'published',
 							createdBy: getUser(request).id,
 							...(externalId && { externalId }),
@@ -761,7 +809,11 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 		}
 
-		return reply.status(201).send({ data: created, count: created.length })
+		return reply.status(201).send({
+			data: created,
+			count: created.length,
+			...(languageWarnings.length > 0 && { warnings: languageWarnings }),
+		})
 	})
 
 	// Bulk update content (editor+, project-scoped)

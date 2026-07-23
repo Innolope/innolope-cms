@@ -353,9 +353,12 @@ export function registerTools(
 			if (projects.length === 0) {
 				return text('No projects yet. Call create_project to make one.')
 			}
-			const lines = projects.map(
-				(p) => `- ${p.name} (slug: ${p.slug}, id: ${p.id})${p.role ? ` — ${p.role}` : ''}`,
-			)
+			const lines = projects.map((p) => {
+				const locales = p.settings?.locales?.length
+					? ` — locales: ${p.settings.locales.join(', ')} (default: ${p.settings.defaultLocale ?? p.settings.locales[0]})`
+					: ''
+				return `- ${p.name} (slug: ${p.slug}, id: ${p.id})${p.role ? ` — ${p.role}` : ''}${locales}`
+			})
 			const current = client.getProjectId()
 			return text(
 				`${projects.length} project(s):\n${lines.join('\n')}${current ? `\n\nActive project: ${current}` : ''}`,
@@ -374,25 +377,24 @@ export function registerTools(
 		},
 		handler: async ({ projectId, slug }) => {
 			let id = projectId
-			let label: string | undefined
+			let match: Awaited<ReturnType<typeof client.listProjects>>[number] | undefined
 			if (!id && slug) {
-				const projects = await client.listProjects()
-				const match = projects.find((p) => p.slug === slug)
+				match = (await client.listProjects()).find((p) => p.slug === slug)
 				if (!match)
 					return fail(
 						`No project found with slug "${slug}". Call list_projects to see valid slugs.`,
 					)
 				id = match.id
-				label = `${match.name} (slug: ${match.slug})`
 			}
 			if (!id) return fail('Provide a projectId or slug (see list_projects).')
-			if (!label) {
-				const match = (await client.listProjects().catch(() => [])).find((p) => p.id === id)
-				if (match) label = `${match.name} (slug: ${match.slug})`
-			}
+			if (!match) match = (await client.listProjects().catch(() => [])).find((p) => p.id === id)
 			client.setProject(id)
+			const label = match ? ` — ${match.name} (slug: ${match.slug})` : ''
+			const locales = match?.settings?.locales?.length
+				? ` Locales: ${match.settings.locales.join(', ')} (default: ${match.settings.defaultLocale ?? match.settings.locales[0]}) — pass \`locale\` on writes for non-default languages.`
+				: ''
 			return text(
-				`Active project set to ${id}${label ? ` — ${label}` : ''}. Project-scoped responses echo this project id; if a response shows a different id, it raced ahead of this switch — retry it.`,
+				`Active project set to ${id}${label}.${locales} Project-scoped responses echo this project id; if a response shows a different id, it raced ahead of this switch — retry it.`,
 			)
 		},
 	})
@@ -527,7 +529,12 @@ export function registerTools(
 		collectionId: z.string().uuid().describe('Target collection UUID'),
 		markdown: z.string().describe('Markdown content'),
 		metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
-		locale: z.string().optional().describe('Locale (default: en)'),
+		locale: z
+			.string()
+			.optional()
+			.describe(
+				"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in.",
+			),
 		status: z
 			.enum(CREATABLE_CONTENT_STATUSES)
 			.optional()
@@ -560,21 +567,24 @@ export function registerTools(
 		const guard = requireProject()
 		if (guard) return guard
 		const result = await client.bulkCreateContent(items, { dryRun })
+		const warnings = result.warnings?.length
+			? `\n\n⚠ Language warnings:\n${result.warnings.map((w) => `- item ${w.index}: ${w.warning}`).join('\n')}`
+			: ''
 		if (result.dryRun) {
 			if (result.errors && result.errors.length > 0) {
 				const schemas = result.schemas
 					? `\n\nCollection schemas by collectionId:\n${JSON.stringify(result.schemas, null, 2)}`
 					: ''
 				return text(
-					`Dry run: ${result.valid}/${result.total} items valid. Nothing was written. Problems:\n${renderItemErrors(result.errors)}${schemas}\n\nFix the listed items and re-run (with dryRun: false to actually create).`,
+					`Dry run: ${result.valid}/${result.total} items valid. Nothing was written. Problems:\n${renderItemErrors(result.errors)}${schemas}${warnings}\n\nFix the listed items and re-run (with dryRun: false to actually create).`,
 				)
 			}
 			return text(
-				`Dry run: all ${result.total} item(s) are valid. Nothing was written — re-call without dryRun to create them.`,
+				`Dry run: all ${result.total} item(s) are valid. Nothing was written — re-call without dryRun to create them.${warnings}`,
 			)
 		}
 		return text(
-			`Created ${result.count} item(s):\n${(result.data ?? []).map((i) => `- ${i.slug} (${i.id})`).join('\n')}`,
+			`Created ${result.count} item(s):\n${(result.data ?? []).map((i) => `- ${i.slug} (${i.id})`).join('\n')}${warnings}`,
 		)
 	}
 
@@ -827,7 +837,12 @@ export function registerTools(
 			collectionId: z.string().uuid().describe('Collection UUID'),
 			markdown: z.string().describe('Full markdown content'),
 			metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
-			locale: z.string().optional().describe('Content locale (default: en)'),
+			locale: z
+				.string()
+				.optional()
+				.describe(
+					"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in.",
+				),
 			status: z
 				.enum(CREATABLE_CONTENT_STATUSES)
 				.optional()
@@ -856,10 +871,11 @@ export function registerTools(
 				args.slug && created.slug && args.slug !== created.slug
 					? `\nNote: the slug was normalized from "${args.slug}" to "${created.slug}" (lowercase letters/digits; separators "-" and "_" are kept, everything else becomes "-").`
 					: ''
+			const warning = created.languageWarning ? `\n\n⚠ ${created.languageWarning}` : ''
 			return text(
-				`Content created${projectSuffix()}.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}${
+				`Content created${projectSuffix()}.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}\nLocale: ${created.locale}${
 					created.externalId ? `\nExternal ID: ${created.externalId}` : ''
-				}${slugNote}`,
+				}${slugNote}${warning}`,
 			)
 		},
 	})

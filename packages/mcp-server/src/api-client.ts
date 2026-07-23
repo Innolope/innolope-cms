@@ -471,6 +471,7 @@ interface BulkWriteResult {
 		id?: string
 		errors: Array<{ field: string; message: string }>
 	}>
+	warnings?: Array<{ index: number; warning: string }>
 	schemas?: Record<string, unknown>
 }
 
@@ -489,6 +490,8 @@ interface ContentItem {
 	publishedAt: string | null
 	/** External record id (Mongo ObjectId / SQL pk) for external-backed rows. */
 	externalId?: string | null
+	/** Advisory: text script contradicts the declared locale (create responses only). */
+	languageWarning?: string
 }
 
 interface ProjectItem {
@@ -498,6 +501,8 @@ interface ProjectItem {
 	role?: string
 	ownerId?: string
 	createdAt?: string
+	/** Project settings as returned by GET /projects (locales drive content writes). */
+	settings?: { locales?: string[]; defaultLocale?: string }
 }
 
 interface CollectionItem {

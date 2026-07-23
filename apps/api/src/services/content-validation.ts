@@ -76,6 +76,46 @@ function checkFieldType(field: CollectionField, value: unknown): string | null {
 	}
 }
 
+/** Locales whose primary script is Cyrillic — the distinction we can make cheaply. */
+const CYRILLIC_LOCALES = new Set(['uk', 'ru', 'be', 'bg', 'sr', 'mk', 'kk'])
+
+const baseLang = (locale: string) => locale.toLowerCase().split(/[-_]/)[0] ?? locale
+
+const scriptOf = (locale: string): 'cyrillic' | 'latin' =>
+	CYRILLIC_LOCALES.has(baseLang(locale)) ? 'cyrillic' : 'latin'
+
+/**
+ * Cheap language sanity check for writes: agents routinely leave `locale` at
+ * its default and file e.g. Ukrainian text under "en". When the text's dominant
+ * script clearly contradicts the declared locale AND the project has a
+ * configured locale that matches the text, return a human-readable warning
+ * naming the better locale. Never blocks the write — mixed-language content is
+ * legitimate — and stays silent unless there is a concrete locale to suggest.
+ */
+export function detectLocaleScriptMismatch(
+	text: string,
+	locale: string,
+	projectLocales: string[],
+): string | null {
+	const cyrillic = (text.match(/[Ѐ-ӿ]/g) ?? []).length
+	const latin = (text.match(/[a-zA-Z]/g) ?? []).length
+	const total = cyrillic + latin
+	if (total < 40) return null // too little text to judge
+
+	const dominant: 'cyrillic' | 'latin' | null =
+		cyrillic / total > 0.7 ? 'cyrillic' : latin / total > 0.7 ? 'latin' : null
+	if (!dominant || dominant === scriptOf(locale)) return null
+
+	const suggestion = projectLocales.find(
+		(candidate) => scriptOf(candidate) === dominant && baseLang(candidate) !== baseLang(locale),
+	)
+	if (!suggestion) return null
+
+	const scriptLabel =
+		dominant === 'cyrillic' ? 'a Cyrillic-script language' : 'a Latin-script language'
+	return `Language check: the content appears to be written in ${scriptLabel}, but it was saved under locale "${locale}". If this should be the "${suggestion}" version, recreate it (or update it) with locale: "${suggestion}".`
+}
+
 /** Shape the 400 body: the field errors plus a trimmed schema the caller can act on. */
 export function contentValidationError(fields: CollectionField[], errors: FieldValidationError[]) {
 	return {
