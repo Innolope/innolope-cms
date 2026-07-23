@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
+import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
 import { pickTitleField, resolveDisplayTitle } from '../../lib/display-title'
 import { useToast } from '../../lib/toast'
@@ -126,6 +127,7 @@ export function RelationField({
 	const { t } = useTranslation()
 	const toast = useToast()
 	const { getCollectionByName } = useCollections()
+	const { currentProject } = useAuth()
 	const related = relationTo ? getCollectionByName(relationTo) : undefined
 
 	const [docs, setDocs] = useState<RelatedDoc[]>([])
@@ -195,6 +197,22 @@ export function RelationField({
 		try {
 			const form = new FormData()
 			form.append('file', file)
+
+			// An imported media library owns its own storage (Cloudflare Images, R2, …)
+			// and the rest of its rows point at that storage. Uploading through the
+			// project media library instead would put the file on the CMS's own disk
+			// and write a path the source database — and the site reading it — can't
+			// resolve, so route it into the library's real backing store.
+			if (related.mediaPathColumn && currentProject) {
+				const created = await api.upload<{ id: string; externalId?: string }>(
+					`/api/v1/projects/${currentProject.id}/database/media-upload?collectionId=${related.id}`,
+					form,
+				)
+				onChange(created.externalId || created.id)
+				loadDocs()
+				return
+			}
+
 			const uploaded = await api.upload<{ url: string }>('/api/v1/media/upload', form)
 			const created = await api.post<{ _id: string }>('/api/v1/content/relation-records', {
 				relationTo,

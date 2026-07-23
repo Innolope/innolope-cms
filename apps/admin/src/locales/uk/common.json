@@ -226,13 +226,16 @@
 			"title": "Вставити зображення",
 			"close": "Закрити",
 			"tabs": {
+				"library": "Бібліотека",
 				"unsplash": "Unsplash",
 				"url": "URL"
 			},
 			"imageUrl": "URL зображення",
 			"altTextOptional": "Alt-текст (необов’язково)",
 			"describeImage": "Опишіть зображення",
-			"insertImage": "Вставити зображення"
+			"insertImage": "Вставити зображення",
+			"uploadNew": "Завантажити",
+			"libraryEmpty": "Тут ще немає зображень — завантажте перше."
 		},
 		"jsonField": {
 			"invalidJson": "Недійсний JSON",
@@ -1549,6 +1552,9 @@
 			"savingAlt": "Збереження…",
 			"delete": "Видалити",
 			"close": "Закрити"
+		},
+		"sources": {
+			"library": "Завантаження"
 		}
 	},
 	"reviewQueue": {

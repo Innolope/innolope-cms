@@ -9,6 +9,7 @@ import {
 	loadRelationTargets,
 } from '../../lib/collection-access.js'
 import { getMediaStorageMap } from '../../lib/media-storage.js'
+import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
 import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
 
@@ -117,11 +118,17 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.where(eq(projects.id, pid))
 			.limit(1)
 		const mediaStorage = getMediaStorageMap(projectSettings)
-		return results.map((r) => ({
-			...r,
-			isLinkedTarget: targets.byId.get(r.id) === true,
-			mediaPathColumn: (r.externalTable && mediaStorage[r.externalTable]?.pathColumn) || null,
-		}))
+		return results.map((r) => {
+			const entry = r.externalTable ? mediaStorage[r.externalTable] : undefined
+			return {
+				...r,
+				isLinkedTarget: targets.byId.get(r.id) === true,
+				mediaPathColumn: entry?.pathColumn || null,
+				// Public/custom-url libraries are read-only references — the UI hides
+				// their upload controls rather than offering a button that always 400s.
+				mediaWritable: isWritableImportedStorage(entry),
+			}
+		})
 	})
 
 	// Get collection by ID (viewer+, project-scoped)

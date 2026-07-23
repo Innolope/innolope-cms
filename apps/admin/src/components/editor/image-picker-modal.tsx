@@ -1,5 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '../../lib/auth'
+import { useCollections } from '../../lib/collections'
+import {
+	canUploadTo,
+	fetchMediaAssets,
+	listMediaSources,
+	type MediaAsset,
+	PROJECT_LIBRARY_ID,
+	uploadToSource,
+} from '../../lib/media-sources'
+import { useToast } from '../../lib/toast'
+import { Dropdown } from '../dropdown'
 import { UnsplashPicker } from '../media/unsplash-picker'
 
 export interface ImageSelection {
@@ -17,13 +29,54 @@ interface ImagePickerModalProps {
 	onClose: () => void
 }
 
-type Tab = 'url' | 'unsplash'
+type Tab = 'library' | 'url' | 'unsplash'
 
 export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 	const { t } = useTranslation()
-	const [tab, setTab] = useState<Tab>('unsplash')
+	// The project's own images come first — before this tab existed the only ways
+	// to put an image in an article body were a stock photo or a hand-typed URL.
+	const [tab, setTab] = useState<Tab>('library')
 	const [url, setUrl] = useState('')
 	const [alt, setAlt] = useState('')
+	const toast = useToast()
+	const { collections } = useCollections()
+	const { currentProject } = useAuth()
+	const fileRef = useRef<HTMLInputElement>(null)
+
+	const sources = listMediaSources(collections, t('mediaRoute.sources.library'))
+	const [sourceId, setSourceId] = useState<string>(PROJECT_LIBRARY_ID)
+	const [assets, setAssets] = useState<MediaAsset[]>([])
+	const [loadingAssets, setLoadingAssets] = useState(false)
+	const [uploading, setUploading] = useState(false)
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the source id; `sources` is rebuilt every render.
+	const loadAssets = useCallback(() => {
+		const source = sources.find((s) => s.id === sourceId) ?? sources[0]
+		if (!source) return
+		setLoadingAssets(true)
+		fetchMediaAssets(source, { limit: 60, type: source.collection ? undefined : 'image' })
+			.then(setAssets)
+			.catch(() => setAssets([]))
+			.finally(() => setLoadingAssets(false))
+	}, [sourceId])
+
+	useEffect(() => {
+		if (tab === 'library') loadAssets()
+	}, [tab, loadAssets])
+
+	const handleUpload = async (file: File) => {
+		const source = sources.find((s) => s.id === sourceId) ?? sources[0]
+		if (!source || !currentProject) return
+		setUploading(true)
+		try {
+			await uploadToSource(source, file, currentProject.id)
+			loadAssets()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('editor.relationField.uploadFailed'), 'error')
+		} finally {
+			setUploading(false)
+		}
+	}
 
 	const handleUrlSubmit = () => {
 		if (!url.trim()) return
@@ -67,6 +120,9 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 
 				{/* Tabs */}
 				<div className="flex border-b border-border">
+					<TabButton active={tab === 'library'} onClick={() => setTab('library')}>
+						{t('editor.imagePicker.tabs.library')}
+					</TabButton>
 					<TabButton active={tab === 'unsplash'} onClick={() => setTab('unsplash')}>
 						{t('editor.imagePicker.tabs.unsplash')}
 					</TabButton>
@@ -77,6 +133,78 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 
 				{/* Content */}
 				<div className="flex-1 overflow-auto p-4">
+					{tab === 'library' && (
+						<div className="space-y-3">
+							<div className="flex items-center gap-2">
+								{sources.length > 1 && (
+									<Dropdown
+										value={sourceId}
+										onChange={setSourceId}
+										options={sources.map((s) => ({ value: s.id, label: s.label }))}
+										className="flex-1"
+									/>
+								)}
+								{canUploadTo(sources.find((s) => s.id === sourceId)) && (
+									<>
+										<button
+											type="button"
+											onClick={() => fileRef.current?.click()}
+											disabled={uploading}
+											className="px-3 py-2 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover disabled:opacity-50 shrink-0"
+										>
+											{uploading
+												? t('editor.relationField.uploading')
+												: t('editor.imagePicker.uploadNew')}
+										</button>
+										<input
+											ref={fileRef}
+											type="file"
+											accept="image/*"
+											className="hidden"
+											onChange={(e) => {
+												const file = e.target.files?.[0]
+												if (file) handleUpload(file)
+												e.target.value = ''
+											}}
+										/>
+									</>
+								)}
+							</div>
+
+							{loadingAssets ? (
+								<p className="text-sm text-text-muted py-6 text-center">{t('common.loading')}</p>
+							) : assets.length === 0 ? (
+								<p className="text-sm text-text-muted py-6 text-center">
+									{t('editor.imagePicker.libraryEmpty')}
+								</p>
+							) : (
+								<div className="grid grid-cols-3 gap-2">
+									{assets.map((asset) => (
+										<button
+											type="button"
+											key={asset.id}
+											onClick={() => {
+												onSelect({ url: asset.variants?.medium || asset.url, alt: asset.alt || '' })
+												onClose()
+											}}
+											title={asset.filename}
+											className="group relative aspect-square rounded-lg overflow-hidden border border-border hover:border-text-muted transition-colors"
+										>
+											<img
+												src={asset.variants?.thumbnail || asset.url}
+												alt={asset.alt || asset.filename}
+												className="w-full h-full object-cover"
+											/>
+											<span className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 text-[10px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+												{asset.filename}
+											</span>
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+					)}
+
 					{tab === 'unsplash' && (
 						<UnsplashPicker
 							onSelect={(photo) => {

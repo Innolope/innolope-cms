@@ -22,6 +22,11 @@ export interface CollectionWithCount {
 	 * render a thumbnail from it without guessing at the field name.
 	 */
 	mediaPathColumn?: string | null
+	/**
+	 * Whether that library's storage accepts uploads. Public / custom-URL libraries
+	 * are reference-only, so the UI hides their upload controls.
+	 */
+	mediaWritable?: boolean
 	/** Tri-state sidebar visibility. Defaults to 'auto'. */
 	sidebarMode?: 'auto' | 'show' | 'hide'
 	/** Server-computed: another collection references this one via a relation field. */

@@ -226,13 +226,16 @@
 			"title": "Insert Image",
 			"close": "Close",
 			"tabs": {
+				"library": "Library",
 				"unsplash": "Unsplash",
 				"url": "URL"
 			},
 			"imageUrl": "Image URL",
 			"altTextOptional": "Alt text (optional)",
 			"describeImage": "Describe the image",
-			"insertImage": "Insert Image"
+			"insertImage": "Insert Image",
+			"uploadNew": "Upload new",
+			"libraryEmpty": "No images here yet — upload one to get started."
 		},
 		"jsonField": {
 			"invalidJson": "Invalid JSON",
@@ -1511,6 +1514,9 @@
 			"savingAlt": "Saving…",
 			"delete": "Delete",
 			"close": "Close"
+		},
+		"sources": {
+			"library": "Uploads"
 		}
 	},
 	"reviewQueue": {
