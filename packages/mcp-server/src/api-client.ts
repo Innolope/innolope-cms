@@ -333,6 +333,10 @@ export class InnolopeClient {
 		return this.updateContent(id, { status: 'published' })
 	}
 
+	async deleteContent(id: string) {
+		return this.request<void>(`/api/v1/content/${id}`, { method: 'DELETE' })
+	}
+
 	async searchContent(query: string) {
 		return this.listContent({ search: query })
 	}
