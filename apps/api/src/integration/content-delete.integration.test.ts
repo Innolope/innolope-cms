@@ -1,7 +1,9 @@
-import { collections, content, projects } from '@innolope/db'
+import { randomUUID } from 'node:crypto'
+import { collections, content, projectMembers, projects, users } from '@innolope/db'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createJwt } from '../plugins/auth.js'
 import { buildTestApp, hasTestDb } from '../test/harness.js'
 
 /**
@@ -15,6 +17,7 @@ describe.skipIf(!hasTestDb)('DELETE /api/v1/content/:id (real Postgres)', () => 
 	let app: FastifyInstance
 	let token: string
 	let projectId: string
+	let userId: string
 
 	const authed = (extra: Record<string, string> = {}) => ({
 		authorization: `Bearer ${token}`,
@@ -25,34 +28,33 @@ describe.skipIf(!hasTestDb)('DELETE /api/v1/content/:id (real Postgres)', () => 
 	beforeAll(async () => {
 		app = await buildTestApp()
 
-		// First user registers as admin and gets the JWT via cookie.
-		const reg = await app.inject({
-			method: 'POST',
-			url: '/api/v1/auth/register',
-			payload: {
-				email: 'delete-e2e@test.local',
-				password: 'Delete-E2e-Passw0rd!',
-				name: 'Delete E2E',
-			},
-		})
-		expect(reg.statusCode).toBe(201)
-		const cookie = reg.cookies.find((c) => c.name === 'innolope_token')
-		expect(cookie).toBeDefined()
-		token = (cookie as { value: string }).value
+		// Seed the user/project/membership directly (same pattern as the other
+		// integration suites) — HTTP registration only works for the very first
+		// user in the database, which another suite may already have created.
+		const short = randomUUID().slice(0, 8)
+		const [user] = await app.db
+			.insert(users)
+			.values({ email: `delete-e2e-${short}@example.com`, name: 'Delete E2E', role: 'admin' })
+			.returning()
+		userId = user.id
 
-		const proj = await app.inject({
-			method: 'POST',
-			url: '/api/v1/projects',
-			headers: { authorization: `Bearer ${token}` },
-			payload: { name: 'Delete E2E', slug: 'delete-e2e' },
-		})
-		expect(proj.statusCode).toBe(201)
-		projectId = proj.json().id
+		const [project] = await app.db
+			.insert(projects)
+			.values({ name: 'Delete E2E', slug: `delete-e2e-${short}`, ownerId: user.id })
+			.returning()
+		projectId = project.id
+
+		await app.db.insert(projectMembers).values({ projectId, userId: user.id, role: 'admin' })
+
+		token = await createJwt({ id: user.id, email: user.email, name: user.name, role: 'admin' })
 	})
 
 	afterAll(async () => {
 		if (app && projectId) {
 			await app.db.delete(projects).where(eq(projects.id, projectId))
+		}
+		if (app && userId) {
+			await app.db.delete(users).where(eq(users.id, userId))
 		}
 		await app?.close()
 	})
