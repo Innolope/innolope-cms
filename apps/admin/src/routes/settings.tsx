@@ -350,6 +350,15 @@ function ApiKeysContent() {
 	const [newKeyName, setNewKeyName] = useState('')
 	const [createdKey, setCreatedKey] = useState<string | null>(null)
 	const [copied, setCopied] = useState(false)
+	const [copiedUrl, setCopiedUrl] = useState(false)
+
+	const mcpUrl = `${window.location.origin}/mcp`
+
+	const copyUrl = () => {
+		navigator.clipboard.writeText(mcpUrl)
+		setCopiedUrl(true)
+		setTimeout(() => setCopiedUrl(false), 2000)
+	}
 
 	const fetchKeys = useCallback(async () => {
 		try {
@@ -404,6 +413,45 @@ function ApiKeysContent() {
 
 	return (
 		<div>
+			<div className="mb-6 p-4 rounded-lg bg-surface-alt border border-border">
+				<p className="text-sm font-semibold text-text mb-3">
+					{t('settingsPage.apiKeys.mcp.title')}
+				</p>
+
+				<div className="mb-4">
+					<p className="text-sm font-medium text-text">
+						{t('settingsPage.apiKeys.mcp.remoteTitle')}
+					</p>
+					<p className="text-sm text-text-secondary mt-0.5 mb-2">
+						{t('settingsPage.apiKeys.mcp.remoteDescription')}
+					</p>
+					<span className="block text-xs text-text-muted mb-1">
+						{t('settingsPage.apiKeys.mcp.remoteUrlLabel')}
+					</span>
+					<div className="flex items-center gap-2">
+						<code className="flex-1 text-sm bg-surface px-3 py-2 rounded font-mono break-all border border-border">
+							{mcpUrl}
+						</code>
+						<button
+							type="button"
+							onClick={copyUrl}
+							className="px-3 py-2 bg-btn-secondary text-text-secondary rounded text-sm hover:bg-btn-secondary-hover"
+						>
+							{copiedUrl ? t('settingsPage.apiKeys.copied') : t('settingsPage.apiKeys.copy')}
+						</button>
+					</div>
+				</div>
+
+				<div>
+					<p className="text-sm font-medium text-text">
+						{t('settingsPage.apiKeys.mcp.localTitle')}
+					</p>
+					<p className="text-sm text-text-secondary mt-0.5">
+						{t('settingsPage.apiKeys.mcp.localDescription')}
+					</p>
+				</div>
+			</div>
+
 			<div className="flex items-center justify-between mb-4">
 				<p className="text-text-secondary text-sm">{t('settingsPage.apiKeys.intro')}</p>
 				<button
