@@ -135,9 +135,32 @@ button{width:100%;padding:10px 12px;font-size:14px;font-weight:500;border-radius
 .secondary:hover{background:var(--btn2-hover)}
 .err{font-size:14px;color:var(--danger);background:var(--danger-surface);padding:8px 12px;border-radius:8px;margin:0 0 16px}
 .desc{font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0}
-.scope{font-size:13px;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
 .muted{font-size:12px;color:var(--text-muted);text-align:center;margin-top:16px}
-</style></head><body><div class="wrap">${body}</div></body></html>`
+button:disabled{opacity:.65;cursor:default}
+</style></head><body><div class="wrap">${body}</div>
+<script>
+// Give submit buttons an immediate pending state (the POST is a full-page
+// navigation, so without this the click feels dead). Preserve the clicked
+// button's name/value via a hidden input first, since a disabled button is not
+// included in the form submission — otherwise "Allow" would submit as no action.
+for (const f of document.querySelectorAll('form')) {
+  f.addEventListener('submit', (e) => {
+    const btn = e.submitter
+    // Consent form uses named buttons (allow/deny). If we can't tell which was
+    // clicked, leave the buttons enabled so the action still submits.
+    if (f.querySelector('button[name]') && !(btn && btn.name)) return
+    if (btn && btn.name) {
+      const h = document.createElement('input')
+      h.type = 'hidden'; h.name = btn.name; h.value = btn.value
+      f.appendChild(h)
+    }
+    for (const b of f.querySelectorAll('button')) b.disabled = true
+    const active = btn || f.querySelector('button.primary')
+    if (active) active.textContent = active.value === 'deny' ? 'Denying…' : active.value === 'allow' ? 'Authorizing…' : 'Signing in…'
+  }, { once: true })
+}
+</script>
+</body></html>`
 }
 
 /** Shared logo + "Innolope CMS" heading + one-line subtitle. */
@@ -161,19 +184,13 @@ ${error ? `<p class="err">${escapeHtml(error)}</p>` : ''}
 	)
 }
 
-function consentPage(ticket: string, clientName: string, scope: string, email: string): string {
-	const scopes = scope
-		.split(/\s+/)
-		.filter(Boolean)
-		.map((s) => `<div class="scope">${escapeHtml(s)}</div>`)
-		.join('')
+function consentPage(ticket: string, clientName: string, _scope: string, email: string): string {
 	return htmlShell(
 		'Authorize — Innolope CMS',
 		`${brandHeader('Authorize access to your account')}
 <form method="post" action="/oauth/authorize">
 <input type="hidden" name="ticket" value="${escapeHtml(ticket)}">
 <p class="desc"><strong>${escapeHtml(clientName)}</strong> is requesting access to your Innolope CMS account, including creating projects, managing collections, and reading/writing content.</p>
-${scopes}
 <div class="row">
 <button class="secondary" type="submit" name="action" value="deny">Deny</button>
 <button class="primary" type="submit" name="action" value="allow">Allow</button>
