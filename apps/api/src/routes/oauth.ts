@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { oauthAuthCodes, oauthClients, oauthRefreshTokens, users } from '@innolope/db'
+import {
+	oauthAuthCodes,
+	oauthClients,
+	oauthRefreshTokens,
+	refreshTokens,
+	users,
+} from '@innolope/db'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { jwtVerify, SignJWT } from 'jose'
@@ -81,41 +87,76 @@ function redirectTo(redirectUri: string, params: Record<string, string | undefin
 	return url.toString()
 }
 
+// Mirrors the admin app's theme tokens (apps/admin/src/index.css) so the
+// server-rendered OAuth screens look native next to the CMS login: light by
+// default, dark via prefers-color-scheme, monochrome primary button, and the
+// Red Hat Display brand font.
 function htmlShell(title: string, body: string): string {
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
+<link rel="icon" href="/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;600;700&display=swap">
 <style>
-:root{color-scheme:light dark}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0d10;color:#e7e9ea}
-.card{width:min(420px,92vw);background:#15181c;border:1px solid #262b31;border-radius:14px;padding:28px 26px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
-h1{font-size:18px;margin:0 0 6px}
-p{color:#9aa4ad;font-size:14px;line-height:1.5;margin:0 0 18px}
-label{display:block;font-size:13px;color:#c3cbd2;margin:12px 0 6px}
-input{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;border:1px solid #2b3138;background:#0e1114;color:#e7e9ea;font-size:14px}
-.row{display:flex;gap:10px;margin-top:20px}
-button{flex:1;padding:11px 12px;border-radius:9px;border:0;font-size:14px;font-weight:600;cursor:pointer}
-.primary{background:#3b82f6;color:#fff}
-.ghost{background:#22272d;color:#c3cbd2}
-.err{background:#3a1720;border:1px solid #5b2130;color:#f7b3c0;padding:10px 12px;border-radius:9px;font-size:13px;margin-bottom:14px}
-.scope{background:#0e1114;border:1px solid #2b3138;border-radius:9px;padding:10px 12px;font-size:13px;color:#c3cbd2;margin-bottom:6px}
-.muted{font-size:12px;color:#6b747c;margin-top:16px}
-</style></head><body><div class="card">${body}</div></body></html>`
+:root{
+--bg:#fafafa;--surface:#fff;--border:#e4e4e7;--border-strong:#d4d4d8;
+--text:#18181b;--text-secondary:#71717a;--text-muted:#a1a1aa;
+--input:#fff;--btn:#18181b;--btn-text:#fff;--btn-hover:#27272a;
+--btn2:#f4f4f5;--btn2-text:#18181b;--btn2-hover:#e4e4e7;
+--danger:#dc2626;--danger-surface:#fef2f2}
+@media (prefers-color-scheme:dark){:root{
+--bg:#09090b;--surface:#18181b;--border:#27272a;--border-strong:#3f3f46;
+--text:#f4f4f5;--text-secondary:#a1a1aa;--text-muted:#71717a;
+--input:#27272a;--btn:#f4f4f5;--btn-text:#18181b;--btn-hover:#e4e4e7;
+--btn2:#27272a;--btn2-text:#f4f4f5;--btn2-hover:#3f3f46;
+--danger:#f87171;--danger-surface:#450a0a}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
+background:var(--bg);color:var(--text);
+font-family:"Red Hat Display","Sora",system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{width:100%;max-width:384px}
+.brand{text-align:center;margin-bottom:32px}
+.brand img{width:40px;height:40px;margin:0 auto 16px;display:block}
+.brand h1{font-size:24px;font-weight:700;margin:0}
+.brand p{font-size:14px;color:var(--text-secondary);margin:4px 0 0;line-height:1.5}
+form{display:flex;flex-direction:column;gap:16px}
+label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px}
+input{width:100%;padding:10px 12px;font-size:14px;border-radius:8px;
+border:1px solid var(--border);background:var(--input);color:var(--text);font-family:inherit}
+input:focus{outline:none;border-color:var(--border-strong)}
+button{width:100%;padding:10px 12px;font-size:14px;font-weight:500;border-radius:8px;border:0;cursor:pointer;font-family:inherit}
+.row{display:flex;gap:12px}
+.row button{flex:1}
+.primary{background:var(--btn);color:var(--btn-text)}
+.primary:hover{background:var(--btn-hover)}
+.secondary{background:var(--btn2);color:var(--btn2-text)}
+.secondary:hover{background:var(--btn2-hover)}
+.err{font-size:14px;color:var(--danger);background:var(--danger-surface);padding:8px 12px;border-radius:8px;margin:0 0 16px}
+.desc{font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0}
+.scope{font-size:13px;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.muted{font-size:12px;color:var(--text-muted);text-align:center;margin-top:16px}
+</style></head><body><div class="wrap">${body}</div></body></html>`
+}
+
+/** Shared logo + "Innolope CMS" heading + one-line subtitle. */
+function brandHeader(subtitle: string): string {
+	return `<div class="brand"><img src="/logo.svg" alt="Innolope CMS"><h1>Innolope CMS</h1><p>${subtitle}</p></div>`
 }
 
 function loginPage(ticket: string, clientName: string, error?: string): string {
 	return htmlShell(
 		'Sign in — Innolope CMS',
-		`<h1>Sign in to continue</h1>
-<p><strong>${escapeHtml(clientName)}</strong> wants to connect to your Innolope CMS account.</p>
-${error ? `<div class="err">${escapeHtml(error)}</div>` : ''}
+		`${brandHeader(`<strong>${escapeHtml(clientName)}</strong> wants to connect to your account`)}
+${error ? `<p class="err">${escapeHtml(error)}</p>` : ''}
 <form method="post" action="/oauth/authorize">
 <input type="hidden" name="ticket" value="${escapeHtml(ticket)}">
-<label for="email">Email</label>
-<input id="email" name="email" type="email" autocomplete="username" required autofocus>
-<label for="password">Password</label>
-<input id="password" name="password" type="password" autocomplete="current-password" required>
-<div class="row"><button class="primary" type="submit">Sign in</button></div>
+<div><label for="email">Email</label>
+<input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
+<div><label for="password">Password</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required></div>
+<button class="primary" type="submit">Sign in</button>
 </form>`,
 	)
 }
@@ -128,17 +169,17 @@ function consentPage(ticket: string, clientName: string, scope: string, email: s
 		.join('')
 	return htmlShell(
 		'Authorize — Innolope CMS',
-		`<h1>Authorize access</h1>
-<p><strong>${escapeHtml(clientName)}</strong> is requesting access to your Innolope CMS account, including creating projects, managing collections, and reading/writing content.</p>
-${scopes}
+		`${brandHeader('Authorize access to your account')}
 <form method="post" action="/oauth/authorize">
 <input type="hidden" name="ticket" value="${escapeHtml(ticket)}">
+<p class="desc"><strong>${escapeHtml(clientName)}</strong> is requesting access to your Innolope CMS account, including creating projects, managing collections, and reading/writing content.</p>
+${scopes}
 <div class="row">
-<button class="ghost" type="submit" name="action" value="deny">Deny</button>
+<button class="secondary" type="submit" name="action" value="deny">Deny</button>
 <button class="primary" type="submit" name="action" value="allow">Allow</button>
 </div>
 </form>
-<div class="muted">Signed in as ${escapeHtml(email)}</div>`,
+<p class="muted">Signed in as ${escapeHtml(email)}</p>`,
 	)
 }
 
@@ -146,17 +187,50 @@ function errorPage(reply: FastifyReply, status: number, message: string) {
 	return reply
 		.status(status)
 		.type('text/html')
-		.send(htmlShell('Error', `<h1>Authorization error</h1><p>${escapeHtml(message)}</p>`))
+		.send(
+			htmlShell(
+				'Error — Innolope CMS',
+				`${brandHeader('Authorization error')}<p class="desc" style="text-align:center">${escapeHtml(message)}</p>`,
+			),
+		)
 }
 
 async function currentUser(app: FastifyInstance, request: FastifyRequest) {
+	// Prefer the short-lived access cookie when it's still valid.
 	const cookieToken = request.cookies?.innolope_token
-	if (!cookieToken) return null
-	const jwtUser = await verifyJwt(cookieToken)
-	if (!jwtUser) return null
-	// Confirm the account still exists (and fetch canonical fields).
-	const [user] = await app.db.select().from(users).where(eq(users.id, jwtUser.id)).limit(1)
-	return user ?? null
+	if (cookieToken) {
+		const jwtUser = await verifyJwt(cookieToken)
+		if (jwtUser) {
+			// Confirm the account still exists (and fetch canonical fields).
+			const [user] = await app.db.select().from(users).where(eq(users.id, jwtUser.id)).limit(1)
+			if (user) return user
+		}
+	}
+
+	// The access JWT lives only an hour, but an admin who is "logged in" keeps a
+	// 30-day refresh cookie. Recognize that existing web session here so the OAuth
+	// consent screen doesn't force a redundant sign-in. Read-only on purpose: we
+	// validate the token but never rotate or revoke it, so the user's open admin
+	// tab keeps its session intact.
+	const refreshCookie = request.cookies?.innolope_refresh
+	if (refreshCookie) {
+		const [row] = await app.db
+			.select()
+			.from(refreshTokens)
+			.where(
+				and(
+					eq(refreshTokens.tokenHash, hashToken(refreshCookie)),
+					eq(refreshTokens.revoked, false),
+				),
+			)
+			.limit(1)
+		if (row && row.expiresAt > new Date()) {
+			const [user] = await app.db.select().from(users).where(eq(users.id, row.userId)).limit(1)
+			if (user) return user
+		}
+	}
+
+	return null
 }
 
 /** OAuth 2.1 discovery documents. Registered at the domain root. */
