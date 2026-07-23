@@ -150,7 +150,12 @@ function flattenLocaleMap(map: Record<string, string>): string {
 	return best
 }
 
-/** Convert an external document to markdown with YAML frontmatter */
+/**
+ * Convert an external document to a body-only markdown string plus metadata.
+ * Metadata is the single source of truth for structured fields — the markdown
+ * deliberately carries NO YAML frontmatter copy (it used to, which meant every
+ * field existed in two places that could disagree; see services/frontmatter.ts).
+ */
 export function documentToMarkdown(
 	doc: ExternalDocument,
 	fields: CollectionField[],
@@ -158,10 +163,6 @@ export function documentToMarkdown(
 	const bodyField = findBodyField(doc, fields)
 	const metadata: Record<string, unknown> = {}
 	let bodyContent = ''
-	// Set when the body turned out to be a locale map. It lives in `metadata` but is
-	// kept out of the frontmatter — serializing a full multi-language article into a
-	// YAML header would roughly double the stored markdown for no benefit.
-	let localizedBodyKey: string | null = null
 
 	for (const [key, value] of Object.entries(doc)) {
 		if (key === '_id') continue
@@ -171,7 +172,6 @@ export function documentToMarkdown(
 			// flattened copy so previews and search keep working.
 			if (isLocaleMap(value)) {
 				metadata[key] = stripNullBytes(value)
-				localizedBodyKey = key
 				bodyContent = stripNullBytes(flattenLocaleMap(value))
 			} else {
 				bodyContent = stripNullBytes(String(value ?? ''))
@@ -181,14 +181,7 @@ export function documentToMarkdown(
 		}
 	}
 
-	const frontmatter = Object.entries(metadata)
-		.filter(([k]) => k !== localizedBodyKey)
-		.map(([k, v]) => `${k}: ${formatYamlValue(v)}`)
-		.join('\n')
-
-	const markdown = frontmatter ? `---\n${frontmatter}\n---\n\n${bodyContent}` : bodyContent
-
-	return { markdown, metadata }
+	return { markdown: bodyContent, metadata }
 }
 
 /** Find the most likely "body" field in a document */
@@ -213,20 +206,6 @@ function findBodyField(doc: ExternalDocument, _fields: CollectionField[]): strin
 		}
 	}
 	return longestKey && longest.length > 100 ? longestKey : null
-}
-
-function formatYamlValue(value: unknown): string {
-	if (value === null || value === undefined) return ''
-	if (typeof value === 'string') {
-		if (value.includes('\n') || value.includes(':') || value.includes('"')) {
-			return `"${value.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
-		}
-		return value
-	}
-	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-	if (value instanceof Date) return value.toISOString()
-	if (Array.isArray(value)) return `[${value.map((v) => formatYamlValue(v)).join(', ')}]`
-	return JSON.stringify(value)
 }
 
 /**

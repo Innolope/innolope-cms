@@ -527,7 +527,12 @@ export function registerTools(
 				'URL-friendly slug: lowercase letters/digits separated by "-" or "_" (snake_case is preserved as-is; anything else is normalized — spaces/punctuation become "-"). Optional — derived from metadata.title or heading.',
 			),
 		collectionId: z.string().uuid().describe('Target collection UUID'),
-		markdown: z.string().describe('Markdown content'),
+		markdown: z
+			.string()
+			.optional()
+			.describe(
+				'Markdown body (prose only). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+			),
 		metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
 		locale: z
 			.string()
@@ -825,7 +830,7 @@ export function registerTools(
 	defineTool({
 		name: 'create_content',
 		description:
-			'Create new content from markdown. Created as draft by default. Call get_collection_schema(collectionId) first to see the collection\'s fields (names, types, required) and set them via metadata. slug is optional — when omitted it is derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", markdown: "# Hello", metadata: { title: "My Article" } })',
+			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them); markdown is the optional prose body and may be omitted for data-only records. Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
 		operationType: 'create',
 		schema: {
 			slug: z
@@ -835,7 +840,12 @@ export function registerTools(
 					'URL-friendly slug: lowercase letters/digits separated by "-" or "_" (snake_case is preserved as-is; anything else is normalized — spaces/punctuation become "-"). Optional — derived from metadata.title or the markdown heading.',
 				),
 			collectionId: z.string().uuid().describe('Collection UUID'),
-			markdown: z.string().describe('Full markdown content'),
+			markdown: z
+				.string()
+				.optional()
+				.describe(
+					'Markdown body (prose only). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+				),
 			metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
 			locale: z
 				.string()

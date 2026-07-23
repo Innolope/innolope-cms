@@ -30,7 +30,9 @@ export const contentInputSchema = z.object({
 		.optional(),
 	collectionId: z.string().uuid(),
 	metadata: z.record(z.unknown()).optional(),
-	markdown: z.string(),
+	// Optional: data-shaped records (recipes, products, …) live entirely in
+	// metadata and have no prose body. Defaults to "" on create.
+	markdown: z.string().default(''),
 	locale: z.string().min(2).max(10).optional(),
 	status: z.enum(CONTENT_STATUSES).optional(),
 	// Optional source timestamps — set by importers preserving original article history.

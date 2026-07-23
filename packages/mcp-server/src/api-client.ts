@@ -39,7 +39,7 @@ function firstMarkdownHeading(markdown: string): string | undefined {
  * Resolve the slug for a write. Prefer an explicit slug; otherwise derive one
  * from `metadata.title`, then the markdown's first heading — so agents can
  * create content without hand-authoring a URL slug. Always run through slugify
- * so the result satisfies the CMS's kebab-case rule.
+ * so the result satisfies the CMS's slug rule (kebab or snake separators).
  */
 export function resolveSlug(input: {
 	slug?: string
@@ -227,7 +227,7 @@ export class InnolopeClient {
 		items: Array<{
 			slug?: string
 			collectionId: string
-			markdown: string
+			markdown?: string
 			metadata?: Record<string, unknown>
 			locale?: string
 			status?: string
@@ -311,7 +311,7 @@ export class InnolopeClient {
 	async createContent(input: {
 		slug?: string
 		collectionId: string
-		markdown: string
+		markdown?: string
 		metadata?: Record<string, unknown>
 		locale?: string
 		status?: string

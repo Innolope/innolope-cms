@@ -28,14 +28,14 @@ describe('documentToMarkdown', () => {
 		expect(markdown).toContain(LONG_EN)
 	})
 
-	it('keeps the locale-mapped body out of the YAML frontmatter', () => {
-		const { markdown } = documentToMarkdown(
+	it('does not embed YAML frontmatter — metadata is the single source of truth', () => {
+		const { markdown, metadata } = documentToMarkdown(
 			{ _id: '1', title: 'T', content: { ua: LONG_UA, en: LONG_EN } },
 			[],
 		)
-		const frontmatter = markdown.split('\n---')[0]
-		expect(frontmatter).toContain('title: T')
-		expect(frontmatter).not.toContain('content:')
+		expect(markdown.startsWith('---')).toBe(false)
+		expect(markdown).not.toContain('title: T')
+		expect(metadata.title).toBe('T')
 	})
 
 	it('does not mistake a structured object for a locale map', () => {

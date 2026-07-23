@@ -29,6 +29,7 @@ import {
 	syncExternalStatus,
 	updateExternalDb,
 } from '../../services/external-content.js'
+import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { cacheMissingDocs } from '../../services/markdown-cache.js'
 
 export async function contentRoutes(app: FastifyInstance) {
@@ -393,6 +394,10 @@ export async function contentRoutes(app: FastifyInstance) {
 	// Create content (editor+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
 		const input = contentInputSchema.parse(request.body)
+		// Metadata is the single source of truth for structured fields: any YAML
+		// frontmatter pasted into markdown is stripped into metadata here
+		// (explicit metadata keys win). Also coalesces omitted markdown to "".
+		Object.assign(input, normalizeIncomingMarkdown(input.markdown, input.metadata))
 		const writeAccess = await checkCollectionAccess(request, input.collectionId, 'write')
 		if (!writeAccess.ok) return reply.status(writeAccess.status).send({ error: writeAccess.error })
 		const html = await renderMarkdown(input.markdown)
@@ -554,6 +559,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			return reply.status(400).send({ error: 'items array is required' })
 		if (items.length > 50)
 			return reply.status(400).send({ error: 'Maximum 50 items per bulk create' })
+
+		// Same normalization as single create: frontmatter folds into metadata
+		// (explicit metadata wins) and omitted markdown becomes "".
+		for (const item of items) {
+			Object.assign(item, normalizeIncomingMarkdown(item.markdown, item.metadata))
+		}
 
 		// Enforce per-collection write access across the batch (cheap dedupe by id).
 		{
@@ -1089,6 +1100,18 @@ export async function contentRoutes(app: FastifyInstance) {
 				publishedAt: _pa,
 				...input
 			} = contentInputSchema.partial().parse(request.body)
+			// Frontmatter normalization on update. Unlike create, `metadata` here has
+			// REPLACE semantics — so frontmatter-only fields must not become the whole
+			// metadata. Strip the block now; merge the fields after `current` loads
+			// (into explicit metadata if provided, else into the current row's).
+			let frontmatterMeta: Record<string, unknown> | undefined
+			if (input.markdown !== undefined) {
+				const { body, meta } = parseFrontmatter(input.markdown)
+				if (Object.keys(meta).length > 0) {
+					input.markdown = body
+					frontmatterMeta = meta
+				}
+			}
 
 			const [current] = await app.db
 				.select()
@@ -1099,6 +1122,15 @@ export async function contentRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!current) return reply.status(404).send({ error: 'Content not found' })
+
+			// Fold stripped frontmatter fields in: under explicit metadata when the
+			// caller sent one (their keys win), otherwise into the current metadata so
+			// a markdown-only update never wipes unrelated fields.
+			if (frontmatterMeta) {
+				input.metadata = input.metadata
+					? { ...frontmatterMeta, ...input.metadata }
+					: { ...(current.metadata as Record<string, unknown>), ...frontmatterMeta }
+			}
 
 			const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write')
 			if (!writeAccess.ok) {
