@@ -17,7 +17,10 @@ export const REFRESH_COOKIE_OPTIONS = {
 	httpOnly: true,
 	secure: IS_PROD,
 	sameSite: 'lax' as const,
-	path: '/api/v1/auth/refresh',
+	// Sent site-wide (not just to the refresh endpoint) so the OAuth authorize
+	// page can recognize an existing web session and skip a redundant sign-in.
+	// Still httpOnly + Secure + SameSite=Lax; only /api/v1/auth/refresh reads it.
+	path: '/',
 	maxAge: 30 * 24 * 60 * 60,
 }
 
@@ -31,6 +34,9 @@ export const CSRF_COOKIE_OPTIONS = {
 
 export function clearAuthCookies(reply: FastifyReply) {
 	reply.clearCookie('innolope_token', { path: '/' })
+	reply.clearCookie('innolope_refresh', { path: '/' })
+	// Also clear the legacy path so sessions issued before the refresh cookie was
+	// broadened to '/' are fully removed on logout.
 	reply.clearCookie('innolope_refresh', { path: '/api/v1/auth/refresh' })
 	reply.clearCookie('innolope_csrf', { path: '/' })
 }
