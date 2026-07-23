@@ -18,6 +18,41 @@ export function slugify(slug: string): string {
 	return normalized || slug
 }
 
+/** First ATX heading (`# ...`) in the markdown, else the first non-empty line. */
+function firstMarkdownHeading(markdown: string): string | undefined {
+	for (const line of markdown.split('\n')) {
+		const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/)
+		if (heading) return heading[1].trim()
+	}
+	return markdown
+		.split('\n')
+		.map((l) => l.trim())
+		.find(Boolean)
+}
+
+/**
+ * Resolve the slug for a write. Prefer an explicit slug; otherwise derive one
+ * from `metadata.title`, then the markdown's first heading — so agents can
+ * create content without hand-authoring a URL slug. Always run through slugify
+ * so the result satisfies the CMS's kebab-case rule.
+ */
+export function resolveSlug(input: {
+	slug?: string
+	metadata?: Record<string, unknown>
+	markdown?: string
+}): string {
+	if (input.slug?.trim()) return slugify(input.slug)
+	const title = typeof input.metadata?.title === 'string' ? input.metadata.title : undefined
+	const source = title || (input.markdown ? firstMarkdownHeading(input.markdown) : undefined) || ''
+	const derived = slugify(source)
+	if (!derived) {
+		throw new Error(
+			'Cannot determine a slug: pass `slug`, or include a `metadata.title` or a markdown heading to derive one from.',
+		)
+	}
+	return derived
+}
+
 export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
@@ -185,7 +220,7 @@ export class InnolopeClient {
 
 	async bulkCreateContent(
 		items: Array<{
-			slug: string
+			slug?: string
 			collectionId: string
 			markdown: string
 			metadata?: Record<string, unknown>
@@ -196,7 +231,7 @@ export class InnolopeClient {
 			publishedAt?: string
 		}>,
 	) {
-		const normalized = items.map((item) => ({ ...item, slug: slugify(item.slug) }))
+		const normalized = items.map((item) => ({ ...item, slug: resolveSlug(item) }))
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'POST',
 			body: JSON.stringify({ items: normalized }),
@@ -261,7 +296,7 @@ export class InnolopeClient {
 	}
 
 	async createContent(input: {
-		slug: string
+		slug?: string
 		collectionId: string
 		markdown: string
 		metadata?: Record<string, unknown>
@@ -273,7 +308,7 @@ export class InnolopeClient {
 	}) {
 		return this.request<ContentItem>('/api/v1/content', {
 			method: 'POST',
-			body: JSON.stringify({ ...input, slug: slugify(input.slug) }),
+			body: JSON.stringify({ ...input, slug: resolveSlug(input) }),
 		})
 	}
 

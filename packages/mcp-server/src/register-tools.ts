@@ -209,7 +209,10 @@ export function registerTools(server: McpServer, client: InnolopeClient): void {
 			items: z
 				.array(
 					z.object({
-						slug: z.string().describe('URL-friendly slug'),
+						slug: z
+							.string()
+							.optional()
+							.describe('URL-friendly slug. Optional — derived from metadata.title or heading.'),
 						collectionId: z.string().describe('Target collection UUID'),
 						markdown: z.string().describe('Markdown content'),
 						metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
@@ -432,9 +435,14 @@ export function registerTools(server: McpServer, client: InnolopeClient): void {
 
 	server.tool(
 		'create_content',
-		'Create new content from markdown. Created as draft by default. Use metadata to set structured fields like title, tags, category. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ slug: "my-article", collectionId: "...", markdown: "# Hello", metadata: { title: "My Article" } })',
+		'Create new content from markdown. Created as draft by default. Call get_collection_schema(collectionId) first to see the collection\'s fields (names, types, required) and set them via metadata. slug is optional — when omitted it is derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", markdown: "# Hello", metadata: { title: "My Article" } })',
 		{
-			slug: z.string().describe('URL-friendly slug'),
+			slug: z
+				.string()
+				.optional()
+				.describe(
+					'URL-friendly slug. Optional — derived from metadata.title or the markdown heading.',
+				),
 			collectionId: z.string().describe('Collection UUID'),
 			markdown: z.string().describe('Full markdown content'),
 			metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
@@ -620,12 +628,15 @@ export function registerTools(server: McpServer, client: InnolopeClient): void {
 
 	server.tool(
 		'bulk_create',
-		'Create multiple content items in one call. Maximum 50 items. Each item requires slug, collectionId, and markdown. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
+		'Create multiple content items in one call. Maximum 50 items. Each item requires collectionId and markdown; slug is optional (derived from metadata.title or the markdown heading when omitted). Call get_collection_schema(collectionId) first to see the fields to set via metadata. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
 		{
 			items: z
 				.array(
 					z.object({
-						slug: z.string().describe('URL-friendly slug'),
+						slug: z
+							.string()
+							.optional()
+							.describe('URL-friendly slug. Optional — derived from metadata.title or heading.'),
 						collectionId: z.string().describe('Collection UUID'),
 						markdown: z.string().describe('Markdown content'),
 						metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
