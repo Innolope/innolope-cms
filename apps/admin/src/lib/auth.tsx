@@ -52,6 +52,26 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null)
 
+/**
+ * Route prefixes whose data only exists inside one project — a collection slug
+ * or a content id from project A is meaningless (usually a 404) in project B.
+ * Everything else (`/dashboard`, `/media`, `/settings`, `/account`,
+ * `/review-queue`, the bare `/collections` list) is project-agnostic and worth
+ * preserving across a switch.
+ */
+const PROJECT_SCOPED_PREFIXES = ['/collections/', '/content/']
+
+/**
+ * Where the browser should land after switching workspace. Keeps the current
+ * route when it still makes sense in the new project, otherwise falls back to
+ * the dashboard.
+ */
+export function nextPathAfterProjectSwitch(pathname: string): string {
+	const path = pathname || '/'
+	if (PROJECT_SCOPED_PREFIXES.some((prefix) => path.startsWith(prefix))) return '/dashboard'
+	return path
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null)
 	const [authenticated, setAuthenticated] = useState(true) // Assume authenticated, /me will confirm
@@ -216,7 +236,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		if (proj) {
 			setCurrentProject(proj)
 			localStorage.setItem('innolope_project', projectId)
-			window.location.reload() // Reload to refresh all data
+			// A full page load (rather than a router navigation) is deliberate — it
+			// re-fetches every project-scoped cache. Land on the dashboard when the
+			// current route belongs to the project we're leaving.
+			const target = nextPathAfterProjectSwitch(window.location.pathname)
+			if (target === window.location.pathname) window.location.reload()
+			else window.location.href = target
 		}
 	}
 

@@ -244,7 +244,8 @@
 			"compareLocales": "Compare locales side-by-side",
 			"translate": "Translate",
 			"translating": "Translating…",
-			"translateWithAiTitle": "Translate {{source}} → {{target}} with AI"
+			"translateWithAiTitle": "Translate {{source}} → {{target}} with AI",
+			"nothingToCompare": "Nothing on this record can be compared side-by-side yet."
 		},
 		"localizedTextField": {
 			"translateAria": "Translate {{source}} to {{target}}",
@@ -282,6 +283,7 @@
 			"selectLabel": "Select {{label}}…",
 			"none": "— None —",
 			"noRecordsYet": "No records yet.",
+			"chooseExisting": "Choose existing",
 			"createNew": "+ Create new {{label}}",
 			"uploadImage": "Upload image",
 			"changeImage": "Change image",
@@ -1348,6 +1350,14 @@
 				"confirm": "Delete",
 				"button": "Delete record",
 				"deleted": "Record deleted"
+			},
+			"enableTranslations": {
+				"title": "Enable translations for this field?",
+				"message": "The \"{{field}}\" field currently stores one plain string. Enabling translations converts it to a per-language object, so anything reading this record from the source database must read the language key instead of the raw value.",
+				"confirm": "Enable translations",
+				"prompt": "This record stores one language. Enable translations to write a {{lang}} version alongside it.",
+				"forTitle": "Enable for title",
+				"forBody": "Enable for body"
 			}
 		},
 		"edit": {

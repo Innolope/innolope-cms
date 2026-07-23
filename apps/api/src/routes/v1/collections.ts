@@ -8,6 +8,7 @@ import {
 	loadReferencedCollectionIds,
 	loadRelationTargets,
 } from '../../lib/collection-access.js'
+import { getMediaStorageMap } from '../../lib/media-storage.js'
 import { getProject } from '../../plugins/project.js'
 import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
 
@@ -94,6 +95,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 				titleField: collections.titleField,
 				source: collections.source,
 				accessMode: collections.accessMode,
+				externalTable: collections.externalTable,
 				sidebarMode: collections.sidebarMode,
 				createdAt: collections.createdAt,
 				contentCount: sql<number>`cast(count(${content.id}) as int)`,
@@ -105,7 +107,21 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.orderBy(asc(collections.label))
 
 		const targets = await loadRelationTargets(app.db, pid)
-		return results.map((r) => ({ ...r, isLinkedTarget: targets.byId.get(r.id) === true }))
+		// The import wizard already recorded which column of an imported media library
+		// holds the file path (and `applyMediaStorage` signs it on read). Surface just
+		// that column name so the editor's relation picker can render a thumbnail
+		// instead of having to guess from the field name.
+		const [projectSettings] = await app.db
+			.select({ settings: projects.settings })
+			.from(projects)
+			.where(eq(projects.id, pid))
+			.limit(1)
+		const mediaStorage = getMediaStorageMap(projectSettings)
+		return results.map((r) => ({
+			...r,
+			isLinkedTarget: targets.byId.get(r.id) === true,
+			mediaPathColumn: (r.externalTable && mediaStorage[r.externalTable]?.pathColumn) || null,
+		}))
 	})
 
 	// Get collection by ID (viewer+, project-scoped)

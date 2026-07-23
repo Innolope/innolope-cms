@@ -1,6 +1,10 @@
 import type { collections } from '@innolope/db'
 import { describe, expect, it } from 'vitest'
-import { buildExternalData, stripUnmappedSlug } from './external-content.js'
+import {
+	buildExternalData,
+	mergeExternalTimestamps,
+	stripUnmappedSlug,
+} from './external-content.js'
 
 type Collection = typeof collections.$inferSelect
 
@@ -34,6 +38,51 @@ describe('buildExternalData', () => {
 		const col = makeCol([{ name: 'title', type: 'text' }])
 		const data = buildExternalData(col, { metadata: { title: 'T', rogue: true } })
 		expect('rogue' in data).toBe(false)
+	})
+
+	it('lets a user-supplied createdAt beat the server fallback', () => {
+		// Timestamps are editable now, so backdating a post from the editor must
+		// reach the external row instead of being overwritten by "now".
+		const col = makeCol([
+			{ name: 'title', type: 'text' },
+			{ name: 'createdAt', type: 'date' },
+		])
+		const data = buildExternalData(col, {
+			metadata: { title: 'T', createdAt: '2020-01-02T03:04:05.000Z' },
+			createdAt: new Date('2026-07-23T00:00:00.000Z'),
+		})
+		expect((data.createdAt as Date).toISOString()).toBe('2020-01-02T03:04:05.000Z')
+	})
+
+	it('stamps the fallback timestamp when the user supplied none', () => {
+		const col = makeCol([{ name: 'createdAt', type: 'date' }])
+		const data = buildExternalData(col, {
+			metadata: {},
+			createdAt: new Date('2026-07-23T00:00:00.000Z'),
+		})
+		expect((data.createdAt as Date).toISOString()).toBe('2026-07-23T00:00:00.000Z')
+	})
+})
+
+describe('mergeExternalTimestamps', () => {
+	it('folds the stamped timestamps back into the cached metadata as ISO strings', () => {
+		// Without this the CMS cache keeps only what the client sent, so the editor
+		// renders a blank createdAt for every record the CMS created itself.
+		const merged = mergeExternalTimestamps(
+			{ title: 'T' },
+			{ title: 'T', createdAt: new Date('2026-07-23T10:00:00.000Z') },
+		)
+		expect(merged).toEqual({ title: 'T', createdAt: '2026-07-23T10:00:00.000Z' })
+	})
+
+	it('leaves metadata untouched when the external row maps no timestamps', () => {
+		expect(mergeExternalTimestamps({ title: 'T' }, { title: 'T' })).toEqual({ title: 'T' })
+	})
+
+	it('tolerates undefined metadata', () => {
+		expect(mergeExternalTimestamps(undefined, { updatedAt: '2026-01-01T00:00:00.000Z' })).toEqual({
+			updatedAt: '2026-01-01T00:00:00.000Z',
+		})
 	})
 })
 

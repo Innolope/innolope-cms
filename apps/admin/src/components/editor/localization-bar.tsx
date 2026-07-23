@@ -45,30 +45,40 @@ interface LocalizationBarProps {
 	 */
 	onTranslate?: () => void
 	translating?: boolean
+	/**
+	 * Set when the record has nothing that could be shown side-by-side. The compare
+	 * button then reads as unavailable instead of silently toggling into a no-op.
+	 */
+	compareDisabled?: boolean
+	/** Tooltip explaining why compare is unavailable. */
+	compareDisabledReason?: string
 }
 
 function ModeButton({
 	active,
 	onClick,
 	label,
+	disabled,
 	children,
 }: {
 	active: boolean
 	onClick: () => void
 	label: string
+	disabled?: boolean
 	children: React.ReactNode
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
 			aria-label={label}
 			aria-pressed={active}
 			title={label}
-			className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+			className={`flex items-center justify-center w-7 h-7 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
 				active
 					? 'bg-surface-alt text-text'
-					: 'text-text-muted hover:text-text hover:bg-surface-alt/60'
+					: 'text-text-muted enabled:hover:text-text enabled:hover:bg-surface-alt/60'
 			}`}
 		>
 			{children}
@@ -89,6 +99,8 @@ export function LocalizationBar({
 	locales,
 	onTranslate,
 	translating,
+	compareDisabled,
+	compareDisabledReason,
 }: LocalizationBarProps) {
 	const { t } = useTranslation()
 	// Show full language names ("English", "Ukrainian") localized to the UI language,
@@ -179,7 +191,12 @@ export function LocalizationBar({
 				<ModeButton
 					active={mode === 'compare'}
 					onClick={() => onModeChange('compare')}
-					label={t('editor.localizationBar.compareLocales')}
+					disabled={compareDisabled}
+					label={
+						compareDisabled && compareDisabledReason
+							? compareDisabledReason
+							: t('editor.localizationBar.compareLocales')
+					}
 				>
 					<svg
 						width="14"

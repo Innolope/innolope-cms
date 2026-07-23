@@ -80,10 +80,17 @@ export function buildExternalData(
 		)
 	}
 
+	// The body column. Same precedence rule as the timestamps below: an explicit
+	// value in `metadata` wins. That is what protects a localized body — the editor
+	// sends `content: { en, ua }` in metadata while `markdown` only carries the
+	// flattened preview copy, and writing that back would collapse the locale map
+	// to a single string in the source database.
 	const bodyField = ['content', 'body', 'markdown', 'text', 'html'].find((field) =>
 		fieldNames.has(field),
 	)
-	if (bodyField && input.markdown !== undefined) data[bodyField] = input.markdown
+	if (bodyField && input.markdown !== undefined && !(bodyField in data)) {
+		data[bodyField] = input.markdown
+	}
 
 	// System lifecycle timestamps — only a fallback. If the collection exposes
 	// createdAt/updatedAt/publishedAt as editable fields and the user supplied a
@@ -103,6 +110,33 @@ export function buildExternalData(
 	}
 
 	return data
+}
+
+/** Lifecycle timestamps `buildExternalData` may stamp onto the external row. */
+const EXTERNAL_TIMESTAMP_FIELDS = ['createdAt', 'updatedAt', 'publishedAt'] as const
+
+/**
+ * Fold the timestamps that actually reached the external database back into the
+ * metadata the CMS caches locally.
+ *
+ * The cached row stores `metadata` straight from the request body, but
+ * `buildExternalData` stamps `createdAt`/`updatedAt`/`publishedAt` on top when the
+ * collection maps them and the caller didn't supply one. Without this merge the two
+ * diverge and the editor renders those fields blank for every record the CMS itself
+ * created — even though the external document has them.
+ */
+export function mergeExternalTimestamps(
+	metadata: Record<string, unknown> | undefined,
+	externalData: Record<string, unknown>,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...(metadata ?? {}) }
+	for (const key of EXTERNAL_TIMESTAMP_FIELDS) {
+		if (!(key in externalData)) continue
+		const value = externalData[key]
+		// The cache column is JSONB — normalize Dates so a round-trip stays a string.
+		merged[key] = value instanceof Date ? value.toISOString() : value
+	}
+	return merged
 }
 
 function coerceExternalFieldValue(fieldType: string | undefined, value: unknown): unknown {

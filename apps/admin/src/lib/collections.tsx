@@ -13,6 +13,15 @@ export interface CollectionWithCount {
 	titleField?: string | null
 	source: string
 	accessMode: string | null
+	/** Source table backing an imported (external) collection. */
+	externalTable?: string | null
+	/**
+	 * For an imported media library: the field holding the file path/URL, as
+	 * recorded by the import wizard in `settings.externalDb.mediaStorage`. The
+	 * server resolves this column to a servable URL on read, so the editor can
+	 * render a thumbnail from it without guessing at the field name.
+	 */
+	mediaPathColumn?: string | null
 	/** Tri-state sidebar visibility. Defaults to 'auto'. */
 	sidebarMode?: 'auto' | 'show' | 'hide'
 	/** Server-computed: another collection references this one via a relation field. */

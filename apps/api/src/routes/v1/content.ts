@@ -23,6 +23,7 @@ import {
 	httpError,
 	hydrateRelations,
 	insertIntoExternalDb,
+	mergeExternalTimestamps,
 	renderMarkdown,
 	syncExternalStatus,
 	updateExternalDb,
@@ -440,6 +441,10 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		let externalId: string | undefined
+		// Metadata as cached locally. Starts as what the client sent and picks up the
+		// timestamps the external write actually stamped, so the editor reads back the
+		// same values the source database holds.
+		let cachedMetadata: Record<string, unknown> = input.metadata || {}
 		if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 			const now = new Date()
 			const externalData = buildExternalData(col, {
@@ -453,6 +458,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 			const inserted = await insertIntoExternalDb(app, getProject(request).id, col, externalData)
 			externalId = inserted?._id
+			cachedMetadata = mergeExternalTimestamps(cachedMetadata, externalData)
 		}
 
 		let created: typeof content.$inferSelect
@@ -463,7 +469,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					projectId: getProject(request).id,
 					slug: input.slug,
 					collectionId: input.collectionId,
-					metadata: input.metadata || {},
+					metadata: cachedMetadata,
 					markdown: input.markdown,
 					html,
 					locale: input.locale || 'en',
@@ -868,6 +874,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				const col = updateColMap.get(current.collectionId)
 
 				let externalId = current.externalId
+				// Metadata to cache locally — `undefined` leaves the stored blob untouched.
+				let cachedMetadata = item.metadata
 				if (col?.source === 'external' && col.accessMode === 'read-only') {
 					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
 				}
@@ -896,6 +904,9 @@ export async function contentRoutes(app: FastifyInstance) {
 						)
 						externalId = inserted?._id ?? null
 					}
+					// Keep the cache in step with what the external row now holds, so the
+					// editor doesn't read back a stale/blank updatedAt.
+					cachedMetadata = mergeExternalTimestamps(item.metadata ?? current.metadata, externalData)
 				}
 
 				await tx.insert(contentVersions).values({
@@ -913,7 +924,7 @@ export async function contentRoutes(app: FastifyInstance) {
 						...(item.slug && { slug: item.slug }),
 						...(item.markdown && { markdown: item.markdown }),
 						...(html && { html }),
-						...(item.metadata && { metadata: item.metadata }),
+						...(cachedMetadata && { metadata: cachedMetadata }),
 						...(item.status && {
 							status: item.status as 'draft' | 'pending_review' | 'published' | 'archived',
 						}),
@@ -1072,6 +1083,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 			}
 
+			// Metadata to cache locally — `undefined` leaves the stored blob untouched.
+			let cachedMetadata = input.metadata
 			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 				const nextMetadata = { ...current.metadata, ...input.metadata }
 				const now = new Date()
@@ -1102,6 +1115,9 @@ export async function contentRoutes(app: FastifyInstance) {
 					app.log.warn(err, 'Failed to sync to external DB')
 					return reply.status(502).send({ error: 'Failed to sync to external database' })
 				}
+				// Keep the cache in step with what the external row now holds, so the editor
+				// doesn't read back a stale/blank createdAt/updatedAt.
+				cachedMetadata = mergeExternalTimestamps(input.metadata ?? current.metadata, externalData)
 			}
 
 			await app.db.insert(contentVersions).values({
@@ -1119,6 +1135,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				.update(content)
 				.set({
 					...input,
+					...(cachedMetadata && { metadata: cachedMetadata }),
 					...(html && { html }),
 					version: newVersion,
 					updatedAt: new Date(),

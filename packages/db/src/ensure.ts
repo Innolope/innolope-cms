@@ -533,6 +533,48 @@ export async function ensureTables(connectionUrl: string) {
 				err,
 			)
 		}
+
+		// ── Data backfills ──────────────────────────────────────────────────────
+		// The only data step in this file. Everything above is DDL; keep it that way
+		// and keep anything added here cheap — ensureTables runs on every boot.
+		//
+		// Earlier versions of the import wizard stamped `ui.readOnly` on lifecycle
+		// timestamp columns, which made them permanently uneditable (the editor both
+		// disables the input and strips the value from the save payload). Those are
+		// real content dates — a post's `createdAt` is usually what the consuming site
+		// renders as its published date — so unlock them on existing collections.
+		// `__v` and any field an admin locked by hand in the schema editor are left
+		// alone. Idempotent: after the first run the LIKE guard matches nothing new.
+		try {
+			await sql`
+				UPDATE collections c
+				SET fields = rebuilt.fields
+				FROM (
+					SELECT
+						c2.id,
+						jsonb_agg(
+							CASE
+								WHEN f->>'name' IN (
+									'createdAt', 'updatedAt', 'publishedAt',
+									'created_at', 'updated_at', 'published_at'
+								) AND f->'ui'->>'readOnly' IS NOT NULL
+								THEN CASE
+									WHEN (f->'ui') - 'readOnly' = '{}'::jsonb THEN f - 'ui'
+									ELSE jsonb_set(f, '{ui}', (f->'ui') - 'readOnly')
+								END
+								ELSE f
+							END
+							ORDER BY ord
+						) AS fields
+					FROM collections c2, jsonb_array_elements(c2.fields) WITH ORDINALITY AS t(f, ord)
+					WHERE c2.fields::text LIKE '%"readOnly"%'
+					GROUP BY c2.id
+				) rebuilt
+				WHERE c.id = rebuilt.id AND c.fields IS DISTINCT FROM rebuilt.fields
+			`
+		} catch (err) {
+			console.warn('[ensure] Could not unlock timestamp fields on existing collections.', err)
+		}
 	} finally {
 		await sql.end()
 	}

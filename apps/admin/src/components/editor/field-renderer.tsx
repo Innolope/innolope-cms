@@ -44,6 +44,19 @@ function toDateInputValue(v: unknown): string {
 	return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
 }
 
+/**
+ * Normalize a stored date value to the `yyyy-mm-ddThh:mm` string
+ * `<input type="datetime-local">` expects, in the viewer's local timezone.
+ * (`toISOString` would shift the displayed clock time by the UTC offset.)
+ */
+function toDateTimeInputValue(v: unknown): string {
+	if (!v) return ''
+	const d = new Date(v as string)
+	if (Number.isNaN(d.getTime())) return ''
+	const pad = (n: number) => String(n).padStart(2, '0')
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /** True iff value is an array containing at least one non-string, non-null object element. */
 function isObjectArray(value: unknown): boolean {
 	if (!Array.isArray(value)) return false
@@ -104,6 +117,25 @@ function isLongFormName(name: string): boolean {
 }
 
 /**
+ * Lifecycle timestamp names that carry a meaningful time-of-day. Rendering these
+ * through a plain `<input type="date">` silently truncates to midnight on save,
+ * which reorders a feed of same-day posts — so they default to the datetime
+ * widget. Matched case-insensitively against both camelCase and snake_case.
+ */
+const TIMESTAMP_FIELD_NAMES = new Set([
+	'createdat',
+	'updatedat',
+	'publishedat',
+	'created_at',
+	'updated_at',
+	'published_at',
+])
+
+function isTimestampName(name: string): boolean {
+	return TIMESTAMP_FIELD_NAMES.has(name.toLowerCase())
+}
+
+/**
  * Effective widget id for a field — caller's override or the smart default.
  * Kept exported so the schema editor can stay in sync with the runtime.
  */
@@ -123,7 +155,9 @@ export function defaultWidgetFor(field: CollectionField): string {
 		case 'boolean':
 			return 'checkbox'
 		case 'date':
-			return 'date'
+			// createdAt/publishedAt and friends keep their time-of-day; a bare
+			// `date` picker would round every save down to midnight.
+			return isTimestampName(field.name) ? 'datetime' : 'date'
 		case 'enum':
 			return 'dropdown'
 		case 'array':
@@ -195,6 +229,17 @@ export function FieldRenderer({
 
 	// `date` ───────────────────────────────────────────────────────────────────
 	if (f.type === 'date') {
+		if (widget === 'datetime') {
+			return (
+				<input
+					type="datetime-local"
+					value={toDateTimeInputValue(value)}
+					onChange={(e) => onChange(e.target.value ? new Date(e.target.value).toISOString() : '')}
+					disabled={ro}
+					className={inputCls}
+				/>
+			)
+		}
 		return (
 			<input
 				type="date"

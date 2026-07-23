@@ -33,13 +33,24 @@ interface RelationFieldProps {
  * `image_url`, `photoUrl`).
  */
 const URL_FIELD_PATTERN =
-	/(^|_)(image|imageurl|image_url|photo|photourl|photo_url|thumbnail|thumb|avatar|cover|banner|logo|src|secure_url|file|attachment|asset)($|_)/i
+	/(^|_)(image|imageurl|image_url|photo|photourl|photo_url|thumbnail|thumb|avatar|cover|banner|logo|src|secure_url|file|filename|attachment|asset|path|fullpath|key)($|_)/i
 
 /** Split camelCase so `fullPath`/`imageUrl` match the `_`-delimited field patterns. */
 const splitCamel = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
 
-/** Pick the field in a related collection most likely to hold an image/file URL. */
-function pickUrlField(fields: { name: string; type: string }[]): string | undefined {
+/**
+ * Pick the field in a related collection most likely to hold an image/file URL.
+ *
+ * The import wizard's `mediaPathColumn` is authoritative when present — it's what
+ * the server actually resolves to a servable URL on read. Everything after it is
+ * a name heuristic for collections with no media-storage entry.
+ */
+export function pickUrlField(collection: {
+	fields: { name: string; type: string }[]
+	mediaPathColumn?: string | null
+}): string | undefined {
+	const { fields, mediaPathColumn } = collection
+	if (mediaPathColumn && fields.some((f) => f.name === mediaPathColumn)) return mediaPathColumn
 	const textFields = fields.filter((f) => f.type === 'text' || f.type === 'string')
 	// Prefer an explicit image/photo/thumbnail token, then fall back to a field named
 	// exactly `url`/`src`/`href` — media-backed collections store the asset URL in a
@@ -127,7 +138,7 @@ export function RelationField({
 	const ref = useRef<HTMLDivElement>(null)
 	const createInputRef = useRef<HTMLInputElement>(null)
 
-	const urlField = useMemo(() => (related ? pickUrlField(related.fields) : undefined), [related])
+	const urlField = useMemo(() => (related ? pickUrlField(related) : undefined), [related])
 	// Field used both for displaying the row label AND for the inline "create new" form;
 	// honours the collection's pinned titleField when set.
 	const labelField = useMemo(
@@ -237,142 +248,162 @@ export function RelationField({
 		)
 	}
 
-	return (
-		<div className="space-y-1.5">
-			{imagePreview && urlField && (
+	// "Create new <label>" modal, shared by both layouts.
+	const createDialog = (
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+			<button
+				type="button"
+				aria-label={t('common.closeDialog')}
+				className="absolute inset-0 -z-10 cursor-default"
+				onClick={() => setCreating(false)}
+			/>
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={t('editor.relationField.newDialogTitle', { label: related.label })}
+				className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-3"
+			>
+				<h3 className="text-sm font-semibold">
+					{t('editor.relationField.newDialogTitle', { label: related.label })}
+				</h3>
+				<input
+					ref={createInputRef}
+					type="text"
+					value={createName}
+					onChange={(e) => setCreateName(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter') handleCreate()
+						if (e.key === 'Escape') setCreating(false)
+					}}
+					placeholder={labelField || t('editor.relationField.namePlaceholder')}
+					className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
+				/>
+				<div className="flex justify-end gap-2">
+					<button
+						type="button"
+						onClick={() => setCreating(false)}
+						className="px-3 py-1.5 text-text-secondary hover:text-text text-xs"
+					>
+						{t('common.cancel')}
+					</button>
+					<button
+						type="button"
+						onClick={handleCreate}
+						disabled={createSaving || !createName.trim()}
+						className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+					>
+						{createSaving ? t('editor.relationField.creating') : t('common.create')}
+					</button>
+				</div>
+			</div>
+		</div>
+	)
+
+	// Record picker menu, shared by both layouts. The caller positions it — this is
+	// just the absolutely-positioned list that drops out of whatever opened it.
+	const pickerMenu = (
+		<div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border-strong rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+			{value && (
+				<button
+					type="button"
+					onClick={() => {
+						onChange('')
+						setOpen(false)
+					}}
+					className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
+				>
+					{t('editor.relationField.none')}
+				</button>
+			)}
+			{loading ? (
+				<p className="px-3 py-2 text-sm text-text-muted">{t('common.loading')}</p>
+			) : docs.length === 0 ? (
+				<p className="px-3 py-2 text-sm text-text-muted">
+					{t('editor.relationField.noRecordsYet')}
+				</p>
+			) : (
+				docs.map((doc) => {
+					const id = docId(doc)
+					const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
+					return (
+						<button
+							key={id}
+							type="button"
+							onClick={() => {
+								onChange(id)
+								setOpen(false)
+							}}
+							className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm transition-colors ${
+								id === value
+									? 'bg-surface-alt text-text font-medium'
+									: 'text-text-secondary hover:bg-surface-alt hover:text-text'
+							}`}
+						>
+							{urlField && (
+								<Thumb
+									key={docUrl}
+									url={docUrl}
+									className="h-6 w-6 shrink-0 rounded object-cover"
+								/>
+							)}
+							<span className="truncate">{docLabel(doc)}</span>
+						</button>
+					)
+				})
+			)}
+			{!disabled && canWrite && labelField && (
+				<button
+					type="button"
+					onClick={() => {
+						setOpen(false)
+						setCreating(true)
+					}}
+					className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
+				>
+					{t('editor.relationField.createNew', { label: related.label })}
+				</button>
+			)}
+		</div>
+	)
+
+	// Featured-image mode: a full-width preview above a Choose / Upload / Remove row.
+	// Nothing here is gated on `urlField` — when the related collection exposes no
+	// detectable file column the preview falls back to a placeholder tile and the
+	// picker still works, instead of the field rendering as an empty gap.
+	if (imagePreview) {
+		return (
+			<div className="space-y-1.5">
 				<div className="w-full aspect-video rounded border border-border overflow-hidden bg-input">
 					<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
 				</div>
-			)}
-			{!imagePreview && (
-				<div className="flex items-center gap-2">
-					{urlField && (
-						<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
-							<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
-						</div>
-					)}
-					<div className="relative flex-1 min-w-0" ref={ref}>
+				{current && <p className="text-[10px] text-text-muted truncate">{docLabel(current)}</p>}
+				{!disabled && (
+					<div className="relative flex flex-wrap gap-2" ref={ref}>
 						<button
 							type="button"
-							disabled={disabled}
-							onClick={() => !disabled && setOpen((o) => !o)}
-							className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
+							onClick={() => setOpen((o) => !o)}
+							className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
 						>
-							<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
-								{current
-									? docLabel(current)
-									: value || t('editor.relationField.selectLabel', { label: related.label })}
-							</span>
-							<svg
-								width="12"
-								height="12"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								className={`text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
-								aria-hidden="true"
-							>
-								<polyline points="6 9 12 15 18 9" />
-							</svg>
+							{t('editor.relationField.chooseExisting')}
 						</button>
-
-						{open && !disabled && (
-							<div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border-strong rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
-								{value && (
-									<button
-										type="button"
-										onClick={() => {
-											onChange('')
-											setOpen(false)
-										}}
-										className="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-surface-alt hover:text-text"
-									>
-										{t('editor.relationField.none')}
-									</button>
-								)}
-								{loading ? (
-									<p className="px-3 py-2 text-sm text-text-muted">{t('common.loading')}</p>
-								) : docs.length === 0 ? (
-									<p className="px-3 py-2 text-sm text-text-muted">
-										{t('editor.relationField.noRecordsYet')}
-									</p>
-								) : (
-									docs.map((doc) => {
-										const id = docId(doc)
-										const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
-										return (
-											<button
-												key={id}
-												type="button"
-												onClick={() => {
-													onChange(id)
-													setOpen(false)
-												}}
-												className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm transition-colors ${
-													id === value
-														? 'bg-surface-alt text-text font-medium'
-														: 'text-text-secondary hover:bg-surface-alt hover:text-text'
-												}`}
-											>
-												{urlField && (
-													<Thumb
-														key={docUrl}
-														url={docUrl}
-														className="h-6 w-6 shrink-0 rounded object-cover"
-													/>
-												)}
-												<span className="truncate">{docLabel(doc)}</span>
-											</button>
-										)
-									})
-								)}
-								{!disabled && canWrite && labelField && (
-									<button
-										type="button"
-										onClick={() => {
-											setOpen(false)
-											setCreating(true)
-										}}
-										className="w-full text-left px-3 py-2 text-sm font-medium text-text hover:bg-surface-alt border-t border-border sticky bottom-0 bg-surface"
-									>
-										{t('editor.relationField.createNew', { label: related.label })}
-									</button>
-								)}
-							</div>
+						{urlField && canWrite && (
+							<label className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover cursor-pointer">
+								{uploading
+									? t('editor.relationField.uploading')
+									: t('editor.relationField.changeImage')}
+								<input
+									type="file"
+									accept="image/*"
+									className="hidden"
+									disabled={uploading}
+									onChange={(e) => {
+										const file = e.target.files?.[0]
+										if (file) handleUpload(file)
+										e.target.value = ''
+									}}
+								/>
+							</label>
 						)}
-					</div>
-				</div>
-			)}
-
-			{!imagePreview && value && (
-				<p className="text-[10px] text-text-muted font-mono truncate">{value}</p>
-			)}
-
-			{urlField &&
-				!disabled &&
-				canWrite &&
-				(imagePreview ? (
-					// Featured-image mode: simple Change / Remove buttons, no dropdown.
-					<div className="flex flex-wrap gap-2">
-						<label className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover cursor-pointer">
-							{uploading
-								? t('editor.relationField.uploading')
-								: t('editor.relationField.changeImage')}
-							<input
-								type="file"
-								accept="image/*"
-								className="hidden"
-								disabled={uploading}
-								onChange={(e) => {
-									const file = e.target.files?.[0]
-									if (file) handleUpload(file)
-									e.target.value = ''
-								}}
-							/>
-						</label>
 						{value && (
 							<button
 								type="button"
@@ -382,75 +413,74 @@ export function RelationField({
 								{t('editor.relationField.removeImage')}
 							</button>
 						)}
+						{open && pickerMenu}
 					</div>
-				) : (
-					<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-						{uploading
-							? t('editor.relationField.uploading')
-							: t('editor.relationField.uploadImage')}
-						<input
-							type="file"
-							accept="image/*"
-							className="hidden"
-							disabled={uploading}
-							onChange={(e) => {
-								const file = e.target.files?.[0]
-								if (file) handleUpload(file)
-								e.target.value = ''
-							}}
-						/>
-					</label>
-				))}
+				)}
+				{creating && createDialog}
+			</div>
+		)
+	}
 
-			{creating && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center gap-2">
+				{urlField && (
+					<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
+						<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
+					</div>
+				)}
+				<div className="relative flex-1 min-w-0" ref={ref}>
 					<button
 						type="button"
-						aria-label={t('common.closeDialog')}
-						className="absolute inset-0 -z-10 cursor-default"
-						onClick={() => setCreating(false)}
-					/>
-					<div
-						role="dialog"
-						aria-modal="true"
-						aria-label={t('editor.relationField.newDialogTitle', { label: related.label })}
-						className="bg-bg border border-border rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-3"
+						disabled={disabled}
+						onClick={() => !disabled && setOpen((o) => !o)}
+						className="w-full flex items-center justify-between px-3 py-2 bg-input border border-border rounded text-sm text-left focus:outline-none focus:border-border-strong disabled:opacity-60"
 					>
-						<h3 className="text-sm font-semibold">
-							{t('editor.relationField.newDialogTitle', { label: related.label })}
-						</h3>
-						<input
-							ref={createInputRef}
-							type="text"
-							value={createName}
-							onChange={(e) => setCreateName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === 'Enter') handleCreate()
-								if (e.key === 'Escape') setCreating(false)
-							}}
-							placeholder={labelField || t('editor.relationField.namePlaceholder')}
-							className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong"
-						/>
-						<div className="flex justify-end gap-2">
-							<button
-								type="button"
-								onClick={() => setCreating(false)}
-								className="px-3 py-1.5 text-text-secondary hover:text-text text-xs"
-							>
-								{t('common.cancel')}
-							</button>
-							<button
-								type="button"
-								onClick={handleCreate}
-								disabled={createSaving || !createName.trim()}
-								className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-xs font-medium hover:bg-btn-primary-hover disabled:opacity-50"
-							>
-								{createSaving ? t('editor.relationField.creating') : t('common.create')}
-							</button>
-						</div>
-					</div>
+						<span className={`truncate ${current ? 'text-text' : 'text-text-muted'}`}>
+							{current
+								? docLabel(current)
+								: value || t('editor.relationField.selectLabel', { label: related.label })}
+						</span>
+						<svg
+							width="12"
+							height="12"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className={`text-text-muted shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`}
+							aria-hidden="true"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</button>
+
+					{open && !disabled && pickerMenu}
 				</div>
+			</div>
+
+			{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
+
+			{urlField && !disabled && canWrite && (
+				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
+					{uploading ? t('editor.relationField.uploading') : t('editor.relationField.uploadImage')}
+					<input
+						type="file"
+						accept="image/*"
+						className="hidden"
+						disabled={uploading}
+						onChange={(e) => {
+							const file = e.target.files?.[0]
+							if (file) handleUpload(file)
+							e.target.value = ''
+						}}
+					/>
+				</label>
 			)}
+
+			{creating && createDialog}
 		</div>
 	)
 }

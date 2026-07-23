@@ -53,6 +53,13 @@ function toLocaleValueMap(value: unknown, defaultLocale: string): Record<string,
  */
 const HIDDEN_FIELDS = new Set(['title', 'content', 'body', 'tags', 'status', '__v'])
 
+/**
+ * Schema field names that can hold the record's long-form body, in preference
+ * order. Mirrors the server's list in `services/external-content.ts` so the two
+ * agree on which column a body write lands in.
+ */
+const BODY_FIELD_NAMES = ['content', 'body', 'markdown', 'text', 'html']
+
 /** Relation fields whose name reads like an image — surfaced as a full-width preview. */
 const IMAGE_FIELD_NAME_RE = /image|photo|cover|banner|thumbnail|avatar|logo|featured|picture/i
 
@@ -641,8 +648,13 @@ function CollectionContentEditor() {
 					const { body, meta } = parseFrontmatter(item.markdown)
 					const mergedMeta = { ...meta, ...item.metadata }
 
+					// A locale-mapped title (`{en, ua}`) can't live in the plain `title`
+					// string state — it stays in extraFields and the central column renders
+					// one input per visible locale, same as any other localized field.
+					const titleIsLocalized = isLocaleMap(mergedMeta.title, projectLocales, true)
+
 					setMarkdown(body.trim())
-					setTitle((mergedMeta.title as string) || '')
+					setTitle(titleIsLocalized ? '' : (mergedMeta.title as string) || '')
 					setContentSlug(item.slug)
 					setStatus(item.status)
 					setTags(toStringArray(mergedMeta.tags))
@@ -650,12 +662,12 @@ function CollectionContentEditor() {
 					setExternalId(item.externalId || null)
 					setIsLive(Boolean(item.live))
 
-					// All metadata except title goes into extraFields (schema fields rendered
-					// dynamically for both internal and external). Declared outside any block
-					// so the draft-diff check below can compare against it.
+					// All metadata except a plain-string title goes into extraFields (schema
+					// fields rendered dynamically for both internal and external). Declared
+					// outside any block so the draft-diff check below can compare against it.
 					const extras: Record<string, unknown> = {}
 					for (const [key, val] of Object.entries(mergedMeta)) {
-						if (key !== 'title') extras[key] = val
+						if (key !== 'title' || titleIsLocalized) extras[key] = val
 					}
 					setExtraFields(extras)
 
@@ -832,7 +844,9 @@ function CollectionContentEditor() {
 		}
 		return {
 			...cleanExtras,
-			title: title || autoTitle,
+			// A localized title already sits in `cleanExtras` as a locale map — don't
+			// flatten it back to the (empty) plain-title state.
+			...('title' in cleanExtras ? {} : { title: title || autoTitle }),
 			tags: tags.map((t) => t.trim()).filter(Boolean),
 		}
 	}
@@ -1112,6 +1126,70 @@ function CollectionContentEditor() {
 		isLocaleMap(extraFields[f.name], projectLocales, allowKnownCodes) ||
 		knownLocalizedFields.has(f.name)
 
+	// ── Locale-aware title + body ────────────────────────────────────────────────
+	// Translations of an article live as locale maps inside the record itself
+	// (`content: { en, ua }`) — never as a second record, which on an external
+	// collection would duplicate the source document. `bodyFieldName` is the schema
+	// column those maps are written to; when it holds a map, the central column
+	// renders one editor per visible locale instead of the single-language pair.
+	const bodyFieldName =
+		BODY_FIELD_NAMES.find((name) => collection?.fields?.some((f) => f.name === name)) ?? null
+	const bodyMap =
+		bodyFieldName && isLocaleMap(extraFields[bodyFieldName], projectLocales, allowKnownCodes)
+			? toLocaleValueMap(extraFields[bodyFieldName], defaultLocale)
+			: null
+	const titleMap = isLocaleMap(extraFields.title, projectLocales, allowKnownCodes)
+		? toLocaleValueMap(extraFields.title, defaultLocale)
+		: null
+
+	/** Locales the central column currently shows, left-to-right. */
+	const visiblePaneLocales =
+		localeUi.mode === 'compare'
+			? [localeUi.leftLocale, localeUi.rightLocale]
+			: [localeUi.activeLocale]
+
+	const setBodyLocale = (locale: string, text: string) => {
+		if (!bodyFieldName) return
+		setExtraFields((prev) => ({
+			...prev,
+			[bodyFieldName]: { ...toLocaleValueMap(prev[bodyFieldName], defaultLocale), [locale]: text },
+		}))
+		// Keep the flattened `markdown` in step with the primary pane so list
+		// previews, search and the HTML cache don't drift from the record.
+		if (locale === visiblePaneLocales[0]) setMarkdown(text)
+		setDirty(true)
+	}
+
+	const setTitleLocale = (locale: string, text: string) => {
+		setExtraFields((prev) => ({
+			...prev,
+			title: { ...toLocaleValueMap(prev.title, defaultLocale), [locale]: text },
+		}))
+		setDirty(true)
+	}
+
+	/**
+	 * Turn a plain-string title/body into a locale map, keeping the existing text as
+	 * the record's current language. This changes the shape of the value in the source
+	 * database — a consuming site reading `doc.content` as a string will need to read
+	 * `doc.content[locale]` instead — so it is always an explicit, confirmed action.
+	 */
+	const enableTranslations = async (target: 'title' | 'body') => {
+		const fieldName = target === 'title' ? 'title' : bodyFieldName
+		if (!fieldName) return
+		const ok = await confirm({
+			title: t('collections.detail.enableTranslations.title'),
+			message: t('collections.detail.enableTranslations.message', { field: fieldName }),
+			confirmLabel: t('collections.detail.enableTranslations.confirm'),
+		})
+		if (!ok) return
+		const sourceLocale = visiblePaneLocales[0] || defaultLocale
+		const existing = target === 'title' ? title : markdown
+		setExtraFields((prev) => ({ ...prev, [fieldName]: { [sourceLocale]: existing } }))
+		if (target === 'title') setTitle('')
+		setDirty(true)
+	}
+
 	// AI translation — only wired into the UI when the AI assistant is licensed,
 	// the record is editable, AND the project actually has ≥2 locales to translate
 	// between. With one locale, "Translate EN → EN" is meaningless noise.
@@ -1197,9 +1275,14 @@ function CollectionContentEditor() {
 		await refreshCollections()
 	}
 
-	// Bulk translate: every localized field (staged in `extraFields`) plus the document
-	// body, from the left (source) locale to the right (target) locale. The body lives
-	// in a separate per-locale `content` row, so it is created/updated directly.
+	// Bulk translate: every localized field on the record — including the title and
+	// document body once those are locale maps — from the left (source) locale to the
+	// right (target) locale. Everything is staged in `extraFields` for the user to
+	// review and Save; nothing is written until then.
+	//
+	// This used to POST a sibling content row for the body, which on an external
+	// read-write collection inserted a *second* document into the source database.
+	// Translations now live inside the record, so one article stays one document.
 	const handleBulkTranslate = async () => {
 		if (!collection) return
 		const source = localeUi.leftLocale
@@ -1216,27 +1299,18 @@ function CollectionContentEditor() {
 			}
 		}
 
-		const translateBody = !isNew && markdown.trim().length > 0
-		if (fieldNames.length === 0 && !translateBody) {
+		if (fieldNames.length === 0) {
 			toast(t('collections.detail.translate.nothingOnRecord'), 'error')
 			return
 		}
 
-		const fieldsLabel =
-			fieldNames.length > 0
-				? t('collections.detail.translate.localizedFieldsLabel', { count: fieldNames.length })
-				: ''
-		const parts = [
-			fieldsLabel,
-			translateBody ? t('collections.detail.translate.documentBody') : '',
-		].filter(Boolean)
 		const ok = await confirm({
 			title: t('collections.detail.translate.translateTitle'),
 			message: t('collections.detail.translate.translateMessage', {
-				what: parts.join(t('collections.detail.translate.joinAnd')),
+				what: t('collections.detail.translate.localizedFieldsLabel', { count: fieldNames.length }),
 				source: localeDisplayName(source),
 				target: localeDisplayName(target),
-				saveFirstNote: isNew ? t('collections.detail.translate.saveFirstNote') : '',
+				saveFirstNote: '',
 			}),
 			confirmLabel: t('collections.detail.translate.translate'),
 		})
@@ -1251,52 +1325,25 @@ function CollectionContentEditor() {
 				const translated = await translateText(map[source] ?? '', source, target, name)
 				fieldUpdates[name] = { ...map, [target]: translated }
 			}
-			if (Object.keys(fieldUpdates).length > 0) {
-				setExtraFields((prev) => {
-					const next = { ...prev }
-					for (const [k, v] of Object.entries(fieldUpdates)) next[k] = v
-					return next
-				})
-				setDirty(true)
-			}
-
-			if (translateBody) {
-				const translatedBody = await translateText(markdown, source, target, 'body')
-				const siblingMetadata: Record<string, unknown> = {
-					...collectMetadata(resolveAutoTitle()),
-				}
-				for (const [k, v] of Object.entries(fieldUpdates)) siblingMetadata[k] = v
-
-				const translations = await api.get<Record<string, { id: string }>>(
-					`/api/v1/locales/translations/${encodeURIComponent(contentSlug)}`,
-				)
-				const siblingId = translations[target]?.id
-				if (siblingId) {
-					await api.put(`/api/v1/content/${siblingId}`, {
-						slug: contentSlug,
-						markdown: translatedBody,
-						metadata: siblingMetadata,
-					})
-				} else {
-					await api.post('/api/v1/content', {
-						slug: contentSlug,
-						collectionId: collection.id,
-						locale: target,
-						markdown: translatedBody,
-						metadata: siblingMetadata,
-						status: 'draft',
-					})
-				}
+			if (Object.keys(fieldUpdates).length === 0) {
 				toast(
-					t('collections.detail.translate.translatedDocument', { lang: localeDisplayName(target) }),
-					'success',
+					t('collections.detail.translate.nothingToTranslate', {
+						lang: localeDisplayName(source),
+					}),
+					'error',
 				)
-			} else {
-				toast(
-					t('collections.detail.translate.translatedFields', { lang: localeDisplayName(target) }),
-					'success',
-				)
+				return
 			}
+			setExtraFields((prev) => {
+				const next = { ...prev }
+				for (const [k, v] of Object.entries(fieldUpdates)) next[k] = v
+				return next
+			})
+			setDirty(true)
+			toast(
+				t('collections.detail.translate.translatedFields', { lang: localeDisplayName(target) }),
+				'success',
+			)
 		} catch (err) {
 			toast(err instanceof Error ? err.message : t('collections.detail.translate.failed'), 'error')
 		} finally {
@@ -1308,6 +1355,18 @@ function CollectionContentEditor() {
 		visibleSchemaFields.some(isFieldLocalized) ||
 		Object.entries(extraFields).some(([, v]) => isLocaleMap(v, projectLocales, allowKnownCodes))
 	const showLocalizationBar = effectiveLocales.length >= 2 || hasLocalizedField
+
+	/**
+	 * Localized fields that render in the *sidebar*, as opposed to the title and body
+	 * which get their own panes in the central column. Only these justify widening the
+	 * sidebar in compare mode.
+	 */
+	const hasSidebarLocalizedField =
+		visibleSchemaFields.some(isFieldLocalized) ||
+		Object.entries(extraFields).some(
+			([k, v]) =>
+				k !== 'title' && k !== bodyFieldName && isLocaleMap(v, projectLocales, allowKnownCodes),
+		)
 
 	/**
 	 * "Article-shaped" records have a long-form body — they get the big title input
@@ -1401,7 +1460,11 @@ function CollectionContentEditor() {
 				    locale bar, banners, title/markdown (article layout), form fields (form
 				    layout) — shares this same max-width so the layout reads as one cohesive
 				    centered column rather than left-aligned content. */}
-				<div className="max-w-3xl mx-auto">
+				<div
+					className={`mx-auto transition-[max-width] duration-300 ${
+						localeUi.mode === 'compare' && isArticleLayout ? 'max-w-6xl' : 'max-w-3xl'
+					}`}
+				>
 					{/* Top row: breadcrumb (left) + locale switcher (right) */}
 					{/* `items-start` keeps the breadcrumb's first row aligned with the locale bar
 					    (and, downstream, with the Save button in the sidebar). When the id row
@@ -1525,6 +1588,11 @@ function CollectionContentEditor() {
 										locales={effectiveLocales}
 										onTranslate={canTranslate ? handleBulkTranslate : undefined}
 										translating={bulkTranslating}
+										// Article-shaped records can always split (the panes either show
+										// locale maps or offer the opt-in). A form-shaped record with no
+										// localized field has genuinely nothing to compare.
+										compareDisabled={!isArticleLayout && !hasLocalizedField}
+										compareDisabledReason={t('editor.localizationBar.nothingToCompare')}
 									/>
 								</div>
 
@@ -1617,29 +1685,89 @@ function CollectionContentEditor() {
 
 					{isArticleLayout ? (
 						<>
-							{/* Title — above editor */}
-							<input
-								type="text"
-								value={title}
-								onChange={(e) => {
-									setTitle(e.target.value)
-									setDirty(true)
-									if (isNew) setContentSlug(generateSlug(e.target.value))
-								}}
-								placeholder={t('collections.detail.titlePlaceholder')}
-								disabled={isReadOnly}
-								className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
-							/>
+							{/* Title + body. One column per visible locale: a single pane in
+							    single mode, left|right in compare mode. Panes only appear once
+							    the value is a locale map — a plain string keeps the classic
+							    single-language editor and offers an explicit opt-in instead. */}
+							<div className="flex gap-6 items-start">
+								{visiblePaneLocales.map((paneLocale, paneIndex) => {
+									const isPrimaryPane = paneIndex === 0
+									// A secondary pane can only render against locale maps; with a
+									// plain-string value there is nothing to put in it yet.
+									if (!isPrimaryPane && !titleMap && !bodyMap) return null
+									return (
+										<div key={paneLocale} className="flex-1 min-w-0">
+											{visiblePaneLocales.length > 1 && (
+												<div className="mb-1.5 text-[10px] font-mono font-medium uppercase tracking-wider text-text-muted">
+													{localeDisplayName(paneLocale)}
+												</div>
+											)}
+											<input
+												type="text"
+												value={titleMap ? (titleMap[paneLocale] ?? '') : title}
+												onChange={(e) => {
+													if (titleMap) {
+														setTitleLocale(paneLocale, e.target.value)
+														return
+													}
+													setTitle(e.target.value)
+													setDirty(true)
+													if (isNew) setContentSlug(generateSlug(e.target.value))
+												}}
+												placeholder={t('collections.detail.titlePlaceholder')}
+												disabled={isReadOnly}
+												className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
+											/>
 
-							<MarkdownEditor
-								content={markdown}
-								onChange={(v) => {
-									if (!isReadOnly) {
-										setMarkdown(v)
-										setDirty(true)
-									}
-								}}
-							/>
+											<MarkdownEditor
+												content={bodyMap ? (bodyMap[paneLocale] ?? '') : markdown}
+												onChange={(v) => {
+													if (isReadOnly) return
+													if (bodyMap) {
+														setBodyLocale(paneLocale, v)
+														return
+													}
+													setMarkdown(v)
+													setDirty(true)
+												}}
+											/>
+										</div>
+									)
+								})}
+							</div>
+
+							{/* Opt-in strip: shown in compare mode while title and/or body are
+							    still plain strings. Full-width under the panes rather than a third
+							    column, so the editors keep the whole width once one is converted.
+							    Converting changes the value's shape in the source database, so it
+							    never happens implicitly. */}
+							{localeUi.mode === 'compare' && !isReadOnly && (!titleMap || !bodyMap) && (
+								<div className="mt-4 rounded-lg border border-dashed border-border p-4 flex flex-wrap items-center gap-3">
+									<p className="text-sm text-text-secondary flex-1 min-w-[16rem]">
+										{t('collections.detail.enableTranslations.prompt', {
+											lang: localeDisplayName(localeUi.rightLocale),
+										})}
+									</p>
+									{!titleMap && (
+										<button
+											type="button"
+											onClick={() => enableTranslations('title')}
+											className="px-3 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
+										>
+											{t('collections.detail.enableTranslations.forTitle')}
+										</button>
+									)}
+									{bodyFieldName && !bodyMap && (
+										<button
+											type="button"
+											onClick={() => enableTranslations('body')}
+											className="px-3 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
+										>
+											{t('collections.detail.enableTranslations.forBody')}
+										</button>
+									)}
+								</div>
+							)}
 
 							{editorContainerRef.current && aiSelectedText && (
 								<SelectionToolbar
@@ -1661,14 +1789,16 @@ function CollectionContentEditor() {
 				</div>
 			</div>
 
-			{/* Sidebar — widens for compare mode only when localized fields actually render
-			    here (article layout). Form-shaped records put their localized fields in the
-			    central column, where there's already room for side-by-side. Gate on
-			    `hasLocalizedField` so an empty/non-localized record keeps the narrow sidebar
-			    even when compare mode is the persisted preference. */}
+			{/* Sidebar — widens for compare mode only when a localized field actually
+			    renders *here* (article layout puts schema fields in the sidebar). The
+			    title and body are localized in the central column, so they must not
+			    trigger this: widening for them would starve the two editors. Form-shaped
+			    records keep the narrow sidebar too — their fields are already centred. */}
 			<div
 				className={`${
-					isArticleLayout && localeUi.mode === 'compare' && hasLocalizedField ? 'w-[36rem]' : 'w-72'
+					isArticleLayout && localeUi.mode === 'compare' && hasSidebarLocalizedField
+						? 'w-[36rem]'
+						: 'w-72'
 				} border-l border-border flex flex-col overflow-hidden shrink-0 relative transition-[width] duration-150`}
 			>
 				<div className="flex-1 overflow-auto p-6 space-y-4">

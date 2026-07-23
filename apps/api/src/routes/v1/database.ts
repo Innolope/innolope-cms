@@ -763,16 +763,13 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 					// Map column types to field types. MongoDB scan columns already carry a
 					// resolved CollectionField type; SQL columns carry a raw data_type string.
-					// System-managed timestamp/version columns are kept (the user wants to see
-					// them in the editor) but marked read-only so the form renders them as
-					// metadata rather than editable inputs.
-					const SYSTEM_FIELDS = new Set([
-						'createdAt',
-						'updatedAt',
-						'created_at',
-						'updated_at',
-						'__v',
-					])
+					// Only genuinely database-owned columns are marked read-only. Lifecycle
+					// timestamps (createdAt/updatedAt/publishedAt) are deliberately NOT:
+					// editors routinely need to backdate a post, and the site consuming the
+					// source database usually renders `createdAt` as the published date. They
+					// stay ordinary editable `date` fields; an admin who wants one locked can
+					// tick Advanced → Read-only in the collection schema editor.
+					const SYSTEM_FIELDS = new Set(['__v'])
 					// `slug` is also kept out of the schema fields list — it's already
 					// represented at the top level of every content row as `content.slug`,
 					// and the editor renders a dedicated slug input. Letting it through

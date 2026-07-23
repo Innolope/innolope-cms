@@ -114,6 +114,42 @@ function stripNullBytes<T>(value: T): T {
 	return value
 }
 
+/**
+ * Locale-code shape check, matching the admin's `isLocaleMap` heuristic:
+ * 2-3 lowercase letters with an optional `-XX` region.
+ */
+function looksLikeLocaleCode(key: string): boolean {
+	return /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(key)
+}
+
+/**
+ * True when a value is a `{ en: "...", ua: "..." }` locale map — the shape a
+ * localized long-form field takes in the source document.
+ */
+function isLocaleMap(value: unknown): value is Record<string, string> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const entries = Object.entries(value as Record<string, unknown>)
+	if (entries.length === 0) return false
+	return entries.every(
+		([k, v]) => looksLikeLocaleCode(k) && (v === null || v === undefined || typeof v === 'string'),
+	)
+}
+
+/**
+ * Flatten a locale-mapped body to a single string for the `markdown` column,
+ * which backs list previews, search and the HTML cache. Picks the longest
+ * non-empty translation — without the project's default locale in scope this is
+ * the most useful deterministic choice, and the full map still reaches the
+ * editor via `metadata` so no locale is lost.
+ */
+function flattenLocaleMap(map: Record<string, string>): string {
+	let best = ''
+	for (const value of Object.values(map)) {
+		if (typeof value === 'string' && value.length > best.length) best = value
+	}
+	return best
+}
+
 /** Convert an external document to markdown with YAML frontmatter */
 export function documentToMarkdown(
 	doc: ExternalDocument,
@@ -122,17 +158,31 @@ export function documentToMarkdown(
 	const bodyField = findBodyField(doc, fields)
 	const metadata: Record<string, unknown> = {}
 	let bodyContent = ''
+	// Set when the body turned out to be a locale map. It lives in `metadata` but is
+	// kept out of the frontmatter — serializing a full multi-language article into a
+	// YAML header would roughly double the stored markdown for no benefit.
+	let localizedBodyKey: string | null = null
 
 	for (const [key, value] of Object.entries(doc)) {
 		if (key === '_id') continue
 		if (key === bodyField) {
-			bodyContent = stripNullBytes(String(value ?? ''))
+			// A localized body stays in `metadata` as the full locale map (that's what
+			// the editor edits and what gets written back); `markdown` only carries a
+			// flattened copy so previews and search keep working.
+			if (isLocaleMap(value)) {
+				metadata[key] = stripNullBytes(value)
+				localizedBodyKey = key
+				bodyContent = stripNullBytes(flattenLocaleMap(value))
+			} else {
+				bodyContent = stripNullBytes(String(value ?? ''))
+			}
 		} else {
 			metadata[key] = stripNullBytes(value)
 		}
 	}
 
 	const frontmatter = Object.entries(metadata)
+		.filter(([k]) => k !== localizedBodyKey)
 		.map(([k, v]) => `${k}: ${formatYamlValue(v)}`)
 		.join('\n')
 
@@ -146,6 +196,11 @@ function findBodyField(doc: ExternalDocument, _fields: CollectionField[]): strin
 	const bodyNames = ['content', 'body', 'description', 'text', 'markdown', 'html']
 	for (const name of bodyNames) {
 		if (doc[name] && typeof doc[name] === 'string' && (doc[name] as string).length > 100)
+			return name
+		// A localized body (`content: { en, ua }`) is still the body — without this it
+		// fell through to `metadata` as an anonymous object and the editor, which hides
+		// `content`/`body`, never rendered it at all.
+		if (isLocaleMap(doc[name]) && flattenLocaleMap(doc[name] as Record<string, string>).length > 0)
 			return name
 	}
 	let longest = ''
