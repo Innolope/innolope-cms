@@ -75,6 +75,15 @@ export class InnolopeClient {
 	}
 
 	/**
+	 * Replace the bearer credential on a live client. The HTTP transport re-mints
+	 * its short-lived internal JWT per request and swaps it in here, so an MCP
+	 * session can outlive the token's 1-hour expiry without breaking tool calls.
+	 */
+	setApiKey(apiKey: string): void {
+		this.apiKey = apiKey
+	}
+
+	/**
 	 * Select the active project for subsequent calls. A project-scoped `ink_` key
 	 * ignores this (its own project wins server-side), but an account-scoped key or
 	 * an OAuth-user session uses it to send `X-Project-Id`.

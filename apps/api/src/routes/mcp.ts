@@ -17,6 +17,10 @@ declare module 'fastify' {
 interface McpSession {
 	transport: StreamableHTTPServerTransport
 	server: McpServer
+	/** Loopback REST client — its internal JWT is re-minted per request (1h expiry). */
+	client: InnolopeClient
+	/** The OAuth user this session belongs to, for re-minting the internal token. */
+	user: AuthUser
 }
 
 /**
@@ -84,27 +88,39 @@ export async function mcpRoutes(app: FastifyInstance) {
 			id: null,
 		})
 
+	// A session id the server does not know is answered with 404 — the MCP
+	// Streamable HTTP spec makes 404 the client's signal to transparently start
+	// a NEW session (re-initialize). A 400 here (the old behavior) left clients
+	// stuck erroring after every redeploy wiped the in-memory session map.
+	const sessionNotFound = (reply: FastifyReply) =>
+		reply.status(404).send({
+			jsonrpc: '2.0',
+			error: { code: -32001, message: 'Session not found or expired — re-initialize' },
+			id: null,
+		})
+
 	// POST: client → server messages (including `initialize`, which opens a session).
 	app.post('/', { preHandler: [authenticateMcp] }, async (request, reply) => {
 		const sessionId = request.headers['mcp-session-id'] as string | undefined
 		let session = sessionId ? sessions.get(sessionId) : undefined
 
 		if (!session) {
-			if (sessionId) return badRequest(reply, 'Unknown or expired session ID')
+			if (sessionId) return sessionNotFound(reply)
 			if (!isInitializeRequest(request.body)) {
 				return badRequest(reply, 'No session ID provided and body is not an initialize request')
 			}
 			// New session: build an isolated server + client. The client calls the REST
 			// API over loopback with a freshly minted INTERNAL token (AUTH_SECRET), not
 			// the external MCP token — keeping the two credentials fully separate.
-			const internalToken = await createJwt(request.mcpUser as AuthUser)
+			const user = request.mcpUser as AuthUser
+			const internalToken = await createJwt(user)
 			const client = new InnolopeClient(internalApiUrl, internalToken)
 			const server = new McpServer({ name: 'innolope-cms', version: '0.1.0' })
 			registerTools(server, client)
 			const transport = new StreamableHTTPServerTransport({
 				sessionIdGenerator: () => randomUUID(),
 				onsessioninitialized: (sid) => {
-					sessions.set(sid, { transport, server })
+					sessions.set(sid, { transport, server, client, user })
 				},
 			})
 			transport.onclose = () => {
@@ -112,7 +128,12 @@ export async function mcpRoutes(app: FastifyInstance) {
 				if (sid) sessions.delete(sid)
 			}
 			await server.connect(transport)
-			session = { transport, server }
+			session = { transport, server, client, user }
+		} else {
+			// Re-mint the internal loopback token on every message: it expires after
+			// 1 hour, so a session that lived longer used to 401 on every tool call
+			// with no way for the client to recover (tool errors don't re-initialize).
+			session.client.setApiKey(await createJwt(session.user))
 		}
 
 		applyCors(request, reply)
@@ -131,8 +152,10 @@ export async function mcpRoutes(app: FastifyInstance) {
 	// DELETE: explicit session teardown.
 	const streamOrDelete = async (request: FastifyRequest, reply: FastifyReply) => {
 		const sessionId = request.headers['mcp-session-id'] as string | undefined
-		const session = sessionId ? sessions.get(sessionId) : undefined
-		if (!session) return badRequest(reply, 'Missing or unknown session ID')
+		if (!sessionId) return badRequest(reply, 'Missing session ID')
+		const session = sessions.get(sessionId)
+		// 404, not 400: tells the client to re-initialize (see sessionNotFound above).
+		if (!session) return sessionNotFound(reply)
 		applyCors(request, reply)
 		reply.hijack()
 		try {
