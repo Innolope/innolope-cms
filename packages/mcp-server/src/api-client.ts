@@ -1,20 +1,25 @@
 import { httpRequest } from '@innolope/sdk'
 
 /**
- * Normalize an arbitrary label into the kebab-case slug the CMS accepts
- * (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). Agents routinely pass human titles like
+ * Normalize an arbitrary label into a slug the CMS accepts
+ * (`^[a-z0-9]+(?:[-_][a-z0-9]+)*$`). Agents routinely pass human titles like
  * "Welsh Rarebit" or accented text; without this the API rejects them with a
- * slug-regex validation error (HTTP 400). Falls back to the original string if
- * normalization would leave it empty, so the caller still gets a clear
- * server-side error rather than a silently blank slug.
+ * slug-regex validation error (HTTP 400). A slug that is already valid passes
+ * through UNCHANGED — in particular snake_case is preserved, so callers
+ * matching an existing collection's slug convention aren't silently rewritten
+ * to kebab-case. Falls back to the original string if normalization would
+ * leave it empty, so the caller still gets a clear server-side error rather
+ * than a silently blank slug.
  */
 export function slugify(slug: string): string {
 	const normalized = slug
 		.normalize('NFKD') // split accented chars into base + diacritic
 		.replace(/[̀-ͯ]/g, '') // strip the diacritics
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-') // any run of non-alphanumerics → single hyphen
-		.replace(/^-+|-+$/g, '') // trim leading/trailing hyphens
+		.replace(/_+/g, '_') // collapse underscore runs (kept as separators)
+		.replace(/[^a-z0-9_]+/g, '-') // any other run of non-alphanumerics → single hyphen
+		.replace(/[-_]*-[-_]*/g, '-') // mixed separator runs collapse to one hyphen
+		.replace(/^[-_]+|[-_]+$/g, '') // trim leading/trailing separators
 	return normalized || slug
 }
 
@@ -469,6 +474,8 @@ interface ContentItem {
 	createdAt: string
 	updatedAt: string
 	publishedAt: string | null
+	/** External record id (Mongo ObjectId / SQL pk) for external-backed rows. */
+	externalId?: string | null
 }
 
 interface ProjectItem {

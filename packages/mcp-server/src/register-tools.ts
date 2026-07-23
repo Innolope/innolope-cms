@@ -65,6 +65,24 @@ function capText(body: string, hint: string, toolLimit?: number): string {
 	return `${sliced}\n\n[Truncated: showing ${Buffer.byteLength(sliced, 'utf8')} of ${total} bytes (capped by ${which}). ${hint}]`
 }
 
+/**
+ * Render a content item's metadata as an explicit fenced-JSON block. Without
+ * this, records created via the `metadata` parameter looked like the write had
+ * dropped every custom field on read-back (imported records only appeared
+ * complete because their frontmatter happens to live inside the markdown).
+ */
+function renderMetadataBlock(metadata: Record<string, unknown> | undefined): string[] {
+	const keys = Object.keys(metadata ?? {})
+	if (!metadata || keys.length === 0) return []
+	return [
+		``,
+		`**Metadata** (${keys.length} field${keys.length === 1 ? '' : 's'}):`,
+		'```json',
+		JSON.stringify(metadata, null, 2),
+		'```',
+	]
+}
+
 interface ItemError {
 	index: number
 	slug?: string
@@ -251,13 +269,26 @@ export function registerTools(
 	const requireProject = (): ToolResult | null =>
 		client.getProjectId() ? null : fail(NO_PROJECT_MESSAGE)
 
+	/**
+	 * Echo the active project in every project-scoped response, so a response
+	 * that raced ahead of a use_project switch is visibly for the wrong project
+	 * instead of silently plausible. Empty when the credential is project-scoped
+	 * and no explicit project was selected (the server resolves it).
+	 */
+	const projectSuffix = () => {
+		const id = client.getProjectId()
+		return id ? ` (project: ${id})` : ''
+	}
+
 	const contentSummaryShape = {
 		id: z.string(),
 		slug: z.string().nullable(),
 		status: z.string(),
 		title: z.string(),
+		externalId: z.string().nullable(),
 	}
 	const listOutputSchema = {
+		projectId: z.string().nullable(),
 		total: z.number(),
 		page: z.number(),
 		limit: z.number(),
@@ -278,6 +309,7 @@ export function registerTools(
 		slug: string | null
 		status: string
 		metadata: unknown
+		externalId?: string | null
 	}) => {
 		const title = (item.metadata as Record<string, unknown>)?.title
 		return {
@@ -285,6 +317,7 @@ export function registerTools(
 			slug: item.slug,
 			status: item.status,
 			title: String(title ?? item.slug ?? item.id),
+			externalId: item.externalId ?? null,
 		}
 	}
 
@@ -322,6 +355,7 @@ export function registerTools(
 		},
 		handler: async ({ projectId, slug }) => {
 			let id = projectId
+			let label: string | undefined
 			if (!id && slug) {
 				const projects = await client.listProjects()
 				const match = projects.find((p) => p.slug === slug)
@@ -330,10 +364,17 @@ export function registerTools(
 						`No project found with slug "${slug}". Call list_projects to see valid slugs.`,
 					)
 				id = match.id
+				label = `${match.name} (slug: ${match.slug})`
 			}
 			if (!id) return fail('Provide a projectId or slug (see list_projects).')
+			if (!label) {
+				const match = (await client.listProjects().catch(() => [])).find((p) => p.id === id)
+				if (match) label = `${match.name} (slug: ${match.slug})`
+			}
 			client.setProject(id)
-			return text(`Active project set to ${id}.`)
+			return text(
+				`Active project set to ${id}${label ? ` — ${label}` : ''}. Project-scoped responses echo this project id; if a response shows a different id, it raced ahead of this switch — retry it.`,
+			)
 		},
 	})
 
@@ -461,7 +502,9 @@ export function registerTools(
 		slug: z
 			.string()
 			.optional()
-			.describe('URL-friendly slug. Optional — derived from metadata.title or heading.'),
+			.describe(
+				'URL-friendly slug: lowercase letters/digits separated by "-" or "_" (snake_case is preserved as-is; anything else is normalized — spaces/punctuation become "-"). Optional — derived from metadata.title or heading.',
+			),
 		collectionId: z.string().uuid().describe('Target collection UUID'),
 		markdown: z.string().describe('Markdown content'),
 		metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
@@ -649,7 +692,7 @@ export function registerTools(
 				return `- ${j.collectionName || j.externalTable}: ${j.status} (${progress})${err}`
 			})
 			return text(
-				`Import status — ${summary.completed}/${summary.total} completed, ${summary.running} running, ${summary.pending} pending, ${summary.failed} failed:\n${lines.join('\n')}`,
+				`Import status${projectSuffix()} — ${summary.completed}/${summary.total} completed, ${summary.running} running, ${summary.pending} pending, ${summary.failed} failed:\n${lines.join('\n')}`,
 			)
 		},
 	})
@@ -675,8 +718,9 @@ export function registerTools(
 			const summaries = result.data.map(summarize)
 			const lines = summaries.map((s) => `- [${s.status}] ${s.title} (${s.slug}) — id: ${s.id}`)
 			return {
-				...text(`Found ${result.pagination.total} items:\n${lines.join('\n')}`),
+				...text(`Found ${result.pagination.total} items${projectSuffix()}:\n${lines.join('\n')}`),
 				structuredContent: {
+					projectId: client.getProjectId() ?? null,
 					total: result.pagination.total,
 					page: result.pagination.page,
 					limit: result.pagination.limit,
@@ -689,7 +733,7 @@ export function registerTools(
 	defineTool({
 		name: 'get_content',
 		description:
-			'Get a single content item by ID with full markdown body. Returns title, slug, status, version, and the markdown content (truncated at maxBytes — the response says when truncation applied). For external collections the id may be the external record id; pass collectionId as well when the record is not cached in the CMS yet.',
+			'Get a single content item by ID: title, slug, status, version, external id (for external collections), ALL metadata fields as JSON, and the full markdown body (truncated at maxBytes — the response says when truncation applied). For external collections the id may be the external record id; pass collectionId as well when the record is not cached in the CMS yet.',
 		operationType: 'read',
 		schema: {
 			id: z.string().describe('Content item UUID (or external record id for external collections)'),
@@ -705,6 +749,15 @@ export function registerTools(
 				.optional()
 				.describe(`Maximum response size in bytes (default: ${DEFAULT_CONTENT_BYTES})`),
 		},
+		outputSchema: {
+			id: z.string(),
+			slug: z.string().nullable(),
+			status: z.string(),
+			version: z.number(),
+			title: z.string(),
+			externalId: z.string().nullable(),
+			metadata: z.record(z.unknown()),
+		},
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
 			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
@@ -712,17 +765,31 @@ export function registerTools(
 			const body = [
 				`# ${title}`,
 				``,
-				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Version:** ${item.version}`,
+				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Version:** ${item.version}${
+					item.externalId ? ` | **External ID:** ${item.externalId}` : ''
+				}`,
+				...renderMetadataBlock(item.metadata),
 				``,
 				item.markdown,
 			].join('\n')
-			return text(
-				capText(
-					body,
-					'Re-call get_content with a larger maxBytes to see more.',
-					maxBytes ?? DEFAULT_CONTENT_BYTES,
+			return {
+				...text(
+					capText(
+						body,
+						'Re-call get_content with a larger maxBytes to see more.',
+						maxBytes ?? DEFAULT_CONTENT_BYTES,
+					),
 				),
-			)
+				structuredContent: {
+					id: item.id,
+					slug: item.slug ?? null,
+					status: item.status,
+					version: item.version,
+					title: String(title ?? item.id),
+					externalId: item.externalId ?? null,
+					metadata: item.metadata ?? {},
+				},
+			}
 		},
 	})
 
@@ -736,7 +803,7 @@ export function registerTools(
 				.string()
 				.optional()
 				.describe(
-					'URL-friendly slug. Optional — derived from metadata.title or the markdown heading.',
+					'URL-friendly slug: lowercase letters/digits separated by "-" or "_" (snake_case is preserved as-is; anything else is normalized — spaces/punctuation become "-"). Optional — derived from metadata.title or the markdown heading.',
 				),
 			collectionId: z.string().uuid().describe('Collection UUID'),
 			markdown: z.string().describe('Full markdown content'),
@@ -766,8 +833,14 @@ export function registerTools(
 		},
 		handler: async (args) => {
 			const created = await client.createContent(args)
+			const slugNote =
+				args.slug && created.slug && args.slug !== created.slug
+					? `\nNote: the slug was normalized from "${args.slug}" to "${created.slug}" (lowercase letters/digits; separators "-" and "_" are kept, everything else becomes "-").`
+					: ''
 			return text(
-				`Content created.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}`,
+				`Content created${projectSuffix()}.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}${
+					created.externalId ? `\nExternal ID: ${created.externalId}` : ''
+				}${slugNote}`,
 			)
 		},
 	})
@@ -850,12 +923,14 @@ export function registerTools(
 				query,
 				source: 'mcp',
 			})
-			if (results.data.length === 0) return text('No content found.')
+			if (results.data.length === 0) return text(`No content found${projectSuffix()}.`)
 			const items = results.data.map((item) => {
 				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
 				return `- ${title} (${item.slug}) — ${item.status}`
 			})
-			return text(`Found ${results.pagination.total} results:\n${items.join('\n')}`)
+			return text(
+				`Found ${results.pagination.total} results${projectSuffix()}:\n${items.join('\n')}`,
+			)
 		},
 	})
 
@@ -910,6 +985,7 @@ export function registerTools(
 		operationType: 'metadata',
 		schema: {},
 		outputSchema: {
+			projectId: z.string().nullable(),
 			collections: z.array(
 				z
 					.object({
@@ -933,10 +1009,11 @@ export function registerTools(
 				})
 				.join('\n\n')
 			return {
-				...text(`${collections.length} collections:\n\n${summary}`),
+				...text(`${collections.length} collections${projectSuffix()}:\n\n${summary}`),
 				// Project to the declared output shape — structuredContent is validated
 				// strictly against outputSchema (no additional top-level properties).
 				structuredContent: {
+					projectId: client.getProjectId() ?? null,
 					collections: collections.map((c) => ({
 						id: c.id,
 						name: c.name,
@@ -998,8 +1075,9 @@ export function registerTools(
 			const summaries = result.data.map(summarize)
 			const lines = summaries.map((s) => `- [${s.status}] ${s.title} (${s.slug}) — id: ${s.id}`)
 			return {
-				...text(`Found ${result.pagination.total} items:\n${lines.join('\n')}`),
+				...text(`Found ${result.pagination.total} items${projectSuffix()}:\n${lines.join('\n')}`),
 				structuredContent: {
+					projectId: client.getProjectId() ?? null,
 					total: result.pagination.total,
 					page: result.pagination.page,
 					limit: result.pagination.limit,
@@ -1133,7 +1211,9 @@ export function registerTools(
 			const parts = [
 				`# ${title}`,
 				``,
-				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Version:** ${item.version}`,
+				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Version:** ${item.version}${
+					item.externalId ? ` | **External ID:** ${item.externalId}` : ''
+				}`,
 			]
 			if (Object.keys(relations).length > 0) {
 				parts.push(``, `**Relations:**`)
@@ -1142,6 +1222,7 @@ export function registerTools(
 					parts.push(`  - ${field}: ${r.title} (${r.slug}, id: ${r.id})`)
 				}
 			}
+			parts.push(...renderMetadataBlock(item.metadata))
 			parts.push(``, item.markdown)
 			return text(
 				capText(
@@ -1168,7 +1249,9 @@ export function registerTools(
 				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
 				return `- [${item.status}] ${title} — v${item.version}, updated ${item.updatedAt}`
 			})
-			return text(`Recent changes (${result.data.length} items):\n${items.join('\n')}`)
+			return text(
+				`Recent changes (${result.data.length} items)${projectSuffix()}:\n${items.join('\n')}`,
+			)
 		},
 	})
 
@@ -1214,7 +1297,7 @@ export function registerTools(
 				lineCount === rows
 					? `There may be more — call again with offset: ${start + rows}.`
 					: 'End of results.'
-			const body = `Exported ${lineCount} item(s) (offset ${start}). ${more}\n\n${result}`
+			const body = `Exported ${lineCount} item(s) (offset ${start})${projectSuffix()}. ${more}\n\n${result}`
 			return text(
 				capText(body, 'Reduce limit, pass fields to project fewer columns, or page with offset.'),
 			)

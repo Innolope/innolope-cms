@@ -17,12 +17,15 @@ export const CREATABLE_CONTENT_STATUSES = ['draft', 'published'] as const
 export const contentInputSchema = z.object({
 	// Slug is optional — when null/missing, the record has no permalink (used by
 	// imported collections where the source had no slug-like field). When
-	// provided, it must be URL-shaped and within the standard bounds.
+	// provided, it must be URL-shaped and within the standard bounds. Both "-"
+	// and "_" are accepted separators: imported datasets routinely use
+	// snake_case slugs, and rejecting them forced the slugifier to silently
+	// rewrite caller-provided slugs into kebab-case.
 	slug: z
 		.string()
 		.min(1)
 		.max(200)
-		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+		.regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/)
 		.nullable()
 		.optional(),
 	collectionId: z.string().uuid(),
