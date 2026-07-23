@@ -161,12 +161,27 @@ async function currentUser(app: FastifyInstance, request: FastifyRequest) {
 
 /** OAuth 2.1 discovery documents. Registered at the domain root. */
 export async function wellKnownRoutes(app: FastifyInstance) {
-	app.get('/.well-known/oauth-authorization-server', async (request) =>
-		authorizationServerMetadata(publicBaseUrl(request)),
-	)
-	app.get('/.well-known/oauth-protected-resource', async (request) =>
-		protectedResourceMetadata(publicBaseUrl(request)),
-	)
+	const asMetadata = async (request: FastifyRequest) =>
+		authorizationServerMetadata(publicBaseUrl(request))
+	const prMetadata = async (request: FastifyRequest) =>
+		protectedResourceMetadata(publicBaseUrl(request))
+
+	app.get('/.well-known/oauth-authorization-server', asMetadata)
+	app.get('/.well-known/oauth-protected-resource', prMetadata)
+
+	// RFC 9728 §3.1: the metadata URL for a resource identifier is formed by
+	// inserting `/.well-known/oauth-protected-resource` *before* the resource's
+	// path. Our resource is `<base>/mcp`, so the canonical document lives at
+	// `<base>/.well-known/oauth-protected-resource/mcp`. MCP clients (e.g. the
+	// Claude connector) derive this path-suffixed URL straight from the resource
+	// identifier rather than only trusting the WWW-Authenticate hint — so it MUST
+	// return the JSON here. Without it, the SPA static catch-all answers with
+	// index.html (HTTP 200, text/html), the client fails to parse the metadata,
+	// and the OAuth handshake dies before it ever redirects (blank connect page).
+	app.get('/.well-known/oauth-protected-resource/mcp', prMetadata)
+	// Same rationale for authorization-server metadata: some clients path-insert
+	// the resource path onto the issuer as well. Harmless to answer both.
+	app.get('/.well-known/oauth-authorization-server/mcp', asMetadata)
 }
 
 /** OAuth 2.1 authorization server: register, authorize (login + consent), token. */
