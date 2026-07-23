@@ -50,10 +50,12 @@ const ALL_FEATURES: LicenseFeature[] = [
 	'white-label',
 	'review-workflows',
 	'media-integrations',
+	'custom-domain',
+	'remote-mcp',
 ]
 
-// Pro is the lower paid tier — only the two features the API gates as "Pro".
-const PRO_FEATURES: LicenseFeature[] = ['ai-assistant', 'media-integrations']
+// Pro is the lower paid tier — the features the API gates as "Pro".
+const PRO_FEATURES: LicenseFeature[] = ['ai-assistant', 'media-integrations', 'remote-mcp']
 
 function arg(name: string): string | undefined {
 	const prefixed = `--${name}=`
