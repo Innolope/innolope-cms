@@ -910,6 +910,43 @@ function CollectionContentEditor() {
 	}
 
 	/**
+	 * Permanently delete this record (admin/owner only). Works for cached rows
+	 * AND live (uncached) external records — the API resolves the id either way;
+	 * `collectionId` is what lets it reach a record that only exists in the
+	 * external database. External read-only collections never get here.
+	 */
+	const deleteRecord = async () => {
+		if (!collection) return
+		const ok = await confirm({
+			title: t('collections.detail.delete.title'),
+			message: t('collections.detail.delete.message', {
+				name: title || contentSlug || contentId,
+			}),
+			confirmLabel: t('collections.detail.delete.confirm'),
+			danger: true,
+		})
+		if (!ok) return
+		try {
+			const res = await api.delete<
+				{ deleted?: boolean; externalCleanup?: string; message?: string } | undefined
+			>(`/api/v1/content/${encodeURIComponent(contentId)}?collectionId=${collection.id}`)
+			if (res?.externalCleanup === 'failed') {
+				// The CMS row is gone but the external record lingers — tell the user
+				// instead of celebrating, so they know the source DB needs cleanup.
+				toast(res.message ?? t('collections.detail.errors.deleteFailed'), 'error')
+			} else {
+				toast(t('collections.detail.delete.deleted'), 'success')
+			}
+			navigate({ to: `/collections/${slug}` })
+		} catch (err) {
+			toast(
+				err instanceof Error ? err.message : t('collections.detail.errors.deleteFailed'),
+				'error',
+			)
+		}
+	}
+
+	/**
 	 * One-step publish — saves the current editor state, then flips status
 	 * to `published` via the dedicated /publish endpoint. Used in place of
 	 * Submit when the project doesn't require review or the member is
@@ -1945,6 +1982,20 @@ function CollectionContentEditor() {
 						<Field label={t('collections.detail.fields.externalId')}>
 							<p className="text-xs text-text-muted font-mono break-all">{externalId}</p>
 						</Field>
+					)}
+
+					{/* Danger zone: delete is admin/owner-only and deliberately also shown
+				    for LIVE external records (which are otherwise read-only in this
+				    editor) — the API can delete them straight from the source database.
+				    Only external read-only collections hide it. */}
+					{!isNew && canEditSchema && !(isExternal && collection?.accessMode === 'read-only') && (
+						<button
+							type="button"
+							onClick={deleteRecord}
+							className="self-start text-xs text-danger hover:opacity-80 transition-opacity"
+						>
+							{t('collections.detail.delete.button')}
+						</button>
 					)}
 
 					{!isNew && !isExternal && (

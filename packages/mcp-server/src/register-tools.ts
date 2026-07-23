@@ -689,10 +689,15 @@ export function registerTools(
 	defineTool({
 		name: 'get_content',
 		description:
-			'Get a single content item by ID with full markdown body. Returns title, slug, status, version, and the markdown content (truncated at maxBytes — the response says when truncation applied).',
+			'Get a single content item by ID with full markdown body. Returns title, slug, status, version, and the markdown content (truncated at maxBytes — the response says when truncation applied). For external collections the id may be the external record id; pass collectionId as well when the record is not cached in the CMS yet.',
 		operationType: 'read',
 		schema: {
-			id: z.string().uuid().describe('Content item UUID'),
+			id: z.string().describe('Content item UUID (or external record id for external collections)'),
+			collectionId: z
+				.string()
+				.uuid()
+				.optional()
+				.describe('Collection UUID — required to resolve uncached external record ids'),
 			maxBytes: z
 				.number()
 				.int()
@@ -700,8 +705,8 @@ export function registerTools(
 				.optional()
 				.describe(`Maximum response size in bytes (default: ${DEFAULT_CONTENT_BYTES})`),
 		},
-		handler: async ({ id, maxBytes }) => {
-			const item = await client.getContent(id)
+		handler: async ({ id, collectionId, maxBytes }) => {
+			const item = await client.getContent(id, collectionId)
 			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
 			const title = (item.metadata as Record<string, unknown>)?.title || item.slug
 			const body = [
@@ -800,24 +805,29 @@ export function registerTools(
 	defineTool({
 		name: 'delete_content',
 		description:
-			'Permanently delete a content item by ID. For external (MongoDB/SQL) collections this also removes the backing external record. Requires project admin access. This cannot be undone. Two-step: call WITHOUT confirm first to get a summary of what would be deleted, then re-call with confirm: true to actually delete.',
+			'Permanently delete a content item by ID. For external (MongoDB/SQL) collections this also removes the backing external record — the id may be the external record id, and collectionId should be passed when the record is not cached in the CMS yet. Requires project admin access. This cannot be undone. Two-step: call WITHOUT confirm first to get a summary of what would be deleted, then re-call with confirm: true to actually delete.',
 		operationType: 'delete',
 		schema: {
-			id: z.string().uuid().describe('Content item UUID'),
+			id: z.string().describe('Content item UUID (or external record id for external collections)'),
+			collectionId: z
+				.string()
+				.uuid()
+				.optional()
+				.describe('Collection UUID — required to resolve uncached external record ids'),
 			confirm: z
 				.boolean()
 				.optional()
 				.describe('Must be true to actually delete. Omit to preview what would be deleted.'),
 		},
-		handler: async ({ id, confirm }) => {
+		handler: async ({ id, collectionId, confirm }) => {
 			if (confirm !== true) {
-				const item = await client.getContent(id)
+				const item = await client.getContent(id, collectionId)
 				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
 				return text(
 					`This will PERMANENTLY delete "${title}" (slug: ${item.slug}, status: ${item.status}, version: ${item.version}, id: ${item.id}), including any backing external database record. This cannot be undone.\n\nNothing was deleted. Re-call delete_content with confirm: true to proceed.`,
 				)
 			}
-			const result = await client.deleteContent(id)
+			const result = await client.deleteContent(id, collectionId)
 			if (result?.externalCleanup === 'failed') {
 				return text(
 					`Deleted content ${id} from the CMS, but with a warning:\n${result.message ?? 'Removing the backing external database record failed — it needs manual cleanup.'}`,
@@ -1079,7 +1089,12 @@ export function registerTools(
 			'Fetch a content item and resolve any relation fields, returning the linked content inline. Useful for traversing content graphs. The response is truncated at maxBytes (the response says when truncation applied).',
 		operationType: 'read',
 		schema: {
-			id: z.string().uuid().describe('Content item UUID'),
+			id: z.string().describe('Content item UUID (or external record id for external collections)'),
+			collectionId: z
+				.string()
+				.uuid()
+				.optional()
+				.describe('Collection UUID — required to resolve uncached external record ids'),
 			maxBytes: z
 				.number()
 				.int()
@@ -1087,8 +1102,8 @@ export function registerTools(
 				.optional()
 				.describe(`Maximum response size in bytes (default: ${DEFAULT_CONTENT_BYTES})`),
 		},
-		handler: async ({ id, maxBytes }) => {
-			const item = await client.getContent(id)
+		handler: async ({ id, collectionId, maxBytes }) => {
+			const item = await client.getContent(id, collectionId)
 			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
 
 			const relations: Record<string, unknown> = {}

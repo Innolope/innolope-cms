@@ -8,7 +8,9 @@
 		"loading": "Завантаження…",
 		"logout": "Вийти",
 		"signOut": "Вийти",
-		"time": { "justNow": "щойно" }
+		"time": {
+			"justNow": "щойно"
+		}
 	},
 	"nav": {
 		"dashboard": "Панель керування",
@@ -21,7 +23,9 @@
 		"collapseSidebar": "Згорнути бічну панель",
 		"resizeSidebar": "Змінити ширину панелі"
 	},
-	"confirm": { "typeToConfirm": "Введіть <code>{{text}}</code> для підтвердження" },
+	"confirm": {
+		"typeToConfirm": "Введіть <code>{{text}}</code> для підтвердження"
+	},
 	"domainAccess": {
 		"noAccess": "Доступ заборонено",
 		"bodyNamed": "{{email}} не є учасником проєкту «{{projectName}}». Попросіть адміністратора надіслати запрошення, а потім увійдіть знову.",
@@ -31,7 +35,9 @@
 		"welcome": "Вітаємо, {{name}}",
 		"subtitle": "Створіть свій перший проєкт, щоб почати.",
 		"projectNamePlaceholder": "Назва проєкту",
-		"errors": { "invalidName": "Назва проєкту має містити хоча б одну літеру або цифру." }
+		"errors": {
+			"invalidName": "Назва проєкту має містити хоча б одну літеру або цифру."
+		}
 	},
 	"account": {
 		"title": "Акаунт",
@@ -41,7 +47,10 @@
 			"sso": "Зв’язані акаунти",
 			"appearance": "Зовнішній вигляд"
 		},
-		"profile": { "name": "Ім’я", "email": "Електронна пошта" },
+		"profile": {
+			"name": "Ім’я",
+			"email": "Електронна пошта"
+		},
 		"password": {
 			"current": "Поточний пароль",
 			"new": "Новий пароль",
@@ -71,8 +80,15 @@
 		"appearance": {
 			"theme": "Тема",
 			"language": "Мова",
-			"themes": { "light": "Світла", "dark": "Темна", "system": "Системна" },
-			"languages": { "en": "English", "uk": "Українська" }
+			"themes": {
+				"light": "Світла",
+				"dark": "Темна",
+				"system": "Системна"
+			},
+			"languages": {
+				"en": "English",
+				"uk": "Українська"
+			}
 		}
 	},
 	"saveBar": {
@@ -209,7 +225,10 @@
 		"imagePicker": {
 			"title": "Вставити зображення",
 			"close": "Закрити",
-			"tabs": { "unsplash": "Unsplash", "url": "URL" },
+			"tabs": {
+				"unsplash": "Unsplash",
+				"url": "URL"
+			},
 			"imageUrl": "URL зображення",
 			"altTextOptional": "Alt-текст (необов’язково)",
 			"describeImage": "Опишіть зображення",
@@ -383,7 +402,11 @@
 			"activateButton": "Активувати ліцензію",
 			"removeLicense": "Видалити ліцензію",
 			"viewPlans": "Переглянути тарифи та ціни",
-			"plans": { "community": "Community", "pro": "Pro", "enterprise": "Enterprise" },
+			"plans": {
+				"community": "Community",
+				"pro": "Pro",
+				"enterprise": "Enterprise"
+			},
 			"features": {
 				"sso": "Єдиний вхід (SAML та OIDC)",
 				"auditLog": "Журнал аудиту",
@@ -470,8 +493,15 @@
 				"signedAssertions": "Вимагати підписані assertions",
 				"encryptedAssertions": "Вимагати шифровані assertions"
 			},
-			"protocols": { "oidc": "OIDC (OpenID Connect)", "saml": "SAML 2.0" },
-			"roles": { "admin": "адміністратор", "editor": "редактор", "viewer": "глядач" },
+			"protocols": {
+				"oidc": "OIDC (OpenID Connect)",
+				"saml": "SAML 2.0"
+			},
+			"roles": {
+				"admin": "адміністратор",
+				"editor": "редактор",
+				"viewer": "глядач"
+			},
 			"addSecondCertWarning": "Додайте другий сертифікат перед ротацією, щоб уникнути простою.",
 			"attrRolesTitle": "Зіставлення атрибутів та ролей",
 			"saving": "Збереження…",
@@ -526,7 +556,10 @@
 			"collectionsScope_few": "{{count}} колекції",
 			"collectionsScope_many": "{{count}} колекцій",
 			"collectionsScope_other": "{{count}} колекції",
-			"scope": { "fullAccess": "Повний доступ", "allCollections": "Усі колекції" },
+			"scope": {
+				"fullAccess": "Повний доступ",
+				"allCollections": "Усі колекції"
+			},
 			"roles": {
 				"owner": "власник",
 				"admin": "адміністратор",
@@ -571,7 +604,10 @@
 			"resyncFailed": "Повторна синхронізація не вдалася",
 			"selectAtLeastOne": "Виберіть принаймні одну колекцію для відображення",
 			"adapterPromotedToast": "Також використовуємо Cloudflare Images для нових завантажень.",
-			"tableWord": { "tables": "Таблиці", "collections": "Колекції" },
+			"tableWord": {
+				"tables": "Таблиці",
+				"collections": "Колекції"
+			},
 			"steps": {
 				"database": "База даних",
 				"connection": "Підключення",
@@ -805,7 +841,11 @@
 			"signIn": "Увійдіть у свій акаунт Innolope CMS",
 			"signInToProject": "Увійти в {{name}}"
 		},
-		"fields": { "yourName": "Ваше ім’я", "email": "Електронна пошта", "password": "Пароль" },
+		"fields": {
+			"yourName": "Ваше ім’я",
+			"email": "Електронна пошта",
+			"password": "Пароль"
+		},
 		"placeholders": {
 			"name": "Inna Lope",
 			"email": "admin@example.com",
@@ -833,7 +873,9 @@
 		"emailPlaceholder": "your@email.com",
 		"sending": "Надсилання…",
 		"sendResetLink": "Надіслати посилання",
-		"errors": { "generic": "Щось пішло не так" }
+		"errors": {
+			"generic": "Щось пішло не так"
+		}
 	},
 	"resetPassword": {
 		"title": "Новий пароль",
@@ -847,7 +889,10 @@
 		"repeatPlaceholder": "Повторіть пароль",
 		"updating": "Оновлення…",
 		"setNewPassword": "Встановити новий пароль",
-		"errors": { "mismatch": "Паролі не збігаються.", "resetFailed": "Скидання не вдалося" }
+		"errors": {
+			"mismatch": "Паролі не збігаються.",
+			"resetFailed": "Скидання не вдалося"
+		}
 	},
 	"acceptInvite": {
 		"accepting": "Прийняття запрошення…",
@@ -982,7 +1027,10 @@
 	"collections": {
 		"list": {
 			"notFound": "Колекцію не знайдено.",
-			"tabs": { "all": "Усі", "review": "Перевірка" },
+			"tabs": {
+				"all": "Усі",
+				"review": "Перевірка"
+			},
 			"schema": "Схема",
 			"newRecord": "Новий {{name}}",
 			"upload": "Завантажити",
@@ -1081,7 +1129,10 @@
 			"createCollection": "Створити колекцію",
 			"saving": "Збереження…",
 			"methods": {
-				"template": { "title": "Вибрати шаблон", "desc": "Виберіть із готових схем колекцій" },
+				"template": {
+					"title": "Вибрати шаблон",
+					"desc": "Виберіть із готових схем колекцій"
+				},
 				"importFile": {
 					"title": "Імпорт з файлу",
 					"desc": "Завантажте файл CSV, JSON або Markdown"
@@ -1090,8 +1141,14 @@
 					"title": "Імпорт через вставку",
 					"desc": "Вставте дані JSON, CSV або Markdown"
 				},
-				"aiGenerate": { "title": "AI-генерація", "desc": "Опишіть і автоматично створіть поля" },
-				"manual": { "title": "Ручний ввід", "desc": "Визначте поля по одному" },
+				"aiGenerate": {
+					"title": "AI-генерація",
+					"desc": "Опишіть і автоматично створіть поля"
+				},
+				"manual": {
+					"title": "Ручний ввід",
+					"desc": "Визначте поля по одному"
+				},
 				"copyExisting": {
 					"title": "Скопіювати з наявної",
 					"desc": "Дублюйте схему наявної колекції"
@@ -1318,7 +1375,15 @@
 				"rejectFailed": "Відхилення не вдалося",
 				"readOnlyCollection": "Ця колекція лише для читання",
 				"updateProject": "Не вдалося оновити проєкт",
-				"noCollection": "Немає колекції"
+				"noCollection": "Немає колекції",
+				"deleteFailed": "Не вдалося видалити запис"
+			},
+			"delete": {
+				"title": "Видалити запис",
+				"message": "Остаточно видалити \"{{name}}\"? Для зовнішніх колекцій запис також буде видалено з джерела даних. Цю дію неможливо скасувати.",
+				"confirm": "Видалити",
+				"button": "Видалити запис",
+				"deleted": "Запис видалено"
 			}
 		},
 		"edit": {
@@ -1402,7 +1467,12 @@
 		"selectCollection": "Виберіть колекцію",
 		"tagsPlaceholder": "tag1, tag2, tag3",
 		"id": "ID: {{id}}",
-		"fields": { "slug": "Slug", "status": "Статус", "collection": "Колекція", "tags": "Теги" },
+		"fields": {
+			"slug": "Slug",
+			"status": "Статус",
+			"collection": "Колекція",
+			"tags": "Теги"
+		},
 		"statusOptions": {
 			"draft": "Чернетка",
 			"pendingReview": "Очікує перевірки",
@@ -1428,11 +1498,22 @@
 	"mediaRoute": {
 		"featureLabel": "Медіабібліотека",
 		"title": "Медіа",
-		"tabs": { "uploaded": "Завантажене", "unsplash": "Unsplash" },
-		"filter": { "all": "Усі типи", "images": "Зображення", "videos": "Відео", "files": "Файли" },
+		"tabs": {
+			"uploaded": "Завантажене",
+			"unsplash": "Unsplash"
+		},
+		"filter": {
+			"all": "Усі типи",
+			"images": "Зображення",
+			"videos": "Відео",
+			"files": "Файли"
+		},
 		"upload": "Завантажити",
 		"uploading": "Завантаження…",
-		"types": { "video": "Відео", "file": "Файл" },
+		"types": {
+			"video": "Відео",
+			"file": "Файл"
+		},
 		"dropHere": "Перетягніть файли сюди або натисніть «Завантажити»",
 		"empty": {
 			"title": "Медіафайлів ще немає",
@@ -1465,7 +1546,12 @@
 		"subtitle": "Вміст, що очікує редакційного схвалення",
 		"empty": "Немає вмісту, що очікує перевірки.",
 		"approve": "Схвалити",
-		"columns": { "title": "Заголовок", "slug": "Slug", "updated": "Оновлено", "actions": "Дії" },
+		"columns": {
+			"title": "Заголовок",
+			"slug": "Slug",
+			"updated": "Оновлено",
+			"actions": "Дії"
+		},
 		"reject": {
 			"button": "Відхилити",
 			"title": "Відхилити вміст",
@@ -1479,7 +1565,10 @@
 			"previous": "Попередня",
 			"next": "Наступна"
 		},
-		"errors": { "approveFailed": "Схвалення не вдалося", "rejectFailed": "Відхилення не вдалося" }
+		"errors": {
+			"approveFailed": "Схвалення не вдалося",
+			"rejectFailed": "Відхилення не вдалося"
+		}
 	},
 	"settingsPage": {
 		"title": "Налаштування проєкту",
@@ -1520,7 +1609,10 @@
 				"title": "API-ключі",
 				"description": "Генеруйте та керуйте ключами для публічного API."
 			},
-			"webhooks": { "title": "Вебхуки", "description": "Надсилайте події зовнішнім сервісам." },
+			"webhooks": {
+				"title": "Вебхуки",
+				"description": "Надсилайте події зовнішнім сервісам."
+			},
 			"customDomain": {
 				"title": "Кастомний домен",
 				"description": "Обслуговуйте цей проєкт з вашого домену."

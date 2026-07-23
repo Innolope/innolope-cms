@@ -153,4 +153,46 @@ describe.skipIf(!hasTestDb)('DELETE /api/v1/content/:id (real Postgres)', () => 
 		const [remaining] = await app.db.select().from(content).where(eq(content.id, row.id))
 		expect(remaining).toBeUndefined()
 	})
+
+	it('resolves a non-UUID id via externalId (dashboard/live external ids)', async () => {
+		// External collections list items under their external record id — DELETE
+		// must resolve those like GET does instead of 500ing on the uuid cast.
+		const [col] = await app.db
+			.insert(collections)
+			.values({
+				projectId,
+				name: 'ext_things_2',
+				label: 'External Things 2',
+				source: 'external',
+				accessMode: 'read-write',
+				externalTable: 'things2',
+				fields: [{ name: 'title', type: 'text' }],
+			})
+			.returning()
+
+		const externalId = '6a6244f491e756951e316b00'
+		const [row] = await app.db
+			.insert(content)
+			.values({
+				projectId,
+				collectionId: col.id,
+				slug: 'ext-thing-2',
+				markdown: '# Ext thing 2',
+				externalId,
+			})
+			.returning()
+
+		const del = await app.inject({
+			method: 'DELETE',
+			url: `/api/v1/content/${externalId}`,
+			headers: authed(),
+		})
+		// External DB is unreachable (previous test set it so): CMS row deleted,
+		// cleanup warning returned.
+		expect(del.statusCode).toBe(200)
+		expect(del.json().externalCleanup).toBe('failed')
+
+		const [remaining] = await app.db.select().from(content).where(eq(content.id, row.id))
+		expect(remaining).toBeUndefined()
+	})
 })

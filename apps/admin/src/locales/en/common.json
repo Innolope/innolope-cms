@@ -851,7 +851,9 @@
 		"emailPlaceholder": "your@email.com",
 		"sending": "Sending…",
 		"sendResetLink": "Send Reset Link",
-		"errors": { "generic": "Something went wrong" }
+		"errors": {
+			"generic": "Something went wrong"
+		}
 	},
 	"resetPassword": {
 		"title": "New Password",
@@ -865,7 +867,10 @@
 		"repeatPlaceholder": "Repeat password",
 		"updating": "Updating…",
 		"setNewPassword": "Set New Password",
-		"errors": { "mismatch": "Passwords do not match.", "resetFailed": "Reset failed" }
+		"errors": {
+			"mismatch": "Passwords do not match.",
+			"resetFailed": "Reset failed"
+		}
 	},
 	"acceptInvite": {
 		"accepting": "Accepting invite…",
@@ -873,7 +878,10 @@
 		"createAccountToJoin": "Create an account with <strong>{{email}}</strong> to join.",
 		"createAccount": "Create Account",
 		"goToLogin": "Go to login",
-		"errors": { "noToken": "No invite token provided.", "failed": "Failed to accept invite." }
+		"errors": {
+			"noToken": "No invite token provided.",
+			"failed": "Failed to accept invite."
+		}
 	},
 	"onboarding": {
 		"welcome": "Welcome to Innolope CMS",
@@ -997,7 +1005,10 @@
 	"collections": {
 		"list": {
 			"notFound": "Collection not found.",
-			"tabs": { "all": "All", "review": "Review" },
+			"tabs": {
+				"all": "All",
+				"review": "Review"
+			},
 			"schema": "Schema",
 			"newRecord": "New {{name}}",
 			"upload": "Upload",
@@ -1102,8 +1113,14 @@
 					"title": "Import with Paste",
 					"desc": "Paste JSON, CSV, or Markdown data"
 				},
-				"aiGenerate": { "title": "AI Generate", "desc": "Describe and auto-create fields" },
-				"manual": { "title": "Manual Input", "desc": "Define fields one by one" },
+				"aiGenerate": {
+					"title": "AI Generate",
+					"desc": "Describe and auto-create fields"
+				},
+				"manual": {
+					"title": "Manual Input",
+					"desc": "Define fields one by one"
+				},
 				"copyExisting": {
 					"title": "Copy from Existing",
 					"desc": "Duplicate an existing collection schema"
@@ -1322,7 +1339,15 @@
 				"rejectFailed": "Reject failed",
 				"readOnlyCollection": "This collection is read-only",
 				"updateProject": "Failed to update project",
-				"noCollection": "No collection"
+				"noCollection": "No collection",
+				"deleteFailed": "Failed to delete the record"
+			},
+			"delete": {
+				"title": "Delete record",
+				"message": "Permanently delete \"{{name}}\"? For external collections this also removes the record from the source database. This cannot be undone.",
+				"confirm": "Delete",
+				"button": "Delete record",
+				"deleted": "Record deleted"
 			}
 		},
 		"edit": {
@@ -1404,7 +1429,12 @@
 		"selectCollection": "Select collection",
 		"tagsPlaceholder": "tag1, tag2, tag3",
 		"id": "ID: {{id}}",
-		"fields": { "slug": "Slug", "status": "Status", "collection": "Collection", "tags": "Tags" },
+		"fields": {
+			"slug": "Slug",
+			"status": "Status",
+			"collection": "Collection",
+			"tags": "Tags"
+		},
 		"statusOptions": {
 			"draft": "Draft",
 			"pendingReview": "Pending Review",
@@ -1430,11 +1460,22 @@
 	"mediaRoute": {
 		"featureLabel": "Media Library",
 		"title": "Media",
-		"tabs": { "uploaded": "Uploaded", "unsplash": "Unsplash" },
-		"filter": { "all": "All types", "images": "Images", "videos": "Videos", "files": "Files" },
+		"tabs": {
+			"uploaded": "Uploaded",
+			"unsplash": "Unsplash"
+		},
+		"filter": {
+			"all": "All types",
+			"images": "Images",
+			"videos": "Videos",
+			"files": "Files"
+		},
 		"upload": "Upload",
 		"uploading": "Uploading…",
-		"types": { "video": "Video", "file": "File" },
+		"types": {
+			"video": "Video",
+			"file": "File"
+		},
 		"dropHere": "Drop files here or click Upload",
 		"empty": {
 			"title": "No media files yet",
@@ -1467,7 +1508,12 @@
 		"subtitle": "Content awaiting editorial approval",
 		"empty": "No content pending review.",
 		"approve": "Approve",
-		"columns": { "title": "Title", "slug": "Slug", "updated": "Updated", "actions": "Actions" },
+		"columns": {
+			"title": "Title",
+			"slug": "Slug",
+			"updated": "Updated",
+			"actions": "Actions"
+		},
 		"reject": {
 			"button": "Reject",
 			"title": "Reject content",
@@ -1481,7 +1527,10 @@
 			"previous": "Previous",
 			"next": "Next"
 		},
-		"errors": { "approveFailed": "Approve failed", "rejectFailed": "Reject failed" }
+		"errors": {
+			"approveFailed": "Approve failed",
+			"rejectFailed": "Reject failed"
+		}
 	},
 	"settingsPage": {
 		"title": "Project Settings",
@@ -1510,7 +1559,10 @@
 				"title": "Semantic Search",
 				"description": "Vector embeddings that power semantic content search."
 			},
-			"database": { "title": "Database", "description": "Connect and map an external database." },
+			"database": {
+				"title": "Database",
+				"description": "Connect and map an external database."
+			},
 			"mediaStorage": {
 				"title": "Media Storage",
 				"description": "Choose where uploaded media files are stored."
@@ -1519,7 +1571,10 @@
 				"title": "API Keys",
 				"description": "Generate and manage keys for the public API."
 			},
-			"webhooks": { "title": "Webhooks", "description": "Send events to external services." },
+			"webhooks": {
+				"title": "Webhooks",
+				"description": "Send events to external services."
+			},
 			"customDomain": {
 				"title": "Custom Domain",
 				"description": "Serve this project from your own domain."
@@ -1565,7 +1620,12 @@
 			"revokeConfirm": "Revoke",
 			"revoke": "Revoke",
 			"never": "Never",
-			"columns": { "name": "Name", "key": "Key", "created": "Created", "lastUsed": "Last Used" },
+			"columns": {
+				"name": "Name",
+				"key": "Key",
+				"created": "Created",
+				"lastUsed": "Last Used"
+			},
 			"empty": {
 				"title": "No API keys yet",
 				"subtitle": "API keys let Claude, AI agents, and external services access your content via the REST API and MCP server.",

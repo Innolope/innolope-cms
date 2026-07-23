@@ -64,16 +64,15 @@ export function buildExternalData(
 		}
 	}
 
-	// Write the slug when the collection maps a `slug` field, OR when it has no
-	// mapped fields at all. The empty-field case is a schemaless (MongoDB) target
-	// that was introspected while empty — the same pass-through mode the metadata
-	// loop above uses (`fieldNames.size === 0`). Without this, an external Mongo
-	// collection that keys on `slug` (e.g. a non-sparse unique `slug_1` index)
-	// receives `null` for every write, so the second insert collides with a
-	// duplicate-key error. SQL sources always have introspected columns
-	// (size > 0), so they stay strictly gated and never get an unknown `slug`
-	// column in the INSERT.
-	if (input.slug && (fieldNames.has('slug') || fieldNames.size === 0)) data.slug = input.slug
+	// Always carry the slug when one was provided. Whether it may actually be
+	// written depends on the TARGET database, which this builder doesn't know:
+	// schemaless MongoDB must always receive it (a collection with a non-sparse
+	// unique `slug_1` index otherwise gets `null`/missing on every insert and the
+	// second write collides with a duplicate-key error — this happened even for
+	// introspected collections whose sampled docs didn't surface a `slug` field),
+	// while SQL breaks on unknown columns. `stripUnmappedSlug` applies that
+	// type-aware decision in insertIntoExternalDb/updateExternalDb.
+	if (input.slug) data.slug = input.slug
 	if (input.status && fieldNames.has('status')) {
 		data.status = coerceExternalFieldValue(
 			fields.find((field) => field.name === 'status')?.type,
@@ -117,6 +116,24 @@ function coerceExternalFieldValue(fieldType: string | undefined, value: unknown)
 	return value
 }
 
+/**
+ * Drop the `slug` key for targets that can't take it: SQL databases error on a
+ * column that doesn't exist, so slug is only kept when the collection actually
+ * maps one. MongoDB is schemaless — the slug always passes through (see the
+ * comment in buildExternalData for why that is load-bearing).
+ */
+export function stripUnmappedSlug(
+	dbType: string,
+	col: typeof collections.$inferSelect,
+	data: Record<string, unknown>,
+): Record<string, unknown> {
+	if (dbType === 'mongodb') return data
+	if (!('slug' in data)) return data
+	if ((col.fields || []).some((field) => field.name === 'slug')) return data
+	const { slug: _dropped, ...rest } = data
+	return rest
+}
+
 /** MongoDB stores references as ObjectId — wrap 24-hex relation values so the field type stays consistent. */
 async function coerceExternalRelations(
 	dbType: string,
@@ -156,7 +173,7 @@ export async function insertIntoExternalDb(
 	try {
 		return await adapter.insert(
 			col.externalTable,
-			await coerceExternalRelations(extDb.type, col, data),
+			await coerceExternalRelations(extDb.type, col, stripUnmappedSlug(extDb.type, col, data)),
 		)
 	} finally {
 		await adapter.disconnect()
@@ -180,7 +197,7 @@ export async function updateExternalDb(
 		return await adapter.update(
 			col.externalTable,
 			externalId,
-			await coerceExternalRelations(extDb.type, col, data),
+			await coerceExternalRelations(extDb.type, col, stripUnmappedSlug(extDb.type, col, data)),
 		)
 	} finally {
 		await adapter.disconnect()

@@ -293,8 +293,14 @@ export class InnolopeClient {
 		)
 	}
 
-	async getContent(id: string) {
-		return this.request<ContentItem>(`/api/v1/content/${id}`)
+	/**
+	 * `id` may be the CMS UUID or, for external collections, the external record
+	 * id. Uncached (live) external records additionally need `collectionId` so
+	 * the API knows which external table to read from.
+	 */
+	async getContent(id: string, collectionId?: string) {
+		const qs = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
+		return this.request<ContentItem>(`/api/v1/content/${encodeURIComponent(id)}${qs}`)
 	}
 
 	async createContent(input: {
@@ -340,10 +346,11 @@ export class InnolopeClient {
 	 * the backing external-DB record could not be, the API answers 200 with a
 	 * warning payload instead — surface it, the external row needs manual cleanup.
 	 */
-	async deleteContent(id: string) {
+	async deleteContent(id: string, collectionId?: string) {
+		const qs = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
 		return this.request<
 			{ deleted: boolean; externalCleanup?: 'failed'; message?: string } | undefined
-		>(`/api/v1/content/${id}`, { method: 'DELETE' })
+		>(`/api/v1/content/${encodeURIComponent(id)}${qs}`, { method: 'DELETE' })
 	}
 
 	async searchContent(query: string) {

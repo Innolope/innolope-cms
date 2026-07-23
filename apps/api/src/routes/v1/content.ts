@@ -1147,16 +1147,85 @@ export async function contentRoutes(app: FastifyInstance) {
 	)
 
 	// Delete content (admin+, project-scoped)
-	app.delete<{ Params: { id: string } }>(
+	app.delete<{ Params: { id: string }; Querystring: { collectionId?: string } }>(
 		'/:id',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const [deleted] = await app.db
-				.delete(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.returning()
+			// Resolve the id the same three ways GET /:id does: local uuid, then the
+			// external id of a cached row, then a live external record (uncached —
+			// requires ?collectionId, like the GET live fallback). A non-UUID id makes
+			// the uuid-typed comparison throw — treat that as "not found locally".
+			let deleted: typeof content.$inferSelect | undefined
+			try {
+				;[deleted] = await app.db
+					.delete(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.returning()
+			} catch {
+				deleted = undefined
+			}
+
+			if (!deleted) {
+				;[deleted] = await app.db
+					.delete(content)
+					.where(
+						and(
+							eq(content.externalId, request.params.id),
+							eq(content.projectId, getProject(request).id),
+						),
+					)
+					.returning()
+			}
+
+			// Live external record with no cached CMS row: delete straight from the
+			// external database. Existence is checked first so a wrong id is a 404,
+			// not a silent no-op delete.
+			if (!deleted && request.query.collectionId) {
+				const access = await checkCollectionAccess(request, request.query.collectionId, 'write')
+				if (!access.ok) return reply.status(access.status).send({ error: access.error })
+				const [liveCol] = await app.db
+					.select()
+					.from(collections)
+					.where(
+						and(
+							eq(collections.id, request.query.collectionId),
+							eq(collections.projectId, getProject(request).id),
+						),
+					)
+					.limit(1)
+				if (!liveCol) return reply.status(404).send({ error: 'Collection not found' })
+				if (liveCol.source !== 'external' || !liveCol.externalTable) {
+					return reply.status(404).send({ error: 'Content not found' })
+				}
+				if (liveCol.accessMode === 'read-only') {
+					return reply.status(403).send({ error: 'This collection is read-only' })
+				}
+				const live = await fetchLiveExternalRecord(
+					app,
+					getProject(request).id,
+					liveCol.id,
+					request.params.id,
+				).catch(() => null)
+				if (!live) return reply.status(404).send({ error: 'Content not found' })
+				try {
+					await deleteFromExternalDb(app, getProject(request).id, liveCol, request.params.id)
+				} catch (err) {
+					app.log.error(err, 'Failed to delete live external record')
+					return reply.status(502).send({ error: 'Failed to delete from external database' })
+				}
+				app.events.emit({
+					type: 'content:deleted',
+					data: {
+						id: request.params.id,
+						slug: live.item.slug ?? null,
+						projectId: getProject(request).id,
+					},
+					timestamp: new Date().toISOString(),
+				})
+				return reply.status(204).send()
+			}
 
 			if (!deleted) return reply.status(404).send({ error: 'Content not found' })
 
