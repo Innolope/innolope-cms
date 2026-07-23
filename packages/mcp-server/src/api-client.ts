@@ -1,5 +1,23 @@
 import { httpRequest } from '@innolope/sdk'
 
+/**
+ * Normalize an arbitrary label into the kebab-case slug the CMS accepts
+ * (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). Agents routinely pass human titles like
+ * "Welsh Rarebit" or accented text; without this the API rejects them with a
+ * slug-regex validation error (HTTP 400). Falls back to the original string if
+ * normalization would leave it empty, so the caller still gets a clear
+ * server-side error rather than a silently blank slug.
+ */
+export function slugify(slug: string): string {
+	const normalized = slug
+		.normalize('NFKD') // split accented chars into base + diacritic
+		.replace(/[̀-ͯ]/g, '') // strip the diacritics
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-') // any run of non-alphanumerics → single hyphen
+		.replace(/^-+|-+$/g, '') // trim leading/trailing hyphens
+	return normalized || slug
+}
+
 export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
@@ -178,9 +196,10 @@ export class InnolopeClient {
 			publishedAt?: string
 		}>,
 	) {
+		const normalized = items.map((item) => ({ ...item, slug: slugify(item.slug) }))
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'POST',
-			body: JSON.stringify({ items }),
+			body: JSON.stringify({ items: normalized }),
 		})
 	}
 
@@ -193,9 +212,12 @@ export class InnolopeClient {
 			status?: string
 		}>,
 	) {
+		const normalized = items.map((item) =>
+			item.slug !== undefined ? { ...item, slug: slugify(item.slug) } : item,
+		)
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'PUT',
-			body: JSON.stringify({ items }),
+			body: JSON.stringify({ items: normalized }),
 		})
 	}
 
@@ -251,7 +273,7 @@ export class InnolopeClient {
 	}) {
 		return this.request<ContentItem>('/api/v1/content', {
 			method: 'POST',
-			body: JSON.stringify(input),
+			body: JSON.stringify({ ...input, slug: slugify(input.slug) }),
 		})
 	}
 
@@ -266,7 +288,9 @@ export class InnolopeClient {
 	) {
 		return this.request<ContentItem>(`/api/v1/content/${id}`, {
 			method: 'PUT',
-			body: JSON.stringify(input),
+			body: JSON.stringify(
+				input.slug !== undefined ? { ...input, slug: slugify(input.slug) } : input,
+			),
 		})
 	}
 

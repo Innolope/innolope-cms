@@ -64,7 +64,16 @@ export function buildExternalData(
 		}
 	}
 
-	if (input.slug && fieldNames.has('slug')) data.slug = input.slug
+	// Write the slug when the collection maps a `slug` field, OR when it has no
+	// mapped fields at all. The empty-field case is a schemaless (MongoDB) target
+	// that was introspected while empty — the same pass-through mode the metadata
+	// loop above uses (`fieldNames.size === 0`). Without this, an external Mongo
+	// collection that keys on `slug` (e.g. a non-sparse unique `slug_1` index)
+	// receives `null` for every write, so the second insert collides with a
+	// duplicate-key error. SQL sources always have introspected columns
+	// (size > 0), so they stay strictly gated and never get an unknown `slug`
+	// column in the INSERT.
+	if (input.slug && (fieldNames.has('slug') || fieldNames.size === 0)) data.slug = input.slug
 	if (input.status && fieldNames.has('status')) {
 		data.status = coerceExternalFieldValue(
 			fields.find((field) => field.name === 'status')?.type,
