@@ -1,5 +1,58 @@
 import { httpRequest } from '@innolope/sdk'
 
+/**
+ * Normalize an arbitrary label into the kebab-case slug the CMS accepts
+ * (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). Agents routinely pass human titles like
+ * "Welsh Rarebit" or accented text; without this the API rejects them with a
+ * slug-regex validation error (HTTP 400). Falls back to the original string if
+ * normalization would leave it empty, so the caller still gets a clear
+ * server-side error rather than a silently blank slug.
+ */
+export function slugify(slug: string): string {
+	const normalized = slug
+		.normalize('NFKD') // split accented chars into base + diacritic
+		.replace(/[̀-ͯ]/g, '') // strip the diacritics
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-') // any run of non-alphanumerics → single hyphen
+		.replace(/^-+|-+$/g, '') // trim leading/trailing hyphens
+	return normalized || slug
+}
+
+/** First ATX heading (`# ...`) in the markdown, else the first non-empty line. */
+function firstMarkdownHeading(markdown: string): string | undefined {
+	for (const line of markdown.split('\n')) {
+		const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/)
+		if (heading) return heading[1].trim()
+	}
+	return markdown
+		.split('\n')
+		.map((l) => l.trim())
+		.find(Boolean)
+}
+
+/**
+ * Resolve the slug for a write. Prefer an explicit slug; otherwise derive one
+ * from `metadata.title`, then the markdown's first heading — so agents can
+ * create content without hand-authoring a URL slug. Always run through slugify
+ * so the result satisfies the CMS's kebab-case rule.
+ */
+export function resolveSlug(input: {
+	slug?: string
+	metadata?: Record<string, unknown>
+	markdown?: string
+}): string {
+	if (input.slug?.trim()) return slugify(input.slug)
+	const title = typeof input.metadata?.title === 'string' ? input.metadata.title : undefined
+	const source = title || (input.markdown ? firstMarkdownHeading(input.markdown) : undefined) || ''
+	const derived = slugify(source)
+	if (!derived) {
+		throw new Error(
+			'Cannot determine a slug: pass `slug`, or include a `metadata.title` or a markdown heading to derive one from.',
+		)
+	}
+	return derived
+}
+
 export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
@@ -167,7 +220,7 @@ export class InnolopeClient {
 
 	async bulkCreateContent(
 		items: Array<{
-			slug: string
+			slug?: string
 			collectionId: string
 			markdown: string
 			metadata?: Record<string, unknown>
@@ -178,9 +231,10 @@ export class InnolopeClient {
 			publishedAt?: string
 		}>,
 	) {
+		const normalized = items.map((item) => ({ ...item, slug: resolveSlug(item) }))
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'POST',
-			body: JSON.stringify({ items }),
+			body: JSON.stringify({ items: normalized }),
 		})
 	}
 
@@ -193,9 +247,12 @@ export class InnolopeClient {
 			status?: string
 		}>,
 	) {
+		const normalized = items.map((item) =>
+			item.slug !== undefined ? { ...item, slug: slugify(item.slug) } : item,
+		)
 		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
 			method: 'PUT',
-			body: JSON.stringify({ items }),
+			body: JSON.stringify({ items: normalized }),
 		})
 	}
 
@@ -239,7 +296,7 @@ export class InnolopeClient {
 	}
 
 	async createContent(input: {
-		slug: string
+		slug?: string
 		collectionId: string
 		markdown: string
 		metadata?: Record<string, unknown>
@@ -251,7 +308,7 @@ export class InnolopeClient {
 	}) {
 		return this.request<ContentItem>('/api/v1/content', {
 			method: 'POST',
-			body: JSON.stringify(input),
+			body: JSON.stringify({ ...input, slug: resolveSlug(input) }),
 		})
 	}
 
@@ -266,7 +323,9 @@ export class InnolopeClient {
 	) {
 		return this.request<ContentItem>(`/api/v1/content/${id}`, {
 			method: 'PUT',
-			body: JSON.stringify(input),
+			body: JSON.stringify(
+				input.slug !== undefined ? { ...input, slug: slugify(input.slug) } : input,
+			),
 		})
 	}
 
