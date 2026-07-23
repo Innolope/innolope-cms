@@ -211,6 +211,21 @@ export async function ensureTables(connectionUrl: string) {
 			)
 		`
 
+		// Agent feedback drop box (MCP report_feedback tool). userId intentionally
+		// not a foreign key — feedback outlives its author, like audit_logs.
+		await sql`
+			CREATE TABLE IF NOT EXISTS mcp_feedback (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID REFERENCES projects(id) ON DELETE SET NULL,
+				"userId" UUID,
+				type TEXT NOT NULL,
+				tool TEXT,
+				summary TEXT NOT NULL,
+				details TEXT,
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
 		await sql`
 			CREATE TABLE IF NOT EXISTS password_reset_tokens (
 				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -485,6 +500,7 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS import_jobs_status_idx ON import_jobs(status)`
 		await sql`CREATE INDEX IF NOT EXISTS import_jobs_collection_idx ON import_jobs("collectionId")`
 		await sql`CREATE INDEX IF NOT EXISTS audit_logs_project_created_idx ON audit_logs("projectId","createdAt")`
+		await sql`CREATE INDEX IF NOT EXISTS mcp_feedback_created_idx ON mcp_feedback("createdAt")`
 		await sql`CREATE INDEX IF NOT EXISTS refresh_tokens_user_idx ON refresh_tokens("userId")`
 		await sql`CREATE INDEX IF NOT EXISTS refresh_tokens_family_idx ON refresh_tokens("family")`
 		await sql`CREATE INDEX IF NOT EXISTS webhooks_project_idx ON webhooks("projectId")`

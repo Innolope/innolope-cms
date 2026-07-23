@@ -31,6 +31,7 @@ import { contentRoutes } from './routes/v1/content.js'
 import { customDomainRoutes } from './routes/v1/custom-domain.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
+import { feedbackRoutes } from './routes/v1/feedback.js'
 import { inviteRoutes } from './routes/v1/invites.js'
 import { licenseRoutes } from './routes/v1/license.js'
 import { localeRoutes } from './routes/v1/locales.js'
@@ -247,89 +248,29 @@ export async function buildApp() {
 		return health
 	})
 
-	// Auth routes (no project context needed)
-	await app.register(authRoutes, { prefix: '/api/v1/auth' })
-	await app.register(passwordResetRoutes, { prefix: '/api/v1/auth' })
-	await app.register(inviteRoutes, { prefix: '/api/v1/invites' })
-	await app.register(licenseRoutes, { prefix: '/api/v1/license' })
-
-	// On-demand TLS authorization endpoint for Caddy (public)
-	await app.register(tlsRoutes, { prefix: '/api/v1/tls' })
-
-	// Remote MCP transport + its OAuth 2.1 authorization server are a licensed
-	// ("remote-mcp") feature. Cloud mode grants all features; self-hosted needs a
-	// Pro/Enterprise license that includes it. Without it, /mcp, the /oauth
-	// endpoints, and the OAuth discovery documents are not exposed at all.
-	// Registration is decided at boot from the license loaded by licensePlugin
-	// above; activating a license on a self-hosted instance takes effect on the
-	// next restart.
-	if (app.license.hasFeature('remote-mcp')) {
-		// Remote MCP transport for AI agents (OAuth-bearer authenticated, not under /api/v1)
-		await app.register(mcpRoutes, { prefix: '/mcp' })
-
-		// OAuth 2.1 authorization server + discovery for the remote MCP resource
-		await app.register(wellKnownRoutes)
-		await app.register(oauthRoutes, { prefix: '/oauth' })
-	}
-
-	// Project routes (user-scoped, project context resolved per-route)
-	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
-	await app.register(databaseRoutes, { prefix: '/api/v1/projects' })
-	await app.register(customDomainRoutes, { prefix: '/api/v1/projects' })
-
-	// Project-scoped data routes
-	await app.register(aiRoutes, { prefix: '/api/v1/ai' })
-	await app.register(exportRoutes, { prefix: '/api/v1/content/export' })
-	await app.register(semanticSearchRoutes, { prefix: '/api/v1/content/semantic-search' })
-	await app.register(contentRoutes, { prefix: '/api/v1/content' })
-	await app.register(collectionRoutes, { prefix: '/api/v1/collections' })
-	await app.register(localeRoutes, { prefix: '/api/v1/locales' })
-	await app.register(mediaRoutes, { prefix: '/api/v1/media' })
-	await app.register(statsRoutes, { prefix: '/api/v1/stats' })
-	await app.register(streamRoutes, { prefix: '/api/v1/stream' })
-	await app.register(unsplashRoutes, { prefix: '/api/v1/unsplash' })
-
-	// Enterprise Edition routes
-	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })
-	await app.register(webhookRoutes, { prefix: '/api/v1/ee/webhooks' })
-	await app.register(schedulingRoutes, { prefix: '/api/v1/ee/scheduling' })
-	await app.register(ssoRoutes, { prefix: '/api/v1/auth/sso' })
-	await app.register(ssoAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
-	await app.register(scimTokenAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
-	await app.register(meIdentitiesRoutes, { prefix: '/api/v1/auth/me/identities' })
-	await app.register(scimRoutes, { prefix: '/api/v1/scim' })
-
-	// Serve locally-stored media uploaded via the local filesystem adapter.
-	const uploadsPath = resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads')
-	mkdirSync(uploadsPath, { recursive: true })
-	await app.register(fastifyStatic, {
-		root: uploadsPath,
-		prefix: '/uploads/',
-		decorateReply: false,
-	})
-
-	// Serve admin UI static files in production (cloud deployment)
-	const adminDistPath = resolve(process.cwd(), 'apps/admin/dist')
-	if (process.env.NODE_ENV === 'production' && existsSync(adminDistPath)) {
-		await app.register(fastifyStatic, {
-			root: adminDistPath,
-			prefix: '/',
-		})
-		app.log.info(`Serving admin UI from ${adminDistPath}`)
-	}
-
-	// Global error handler
+	// Global error handler. Installed BEFORE any route registration: Fastify
+	// resolves the error handler per encapsulation context at registration time,
+	// so a handler set after `app.register(...)` never applies to those routes
+	// (they fall back to Fastify's default 500 serializer).
 	app.setErrorHandler(async (error: Error & { statusCode?: number }, request, reply) => {
 		// Schema validation failures are client errors — surface them as 400, not 500.
-		if (error instanceof ZodError) {
+		// Matched by instanceof AND by shape: zod is dual-published (CJS + ESM), so a
+		// ZodError thrown by a module that resolved the other build fails instanceof
+		// against this file's copy (bit us under vitest's module graph).
+		const zodError =
+			error instanceof ZodError ||
+			(error.name === 'ZodError' && Array.isArray((error as unknown as ZodError).issues))
+				? (error as unknown as ZodError)
+				: null
+		if (zodError) {
 			app.log.info(
-				{ issues: error.issues, url: request.url, method: request.method },
+				{ issues: zodError.issues, url: request.url, method: request.method },
 				'Request validation failed',
 			)
 			return reply.status(400).send({
 				error: 'Validation failed',
 				statusCode: 400,
-				issues: error.issues.map((issue) => ({
+				issues: zodError.issues.map((issue) => ({
 					path: issue.path.join('.'),
 					message: issue.message,
 				})),
@@ -370,6 +311,78 @@ export async function buildApp() {
 			statusCode,
 		})
 	})
+
+	// Auth routes (no project context needed)
+	await app.register(authRoutes, { prefix: '/api/v1/auth' })
+	await app.register(passwordResetRoutes, { prefix: '/api/v1/auth' })
+	await app.register(inviteRoutes, { prefix: '/api/v1/invites' })
+	await app.register(licenseRoutes, { prefix: '/api/v1/license' })
+
+	// On-demand TLS authorization endpoint for Caddy (public)
+	await app.register(tlsRoutes, { prefix: '/api/v1/tls' })
+
+	// Remote MCP transport + its OAuth 2.1 authorization server are a licensed
+	// ("remote-mcp") feature. Cloud mode grants all features; self-hosted needs a
+	// Pro/Enterprise license that includes it. Without it, /mcp, the /oauth
+	// endpoints, and the OAuth discovery documents are not exposed at all.
+	// Registration is decided at boot from the license loaded by licensePlugin
+	// above; activating a license on a self-hosted instance takes effect on the
+	// next restart.
+	if (app.license.hasFeature('remote-mcp')) {
+		// Remote MCP transport for AI agents (OAuth-bearer authenticated, not under /api/v1)
+		await app.register(mcpRoutes, { prefix: '/mcp' })
+
+		// OAuth 2.1 authorization server + discovery for the remote MCP resource
+		await app.register(wellKnownRoutes)
+		await app.register(oauthRoutes, { prefix: '/oauth' })
+	}
+
+	// Project routes (user-scoped, project context resolved per-route)
+	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
+	await app.register(databaseRoutes, { prefix: '/api/v1/projects' })
+	await app.register(customDomainRoutes, { prefix: '/api/v1/projects' })
+
+	// Project-scoped data routes
+	await app.register(aiRoutes, { prefix: '/api/v1/ai' })
+	await app.register(exportRoutes, { prefix: '/api/v1/content/export' })
+	await app.register(semanticSearchRoutes, { prefix: '/api/v1/content/semantic-search' })
+	await app.register(contentRoutes, { prefix: '/api/v1/content' })
+	await app.register(collectionRoutes, { prefix: '/api/v1/collections' })
+	await app.register(localeRoutes, { prefix: '/api/v1/locales' })
+	await app.register(mediaRoutes, { prefix: '/api/v1/media' })
+	await app.register(statsRoutes, { prefix: '/api/v1/stats' })
+	await app.register(feedbackRoutes, { prefix: '/api/v1/feedback' })
+	await app.register(streamRoutes, { prefix: '/api/v1/stream' })
+	await app.register(unsplashRoutes, { prefix: '/api/v1/unsplash' })
+
+	// Enterprise Edition routes
+	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })
+	await app.register(webhookRoutes, { prefix: '/api/v1/ee/webhooks' })
+	await app.register(schedulingRoutes, { prefix: '/api/v1/ee/scheduling' })
+	await app.register(ssoRoutes, { prefix: '/api/v1/auth/sso' })
+	await app.register(ssoAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
+	await app.register(scimTokenAdminRoutes, { prefix: '/api/v1/ee/sso/connections' })
+	await app.register(meIdentitiesRoutes, { prefix: '/api/v1/auth/me/identities' })
+	await app.register(scimRoutes, { prefix: '/api/v1/scim' })
+
+	// Serve locally-stored media uploaded via the local filesystem adapter.
+	const uploadsPath = resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads')
+	mkdirSync(uploadsPath, { recursive: true })
+	await app.register(fastifyStatic, {
+		root: uploadsPath,
+		prefix: '/uploads/',
+		decorateReply: false,
+	})
+
+	// Serve admin UI static files in production (cloud deployment)
+	const adminDistPath = resolve(process.cwd(), 'apps/admin/dist')
+	if (process.env.NODE_ENV === 'production' && existsSync(adminDistPath)) {
+		await app.register(fastifyStatic, {
+			root: adminDistPath,
+			prefix: '/',
+		})
+		app.log.info(`Serving admin UI from ${adminDistPath}`)
+	}
 
 	// 404 handler — serve index.html for SPA routes in production, JSON for API
 	app.setNotFoundHandler((request, reply) => {

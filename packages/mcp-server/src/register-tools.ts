@@ -116,6 +116,13 @@ function formatApiError(err: InnolopeApiError): string {
 		parts.push(body.message)
 	}
 
+	// Zod request-validation body: { error: 'Validation failed', issues: [{path, message}] }
+	const issues = body.issues as Array<{ path: string; message: string }> | undefined
+	if (Array.isArray(issues) && issues.length > 0) {
+		parts.push('Validation issues:')
+		for (const issue of issues) parts.push(`- ${issue.path || '(body)'}: ${issue.message}`)
+	}
+
 	// Single-item schema validation body: { error, fields, schema }
 	const fieldErrors = body.fields as Array<{ field: string; message: string }> | undefined
 	if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
@@ -162,9 +169,13 @@ function guidanceForStatus(status: number, body: Record<string, unknown>): strin
 		case 409:
 			return 'A content item with this slug and locale already exists. Pass a different slug, or update the existing item instead.'
 		case 502:
-			return 'Syncing to the external database failed. Retry, or verify the connection with test_external_database.'
+			return 'Syncing to the external database failed. Retry, or verify the connection with test_external_database. If this keeps happening, file it with report_feedback (type: "bug").'
 		default:
-			return ''
+			// Unexpected server-side failures are exactly what the feedback drop box
+			// is for — nudge only here, never on validation errors (usually caller input).
+			return status >= 500
+				? 'This looks like a server-side error. If it seems like a bug, please file it with report_feedback (type: "bug", short summary + what you were doing) so the developers can fix it.'
+				: ''
 	}
 }
 
@@ -210,10 +221,18 @@ export function registerTools(
 		operationType: OperationType
 		schema: Shape
 		outputSchema?: z.ZodRawShape
+		/** Register even in read-only mode (meta tools that don't touch content). */
+		availableInReadOnly?: boolean
 		handler: (args: z.objectOutputType<Shape, z.ZodTypeAny>) => Promise<ToolResult>
 	}): void {
 		if (disabled.has(def.name) || disabled.has(def.operationType)) return
-		if (readOnly && def.operationType !== 'read' && def.operationType !== 'metadata') return
+		if (
+			readOnly &&
+			!def.availableInReadOnly &&
+			def.operationType !== 'read' &&
+			def.operationType !== 'metadata'
+		)
+			return
 
 		const isRead = def.operationType === 'read' || def.operationType === 'metadata'
 		const annotations = {
@@ -1301,6 +1320,48 @@ export function registerTools(
 			return text(
 				capText(body, 'Reduce limit, pass fields to project fewer columns, or page with offset.'),
 			)
+		},
+	})
+
+	defineTool({
+		name: 'report_feedback',
+		description:
+			'Leave feedback for the Innolope developers: a bug you hit, friction you worked around, or a suggestion to improve these tools. Use it when a tool behaved unexpectedly, a response was misleading or incomplete, or you found a workaround worth sharing. Keep it short and specific: what you did, what you expected, what happened. This is stored in a feedback log and never affects CMS content.',
+		operationType: 'create',
+		availableInReadOnly: true,
+		schema: {
+			type: z
+				.enum(['bug', 'suggestion', 'friction'])
+				.describe(
+					'bug = something broke or returned wrong data; friction = it worked but was harder than it should be; suggestion = an improvement idea',
+				),
+			summary: z
+				.string()
+				.min(1)
+				.max(500)
+				.describe('One or two sentences stating the issue or idea'),
+			details: z
+				.string()
+				.max(4000)
+				.optional()
+				.describe('Optional: steps taken, expected vs actual, error text, workaround used'),
+			tool: z
+				.string()
+				.max(100)
+				.optional()
+				.describe('The MCP tool this concerns (e.g. "create_content"), if specific'),
+		},
+		handler: async ({ type, summary, details, tool }) => {
+			try {
+				const saved = await client.reportFeedback({ type, summary, details, tool })
+				return text(`Feedback saved (id: ${saved.id}). Thank you — the developers review this log.`)
+			} catch (err) {
+				// Feedback must never disrupt the agent's real task — degrade politely
+				// instead of surfacing an isError that derails the session.
+				return text(
+					`Feedback could not be saved (${err instanceof Error ? err.message : 'unknown error'}). Continue with your task.`,
+				)
+			}
 		},
 	})
 
