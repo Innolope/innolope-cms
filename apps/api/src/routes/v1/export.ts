@@ -1,5 +1,6 @@
+import { CONTENT_STATUSES } from '@innolope/config'
 import { content } from '@innolope/db'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import {
@@ -11,11 +12,15 @@ import { getProject } from '../../plugins/project.js'
 const exportQuerySchema = z.object({
 	format: z.enum(['jsonl', 'csv']).default('jsonl'),
 	collectionId: z.string().uuid().optional(),
-	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
+	status: z.enum(CONTENT_STATUSES).optional(),
 	locale: z.string().optional(),
 	startDate: z.string().optional(),
 	endDate: z.string().optional(),
 	fields: z.string().optional(), // comma-separated list of metadata fields to include
+	// Optional windowing for callers that can't take the whole set in one response
+	// (e.g. the MCP export tool pages through with limit/offset).
+	limit: z.coerce.number().int().min(1).max(1000).optional(),
+	offset: z.coerce.number().int().min(0).optional(),
 })
 
 export async function exportRoutes(app: FastifyInstance) {
@@ -45,10 +50,16 @@ export async function exportRoutes(app: FastifyInstance) {
 		if (params.startDate) conditions.push(sql`${content.createdAt} >= ${params.startDate}`)
 		if (params.endDate) conditions.push(sql`${content.createdAt} <= ${params.endDate}`)
 
-		const items = await app.db
+		// Stable order so limit/offset windows don't shuffle between calls.
+		let query = app.db
 			.select()
 			.from(content)
 			.where(and(...conditions))
+			.orderBy(asc(content.createdAt), asc(content.id))
+			.$dynamic()
+		if (params.limit !== undefined) query = query.limit(params.limit)
+		if (params.offset !== undefined) query = query.offset(params.offset)
+		const items = await query
 
 		const fieldList = params.fields?.split(',').map((f: string) => f.trim()) || null
 

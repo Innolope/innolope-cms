@@ -1,5 +1,19 @@
 import { z } from 'zod'
 
+/**
+ * Single source of truth for content statuses. Every schema and MCP tool derives
+ * its enum from this list (or a named slice of it) so the accepted values can't
+ * drift between endpoints.
+ */
+export const CONTENT_STATUSES = ['draft', 'pending_review', 'published', 'archived'] as const
+export type ContentStatus = (typeof CONTENT_STATUSES)[number]
+
+/**
+ * Statuses a caller may set directly on create. `pending_review` is entered via
+ * the submit-for-review workflow, and `archived` via update — not at creation.
+ */
+export const CREATABLE_CONTENT_STATUSES = ['draft', 'published'] as const
+
 export const contentInputSchema = z.object({
 	// Slug is optional — when null/missing, the record has no permalink (used by
 	// imported collections where the source had no slug-like field). When
@@ -15,7 +29,7 @@ export const contentInputSchema = z.object({
 	metadata: z.record(z.unknown()).optional(),
 	markdown: z.string(),
 	locale: z.string().min(2).max(10).optional(),
-	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
+	status: z.enum(CONTENT_STATUSES).optional(),
 	// Optional source timestamps — set by importers preserving original article history.
 	// Accepted on create only; ignored on update (would clobber edit history).
 	createdAt: z.string().datetime().optional(),
@@ -25,7 +39,7 @@ export const contentInputSchema = z.object({
 
 export const contentListSchema = z.object({
 	collectionId: z.string().uuid().optional(),
-	status: z.enum(['draft', 'pending_review', 'published', 'archived']).optional(),
+	status: z.enum(CONTENT_STATUSES).optional(),
 	locale: z.string().optional(),
 	search: z.string().optional(),
 	page: z.coerce.number().int().positive().default(1),

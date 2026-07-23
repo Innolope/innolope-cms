@@ -41,7 +41,11 @@ export async function httpRequest<T>(
 ): Promise<T> {
 	const { apiKey, projectId, raw, headers: extraHeaders, ...init } = options
 
-	const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+	// Only claim a JSON body when one is actually sent — Fastify rejects a
+	// bodyless request that carries Content-Type: application/json (400
+	// FST_ERR_CTP_EMPTY_JSON_BODY), which broke bodyless DELETEs.
+	const headers: Record<string, string> = {}
+	if (init.body != null) headers['Content-Type'] = 'application/json'
 	if (apiKey) headers.Authorization = `Bearer ${apiKey}`
 	if (projectId) headers['X-Project-Id'] = projectId
 

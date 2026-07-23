@@ -507,7 +507,7 @@ export async function contentRoutes(app: FastifyInstance) {
 
 	// Bulk create content (editor+, project-scoped)
 	app.post('/bulk', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const { items } = request.body as {
+		const { items, dryRun } = request.body as {
 			items: Array<{
 				slug: string
 				collectionId: string
@@ -519,6 +519,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				updatedAt?: string
 				publishedAt?: string
 			}>
+			dryRun?: boolean
 		}
 
 		if (!Array.isArray(items) || items.length === 0)
@@ -550,6 +551,104 @@ export async function contentRoutes(app: FastifyInstance) {
 			)
 		const createColMap = new Map(createCols.map((c) => [c.id, c]))
 
+		// Validate the whole batch before writing anything, mirroring the single-item
+		// create path (collection exists, writable, metadata matches the field schema).
+		// Every bad item is reported — not just the first — so a caller can fix the
+		// batch in one pass. The transaction below stays all-or-nothing.
+		const itemErrors: Array<{
+			index: number
+			slug?: string
+			errors: Array<{ field: string; message: string }>
+		}> = []
+		for (const [index, item] of items.entries()) {
+			const col = createColMap.get(item.collectionId)
+			if (!col) {
+				itemErrors.push({
+					index,
+					slug: item.slug,
+					errors: [
+						{ field: 'collectionId', message: `Collection not found: ${item.collectionId}` },
+					],
+				})
+				continue
+			}
+			if (col.source === 'external' && col.accessMode === 'read-only') {
+				itemErrors.push({
+					index,
+					slug: item.slug,
+					errors: [{ field: 'collectionId', message: `Collection is read-only: ${col.name}` }],
+				})
+				continue
+			}
+			const errors = validateContentMetadata(col.fields, item.metadata, {
+				enforceRequired: item.status === 'published',
+			})
+			if (errors.length > 0) itemErrors.push({ index, slug: item.slug, errors })
+		}
+
+		// Duplicate-slug pre-check across the batch (the transaction re-checks, this
+		// makes the report complete and lets dryRun catch conflicts without writing).
+		const slugs = items.map((i) => i.slug).filter(Boolean)
+		const existing = slugs.length
+			? await app.db
+					.select({ slug: content.slug, locale: content.locale })
+					.from(content)
+					.where(and(eq(content.projectId, getProject(request).id), inArray(content.slug, slugs)))
+			: []
+		const existingKeys = new Set(existing.map((r) => `${r.slug} ${r.locale}`))
+		const batchKeys = new Set<string>()
+		for (const [index, item] of items.entries()) {
+			if (!item.slug) continue
+			const key = `${item.slug} ${item.locale || 'en'}`
+			const conflict = existingKeys.has(key)
+				? 'Content with this slug and locale already exists'
+				: batchKeys.has(key)
+					? 'Duplicate slug within this batch'
+					: null
+			batchKeys.add(key)
+			if (conflict) {
+				itemErrors.push({ index, slug: item.slug, errors: [{ field: 'slug', message: conflict }] })
+			}
+		}
+		itemErrors.sort((a, b) => a.index - b.index)
+
+		// Echo the trimmed schema of each collection that had field errors so the
+		// caller can self-correct (same idea as the single-create 400 body).
+		const errorSchemas = () => {
+			const ids = new Set(itemErrors.map((e) => items[e.index]?.collectionId).filter(Boolean))
+			return Object.fromEntries(
+				[...ids]
+					.map((id) => createColMap.get(id as string))
+					.filter((c): c is NonNullable<typeof c> => !!c)
+					.map((c) => [
+						c.id,
+						c.fields.map((f) => ({
+							name: f.name,
+							type: f.type,
+							required: !!f.required,
+							...(f.options ? { options: f.options } : {}),
+						})),
+					]),
+			)
+		}
+
+		if (dryRun) {
+			return reply.send({
+				dryRun: true,
+				valid: items.length - new Set(itemErrors.map((e) => e.index)).size,
+				total: items.length,
+				errors: itemErrors,
+				...(itemErrors.length > 0 && { schemas: errorSchemas() }),
+			})
+		}
+		if (itemErrors.length > 0) {
+			return reply.status(400).send({
+				error: 'Some items failed validation — nothing was created',
+				items: itemErrors,
+				schemas: errorSchemas(),
+			})
+		}
+
 		const insertedExternalRows: Array<{
 			col: typeof collections.$inferSelect
 			externalId: string
@@ -558,13 +657,17 @@ export async function contentRoutes(app: FastifyInstance) {
 		try {
 			created = await app.db.transaction(async (tx) => {
 				const results = []
-				for (const item of items) {
+				for (const [index, item] of items.entries()) {
 					const html = await renderMarkdown(item.markdown)
 					const col = createColMap.get(item.collectionId)
 
-					if (!col) throw httpError(`Collection not found: ${item.collectionId}`, 400)
+					// Re-checked inside the transaction (the pre-flight pass above already
+					// caught these) so a race can't slip through. Errors carry the item
+					// index so an all-or-nothing rollback is still attributable.
+					if (!col)
+						throw httpError(`item ${index}: Collection not found: ${item.collectionId}`, 400)
 					if (col.source === 'external' && col.accessMode === 'read-only') {
-						throw httpError(`Collection is read-only: ${col.name}`, 403)
+						throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
 					}
 
 					const [duplicate] = await tx
@@ -578,7 +681,8 @@ export async function contentRoutes(app: FastifyInstance) {
 							),
 						)
 						.limit(1)
-					if (duplicate) throw httpError(`Content with slug already exists: ${item.slug}`, 409)
+					if (duplicate)
+						throw httpError(`item ${index}: Content with slug already exists: ${item.slug}`, 409)
 
 					let externalId: string | undefined
 					if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
@@ -656,7 +760,7 @@ export async function contentRoutes(app: FastifyInstance) {
 
 	// Bulk update content (editor+, project-scoped)
 	app.put('/bulk', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const { items } = request.body as {
+		const { items, dryRun } = request.body as {
 			items: Array<{
 				id: string
 				slug?: string
@@ -664,6 +768,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				metadata?: Record<string, unknown>
 				status?: string
 			}>
+			dryRun?: boolean
 		}
 
 		if (!Array.isArray(items) || items.length === 0)
@@ -671,46 +776,100 @@ export async function contentRoutes(app: FastifyInstance) {
 		if (items.length > 50)
 			return reply.status(400).send({ error: 'Maximum 50 items per bulk update' })
 
+		// Prefetch the target rows and their collections in two queries rather than
+		// two per item. Done before the transaction so the batch can be validated
+		// (and dry-run) without touching the database.
+		const updateIds = [...new Set(items.map((i) => i.id))]
+		const currentRows = await app.db
+			.select()
+			.from(content)
+			.where(and(inArray(content.id, updateIds), eq(content.projectId, getProject(request).id)))
+		const currentMap = new Map(currentRows.map((r) => [r.id, r]))
+		const updateColIds = [...new Set(currentRows.map((r) => r.collectionId))]
+		const updateCols = updateColIds.length
+			? await app.db
+					.select()
+					.from(collections)
+					.where(
+						and(
+							inArray(collections.id, updateColIds),
+							eq(collections.projectId, getProject(request).id),
+						),
+					)
+			: []
+		const updateColMap = new Map(updateCols.map((c) => [c.id, c]))
+
+		// Validate the whole batch before writing, mirroring the single-item update
+		// path: metadata is checked MERGED with the current row, required fields are
+		// enforced only when the merged result is published. Every bad item is
+		// reported; the transaction below stays all-or-nothing.
+		const itemErrors: Array<{
+			index: number
+			id: string
+			errors: Array<{ field: string; message: string }>
+		}> = []
+		for (const [index, item] of items.entries()) {
+			const current = currentMap.get(item.id)
+			if (!current) {
+				itemErrors.push({
+					index,
+					id: item.id,
+					errors: [{ field: 'id', message: `Content not found: ${item.id}` }],
+				})
+				continue
+			}
+			const col = updateColMap.get(current.collectionId)
+			if (col?.source === 'external' && col.accessMode === 'read-only') {
+				itemErrors.push({
+					index,
+					id: item.id,
+					errors: [{ field: 'id', message: `Collection is read-only: ${col.name}` }],
+				})
+				continue
+			}
+			if (col) {
+				const merged = { ...(current.metadata as Record<string, unknown>), ...item.metadata }
+				const mergedStatus = item.status ?? current.status
+				const errors = validateContentMetadata(col.fields, merged, {
+					enforceRequired: mergedStatus === 'published',
+				})
+				if (errors.length > 0) itemErrors.push({ index, id: item.id, errors })
+			}
+		}
+
+		if (dryRun) {
+			return reply.send({
+				dryRun: true,
+				valid: items.length - new Set(itemErrors.map((e) => e.index)).size,
+				total: items.length,
+				errors: itemErrors,
+			})
+		}
+		if (itemErrors.length > 0) {
+			return reply.status(400).send({
+				error: 'Some items failed validation — nothing was updated',
+				items: itemErrors,
+			})
+		}
+
 		const updated = await app.db.transaction(async (tx) => {
 			const results = []
 			const accessChecked = new Set<string>()
 
-			// Prefetch the target rows and their collections in two queries rather
-			// than two per item.
-			const updateIds = [...new Set(items.map((i) => i.id))]
-			const currentRows = await tx
-				.select()
-				.from(content)
-				.where(and(inArray(content.id, updateIds), eq(content.projectId, getProject(request).id)))
-			const currentMap = new Map(currentRows.map((r) => [r.id, r]))
-			const updateColIds = [...new Set(currentRows.map((r) => r.collectionId))]
-			const updateCols = updateColIds.length
-				? await tx
-						.select()
-						.from(collections)
-						.where(
-							and(
-								inArray(collections.id, updateColIds),
-								eq(collections.projectId, getProject(request).id),
-							),
-						)
-				: []
-			const updateColMap = new Map(updateCols.map((c) => [c.id, c]))
-
-			for (const item of items) {
+			for (const [index, item] of items.entries()) {
 				const current = currentMap.get(item.id)
-				if (!current) throw httpError(`Content not found: ${item.id}`, 404)
+				if (!current) throw httpError(`item ${index}: Content not found: ${item.id}`, 404)
 				if (!accessChecked.has(current.collectionId)) {
 					accessChecked.add(current.collectionId)
 					const access = await checkCollectionAccess(request, current.collectionId, 'write')
-					if (!access.ok) throw httpError(access.error, access.status)
+					if (!access.ok) throw httpError(`item ${index}: ${access.error}`, access.status)
 				}
 
 				const col = updateColMap.get(current.collectionId)
 
 				let externalId = current.externalId
 				if (col?.source === 'external' && col.accessMode === 'read-only') {
-					throw httpError(`Collection is read-only: ${col.name}`, 403)
+					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
 				}
 				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 					const nextMetadata = { ...current.metadata, ...item.metadata }
@@ -815,9 +974,18 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 			}
 
-			// Add JSONB field filters (field names validated to prevent injection)
+			// Add JSONB field filters (field names validated to prevent injection).
+			// Invalid names are a hard 400 — silently dropping a filter would run the
+			// query broader than the caller asked for.
+			const invalidFilterKeys = Object.keys(filters || {}).filter(
+				(field) => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field),
+			)
+			if (invalidFilterKeys.length > 0) {
+				return reply.status(400).send({
+					error: `Invalid filter field name(s): ${invalidFilterKeys.join(', ')}. Names must match ^[a-zA-Z_][a-zA-Z0-9_]*$ — check the collection schema via get_collection_schema.`,
+				})
+			}
 			for (const [field, value] of Object.entries(filters || {})) {
-				if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) continue
 				conditions.push(sql`${content.metadata}->>${sql.raw(`'${field}'`)} = ${String(value)}`)
 			}
 
@@ -993,8 +1161,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			if (!deleted) return reply.status(404).send({ error: 'Content not found' })
 
 			// Propagate the delete to the external DB when this row was backed by one,
-			// so external collections don't accumulate orphaned documents. Best-effort:
-			// the CMS row is already gone, so a failure here is logged, not surfaced.
+			// so external collections don't accumulate orphaned documents. The CMS row
+			// is already gone, so a failure here can't fail the request (no 5xx) — but
+			// it must not be silent either: the caller gets a 200 warning payload so it
+			// knows the external record dangles and needs manual cleanup.
+			let externalCleanupError: string | undefined
+			let externalTable: string | undefined
 			if (deleted.externalId) {
 				const [col] = await app.db
 					.select()
@@ -1007,9 +1179,13 @@ export async function contentRoutes(app: FastifyInstance) {
 					)
 					.limit(1)
 				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-					await deleteFromExternalDb(app, getProject(request).id, col, deleted.externalId).catch(
-						(err) => app.log.error(err, 'Failed to delete external row after CMS delete'),
-					)
+					externalTable = col.externalTable
+					try {
+						await deleteFromExternalDb(app, getProject(request).id, col, deleted.externalId)
+					} catch (err) {
+						app.log.error(err, 'Failed to delete external row after CMS delete')
+						externalCleanupError = err instanceof Error ? err.message : String(err)
+					}
 				}
 			}
 
@@ -1019,6 +1195,13 @@ export async function contentRoutes(app: FastifyInstance) {
 				timestamp: new Date().toISOString(),
 			})
 
+			if (externalCleanupError) {
+				return reply.status(200).send({
+					deleted: true,
+					externalCleanup: 'failed',
+					message: `The content item was deleted from the CMS, but removing the backing record (id ${deleted.externalId}) from the external table "${externalTable}" failed: ${externalCleanupError}. Delete it there manually to avoid an orphaned row.`,
+				})
+			}
 			return reply.status(204).send()
 		},
 	)

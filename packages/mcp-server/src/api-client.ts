@@ -230,11 +230,12 @@ export class InnolopeClient {
 			updatedAt?: string
 			publishedAt?: string
 		}>,
+		opts?: { dryRun?: boolean },
 	) {
 		const normalized = items.map((item) => ({ ...item, slug: resolveSlug(item) }))
-		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
+		return this.request<BulkWriteResult>('/api/v1/content/bulk', {
 			method: 'POST',
-			body: JSON.stringify({ items: normalized }),
+			body: JSON.stringify({ items: normalized, ...(opts?.dryRun && { dryRun: true }) }),
 		})
 	}
 
@@ -246,13 +247,14 @@ export class InnolopeClient {
 			metadata?: Record<string, unknown>
 			status?: string
 		}>,
+		opts?: { dryRun?: boolean },
 	) {
 		const normalized = items.map((item) =>
 			item.slug !== undefined ? { ...item, slug: slugify(item.slug) } : item,
 		)
-		return this.request<{ data: ContentItem[]; count: number }>('/api/v1/content/bulk', {
+		return this.request<BulkWriteResult>('/api/v1/content/bulk', {
 			method: 'PUT',
-			body: JSON.stringify({ items: normalized }),
+			body: JSON.stringify({ items: normalized, ...(opts?.dryRun && { dryRun: true }) }),
 		})
 	}
 
@@ -333,8 +335,15 @@ export class InnolopeClient {
 		return this.updateContent(id, { status: 'published' })
 	}
 
+	/**
+	 * Returns undefined on a clean delete (204). When the CMS row was removed but
+	 * the backing external-DB record could not be, the API answers 200 with a
+	 * warning payload instead — surface it, the external row needs manual cleanup.
+	 */
 	async deleteContent(id: string) {
-		return this.request<void>(`/api/v1/content/${id}`, { method: 'DELETE' })
+		return this.request<
+			{ deleted: boolean; externalCleanup?: 'failed'; message?: string } | undefined
+		>(`/api/v1/content/${id}`, { method: 'DELETE' })
 	}
 
 	async searchContent(query: string) {
@@ -371,7 +380,14 @@ export class InnolopeClient {
 		})
 	}
 
-	async exportContent(params?: { collectionId?: string; status?: string; format?: string }) {
+	async exportContent(params?: {
+		collectionId?: string
+		status?: string
+		format?: string
+		fields?: string
+		limit?: number
+		offset?: number
+	}) {
 		const query = new URLSearchParams()
 		if (params) {
 			for (const [key, value] of Object.entries(params)) {
@@ -412,6 +428,25 @@ export class InnolopeClient {
 			body: JSON.stringify(data),
 		}).catch(() => {}) // fire-and-forget, never block MCP response
 	}
+}
+
+/**
+ * Result of a bulk create/update. A normal write returns `data`/`count`; a
+ * dryRun (or the 200-shaped validation report) returns `dryRun`/`valid`/`errors`.
+ */
+interface BulkWriteResult {
+	data?: ContentItem[]
+	count?: number
+	dryRun?: boolean
+	valid?: number
+	total?: number
+	errors?: Array<{
+		index: number
+		slug?: string
+		id?: string
+		errors: Array<{ field: string; message: string }>
+	}>
+	schemas?: Record<string, unknown>
 }
 
 interface ContentItem {
