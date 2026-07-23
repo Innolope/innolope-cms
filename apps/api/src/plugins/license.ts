@@ -15,6 +15,7 @@ export type LicenseFeature =
 	| 'review-workflows'
 	| 'media-integrations'
 	| 'custom-domain'
+	| 'remote-mcp'
 
 export interface LicensePayload {
 	org: string
@@ -77,6 +78,7 @@ const ALL_FEATURES: LicenseFeature[] = [
 	'review-workflows',
 	'media-integrations',
 	'custom-domain',
+	'remote-mcp',
 ]
 
 export function decodeLicenseKey(

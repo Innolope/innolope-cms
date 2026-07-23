@@ -25,6 +25,31 @@ import {
 	publicBaseUrl,
 } from '../services/oauth-metadata.js'
 
+declare module 'fastify' {
+	interface FastifyRequest {
+		/**
+		 * Redirect-URI origins to add to the `form-action` CSP directive for the
+		 * OAuth authorize pages, so the browser can follow the post-consent redirect
+		 * to the client's callback. Set per request; applied by an onSend hook.
+		 */
+		oauthFormActionOrigins?: string[]
+	}
+}
+
+/**
+ * Mark the current response so its `form-action` CSP is widened to the client's
+ * redirect origin. The consent form POSTs to /oauth/authorize (same-origin) and
+ * the server then 302s to the client callback (e.g. https://claude.ai); helmet's
+ * global `form-action 'self'` would otherwise block that redirect.
+ */
+function allowFormActionRedirect(request: FastifyRequest, redirectUri: string) {
+	try {
+		request.oauthFormActionOrigins = [new URL(redirectUri).origin]
+	} catch {
+		// Unparseable URIs never reach here (validated against the client first).
+	}
+}
+
 const SUPPORTED_SCOPE = 'mcp'
 const AUTH_CODE_TTL_MS = 60_000 // 1 minute
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -277,6 +302,22 @@ export async function wellKnownRoutes(app: FastifyInstance) {
 
 /** OAuth 2.1 authorization server: register, authorize (login + consent), token. */
 export async function oauthRoutes(app: FastifyInstance) {
+	// Widen `form-action` to the client's redirect origin for authorize pages that
+	// opted in via allowFormActionRedirect(). Runs after helmet's own hooks (this
+	// plugin registers later), so it patches the final CSP header reliably.
+	app.addHook('onSend', async (request, reply, payload) => {
+		const origins = request.oauthFormActionOrigins
+		if (!origins?.length) return payload
+		const csp = reply.getHeader('content-security-policy')
+		if (typeof csp === 'string' && csp.includes("form-action 'self'")) {
+			reply.header(
+				'content-security-policy',
+				csp.replace("form-action 'self'", `form-action 'self' ${origins.join(' ')}`),
+			)
+		}
+		return payload
+	})
+
 	// ── Dynamic Client Registration (RFC 7591) ────────────────────────────────
 	app.post('/register', async (request, reply) => {
 		const body = (request.body ?? {}) as {
@@ -362,6 +403,8 @@ export async function oauthRoutes(app: FastifyInstance) {
 			// Per spec, never redirect to an unregistered URI — show an error instead.
 			return errorPage(reply, 400, 'redirect_uri does not match any registered URI.')
 		}
+		// Let the rendered login/consent page's form redirect to this client callback.
+		allowFormActionRedirect(request, redirectUri)
 
 		// From here, protocol errors are reported back to the client via redirect.
 		if (q.response_type !== 'code') {
@@ -420,6 +463,8 @@ export async function oauthRoutes(app: FastifyInstance) {
 		if (!client?.redirectUris.includes(ticket.redirectUri)) {
 			return errorPage(reply, 400, 'Invalid client for this request.')
 		}
+		// Let the re-rendered consent/login page redirect to this client callback.
+		allowFormActionRedirect(request, ticket.redirectUri)
 		const clientName = client.clientName || client.clientId
 
 		// Login step: email + password submitted.

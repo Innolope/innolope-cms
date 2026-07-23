@@ -256,12 +256,21 @@ export async function buildApp() {
 	// On-demand TLS authorization endpoint for Caddy (public)
 	await app.register(tlsRoutes, { prefix: '/api/v1/tls' })
 
-	// Remote MCP transport for AI agents (OAuth-bearer authenticated, not under /api/v1)
-	await app.register(mcpRoutes, { prefix: '/mcp' })
+	// Remote MCP transport + its OAuth 2.1 authorization server are a licensed
+	// ("remote-mcp") feature. Cloud mode grants all features; self-hosted needs a
+	// Pro/Enterprise license that includes it. Without it, /mcp, the /oauth
+	// endpoints, and the OAuth discovery documents are not exposed at all.
+	// Registration is decided at boot from the license loaded by licensePlugin
+	// above; activating a license on a self-hosted instance takes effect on the
+	// next restart.
+	if (app.license.hasFeature('remote-mcp')) {
+		// Remote MCP transport for AI agents (OAuth-bearer authenticated, not under /api/v1)
+		await app.register(mcpRoutes, { prefix: '/mcp' })
 
-	// OAuth 2.1 authorization server + discovery for the remote MCP resource
-	await app.register(wellKnownRoutes)
-	await app.register(oauthRoutes, { prefix: '/oauth' })
+		// OAuth 2.1 authorization server + discovery for the remote MCP resource
+		await app.register(wellKnownRoutes)
+		await app.register(oauthRoutes, { prefix: '/oauth' })
+	}
 
 	// Project routes (user-scoped, project context resolved per-route)
 	await app.register(projectRoutes, { prefix: '/api/v1/projects' })
