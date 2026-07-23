@@ -1548,6 +1548,14 @@
 			"copy": "Копіювати",
 			"copied": "Скопійовано",
 			"claudeDesktopConfig": "Конфігурація Claude Desktop",
+			"mcp": {
+				"title": "Підключення MCP-клієнта",
+				"remoteTitle": "Віддалене (OAuth) — рекомендовано",
+				"remoteDescription": "Додайте цю URL-адресу як власний конектор у Claude або іншому MCP-клієнті, потім натисніть Connect і увійдіть, щоб надати доступ. API-ключ не потрібен.",
+				"remoteUrlLabel": "URL MCP-сервера",
+				"localTitle": "Локальне (stdio) — API-ключ",
+				"localDescription": "Бажаєте запускати сервер самостійно? Створіть API-ключ нижче, щоб отримати готову конфігурацію npx для @innolope/mcp-server."
+			},
 			"dismiss": "Закрити",
 			"keyName": "Назва ключа",
 			"keyNamePlaceholder": "напр. Claude Agent, CI Pipeline",

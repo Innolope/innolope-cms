@@ -1547,6 +1547,14 @@
 			"copy": "Copy",
 			"copied": "Copied",
 			"claudeDesktopConfig": "Claude Desktop config",
+			"mcp": {
+				"title": "Connect an MCP client",
+				"remoteTitle": "Remote (OAuth) — recommended",
+				"remoteDescription": "Add this URL as a custom connector in Claude or another MCP client, then click Connect and sign in to approve access. No API key required.",
+				"remoteUrlLabel": "MCP server URL",
+				"localTitle": "Local (stdio) — API key",
+				"localDescription": "Prefer to run the server yourself? Create an API key below to get a ready-to-paste npx config for @innolope/mcp-server."
+			},
 			"dismiss": "Dismiss",
 			"keyName": "Key name",
 			"keyNamePlaceholder": "e.g. Claude Agent, CI Pipeline",
