@@ -10,6 +10,10 @@ import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relat
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import {
+	contentValidationError,
+	validateContentMetadata,
+} from '../../services/content-validation.js'
+import {
 	applyExternalMediaStorage,
 	buildExternalData,
 	deleteFromExternalDb,
@@ -404,6 +408,16 @@ export async function contentRoutes(app: FastifyInstance) {
 		if (!col) return reply.status(404).send({ error: 'Collection not found' })
 		if (col.source === 'external' && col.accessMode === 'read-only') {
 			return reply.status(403).send({ error: 'This collection is read-only' })
+		}
+
+		// Validate metadata against the collection's field schema. Required fields
+		// are enforced only when publishing; drafts may be incomplete. Extra keys
+		// are ignored. On failure, echo the schema so the caller can self-correct.
+		const createErrors = validateContentMetadata(col.fields, input.metadata, {
+			enforceRequired: input.status === 'published',
+		})
+		if (createErrors.length > 0) {
+			return reply.status(400).send(contentValidationError(col.fields, createErrors))
 		}
 
 		// Only enforce the slug-uniqueness check when a slug is actually provided.
@@ -876,6 +890,20 @@ export async function contentRoutes(app: FastifyInstance) {
 				return reply.status(403).send({ error: 'This collection is read-only' })
 			}
 
+			// Validate the post-update metadata against the schema (required enforced
+			// only when the result is published). Uses the merged view so a partial
+			// update isn't judged as if it replaced everything.
+			if (col) {
+				const mergedMetadata = { ...current.metadata, ...input.metadata }
+				const nextStatus = input.status ?? current.status
+				const updateErrors = validateContentMetadata(col.fields, mergedMetadata, {
+					enforceRequired: nextStatus === 'published',
+				})
+				if (updateErrors.length > 0) {
+					return reply.status(400).send(contentValidationError(col.fields, updateErrors))
+				}
+			}
+
 			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 				const nextMetadata = { ...current.metadata, ...input.metadata }
 				const now = new Date()
@@ -963,6 +991,27 @@ export async function contentRoutes(app: FastifyInstance) {
 				.returning()
 
 			if (!deleted) return reply.status(404).send({ error: 'Content not found' })
+
+			// Propagate the delete to the external DB when this row was backed by one,
+			// so external collections don't accumulate orphaned documents. Best-effort:
+			// the CMS row is already gone, so a failure here is logged, not surfaced.
+			if (deleted.externalId) {
+				const [col] = await app.db
+					.select()
+					.from(collections)
+					.where(
+						and(
+							eq(collections.id, deleted.collectionId),
+							eq(collections.projectId, getProject(request).id),
+						),
+					)
+					.limit(1)
+				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+					await deleteFromExternalDb(app, getProject(request).id, col, deleted.externalId).catch(
+						(err) => app.log.error(err, 'Failed to delete external row after CMS delete'),
+					)
+				}
+			}
 
 			app.events.emit({
 				type: 'content:deleted',
@@ -1127,6 +1176,28 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			if (!item) return reply.status(404).send({ error: 'Content not found' })
 			if (item.status === 'published') return item
+
+			// Publishing is the point where required fields must all be present.
+			const [pubCol] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, item.collectionId),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (pubCol) {
+				const pubErrors = validateContentMetadata(
+					pubCol.fields,
+					item.metadata as Record<string, unknown>,
+					{ enforceRequired: true },
+				)
+				if (pubErrors.length > 0) {
+					return reply.status(400).send(contentValidationError(pubCol.fields, pubErrors))
+				}
+			}
 
 			try {
 				await syncExternalStatus(

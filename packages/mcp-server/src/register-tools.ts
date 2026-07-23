@@ -499,6 +499,16 @@ export function registerTools(server: McpServer, client: InnolopeClient): void {
 	)
 
 	server.tool(
+		'delete_content',
+		'Permanently delete a content item by ID. For external (MongoDB/SQL) collections this also removes the backing external record. Requires project admin access. This cannot be undone.',
+		{ id: z.string().describe('Content item UUID') },
+		async ({ id }) => {
+			await client.deleteContent(id)
+			return text(`Deleted content ${id}.`)
+		},
+	)
+
+	server.tool(
 		'search_content',
 		'Search content by keyword across markdown and metadata',
 		{ query: z.string().describe('Search query') },
