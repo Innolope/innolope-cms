@@ -28,6 +28,24 @@ export interface MediaValueLint {
 	repairable: boolean
 }
 
+/**
+ * Path shapes that are not directly fetchable as URLs — the customer's site
+ * necessarily post-processes them (appends a variant/transform, prefixes a
+ * host, presigns a key) before rendering. When a library's recorded format is
+ * one of these, a value *matching* that format is healthy by convention: the
+ * site demonstrably compensates for the shape, or nothing would ever render.
+ * Probing such a value as a plain URL only produces false "broken" verdicts —
+ * a real production library stored variant-less delivery URLs its site
+ * completes itself, and every row lit up as broken.
+ */
+const SITE_COMPLETED_FORMATS = new Set(['delivery-url', 'image-id', 'storage-key', 'root-path'])
+
+/** True when the value matches the library's own convention for a shape the site completes itself. */
+export function conformsToSiteConvention(raw: string, entry: MediaStorageEntry): boolean {
+	if (!entry.pathFormat || !SITE_COMPLETED_FORMATS.has(entry.pathFormat)) return false
+	return classifyMediaPath(raw.trim()).format === entry.pathFormat
+}
+
 /** Statically lint a raw stored value against its library's configuration. */
 export function lintMediaValue(raw: string, entry: MediaStorageEntry): MediaValueLint {
 	const problems: string[] = []
@@ -58,8 +76,11 @@ export function lintMediaValue(raw: string, entry: MediaStorageEntry): MediaValu
 				problems.push('empty-path-segment')
 				return { problems, repairable: false }
 			}
+			// A variant-less URL is only a defect when the library's convention is
+			// complete URLs; a `delivery-url` library stores them this way on
+			// purpose and its site appends its own variant.
 			const parts = parsed.pathname.split('/').filter(Boolean)
-			if (parts.length === 2) {
+			if (parts.length === 2 && entry.pathFormat !== 'delivery-url') {
 				problems.push('missing-variant')
 				suggestedFix = `${trimmed.replace(/\/+$/, '')}/${variant}`
 			}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { customerVisibleUrl, lintMediaValue, summarizeMediaHealth } from './media-health.js'
+import {
+	conformsToSiteConvention,
+	customerVisibleUrl,
+	lintMediaValue,
+	summarizeMediaHealth,
+} from './media-health.js'
 import type { MediaStorageEntry } from './media-storage.js'
 
 const HASH = '8CA2tdaqNe_KDNIRc5st7Q'
@@ -63,6 +68,64 @@ describe('lintMediaValue', () => {
 		const lint = lintMediaValue('/uploads/a.jpg', cfEntry())
 		expect(lint.problems).toContain('shape-mismatch:root-path')
 		expect(lint.suggestedFix).toBeUndefined()
+	})
+
+	it('does not call a variant-less URL broken in a variant-less library', () => {
+		// A library whose convention IS the variant-less delivery URL (the site
+		// appends its own transform segment) must not get missing-variant findings
+		// or /public rewrites — that convention is the healthy state.
+		const lint = lintMediaValue(
+			`https://imagedelivery.net/${HASH}/abc123`,
+			cfEntry({ pathFormat: 'delivery-url' }),
+		)
+		expect(lint.problems).toEqual([])
+		expect(lint.suggestedFix).toBeUndefined()
+	})
+})
+
+describe('conformsToSiteConvention', () => {
+	it('accepts a value matching a site-completed format', () => {
+		expect(
+			conformsToSiteConvention(
+				`https://imagedelivery.net/${HASH}/abc123`,
+				cfEntry({ pathFormat: 'delivery-url' }),
+			),
+		).toBe(true)
+		expect(
+			conformsToSiteConvention(
+				'05cbbcab-316b-4118-cbca-0802385a0700',
+				cfEntry({ pathFormat: 'image-id' }),
+			),
+		).toBe(true)
+	})
+
+	it('rejects deviating values so they still get probed', () => {
+		// The glued base-URL row is NOT the convention even in a delivery-url library.
+		expect(
+			conformsToSiteConvention(
+				`https://imagedelivery.net/${HASH}//uploads/a.jpg/public`,
+				cfEntry({ pathFormat: 'delivery-url' }),
+			),
+		).toBe(false)
+		expect(
+			conformsToSiteConvention('/uploads/a.jpg', cfEntry({ pathFormat: 'delivery-url' })),
+		).toBe(false)
+	})
+
+	it('never short-circuits directly-fetchable formats', () => {
+		// Complete URLs are probeable as-is; conformance is no excuse to skip them.
+		expect(
+			conformsToSiteConvention(`https://imagedelivery.net/${HASH}/abc123/public`, cfEntry()),
+		).toBe(false)
+	})
+
+	it('never applies without a recorded format', () => {
+		expect(
+			conformsToSiteConvention(
+				`https://imagedelivery.net/${HASH}/abc123`,
+				cfEntry({ pathFormat: undefined }),
+			),
+		).toBe(false)
 	})
 })
 

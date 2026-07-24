@@ -19,6 +19,7 @@ import {
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import {
+	conformsToSiteConvention,
 	customerVisibleUrl,
 	lintMediaValue,
 	type MediaHealthRow,
@@ -1506,6 +1507,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 				}
 				const raw = rawUnknown.trim()
+
+				// A value matching the library's own convention for a shape the site
+				// completes itself (variant-less delivery URLs, bare ids, keys) is
+				// healthy by definition — probing it as a plain URL would only
+				// produce a false "broken on your site" for every native row.
+				if (conformsToSiteConvention(raw, entry)) {
+					return { externalId, rawValue: raw, verdict: 'ok', problems: [], repairable: true }
+				}
+
 				const lint = lintMediaValue(raw, entry)
 				const problems = [...lint.problems]
 
