@@ -31,14 +31,17 @@ export function cloudflareOauthEnabled(): boolean {
 }
 
 /**
- * Scopes requested at authorization. Names mirror Cloudflare API-token
- * permission names; the exact ids are listed when the operator registers the
- * OAuth client (or via GET /client/v4/oauth/scopes) — override via env if the
- * defaults ever drift from Cloudflare's catalog.
+ * Scopes requested at authorization, verified against Cloudflare's live scope
+ * catalog (GET /client/v4/oauth/scopes): `account-settings.read` is the
+ * permission behind GET /accounts (there is no generic `account.read`), and
+ * `offline_access` is the protocol-level scope for refresh tokens — the client
+ * must also carry the `refresh_token` grant type. Override via env if the
+ * catalog ever drifts.
  */
 export function cloudflareOauthScopes(): string {
 	return (
-		process.env.CLOUDFLARE_OAUTH_SCOPES || 'account.read images.read images.write offline_access'
+		process.env.CLOUDFLARE_OAUTH_SCOPES ||
+		'account-settings.read images.read images.write offline_access'
 	)
 }
 
