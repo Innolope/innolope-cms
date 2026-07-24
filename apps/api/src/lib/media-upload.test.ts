@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MediaStorageEntry } from './media-storage.js'
-import { isWritableImportedStorage, uploadToImportedStorage } from './media-upload.js'
+import {
+	dedupeFilename,
+	isDuplicateKeyError,
+	isWritableImportedStorage,
+	uploadToImportedStorage,
+} from './media-upload.js'
 
 const HASH = '8CA2tdaqNe_KDNIRc5st7Q'
 const IMAGE_ID = '05cbbcab-316b-4118-cbca-0802385a0700'
@@ -72,5 +77,37 @@ describe('isWritableImportedStorage', () => {
 			isWritableImportedStorage({ adapter: 'absolute', pathColumn: 'url' } as MediaStorageEntry),
 		).toBe(false)
 		expect(isWritableImportedStorage(undefined)).toBe(false)
+	})
+})
+
+describe('isDuplicateKeyError', () => {
+	it('recognises unique violations across supported databases', () => {
+		// Literal prefix of a production failure: a unique filename index in the
+		// customer's library turned a re-upload into a 500.
+		expect(
+			isDuplicateKeyError(
+				new Error(
+					'E11000 duplicate key error collection: klekit.blog-media index: filename_1 dup key: { filename: "UCS  2026 award_site_klekit.jpg" }',
+				),
+			),
+		).toBe(true)
+		expect(
+			isDuplicateKeyError(new Error('duplicate key value violates unique constraint "media_pkey"')),
+		).toBe(true)
+		expect(isDuplicateKeyError(new Error("Duplicate entry 'a.jpg' for key 'filename'"))).toBe(true)
+		expect(isDuplicateKeyError(new Error('connection refused'))).toBe(false)
+		expect(isDuplicateKeyError('not an error')).toBe(false)
+	})
+})
+
+describe('dedupeFilename', () => {
+	it('suffixes before the extension and stays unique', () => {
+		const a = dedupeFilename('photo.jpg')
+		expect(a).toMatch(/^photo-[0-9a-f]{6}\.jpg$/)
+		expect(dedupeFilename('photo.jpg')).not.toBe(a)
+	})
+
+	it('handles extension-less names', () => {
+		expect(dedupeFilename('photo')).toMatch(/^photo-[0-9a-f]{6}$/)
 	})
 })

@@ -22,6 +22,23 @@ export function isWritableImportedStorage(entry: MediaStorageEntry | undefined):
 	return entry?.adapter === 'r2' || entry?.adapter === 'cloudflare-images'
 }
 
+/**
+ * Unique-constraint violation from any of the supported external databases
+ * (Mongo E11000, Postgres 23505, MySQL ER_DUP_ENTRY). Source media libraries
+ * routinely carry a unique filename index — Payload creates one — so inserting
+ * a file whose name already exists must be handled, not surfaced as a 500.
+ */
+export function isDuplicateKeyError(err: unknown): boolean {
+	return err instanceof Error && /duplicate key|E11000|Duplicate entry/i.test(err.message)
+}
+
+/** `photo.jpg` → `photo-3f9a2c.jpg` — sidestep a unique filename index without hiding the original name. */
+export function dedupeFilename(name: string): string {
+	const suffix = randomUUID().slice(0, 6)
+	const dot = name.lastIndexOf('.')
+	return dot > 0 ? `${name.slice(0, dot)}-${suffix}${name.slice(dot)}` : `${name}-${suffix}`
+}
+
 export interface ImportedUploadResult {
 	/**
 	 * The value to store in the collection's path column.

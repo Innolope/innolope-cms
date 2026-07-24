@@ -27,7 +27,12 @@ import {
 } from '../../lib/media-health.js'
 import { detectMediaPathFormat } from '../../lib/media-path-format.js'
 import { getMediaStorageMap, resolveMediaValue } from '../../lib/media-storage.js'
-import { isWritableImportedStorage, uploadToImportedStorage } from '../../lib/media-upload.js'
+import {
+	dedupeFilename,
+	isDuplicateKeyError,
+	isWritableImportedStorage,
+	uploadToImportedStorage,
+} from '../../lib/media-upload.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 
@@ -1269,7 +1274,31 @@ export async function databaseRoutes(app: FastifyInstance) {
 			})
 			await adapter.connect()
 			try {
-				const inserted = await adapter.insert(col.externalTable, rowData)
+				let inserted: Awaited<ReturnType<typeof adapter.insert>>
+				try {
+					inserted = await adapter.insert(col.externalTable, rowData)
+				} catch (err) {
+					if (!isDuplicateKeyError(err)) throw err
+					// The library has a unique index (typically on filename) and this
+					// name already exists. De-duplicate the name columns and retry
+					// once; a second collision means the conflict isn't on the name.
+					for (const [key, value] of Object.entries(rowData)) {
+						if (typeof value === 'string' && /(^|_)(filename|name)($|_)/i.test(splitCamel(key))) {
+							rowData[key] = dedupeFilename(value)
+						}
+					}
+					try {
+						inserted = await adapter.insert(col.externalTable, rowData)
+					} catch (retryErr) {
+						if (isDuplicateKeyError(retryErr)) {
+							return reply.status(409).send({
+								error:
+									'A file with this name already exists in this library. Pick the existing file instead of re-uploading, or rename the file.',
+							})
+						}
+						throw retryErr
+					}
+				}
 				externalId = (inserted as { _id?: string })?._id
 			} finally {
 				await adapter.disconnect()
