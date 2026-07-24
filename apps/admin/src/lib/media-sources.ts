@@ -98,10 +98,22 @@ function plainText(raw: unknown): string {
 	return ''
 }
 
+/**
+ * Cloudflare Images delivery URLs end in a *variant* name, not a filename
+ * (`/<hash>/<id>/public`), so the last segment would label every asset "public".
+ * Step back to the image id in that case.
+ */
+const CF_IMAGES_HOST = 'imagedelivery.net'
+
 /** Best-effort display name for an imported row that has no filename column. */
 function filenameFromUrl(url: string): string {
 	const withoutQuery = url.split('?')[0]
-	const last = withoutQuery.split('/').filter(Boolean).pop()
+	const segments = withoutQuery.split('/').filter(Boolean)
+	const isCloudflareImages = withoutQuery.includes(CF_IMAGES_HOST)
+	const last =
+		isCloudflareImages && segments.length >= 3
+			? segments[segments.length - 2]
+			: segments[segments.length - 1]
 	return last ? decodeURIComponent(last) : url
 }
 

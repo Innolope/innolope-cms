@@ -72,13 +72,15 @@ export async function presignR2Put(
 	return signed.url
 }
 
-/** Generate a short-lived signed delivery URL for a private Cloudflare Images asset. */
-export function signCloudflareImage(
-	creds: ImagesCredentials,
-	value: string,
-	ttl = SIGNED_URL_TTL_SECONDS,
-): string {
-	// `value` may be a full delivery URL or a bare image id.
+/**
+ * Split a stored Cloudflare Images value into its image id and variant.
+ *
+ * A delivery URL is `/<accountHash>/<imageId>/<variant>` and the variant is
+ * mandatory — `imagedelivery.net/<hash>/<id>` alone 404s. Sources that store the
+ * bare id (or a URL without the trailing variant) are very common, so anything
+ * missing one is given the account's default `public` variant.
+ */
+export function parseCloudflareImageValue(value: string): { imageId: string; variant: string } {
 	let imageId = value
 	let variant = 'public'
 	if (/^https?:\/\//i.test(value)) {
@@ -91,6 +93,26 @@ export function signCloudflareImage(
 			imageId = parts[parts.length - 1]
 		}
 	}
+	return { imageId, variant }
+}
+
+/**
+ * Build a complete, servable delivery URL from whatever shape the source stored —
+ * a bare image id, a variant-less URL, or an already-complete URL.
+ */
+export function cloudflareImageUrl(accountHash: string, value: string): string {
+	const { imageId, variant } = parseCloudflareImageValue(value)
+	return `https://imagedelivery.net/${accountHash}/${imageId}/${variant}`
+}
+
+/** Generate a short-lived signed delivery URL for a private Cloudflare Images asset. */
+export function signCloudflareImage(
+	creds: ImagesCredentials,
+	value: string,
+	ttl = SIGNED_URL_TTL_SECONDS,
+): string {
+	// `value` may be a full delivery URL or a bare image id.
+	const { imageId, variant } = parseCloudflareImageValue(value)
 	const url = new URL(`https://imagedelivery.net/${creds.accountHash}/${imageId}/${variant}`)
 	url.searchParams.set('exp', String(Math.floor(Date.now() / 1000) + ttl))
 	const sig = createHmac('sha256', creds.signingKey)

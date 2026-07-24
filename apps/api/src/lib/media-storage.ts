@@ -6,7 +6,7 @@
  * Public libraries: prefix relative paths with a configured base URL.
  * Private libraries: generate a short-lived presigned/signed URL using stored credentials.
  */
-import { presignR2, signCloudflareImage } from './media-sign.js'
+import { cloudflareImageUrl, presignR2, signCloudflareImage } from './media-sign.js'
 
 export interface MediaStorageCredentials {
 	// Cloudflare R2
@@ -51,6 +51,24 @@ export async function resolveMediaValue(
 	entry: MediaStorageEntry,
 ): Promise<unknown> {
 	if (typeof value !== 'string' || !value) return value
+
+	// Cloudflare Images: the delivery URL needs a variant segment
+	// (`/<hash>/<id>/<variant>`) — `/<hash>/<id>` on its own 404s. Sources very
+	// often store the bare id or a variant-less URL, so complete it here rather
+	// than serving a link the browser can't render. Signing (below) does its own
+	// normalization, so this only has to cover the unsigned path.
+	if (entry.adapter === 'cloudflare-images') {
+		const accountHash = entry.credentials?.accountHash
+		const needsVariant =
+			!/^https?:\/\//i.test(value) || new URL(value).pathname.split('/').filter(Boolean).length < 3
+		if (
+			needsVariant &&
+			accountHash &&
+			!(entry.access === 'private' && entry.credentials?.signingKey)
+		) {
+			return cloudflareImageUrl(accountHash, value)
+		}
+	}
 
 	if (entry.access === 'private' && entry.credentials) {
 		const c = entry.credentials
