@@ -71,9 +71,15 @@ export function MediaSettings() {
 
 	const dirty = adapter !== initialAdapter.current
 	const adapterSetViaEnv = envConfig && envConfig.adapter !== 'local'
+	const cloudMode = Boolean(envConfig?.cloudMode)
 
-	// If adapter is set via env, reflect that in the UI
-	const effectiveAdapter = adapterSetViaEnv ? envConfig.adapter : adapter
+	// If adapter is set via env, reflect that in the UI. In cloud mode `local`
+	// is never allowed (the server coerces it to cloudflare) — mirror that.
+	const effectiveAdapter = adapterSetViaEnv
+		? envConfig.adapter
+		: cloudMode && adapter === 'local'
+			? 'cloudflare'
+			: adapter
 
 	const save = async () => {
 		if (!currentProject) return
@@ -134,20 +140,28 @@ export function MediaSettings() {
 					</div>
 				) : (
 					<Dropdown
-						value={adapter}
+						value={effectiveAdapter}
 						onChange={setAdapter}
-						options={[
-							{ value: 'local', label: t('settings.media.adapters.local') },
-							{ value: 'cloudflare', label: t('settings.media.adapters.cloudflare') },
-							{ value: 's3', label: t('settings.media.adapters.s3') },
-						]}
+						options={
+							cloudMode
+								? [{ value: 'cloudflare', label: t('settings.media.adapters.cloudflare') }]
+								: [
+										{ value: 'local', label: t('settings.media.adapters.local') },
+										{ value: 'cloudflare', label: t('settings.media.adapters.cloudflare') },
+										{ value: 's3', label: t('settings.media.adapters.s3') },
+									]
+						}
 						className="w-full max-w-xs"
 					/>
 				)}
 			</div>
 
+			{cloudMode && (
+				<p className="text-xs text-text-muted max-w-md">{t('settings.media.cloudDefaultDesc')}</p>
+			)}
+
 			{effectiveAdapter === 'cloudflare' &&
-				(allCfEnvSet ? (
+				(allCfEnvSet && !cloudMode ? (
 					<div className="rounded-lg bg-surface-alt border border-border p-4">
 						<div className="flex items-center gap-2 mb-2">
 							<svg

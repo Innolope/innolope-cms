@@ -1,6 +1,8 @@
-import { media } from '@innolope/db'
+import { media, projects } from '@innolope/db'
+import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { getUser } from '../../plugins/auth.js'
+import { resolveMediaAdapter } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
 
 const UNSPLASH_API = 'https://api.unsplash.com'
@@ -145,7 +147,18 @@ export async function unsplashRoutes(app: FastifyInstance) {
 			const buffer = Buffer.from(await imageRes.arrayBuffer())
 
 			const filename = `unsplash-${photo.id}.jpg`
-			const result = await app.media.upload(buffer, filename, 'image/jpeg')
+			// Store through the project's resolved adapter — never the server-wide
+			// default — so the file lands where this project's media lives and the
+			// row records the true ownership.
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			const resolved = await resolveMediaAdapter(project?.settings, {
+				projectId: getProject(request).id,
+			})
+			const result = await resolved.adapter.upload(buffer, filename, 'image/jpeg')
 
 			const [created] = await app.db
 				.insert(media)
@@ -157,7 +170,8 @@ export async function unsplashRoutes(app: FastifyInstance) {
 					size: result.size,
 					url: result.url,
 					alt: photo.alt_description || photo.description || '',
-					adapter: 'unsplash',
+					adapter: resolved.adapterName,
+					origin: resolved.origin,
 					externalId: result.id,
 					metadata: {
 						unsplashId: photo.id,

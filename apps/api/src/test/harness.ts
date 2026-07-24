@@ -24,6 +24,12 @@ export async function buildTestApp(): Promise<FastifyInstance> {
 	// Enable all enterprise features (incl. audit-log) so integration tests can
 	// exercise EE paths without a signed license key.
 	process.env.CLOUD_MODE ??= 'true'
+	// Cloud mode refuses to boot without Cloudflare media credentials (local disk
+	// is never allowed there), so provide inert placeholders. No test uploads
+	// media, so these are never sent to Cloudflare.
+	process.env.CLOUDFLARE_ACCOUNT_ID ??= 'test-account'
+	process.env.CLOUDFLARE_API_TOKEN ??= 'test-token'
+	process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH ??= 'test-hash'
 
 	const { buildApp } = await import('../app.js')
 	const app = await buildApp()

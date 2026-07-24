@@ -479,6 +479,7 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "cursorColumn" TEXT`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
 		await sql`ALTER TABLE content ALTER COLUMN slug DROP NOT NULL`
+		await sql`ALTER TABLE media ADD COLUMN IF NOT EXISTS origin TEXT`
 		await sql`ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS "fallbackEnabled" BOOLEAN NOT NULL DEFAULT false`
 		await sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS checkpoint TEXT`
 		await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS "canPublishDirectly" BOOLEAN`

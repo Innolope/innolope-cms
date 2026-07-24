@@ -3,6 +3,7 @@ import type { ProjectSettings } from '@innolope/db'
 import type { MediaAdapter } from '@innolope/types'
 import fp from 'fastify-plugin'
 import { LocalFsAdapter } from '../adapters/local-fs.js'
+import { isCloudMode } from '../lib/cloud-mode.js'
 
 declare module 'fastify' {
 	interface FastifyInstance {
@@ -20,9 +21,14 @@ function requireEnv(name: string): string {
 	return value
 }
 
-/** The configured media adapter name (`MEDIA_ADAPTER` env, default `local`). */
+/**
+ * The configured media adapter name (`MEDIA_ADAPTER` env, default `local`).
+ * In cloud mode local disk is never allowed — the container filesystem is
+ * ephemeral, so anything written there vanishes on the next deploy.
+ */
 export function mediaAdapterName(): string {
-	return process.env.MEDIA_ADAPTER || 'local'
+	const name = process.env.MEDIA_ADAPTER || 'local'
+	return isCloudMode() && name === 'local' ? 'cloudflare' : name
 }
 
 /** Build the media storage adapter from environment configuration. */
@@ -56,44 +62,101 @@ function envAdapterOverride(): string | undefined {
 }
 
 /**
+ * The adapter a project's settings actually resolve to.
+ *
+ * In cloud mode, `local` (and the unimplemented `s3`, which would fall back to
+ * local) is coerced to `cloudflare`: images must never live on the API
+ * container's disk, and existing projects with `mediaAdapter: 'local'` simply
+ * mean "platform default" there — no settings migration needed.
+ */
+function resolveAdapterName(settings: ProjectSettings | undefined): string {
+	const name = envAdapterOverride() || settings?.mediaAdapter || 'local'
+	if (isCloudMode() && (name === 'local' || name === 's3')) return 'cloudflare'
+	return name
+}
+
+/** Where uploaded bytes physically live — drives the ownership tag in the media grid. */
+export type MediaOrigin = 'platform' | 'project'
+
+export interface ResolvedMediaAdapter {
+	adapter: MediaAdapter
+	/** The adapter name persisted on media rows. */
+	adapterName: string
+	/**
+	 * `platform` when files land in the shared cloud (Innolope) Cloudflare
+	 * account — env credentials in cloud mode. Everything else is the
+	 * customer's own storage (`project`): their Cloudflare account via project
+	 * settings, or the operator's storage on self-host.
+	 */
+	origin: MediaOrigin
+	credsSource: 'project-settings' | 'env' | 'none'
+}
+
+/**
  * Build the media adapter for a single project.
  *
  * The project's `settings.mediaAdapter` decides, unless a non-`local` `MEDIA_ADAPTER`
  * env var forces a global override. Cloudflare credentials come from the project
- * settings first, falling back to the server-level `CLOUDFLARE_*` env vars.
+ * settings first, falling back to the server-level `CLOUDFLARE_*` env vars — which in
+ * cloud mode are the platform's own account.
+ *
+ * Origin is derived from the same branch that picked the credentials so the two can
+ * never disagree.
  */
 export async function resolveMediaAdapter(
 	settings: ProjectSettings | undefined,
-): Promise<MediaAdapter> {
-	const name = envAdapterOverride() || settings?.mediaAdapter || 'local'
+	opts?: { projectId?: string },
+): Promise<ResolvedMediaAdapter> {
+	const name = resolveAdapterName(settings)
 
 	if (name === 'cloudflare') {
 		const cf = settings?.cloudflare ?? {}
+		const hasOwnCreds = Boolean(cf.accountId && cf.apiToken && cf.imagesAccountHash)
 		const accountId = cf.accountId || process.env.CLOUDFLARE_ACCOUNT_ID
 		const apiToken = cf.apiToken || process.env.CLOUDFLARE_API_TOKEN
 		const accountHash = cf.imagesAccountHash || process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH
 		if (!accountId || !apiToken || !accountHash) {
 			throw new MediaConfigError(
-				'Cloudflare Images is selected for this project but credentials are incomplete. ' +
-					'Set them in Settings → Media, or as CLOUDFLARE_* environment variables.',
+				isCloudMode()
+					? 'Cloud media storage is misconfigured: the CLOUDFLARE_* environment variables are missing. This is a deployment error — local disk is never used in cloud mode.'
+					: 'Cloudflare Images is selected for this project but credentials are incomplete. ' +
+							'Set them in Settings → Media, or as CLOUDFLARE_* environment variables.',
 			)
 		}
+		const credsSource = hasOwnCreds ? 'project-settings' : 'env'
+		const origin: MediaOrigin = credsSource === 'env' && isCloudMode() ? 'platform' : 'project'
 		const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
-		return new CloudflareImagesAdapter({
+		const adapter = new CloudflareImagesAdapter({
 			accountId,
 			apiToken,
 			accountHash,
 			defaultVariant: cf.imagesVariant || process.env.CLOUDFLARE_IMAGES_VARIANT,
+			// Tag uploads into the shared platform account with their project so
+			// they stay attributable (migration, audits, cleanup). Never tag
+			// uploads into a customer's own account.
+			uploadMetadata:
+				origin === 'platform' && opts?.projectId
+					? { projectId: opts.projectId, source: 'innolope-cms' }
+					: undefined,
 		})
+		return { adapter, adapterName: 'cloudflare', origin, credsSource }
 	}
 
-	// `s3` is declared in the ProjectSettings enum but has no adapter yet — fall back.
-	return new LocalFsAdapter()
+	// `s3` is declared in the ProjectSettings enum but has no adapter yet — fall
+	// back to local disk (self-host only; cloud mode never reaches this branch).
+	return {
+		adapter: new LocalFsAdapter(),
+		adapterName: 'local',
+		origin: 'project',
+		credsSource: 'none',
+	}
 }
 
 /** The adapter name persisted on a media row, given a project's settings. */
 export function effectiveAdapterName(settings: ProjectSettings | undefined): string {
-	return envAdapterOverride() || settings?.mediaAdapter || 'local'
+	const name = resolveAdapterName(settings)
+	// `s3` still falls back to the local adapter — record what actually ran.
+	return name === 's3' ? 'local' : name
 }
 
 /** Max upload size in bytes (`MEDIA_MAX_SIZE` env, default 10MB). */

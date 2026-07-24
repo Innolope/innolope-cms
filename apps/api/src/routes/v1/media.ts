@@ -2,22 +2,42 @@ import { media, projects } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { cfImageVariants } from '../../lib/cf-images.js'
+import { isCloudMode } from '../../lib/cloud-mode.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import { getUser } from '../../plugins/auth.js'
 import {
-	effectiveAdapterName,
 	MediaConfigError,
+	type MediaOrigin,
 	mediaMaxSize,
 	resolveMediaAdapter,
 } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
+
+/**
+ * Ownership of a legacy row that predates the `origin` column: local files are
+ * always the deployment's own storage; a cloud Cloudflare row whose delivery
+ * URL carries the platform's account hash lives in the shared account.
+ */
+function inferOrigin(item: { origin: string | null; adapter: string; url: string }): MediaOrigin {
+	if (item.origin === 'platform' || item.origin === 'project') return item.origin
+	if (item.adapter !== 'cloudflare' || !isCloudMode()) return 'project'
+	const envHash = process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH
+	if (!envHash) return 'project'
+	try {
+		return new URL(item.url).pathname.split('/').filter(Boolean)[0] === envHash
+			? 'platform'
+			: 'project'
+	} catch {
+		return 'project'
+	}
+}
 
 export async function mediaRoutes(app: FastifyInstance) {
 	// Media config — returns which env vars are set (booleans only, never actual values)
 	app.get('/config', { preHandler: [app.requireProject('viewer')] }, async () => {
 		return {
 			adapter: process.env.MEDIA_ADAPTER || 'local',
-			cloudMode: !!process.env.CLOUD_MODE,
+			cloudMode: isCloudMode(),
 			env: {
 				accountId: !!process.env.CLOUDFLARE_ACCOUNT_ID,
 				apiToken: !!process.env.CLOUDFLARE_API_TOKEN,
@@ -59,10 +79,12 @@ export async function mediaRoutes(app: FastifyInstance) {
 
 		const total = Number(countResult[0].count)
 		return {
-			// Attach Cloudflare Images responsive renditions when the file is CF-Images-backed.
+			// Attach Cloudflare Images responsive renditions when the file is CF-Images-backed,
+			// and resolve ownership for legacy rows that predate the origin column.
 			data: items.map((item) => {
 				const variants = cfImageVariants(item.url)
-				return variants ? { ...item, variants } : item
+				const withOrigin = { ...item, origin: inferOrigin(item) }
+				return variants ? { ...withOrigin, variants } : withOrigin
 			}),
 			pagination: {
 				page: Number(page),
@@ -106,9 +128,12 @@ export async function mediaRoutes(app: FastifyInstance) {
 			.limit(1)
 
 		let result: Awaited<ReturnType<typeof app.media.upload>>
+		let resolved: Awaited<ReturnType<typeof resolveMediaAdapter>>
 		try {
-			const adapter = await resolveMediaAdapter(project?.settings)
-			result = await adapter.upload(buffer, file.filename, file.mimetype)
+			resolved = await resolveMediaAdapter(project?.settings, {
+				projectId: getProject(request).id,
+			})
+			result = await resolved.adapter.upload(buffer, file.filename, file.mimetype)
 		} catch (err) {
 			if (err instanceof MediaConfigError) {
 				return reply.status(400).send({ error: err.message })
@@ -133,7 +158,8 @@ export async function mediaRoutes(app: FastifyInstance) {
 				mimeType: file.mimetype,
 				size: result.size,
 				url: result.url,
-				adapter: effectiveAdapterName(project?.settings),
+				adapter: resolved.adapterName,
+				origin: resolved.origin,
 				externalId: result.id,
 				metadata: dimensions ? { width: dimensions.width, height: dimensions.height } : {},
 				createdBy: getUser(request).id,
@@ -196,7 +222,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 					.where(eq(projects.id, getProject(request).id))
 					.limit(1)
 				try {
-					const adapter = await resolveMediaAdapter(project?.settings)
+					const { adapter } = await resolveMediaAdapter(project?.settings)
 					await adapter.delete(item.externalId)
 				} catch (err) {
 					if (!(err instanceof MediaConfigError)) throw err

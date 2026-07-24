@@ -428,6 +428,7 @@
 			"cfEnvConfiguredTitle": "Cloudflare credentials configured via environment",
 			"cfEnvConfiguredDesc": "All required Cloudflare credentials are set as environment variables on the server. No additional configuration is needed.",
 			"localDesc": "Files stored on the server filesystem. Good for development and small deployments.",
+			"cloudDefaultDesc": "Media is stored in Innolope's cloud by default. Add your own Cloudflare credentials below to store new uploads in your own account instead.",
 			"configuredViaEnv": "Configured via environment",
 			"overridePlaceholder": "Override environment value…",
 			"overridingEnv": "Overriding environment variable",

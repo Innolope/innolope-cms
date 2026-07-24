@@ -6,6 +6,11 @@ interface CloudflareConfig {
 	accountHash: string
 	/** Variant used in delivery URLs; accounts can rename the default `public`. */
 	defaultVariant?: string
+	/**
+	 * Metadata attached to every upload (Cloudflare stores it on the image).
+	 * Used to tag uploads into the shared platform account with their project.
+	 */
+	uploadMetadata?: Record<string, string>
 }
 
 export class CloudflareImagesAdapter implements MediaAdapter {
@@ -25,6 +30,9 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 
 		const form = new FormData()
 		form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename)
+		if (this.config.uploadMetadata) {
+			form.append('metadata', JSON.stringify(this.config.uploadMetadata))
+		}
 
 		const response = await fetch(
 			`https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/images/v1`,

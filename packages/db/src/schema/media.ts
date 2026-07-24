@@ -16,6 +16,12 @@ export const media = pgTable(
 		url: text().notNull(),
 		alt: text(),
 		adapter: text().notNull().default('local'),
+		/**
+		 * Where the bytes physically live, decided at upload time: `platform` =
+		 * the shared cloud (Innolope) Cloudflare account, `project` = the
+		 * customer's own storage. Null on legacy rows — inferred at read time.
+		 */
+		origin: text({ enum: ['platform', 'project'] }),
 		externalId: text(),
 		metadata: jsonb().$type<Record<string, unknown>>().notNull().default({}),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

@@ -127,6 +127,9 @@ export async function collectionRoutes(app: FastifyInstance) {
 				// Public/custom-url libraries are read-only references — the UI hides
 				// their upload controls rather than offering a button that always 400s.
 				mediaWritable: isWritableImportedStorage(entry),
+				// Imported libraries always live in the customer's own storage; the
+				// media grid uses this for its ownership tag.
+				mediaOrigin: entry ? ('external' as const) : null,
 			}
 		})
 	})
