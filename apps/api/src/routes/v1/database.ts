@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { CollectionField } from '@innolope/config'
 import { collections, content, importJobs, projects } from '@innolope/db'
-import { and, eq, inArray, notInArray } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
 import {
@@ -26,6 +26,7 @@ import {
 	summarizeMediaHealth,
 } from '../../lib/media-health.js'
 import { detectMediaPathFormat } from '../../lib/media-path-format.js'
+import { parseCloudflareImageValue, presignR2Delete } from '../../lib/media-sign.js'
 import { getMediaStorageMap, resolveMediaValue } from '../../lib/media-storage.js'
 import {
 	dedupeFilename,
@@ -1330,6 +1331,141 @@ export async function databaseRoutes(app: FastifyInstance) {
 				.returning()
 
 			return reply.status(201).send(created)
+		},
+	)
+
+	// Delete a row from an imported media library: the provider file (when the
+	// stored credentials allow it), the external row, and the local cache. The
+	// customer's site reads this library directly, so a deletion that content
+	// still references is refused with the usage count unless forced.
+	app.delete<{
+		Params: { id: string }
+		Querystring: { collectionId?: string; recordId?: string; force?: string }
+	}>(
+		'/:id/database/media',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { collectionId, recordId, force } = request.query
+			if (!collectionId || !recordId) {
+				return reply.status(400).send({ error: 'collectionId and recordId are required' })
+			}
+			const pid = getProject(request).id
+
+			const [col] = await app.db
+				.select()
+				.from(collections)
+				.where(and(eq(collections.id, collectionId), eq(collections.projectId, pid)))
+				.limit(1)
+			if (!col) return reply.status(404).send({ error: 'Collection not found' })
+			if (col.source !== 'external' || !col.externalTable) {
+				return reply.status(400).send({ error: 'Not an imported collection' })
+			}
+			if (col.accessMode === 'read-only') {
+				return reply.status(403).send({ error: 'This collection is read-only' })
+			}
+
+			const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+			const entry = getMediaStorageMap(project)[col.externalTable]
+			const ext = getSavedExternalDb(project)
+			if (!ext.connectionString || !ext.type) {
+				return reply.status(400).send({ error: 'No external database connection is saved' })
+			}
+
+			const adapter = createExternalDbAdapter({
+				type: ext.type as string,
+				connectionString: ext.connectionString as string,
+				database: (ext.database as string | undefined) || undefined,
+			})
+			await adapter.connect()
+			try {
+				const doc = await adapter.findById(col.externalTable, recordId)
+				if (!doc) return reply.status(404).send({ error: 'Media record not found' })
+				const rawValue =
+					entry?.pathColumn && typeof doc[entry.pathColumn] === 'string'
+						? (doc[entry.pathColumn] as string)
+						: undefined
+
+				// Refuse while content still points at this record — via its id
+				// (relation fields) or its stored URL (body/metadata) — excluding the
+				// media library's own cached rows.
+				if (force !== 'true') {
+					const needles = [recordId, rawValue].filter(
+						(n): n is string => typeof n === 'string' && n.length > 0,
+					)
+					let referencedBy = 0
+					for (const needle of needles) {
+						const like = `%${needle.replace(/([\\%_])/g, '\\$1')}%`
+						const [{ count }] = await app.db
+							.select({ count: sql<number>`count(*)` })
+							.from(content)
+							.where(
+								and(
+									eq(content.projectId, pid),
+									notInArray(content.collectionId, [col.id]),
+									sql`(${content.markdown} LIKE ${like} OR ${content.metadata}::text LIKE ${like})`,
+								),
+							)
+						referencedBy = Math.max(referencedBy, Number(count))
+					}
+					if (referencedBy > 0) {
+						return reply.status(409).send({
+							error: `This file is used in ${referencedBy} content item${referencedBy > 1 ? 's' : ''}. Deleting it will break those images.`,
+							referencedBy,
+						})
+					}
+				}
+
+				// Best-effort provider file deletion with the library's own credentials.
+				const c = entry?.credentials
+				try {
+					if (entry?.adapter === 'cloudflare-images' && c?.accountId && c.apiToken && rawValue) {
+						const { imageId } = parseCloudflareImageValue(rawValue, entry.pathVariant)
+						const { CloudflareImagesAdapter } = await import('../../adapters/cloudflare-images.js')
+						await new CloudflareImagesAdapter({
+							accountId: c.accountId,
+							apiToken: c.apiToken,
+							accountHash: c.accountHash || '',
+						}).delete(imageId)
+					} else if (
+						entry?.adapter === 'r2' &&
+						c?.accountId &&
+						c.accessKeyId &&
+						c.secretAccessKey &&
+						c.bucket &&
+						rawValue
+					) {
+						const url = await presignR2Delete(
+							{
+								accountId: c.accountId,
+								accessKeyId: c.accessKeyId,
+								secretAccessKey: c.secretAccessKey,
+								bucket: c.bucket,
+							},
+							rawValue,
+						)
+						await fetch(url, { method: 'DELETE' })
+					}
+				} catch (err) {
+					app.log.warn({ err, recordId }, 'Imported media: provider file deletion failed')
+				}
+
+				await adapter.delete(col.externalTable, recordId)
+			} finally {
+				await adapter.disconnect()
+			}
+
+			await app.db
+				.delete(content)
+				.where(
+					and(
+						eq(content.projectId, pid),
+						eq(content.collectionId, col.id),
+						eq(content.externalId, recordId),
+					),
+				)
+
+			return reply.status(204).send()
 		},
 	)
 

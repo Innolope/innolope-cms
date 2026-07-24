@@ -126,16 +126,26 @@ function MediaLibraryContent() {
 		fetchMedia()
 	}
 
-	const deleteMedia = async (id: string) => {
+	const deleteMedia = async (asset: MediaAsset) => {
+		if (!currentProject) return
+		const src = sources.find((s) => s.id === asset.sourceId)
+		const imported = Boolean(src?.collection)
+		// Imported rows live in the customer's own database and storage — deleting
+		// goes through the imported-media endpoint and removes both.
+		const baseUrl = imported
+			? `/api/v1/projects/${currentProject.id}/database/media?collectionId=${asset.sourceId}&recordId=${asset.id}`
+			: `/api/v1/media/${asset.id}`
+		const forceUrl = imported ? `${baseUrl}&force=true` : `${baseUrl}?force=true`
+
 		const ok = await confirm({
 			title: t('mediaRoute.delete.title'),
-			message: t('mediaRoute.delete.message'),
+			message: imported ? t('mediaRoute.delete.importedMessage') : t('mediaRoute.delete.message'),
 			confirmLabel: t('mediaRoute.delete.confirm'),
 			danger: true,
 		})
 		if (!ok) return
 		try {
-			await api.delete(`/api/v1/media/${id}`)
+			await api.delete(baseUrl)
 		} catch (err) {
 			// 409 = the file is still referenced by content; deleting would break
 			// those images. Surface the usage count and require a second, explicit
@@ -148,7 +158,7 @@ function MediaLibraryContent() {
 					danger: true,
 				})
 				if (!forced) return
-				await api.delete(`/api/v1/media/${id}?force=true`)
+				await api.delete(forceUrl)
 			} else {
 				throw err
 			}
@@ -191,9 +201,15 @@ function MediaLibraryContent() {
 				? asset.sourceLabel
 				: t('mediaRoute.storageTags.yourStorage')
 
-	// Alt text and delete write through `/api/v1/media`, which only knows the
-	// project library; imported rows live in the customer's own database.
+	// Alt text writes through `/api/v1/media`, which only knows the project
+	// library; imported rows live in the customer's own database. Deletion works
+	// for both — imported rows via the imported-media endpoint — as long as the
+	// imported collection isn't connected read-only.
 	const selectedIsLibrary = selected?.sourceId === PROJECT_LIBRARY_ID
+	const selectedSource = selected ? sources.find((s) => s.id === selected.sourceId) : undefined
+	const selectedDeletable =
+		selectedIsLibrary ||
+		Boolean(selectedSource?.collection && selectedSource.collection.accessMode !== 'read-only')
 
 	return (
 		<div className="flex h-full">
@@ -462,10 +478,10 @@ function MediaLibraryContent() {
 					)}
 
 					<div className="pt-4 border-t border-border flex gap-2">
-						{selectedIsLibrary && (
+						{selectedDeletable && (
 							<button
 								type="button"
-								onClick={() => deleteMedia(selected.id)}
+								onClick={() => deleteMedia(selected)}
 								className="px-3 py-1.5 bg-danger-surface text-danger rounded text-sm hover:opacity-80"
 							>
 								{t('mediaRoute.details.delete')}

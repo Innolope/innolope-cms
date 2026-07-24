@@ -143,14 +143,16 @@ export function RelationField({
 		if (creating) createInputRef.current?.focus()
 	}, [creating])
 
+	// Click-outside closing only applies to the dropdown; the modal picker has
+	// its own backdrop button and would close instantly under this handler.
 	useEffect(() => {
-		if (!open) return
+		if (!open || urlField) return
 		const handler = (e: MouseEvent) => {
 			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
 		}
 		document.addEventListener('mousedown', handler)
 		return () => document.removeEventListener('mousedown', handler)
-	}, [open])
+	}, [open, urlField])
 
 	const current = docs.find((d) => docId(d) === value)
 	const currentUrl = current && urlField ? resolveText(current.metadata[urlField]) : ''
@@ -348,6 +350,106 @@ export function RelationField({
 		</div>
 	)
 
+	// Image relations swap the cramped dropdown for a modal with real previews —
+	// picking a photo from a 6px-tall text row was guesswork.
+	const pickerModal = (
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+			<button
+				type="button"
+				aria-label={t('common.closeDialog')}
+				className="absolute inset-0 cursor-default"
+				onClick={() => setOpen(false)}
+			/>
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={t('editor.relationField.pickTitle', { label: related.label })}
+				className="relative bg-bg border border-border rounded-xl shadow-2xl w-full max-w-2xl p-4 space-y-3"
+			>
+				<div className="flex items-center justify-between">
+					<h3 className="text-sm font-semibold">
+						{t('editor.relationField.pickTitle', { label: related.label })}
+					</h3>
+					<button
+						type="button"
+						onClick={() => setOpen(false)}
+						aria-label={t('common.closeDialog')}
+						className="rounded px-1.5 text-sm text-text-secondary hover:text-text"
+					>
+						✕
+					</button>
+				</div>
+				{loading ? (
+					<p className="text-sm text-text-muted">{t('common.loading')}</p>
+				) : docs.length === 0 ? (
+					<p className="text-sm text-text-muted">{t('editor.relationField.noRecordsYet')}</p>
+				) : (
+					<div className="grid max-h-[60vh] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
+						{docs.map((doc) => {
+							const id = docId(doc)
+							const docUrl = urlField ? resolveText(doc.metadata[urlField]) : ''
+							return (
+								<button
+									key={id}
+									type="button"
+									onClick={() => {
+										onChange(id)
+										setOpen(false)
+									}}
+									className="text-left"
+								>
+									<div
+										className={`aspect-square overflow-hidden rounded-lg border ${
+											id === value
+												? 'border-text ring-1 ring-text'
+												: 'border-border hover:border-text-muted'
+										}`}
+									>
+										<ImageThumb
+											key={docUrl}
+											url={docUrl}
+											className="h-full w-full object-cover"
+											placeholderLabel={docLabel(doc)}
+										/>
+									</div>
+									<p className="mt-1 truncate text-[11px] text-text-secondary">{docLabel(doc)}</p>
+								</button>
+							)
+						})}
+					</div>
+				)}
+				<div className="flex items-center justify-between border-t border-border pt-2.5">
+					{value ? (
+						<button
+							type="button"
+							onClick={() => {
+								onChange('')
+								setOpen(false)
+							}}
+							className="text-xs text-text-secondary hover:text-text"
+						>
+							{t('editor.relationField.removeImage')}
+						</button>
+					) : (
+						<span />
+					)}
+					{!disabled && canWrite && labelField && (
+						<button
+							type="button"
+							onClick={() => {
+								setOpen(false)
+								setCreating(true)
+							}}
+							className="text-xs font-medium text-text hover:underline"
+						>
+							{t('editor.relationField.createNew', { label: related.label })}
+						</button>
+					)}
+				</div>
+			</div>
+		</div>
+	)
+
 	// Featured-image mode: a full-width preview above a Choose / Upload / Remove row.
 	// Nothing here is gated on `urlField` — when the related collection exposes no
 	// detectable file column the preview falls back to a placeholder tile and the
@@ -395,7 +497,7 @@ export function RelationField({
 								{t('editor.relationField.removeImage')}
 							</button>
 						)}
-						{open && pickerMenu}
+						{open && pickerModal}
 					</div>
 				)}
 				{creating && createDialog}
@@ -439,7 +541,7 @@ export function RelationField({
 						</svg>
 					</button>
 
-					{open && !disabled && pickerMenu}
+					{open && !disabled && (urlField ? pickerModal : pickerMenu)}
 				</div>
 			</div>
 

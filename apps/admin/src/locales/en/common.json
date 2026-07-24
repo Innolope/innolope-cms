@@ -287,6 +287,7 @@
 			"none": "— None —",
 			"noRecordsYet": "No records yet.",
 			"chooseExisting": "Choose existing",
+			"pickTitle": "Choose {{label}}",
 			"createNew": "+ Create new {{label}}",
 			"uploadImage": "Upload image",
 			"changeImage": "Change image",
@@ -1579,6 +1580,7 @@
 		"delete": {
 			"title": "Delete file",
 			"message": "Delete this file permanently? This cannot be undone.",
+			"importedMessage": "Delete this file from your own database and storage permanently? Anything on your site still using it will lose the image. This cannot be undone.",
 			"confirm": "Delete",
 			"inUseTitle": "File is still in use",
 			"inUseConfirm": "Delete anyway"
