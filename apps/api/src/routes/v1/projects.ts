@@ -17,7 +17,7 @@ async function assertProjectParam(request: FastifyRequest, reply: FastifyReply) 
 	}
 }
 
-function sanitizeProject(
+export function sanitizeProject(
 	project: typeof projects.$inferSelect,
 	role?: string,
 	canPublishDirectly?: boolean | null,
@@ -52,6 +52,16 @@ function sanitizeProject(
 			connectionString: undefined,
 			hasConnectionString: Boolean(externalDb.connectionString),
 			...(sanitizedMedia ? { mediaStorage: sanitizedMedia } : {}),
+		}
+	}
+	const cloudflare = settings.cloudflare as Record<string, unknown> | undefined
+	if (cloudflare) {
+		// Strip Cloudflare secrets; expose only "configured" flags.
+		const { apiToken, r2AccessKeyId, r2SecretAccessKey, ...rest } = cloudflare
+		settings.cloudflare = {
+			...rest,
+			hasApiToken: Boolean(apiToken),
+			hasR2Credentials: Boolean(r2AccessKeyId && r2SecretAccessKey),
 		}
 	}
 	return { ...project, settings, role, canPublishDirectly: canPublishDirectly ?? null }
@@ -200,6 +210,20 @@ export async function projectRoutes(app: FastifyInstance) {
 						)
 					}
 					nextSettings.externalDb = merged
+				}
+				const currentCf = currentSettings.cloudflare as Record<string, unknown> | undefined
+				const nextCf = nextSettings.cloudflare as Record<string, unknown> | undefined
+				if (nextCf) {
+					// Drop the sanitized echo flags and restore secrets the client never saw.
+					const { hasApiToken: _t, hasR2Credentials: _r, ...cf } = nextCf
+					if (!cf.apiToken && currentCf?.apiToken) cf.apiToken = currentCf.apiToken
+					if (!cf.r2AccessKeyId && currentCf?.r2AccessKeyId) {
+						cf.r2AccessKeyId = currentCf.r2AccessKeyId
+					}
+					if (!cf.r2SecretAccessKey && currentCf?.r2SecretAccessKey) {
+						cf.r2SecretAccessKey = currentCf.r2SecretAccessKey
+					}
+					nextSettings.cloudflare = cf
 				}
 				updates.settings = nextSettings
 			}

@@ -431,6 +431,8 @@
 			"configuredViaEnv": "Configured via environment",
 			"overridePlaceholder": "Override environment value…",
 			"overridingEnv": "Overriding environment variable",
+			"configuredStored": "Saved",
+			"replacePlaceholder": "Enter a new value to replace…",
 			"adapters": {
 				"local": "Local filesystem",
 				"cloudflare": "Cloudflare (Images + R2 + Stream)",

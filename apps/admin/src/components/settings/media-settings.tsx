@@ -35,6 +35,8 @@ export function MediaSettings() {
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 	const [envConfig, setEnvConfig] = useState<MediaEnvConfig | null>(null)
+	const [hasStoredToken, setHasStoredToken] = useState(false)
+	const [hasStoredR2Keys, setHasStoredR2Keys] = useState(false)
 	const initialAdapter = useRef('local')
 
 	useEffect(() => {
@@ -43,14 +45,17 @@ export function MediaSettings() {
 			const a = (settings.mediaAdapter as string) || 'local'
 			setAdapter(a)
 			initialAdapter.current = a
-			const cf = (settings.cloudflare as Record<string, string>) || {}
-			setCfAccountId(cf.accountId || '')
-			setCfApiToken(cf.apiToken || '')
-			setCfImagesHash(cf.imagesAccountHash || '')
-			setCfR2Bucket(cf.r2Bucket || '')
-			setCfR2AccessKey(cf.r2AccessKeyId || '')
-			setCfR2SecretKey(cf.r2SecretAccessKey || '')
-			setCfR2Endpoint(cf.r2Endpoint || '')
+			// Secrets are stripped server-side; only `has*` flags arrive.
+			const cf = (settings.cloudflare as Record<string, string | boolean>) || {}
+			setCfAccountId((cf.accountId as string) || '')
+			setCfApiToken('')
+			setCfImagesHash((cf.imagesAccountHash as string) || '')
+			setCfR2Bucket((cf.r2Bucket as string) || '')
+			setCfR2AccessKey('')
+			setCfR2SecretKey('')
+			setCfR2Endpoint((cf.r2Endpoint as string) || '')
+			setHasStoredToken(Boolean(cf.hasApiToken))
+			setHasStoredR2Keys(Boolean(cf.hasR2Credentials))
 		}
 	}, [currentProject])
 
@@ -175,6 +180,7 @@ export function MediaSettings() {
 							onChange={setCfApiToken}
 							password
 							envConfigured={envConfig?.env.apiToken}
+							stored={hasStoredToken}
 						/>
 						<CfField
 							label={t('settings.media.fields.imagesAccountHash')}
@@ -193,6 +199,7 @@ export function MediaSettings() {
 							value={cfR2AccessKey}
 							onChange={setCfR2AccessKey}
 							envConfigured={envConfig?.env.r2AccessKeyId}
+							stored={hasStoredR2Keys}
 						/>
 						<CfField
 							label={t('settings.media.fields.r2SecretAccessKey')}
@@ -200,6 +207,7 @@ export function MediaSettings() {
 							onChange={setCfR2SecretKey}
 							password
 							envConfigured={envConfig?.env.r2SecretAccessKey}
+							stored={hasStoredR2Keys}
 						/>
 						<CfField
 							label={t('settings.media.fields.r2Endpoint')}
@@ -227,6 +235,7 @@ function CfField({
 	password,
 	placeholder,
 	envConfigured,
+	stored,
 }: {
 	label: string
 	value: string
@@ -234,6 +243,8 @@ function CfField({
 	password?: boolean
 	placeholder?: string
 	envConfigured?: boolean
+	/** A secret is saved server-side (never echoed); blank keeps it, typing replaces it. */
+	stored?: boolean
 }) {
 	const { t } = useTranslation()
 	const fieldId = useId()
@@ -272,9 +283,18 @@ function CfField({
 				type={password ? 'password' : 'text'}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				placeholder={envConfigured ? t('settings.media.overridePlaceholder') : placeholder || ''}
+				placeholder={
+					stored
+						? t('settings.media.replacePlaceholder')
+						: envConfigured
+							? t('settings.media.overridePlaceholder')
+							: placeholder || ''
+				}
 				className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 			/>
+			{stored && !value && (
+				<p className="text-[11px] text-text-muted mt-1">{t('settings.media.configuredStored')}</p>
+			)}
 			{envConfigured && value && (
 				<p className="text-[11px] text-text-muted mt-1">{t('settings.media.overridingEnv')}</p>
 			)}
