@@ -4,4 +4,4 @@
  * NOT start a stdio server — it only exposes the reusable pieces.
  */
 export { InnolopeClient } from './api-client.js'
-export { registerTools } from './register-tools.js'
+export { registerTools, SERVER_INSTRUCTIONS } from './register-tools.js'

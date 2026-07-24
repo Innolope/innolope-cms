@@ -157,6 +157,19 @@ check(
 )
 const full = await client.callTool({ name: 'get_content', arguments: { id: goodId } })
 check('get_content default is not truncated for normal docs', !textOf(full).includes('[Truncated'))
+check(
+	'get_content structuredContent carries the markdown body',
+	typeof full.structuredContent?.markdown === 'string' &&
+		full.structuredContent.markdown.includes('lorem ipsum'),
+	JSON.stringify(full.structuredContent?.markdown)?.slice(0, 120),
+)
+// The fixture's markdown opens with an H1 repeating metadata.title — create
+// should have flagged the duplicate (sites render the title field separately).
+check(
+	'create warns about H1 duplicating metadata.title',
+	textOf(good).includes('duplicates metadata.title'),
+	textOf(good).slice(-200),
+)
 
 // --- 8. delete_content two-step confirm --------------------------------------
 const preview = await client.callTool({ name: 'delete_content', arguments: { id: goodId } })

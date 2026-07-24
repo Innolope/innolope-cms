@@ -33,6 +33,26 @@ export interface RegisterToolsOptions {
 }
 
 /**
+ * Server-level instructions sent to MCP clients at initialize — the one place
+ * to teach agents conventions that span tools. Both transports (stdio entry
+ * and the API's hosted HTTP transport) must pass this to `new McpServer`.
+ * Born from field failures: a duplicated page title (leading H1 repeating
+ * metadata.title) and walls of text / stray gaps from wrong newline semantics.
+ */
+export const SERVER_INSTRUCTIONS = `Innolope is a headless CMS: content you write here is rendered by public websites, so formatting conventions matter.
+
+Content model:
+- Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
+- The title goes in metadata.title ONLY. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page.
+
+Markdown authoring (bodies render as CommonMark):
+- Single newlines do NOT render as line breaks — consecutive lines flow together into one paragraph. For an intentional line break within a block (label/value rows, address-style lines), end the line with two trailing spaces.
+- A blank line starts a new paragraph with visible vertical spacing. Never put a blank line between a sentence and its continuation; use blank lines only between real paragraphs.
+- Keep one blank line between a heading or label and the content under it — extra blank lines become extra page gaps.
+
+After creating or updating content a reader will see, read it back with get_content to confirm it round-tripped as intended.`
+
+/**
  * Server-side ceiling for a single tool response. A per-call parameter can only
  * lower it (min(toolParam, server) — never raise it past the server config).
  */
@@ -81,6 +101,30 @@ function renderMetadataBlock(metadata: Record<string, unknown> | undefined): str
 		JSON.stringify(metadata, null, 2),
 		'```',
 	]
+}
+
+/**
+ * Warn when a markdown body opens with an H1 that repeats metadata.title.
+ * Rendering sites print the title field themselves, so a duplicate leading H1
+ * shows the title twice on the published page. Warn instead of stripping —
+ * the body is the caller's content, not ours to rewrite.
+ */
+function titleHeadingWarning(
+	markdown: string | undefined,
+	metadata: Record<string, unknown> | undefined,
+): string | null {
+	const title = metadata?.title
+	if (!markdown || typeof title !== 'string' || !title.trim()) return null
+	const firstLine = markdown.trimStart().split('\n', 1)[0] ?? ''
+	const heading = /^#\s+(.+?)\s*#*\s*$/.exec(firstLine)?.[1]
+	if (!heading) return null
+	const normalize = (s: string) =>
+		s
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}]+/gu, ' ')
+			.trim()
+	if (normalize(heading) !== normalize(title)) return null
+	return `The markdown body starts with an H1 that duplicates metadata.title ("${title}"). Sites render the title field separately, so the page will show the title twice. Keep the title only in metadata.title and remove the leading H1 from the markdown.`
 }
 
 interface ItemError {
@@ -531,7 +575,7 @@ export function registerTools(
 			.string()
 			.optional()
 			.describe(
-				'Markdown body (prose only). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+				'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 			),
 		metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
 		locale: z
@@ -572,9 +616,16 @@ export function registerTools(
 		const guard = requireProject()
 		if (guard) return guard
 		const result = await client.bulkCreateContent(items, { dryRun })
-		const warnings = result.warnings?.length
-			? `\n\n⚠ Language warnings:\n${result.warnings.map((w) => `- item ${w.index}: ${w.warning}`).join('\n')}`
-			: ''
+		const titleWarnings = items
+			.map((item, index) => ({ index, warning: titleHeadingWarning(item.markdown, item.metadata) }))
+			.filter((w): w is { index: number; warning: string } => w.warning !== null)
+		const warnings =
+			(result.warnings?.length
+				? `\n\n⚠ Language warnings:\n${result.warnings.map((w) => `- item ${w.index}: ${w.warning}`).join('\n')}`
+				: '') +
+			(titleWarnings.length
+				? `\n\n⚠ Title warnings:\n${titleWarnings.map((w) => `- item ${w.index}: ${w.warning}`).join('\n')}`
+				: '')
 		if (result.dryRun) {
 			if (result.errors && result.errors.length > 0) {
 				const schemas = result.schemas
@@ -791,6 +842,7 @@ export function registerTools(
 			title: z.string(),
 			externalId: z.string().nullable(),
 			metadata: z.record(z.unknown()),
+			markdown: z.string(),
 		},
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
@@ -822,6 +874,14 @@ export function registerTools(
 					title: String(title ?? item.id),
 					externalId: item.externalId ?? null,
 					metadata: item.metadata ?? {},
+					// Clients that prefer structured output never render the text
+					// channel, so the body must be here too — capped by the same
+					// budget or a huge article would blow the response size.
+					markdown: capText(
+						item.markdown,
+						'Re-call get_content with a larger maxBytes to see more.',
+						maxBytes ?? DEFAULT_CONTENT_BYTES,
+					),
 				},
 			}
 		},
@@ -830,7 +890,7 @@ export function registerTools(
 	defineTool({
 		name: 'create_content',
 		description:
-			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them); markdown is the optional prose body and may be omitted for data-only records. Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
+			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them); markdown is the optional prose body and may be omitted for data-only records. The title goes in metadata.title ONLY — never repeat it as a leading H1 in markdown (sites render the title field separately, so a duplicate H1 shows the title twice on the page). Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
 		operationType: 'create',
 		schema: {
 			slug: z
@@ -844,7 +904,7 @@ export function registerTools(
 				.string()
 				.optional()
 				.describe(
-					'Markdown body (prose only). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+					'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 				),
 			metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
 			locale: z
@@ -882,10 +942,12 @@ export function registerTools(
 					? `\nNote: the slug was normalized from "${args.slug}" to "${created.slug}" (lowercase letters/digits; separators "-" and "_" are kept, everything else becomes "-").`
 					: ''
 			const warning = created.languageWarning ? `\n\n⚠ ${created.languageWarning}` : ''
+			const titleWarning = titleHeadingWarning(args.markdown, args.metadata)
+			const titleNote = titleWarning ? `\n\n⚠ ${titleWarning}` : ''
 			return text(
 				`Content created${projectSuffix()}.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}\nLocale: ${created.locale}${
 					created.externalId ? `\nExternal ID: ${created.externalId}` : ''
-				}${slugNote}${warning}`,
+				}${slugNote}${warning}${titleNote}`,
 			)
 		},
 	})
@@ -898,13 +960,30 @@ export function registerTools(
 		schema: {
 			id: z.string().uuid().describe('Content item UUID'),
 			slug: z.string().optional().describe('New slug'),
-			markdown: z.string().optional().describe('Updated markdown'),
+			markdown: z
+				.string()
+				.optional()
+				.describe(
+					'Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1)',
+				),
 			metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
 			status: z.enum(CONTENT_STATUSES).optional().describe('New status'),
 		},
 		handler: async ({ id, ...updates }) => {
 			const updated = await client.updateContent(id, updates)
-			return text(`Content updated. Version: ${updated.version}`)
+			// A markdown-only update can introduce a duplicate title H1 too — fall
+			// back to the stored metadata for the comparison (best-effort).
+			let metadata = updates.metadata
+			if (updates.markdown !== undefined && !metadata) {
+				metadata = await client
+					.getContent(id)
+					.then((item) => item.metadata as Record<string, unknown>)
+					.catch(() => undefined)
+			}
+			const titleWarning = titleHeadingWarning(updates.markdown, metadata)
+			return text(
+				`Content updated. Version: ${updated.version}${titleWarning ? `\n\n⚠ ${titleWarning}` : ''}`,
+			)
 		},
 	})
 
@@ -1177,7 +1256,12 @@ export function registerTools(
 					z.object({
 						id: z.string().uuid().describe('Content item UUID'),
 						slug: z.string().optional().describe('New slug'),
-						markdown: z.string().optional().describe('Updated markdown'),
+						markdown: z
+							.string()
+							.optional()
+							.describe(
+								'Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1)',
+							),
 						metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
 						status: z.enum(CONTENT_STATUSES).optional().describe('New status'),
 					}),

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { InnolopeClient, registerTools } from '@innolope/mcp-server/lib'
+import { InnolopeClient, registerTools, SERVER_INSTRUCTIONS } from '@innolope/mcp-server/lib'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
@@ -115,7 +115,10 @@ export async function mcpRoutes(app: FastifyInstance) {
 			const user = request.mcpUser as AuthUser
 			const internalToken = await createJwt(user)
 			const client = new InnolopeClient(internalApiUrl, internalToken)
-			const server = new McpServer({ name: 'innolope-cms', version: '0.1.0' })
+			const server = new McpServer(
+				{ name: 'innolope-cms', version: '0.1.0' },
+				{ instructions: SERVER_INSTRUCTIONS },
+			)
 			registerTools(server, client)
 			const transport = new StreamableHTTPServerTransport({
 				sessionIdGenerator: () => randomUUID(),
