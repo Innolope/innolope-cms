@@ -127,6 +127,63 @@ function titleHeadingWarning(
 	return `The markdown body starts with an H1 that duplicates metadata.title ("${title}"). Sites render the title field separately, so the page will show the title twice. Keep the title only in metadata.title and remove the leading H1 from the markdown.`
 }
 
+/** File extensions treated as images when scanning metadata values for references. */
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)(\?.*)?$/i
+
+/**
+ * Collect the image URLs a content item references: markdown images, inline
+ * <img> tags (sanitized HTML is allowed in bodies), and metadata string values
+ * that look like image URLs (by extension, or Cloudflare Images delivery URLs
+ * which carry no extension).
+ */
+function extractImageRefs(
+	markdown: string,
+	metadata: Record<string, unknown> | undefined,
+): string[] {
+	const refs = new Set<string>()
+	for (const m of markdown.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)) {
+		refs.add(m[1])
+	}
+	for (const m of markdown.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) refs.add(m[1])
+	const visit = (value: unknown): void => {
+		if (typeof value === 'string') {
+			const v = value.trim()
+			const urlish = /^https?:\/\//i.test(v) || v.startsWith('/')
+			if (urlish && (IMAGE_EXT.test(v) || v.includes('imagedelivery.net'))) refs.add(v)
+		} else if (Array.isArray(value)) {
+			for (const entry of value) visit(entry)
+		} else if (value && typeof value === 'object') {
+			for (const entry of Object.values(value)) visit(entry)
+		}
+	}
+	visit(metadata ?? {})
+	return [...refs]
+}
+
+/**
+ * Hosts check_media refuses to fetch: content is caller-supplied, so a crafted
+ * image URL must not be able to probe loopback or RFC 1918 addresses (SSRF).
+ */
+function isPrivateHost(hostname: string): boolean {
+	const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+	if (h === 'localhost' || h === '0.0.0.0' || h === '::1') return true
+	if (h.endsWith('.local') || h.endsWith('.internal')) return true
+	if (/^(127|10|192\.168|169\.254)\./.test(h)) return true
+	if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
+	return false
+}
+
+/** Bounded probe for check_media — a hung CDN must not hang the tool call. */
+async function fetchWithTimeout(url: string, method: 'HEAD' | 'GET'): Promise<Response> {
+	return fetch(url, {
+		method,
+		redirect: 'follow',
+		signal: AbortSignal.timeout(5000),
+		// On the GET fallback ask for a single byte — we only need the status.
+		...(method === 'GET' && { headers: { Range: 'bytes=0-0' } }),
+	})
+}
+
 interface ItemError {
 	index: number
 	slug?: string
@@ -1097,6 +1154,125 @@ export function registerTools(
 					}. Make sure AI features are enabled and an OpenAI API key is configured. Falling back to search_content (keyword) also works.`,
 				)
 			}
+		},
+	})
+
+	// --- Media -----------------------------------------------------------------
+
+	defineTool({
+		name: 'list_media',
+		description:
+			'List the project media library (images, videos, files) with filename, type, size, URL, and id. Pass search to filter by filename or URL substring — useful to check whether a specific image was uploaded. Media is a project-level library: content references it by URL (inline markdown images or metadata fields), there is no per-item attachment table. Requires the media-integrations license.',
+		operationType: 'read',
+		schema: {
+			type: z.enum(['image', 'video', 'file']).optional().describe('Filter by media type'),
+			search: z.string().optional().describe('Case-insensitive filename/URL substring filter'),
+			page: z.number().optional().describe('Page number (default: 1)'),
+			limit: z.number().optional().describe('Items per page (default: 25)'),
+		},
+		handler: async ({ type, search, page, limit }) => {
+			const guard = requireProject()
+			if (guard) return guard
+			const result = await client.listMedia({ type, search, page, limit })
+			if (result.data.length === 0) {
+				return text(
+					`No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Media is uploaded via the admin UI or POST /api/v1/media/upload.`,
+				)
+			}
+			const lines = result.data.map(
+				(m) =>
+					`- [${m.type}] ${m.filename} (${Math.ceil(m.size / 1024)} KB) — ${m.url} (id: ${m.id}${m.origin ? `, origin: ${m.origin}` : ''})`,
+			)
+			return text(
+				`${result.pagination.total} media item(s)${projectSuffix()}, page ${result.pagination.page}:\n${lines.join('\n')}`,
+			)
+		},
+	})
+
+	defineTool({
+		name: 'check_media',
+		description:
+			'Check the images a content item references: extracts image URLs from the markdown body (![...](...) and <img src>) and from metadata fields, then reports for each whether it exists in the project media library and whether the URL actually serves (HTTP check). Use after writing content with images to confirm nothing is broken or orphaned.',
+		operationType: 'read',
+		schema: {
+			id: z.string().describe('Content item UUID (or external record id for external collections)'),
+			collectionId: z
+				.string()
+				.uuid()
+				.optional()
+				.describe('Collection UUID — required to resolve uncached external record ids'),
+		},
+		handler: async ({ id, collectionId }) => {
+			const item = await client.getContent(id, collectionId)
+			const title = (item.metadata as Record<string, unknown>)?.title || item.slug || item.id
+			const refs = extractImageRefs(item.markdown ?? '', item.metadata as Record<string, unknown>)
+			if (refs.length === 0) {
+				return text(
+					`No image references found in "${title}" (${id}) — neither markdown images (![...] / <img>) nor image URLs in metadata fields.`,
+				)
+			}
+
+			let licenseNote = ''
+			const results = await Promise.all(
+				refs.map(async (ref) => {
+					if (ref.startsWith('data:')) {
+						return { ref, library: 'inline data URI', status: 'embedded — nothing to fetch' }
+					}
+					let url: URL
+					try {
+						url = new URL(ref, client.apiUrl)
+					} catch {
+						return { ref, library: 'n/a', status: 'BROKEN (not a valid URL)' }
+					}
+
+					let library: string
+					try {
+						const basename = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
+						const found = basename
+							? await client.listMedia({ search: basename, limit: 100 })
+							: { data: [] }
+						if (found.data.some((m) => m.url === url.href || m.url === ref)) library = 'yes'
+						else if (found.data.some((m) => m.filename === basename)) {
+							library = 'filename match (different URL)'
+						} else library = 'no — external or deleted'
+					} catch (err) {
+						if (err instanceof InnolopeApiError && err.status === 403) {
+							licenseNote =
+								'\n\nNote: media-library lookups need the media-integrations license — "library" is unknown for all rows above.'
+							library = 'unknown'
+						} else library = 'lookup failed'
+					}
+
+					let status: string
+					if (isPrivateHost(url.hostname)) {
+						status = 'not checked (private address)'
+					} else {
+						try {
+							let resp = await fetchWithTimeout(url.href, 'HEAD')
+							if (resp.status === 405 || resp.status === 501) {
+								resp = await fetchWithTimeout(url.href, 'GET')
+							}
+							await resp.body?.cancel()
+							status = resp.ok ? `OK (HTTP ${resp.status})` : `BROKEN (HTTP ${resp.status})`
+						} catch (err) {
+							status = `BROKEN (${err instanceof Error && err.name === 'AbortError' ? 'timed out' : 'fetch failed'})`
+						}
+					}
+					return { ref, library, status }
+				}),
+			)
+
+			const broken = results.filter((r) => r.status.startsWith('BROKEN')).length
+			const lines = results.map(
+				(r) => `- ${r.ref}\n    library: ${r.library} | serves: ${r.status}`,
+			)
+			const verdict =
+				broken === 0
+					? `All ${results.length} image(s) serve correctly.`
+					: `${broken} of ${results.length} image(s) are BROKEN — fix the URLs via update_content or re-upload the media.`
+			return text(
+				`Image check for "${title}" (${id})${projectSuffix()}:\n${lines.join('\n')}\n\n${verdict}${licenseNote}`,
+			)
 		},
 	})
 

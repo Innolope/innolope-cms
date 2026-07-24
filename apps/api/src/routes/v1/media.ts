@@ -58,12 +58,19 @@ export async function mediaRoutes(app: FastifyInstance) {
 			page = 1,
 			limit = 25,
 			type,
-		} = request.query as { page?: number; limit?: number; type?: string }
+			search,
+		} = request.query as { page?: number; limit?: number; type?: string; search?: string }
 		const offset = (Number(page) - 1) * Number(limit)
 		const pid = getProject(request).id
 
 		const conditions = [eq(media.projectId, pid)]
 		if (type) conditions.push(eq(media.type, type as 'image' | 'video' | 'file'))
+		if (search) {
+			const pattern = `%${search.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
+			conditions.push(
+				sql`(${media.filename} ILIKE ${pattern} OR ${media.url} ILIKE ${pattern})`,
+			)
+		}
 
 		const where = and(...conditions)
 

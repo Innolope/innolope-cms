@@ -307,6 +307,19 @@ export class InnolopeClient {
 		)
 	}
 
+	async listMedia(params?: { page?: number; limit?: number; type?: string; search?: string }) {
+		const query = new URLSearchParams()
+		if (params) {
+			for (const [key, value] of Object.entries(params)) {
+				if (value !== undefined) query.set(key, String(value))
+			}
+		}
+		const qs = query.toString()
+		return this.request<{ data: MediaItem[]; pagination: Pagination }>(
+			`/api/v1/media${qs ? `?${qs}` : ''}`,
+		)
+	}
+
 	/**
 	 * `id` may be the CMS UUID or, for external collections, the external record
 	 * id. Uncached (live) external records additionally need `collectionId` so
@@ -526,6 +539,22 @@ interface CollectionItem {
 		localized?: boolean
 		options?: string[]
 	}>
+}
+
+interface MediaItem {
+	id: string
+	type: 'image' | 'video' | 'file'
+	filename: string
+	mimeType: string
+	size: number
+	url: string
+	alt: string | null
+	adapter: string
+	/** Where the bytes live: shared cloud account vs the project's own storage. */
+	origin: 'platform' | 'project' | null
+	createdAt: string
+	/** Cloudflare Images responsive renditions, when CF-Images-backed. */
+	variants?: Record<string, string>
 }
 
 interface Pagination {
