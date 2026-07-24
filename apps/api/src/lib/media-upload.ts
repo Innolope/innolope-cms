@@ -22,7 +22,16 @@ export function isWritableImportedStorage(entry: MediaStorageEntry | undefined):
 }
 
 export interface ImportedUploadResult {
-	/** The value to store in the collection's path column. */
+	/**
+	 * The value to store in the collection's path column.
+	 *
+	 * This has to match what the *source system* already writes there, because the
+	 * customer's own site reads that column straight out of their database — it
+	 * never goes through this API's read-side resolution. For Cloudflare Images
+	 * that means a complete delivery URL, not the bare image id: storing the id
+	 * made sites resolve it as a relative path (`https://theirsite/<id>`).
+	 * R2 keeps the object key, which is what its presigned reads expect.
+	 */
 	key: string
 }
 
@@ -42,13 +51,21 @@ export async function uploadToImportedStorage(
 				400,
 			)
 		}
+		if (!c.accountHash) {
+			throw httpError(
+				'Cloudflare Images upload needs an Account hash — add it in Imported media storage.',
+				400,
+			)
+		}
 		const adapter = new CloudflareImagesAdapter({
 			accountId: c.accountId,
 			apiToken: c.apiToken,
-			accountHash: c.accountHash || '',
+			accountHash: c.accountHash,
 		})
 		const result = await adapter.upload(buffer, filename, mimeType)
-		return { key: result.id }
+		// The full delivery URL (`…/<hash>/<id>/public`), matching what the source
+		// system stores — see the note on `ImportedUploadResult.key`.
+		return { key: result.url }
 	}
 
 	if (entry.adapter === 'r2') {
