@@ -88,6 +88,54 @@ describe('detectMediaPathFormat', () => {
 		const detected = detectMediaPathFormat(['/uploads/a.jpg', '/uploads/b.jpg'])
 		expect(detected?.suggestedVariant).toBeUndefined()
 	})
+
+	it('reports full confidence for a uniform sample', () => {
+		const detected = detectMediaPathFormat([
+			`https://imagedelivery.net/${HASH}/a/public`,
+			`https://imagedelivery.net/${HASH}/b/public`,
+			`https://imagedelivery.net/${HASH}/c/public`,
+		])
+		expect(detected?.confidence).toBe(1)
+		expect(detected?.mixed).toBe(false)
+	})
+
+	it('flags a substantial runner-up as mixed', () => {
+		// 7 vs 5 — the old silent-plurality trap: must NOT be committed silently.
+		const detected = detectMediaPathFormat([
+			...Array.from({ length: 7 }, (_, i) => `https://imagedelivery.net/${HASH}/a${i}/public`),
+			...Array.from({ length: 5 }, (_, i) => `/uploads/${i}.jpg`),
+		])
+		expect(detected?.format).toBe('delivery-url-variant')
+		expect(detected?.mixed).toBe(true)
+	})
+
+	it('does not call variant disagreement within one format mixed', () => {
+		const detected = detectMediaPathFormat([
+			`https://imagedelivery.net/${HASH}/a/public`,
+			`https://imagedelivery.net/${HASH}/b/public`,
+			`https://imagedelivery.net/${HASH}/c/hero`,
+			`https://imagedelivery.net/${HASH}/d/hero`,
+		])
+		expect(detected?.format).toBe('delivery-url-variant')
+		expect(detected?.confidence).toBe(1)
+		expect(detected?.mixed).toBe(false)
+	})
+
+	it('judges the winner by aggregate format count, not per-variant key', () => {
+		// 3 bare ids vs 4 variant URLs split 2/2 across variants: the format with
+		// more total rows must win even though no single variant key beats the ids.
+		const detected = detectMediaPathFormat([
+			'aaaaaaaa-1111-2222-3333-444444444444',
+			'bbbbbbbb-1111-2222-3333-444444444444',
+			'cccccccc-1111-2222-3333-444444444444',
+			`https://imagedelivery.net/${HASH}/a/public`,
+			`https://imagedelivery.net/${HASH}/b/public`,
+			`https://imagedelivery.net/${HASH}/c/hero`,
+			`https://imagedelivery.net/${HASH}/d/hero`,
+		])
+		expect(detected?.format).toBe('delivery-url-variant')
+		expect(detected?.matched).toBe(4)
+	})
 })
 
 describe('formatMediaPath', () => {

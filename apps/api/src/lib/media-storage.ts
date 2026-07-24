@@ -42,6 +42,25 @@ export interface MediaStorageEntry {
 	 * variant the sampled rows actually use.
 	 */
 	pathVariant?: string
+	/** Who decided `pathFormat`: sampled detection, or an explicit human pick. */
+	formatSource?: 'detected' | 'user'
+	/** Share of sampled rows matching the detected format at detection time (0..1). */
+	formatConfidence?: number
+	/** How many rows the detection sampled. */
+	formatSampled?: number
+	/** When the detection ran (ISO timestamp). */
+	formatDetectedAt?: string
+	/**
+	 * Set when a later sync's detection disagrees with the recorded format. The
+	 * recorded format is never overwritten silently — this surfaces the conflict
+	 * so a human can keep or switch in Settings.
+	 */
+	formatDrift?: {
+		format: MediaPathFormat
+		variant?: string
+		confidence: number
+		detectedAt: string
+	}
 	/** Public base URL prepended to relative paths (public libraries). */
 	baseUrl?: string
 	/** Whether the files are publicly fetchable or require signed access. */

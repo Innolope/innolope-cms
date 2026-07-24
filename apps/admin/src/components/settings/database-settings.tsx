@@ -55,6 +55,13 @@ interface MediaStorageConfig {
 	pathFormat?: string
 	/** Variant segment, when pathFormat is `delivery-url-variant`. */
 	pathVariant?: string
+	/** Who decided pathFormat — sampling, or an explicit human pick. */
+	formatSource?: 'detected' | 'user'
+	/** Share of sampled rows matching the recorded format at detection time. */
+	formatConfidence?: number
+	formatSampled?: number
+	/** A later sync disagreed with the recorded format; a human resolves it. */
+	formatDrift?: { format: string; variant?: string; confidence: number; detectedAt: string }
 }
 
 /** Selectable path shapes, in the order they're offered. Labels come from i18n. */
@@ -647,6 +654,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				}
 				if (cfg.pathFormat) entry.pathFormat = cfg.pathFormat
 				if (cfg.pathVariant) entry.pathVariant = cfg.pathVariant
+				if (cfg.pathFormat && cfg.formatSource) entry.formatSource = cfg.formatSource
 				if (access === 'public') {
 					if (cfg.adapter !== 'absolute' && cfg.baseUrl.trim()) entry.baseUrl = cfg.baseUrl.trim()
 				} else {
@@ -782,11 +790,14 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 				},
 			}))
 			// Preselect the shape the source already uses, so uploads we add later are
-			// written the same way. The user can still override it below.
-			if (res.pathFormat?.format) {
+			// written the same way. The user can still override it below. A mixed
+			// sample is never preselected — the human has to pick (unset falls back
+			// to storing a complete URL, which resolves everywhere).
+			if (res.pathFormat?.format && !res.pathFormat.mixed) {
 				updateMediaConfig(tableName, {
 					pathFormat: res.pathFormat.format,
-					pathVariant: res.pathFormat.variant,
+					pathVariant: res.pathFormat.variant || res.pathFormat.suggestedVariant,
+					formatSource: 'detected',
 				})
 			}
 			if (res.result === 'public')
@@ -1677,6 +1688,11 @@ interface ProbeState {
 		variant?: string
 		matched: number
 		sampled: number
+		confidence?: number
+		/** Sample disagrees on one shape — never preselect, make the human pick. */
+		mixed?: boolean
+		breakdown?: Array<{ format: string; count: number; variant?: string }>
+		suggestedVariant?: string
 	}
 }
 
@@ -1886,7 +1902,9 @@ function MediaStorageCard({
 						</div>
 						<select
 							value={config.pathFormat || ''}
-							onChange={(e) => onChange({ pathFormat: e.target.value || undefined })}
+							onChange={(e) =>
+								onChange({ pathFormat: e.target.value || undefined, formatSource: 'user' })
+							}
 							className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
 						>
 							<option value="">{t('settings.database.pathFormat.unset')}</option>
@@ -1900,10 +1918,17 @@ function MediaStorageCard({
 							<input
 								type="text"
 								value={config.pathVariant || ''}
-								onChange={(e) => onChange({ pathVariant: e.target.value || undefined })}
+								onChange={(e) =>
+									onChange({ pathVariant: e.target.value || undefined, formatSource: 'user' })
+								}
 								placeholder="public"
 								className="mt-2 w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
 							/>
+						)}
+						{probeState?.pathFormat?.mixed && (
+							<div className="mt-2 max-w-sm rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+								{t('settings.database.pathFormat.mixedWarning')}
+							</div>
 						)}
 						<p className="mt-1 text-[11px] text-text-muted">
 							{probeState?.pathFormat
@@ -1914,8 +1939,66 @@ function MediaStorageCard({
 										matched: probeState.pathFormat.matched,
 										sampled: probeState.pathFormat.sampled,
 									})
-								: t('settings.database.pathFormat.help')}
+								: config.pathFormat && config.formatConfidence != null
+									? t('settings.database.pathFormat.detected', {
+											format: t(`settings.database.pathFormat.options.${config.pathFormat}`),
+											matched: Math.round(config.formatConfidence * (config.formatSampled || 0)),
+											sampled: config.formatSampled || 0,
+										})
+									: t('settings.database.pathFormat.help')}
 						</p>
+						{(probeState?.pathFormat?.breakdown?.length ?? 0) > 1 && (
+							<p className="mt-1 text-[11px] text-text-muted">
+								{probeState?.pathFormat?.breakdown
+									?.map(
+										(b) =>
+											`${b.count}× ${t(`settings.database.pathFormat.options.${b.format}`)}${b.variant ? ` (${b.variant})` : ''}`,
+									)
+									.join(' · ')}
+							</p>
+						)}
+						{config.formatDrift && (
+							<div className="mt-2 max-w-sm rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
+								<p className="text-amber-600 dark:text-amber-400">
+									{t('settings.database.pathFormat.drift', {
+										detected: t(
+											`settings.database.pathFormat.options.${config.formatDrift.format}`,
+										),
+										percent: Math.round(config.formatDrift.confidence * 100),
+										current: config.pathFormat
+											? t(`settings.database.pathFormat.options.${config.pathFormat}`)
+											: t('settings.database.pathFormat.unset'),
+									})}
+								</p>
+								<div className="mt-1.5 flex gap-2">
+									<button
+										type="button"
+										onClick={() => onChange({ formatDrift: undefined, formatSource: 'user' })}
+										className="rounded border border-border px-2 py-0.5 text-[11px] text-text hover:bg-surface-alt"
+									>
+										{t('settings.database.pathFormat.driftKeep')}
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											onChange({
+												pathFormat: config.formatDrift?.format,
+												pathVariant: config.formatDrift?.variant,
+												formatDrift: undefined,
+												formatSource: 'user',
+											})
+										}
+										className="rounded border border-border px-2 py-0.5 text-[11px] text-text hover:bg-surface-alt"
+									>
+										{t('settings.database.pathFormat.driftSwitch', {
+											format: t(
+												`settings.database.pathFormat.options.${config.formatDrift.format}`,
+											),
+										})}
+									</button>
+								</div>
+							</div>
+						)}
 					</div>
 
 					{/* Inputs for the chosen provider */}
@@ -2121,18 +2204,35 @@ function ImportedMediaStorage() {
 		if (!cfg) return
 		setProbes((p) => ({ ...p, [name]: { loading: true } }))
 		try {
-			const res = await api.post<{ result: string; detail?: string; provider?: string }>(
-				`/api/v1/projects/${currentProject.id}/database/media-probe`,
-				{
-					collectionName: name,
-					pathColumn: cfg.pathColumn,
-					baseUrl: cfg.baseUrl.trim() || undefined,
-				},
-			)
+			const res = await api.post<{
+				result: string
+				detail?: string
+				provider?: string
+				pathFormat?: ProbeState['pathFormat']
+			}>(`/api/v1/projects/${currentProject.id}/database/media-probe`, {
+				collectionName: name,
+				pathColumn: cfg.pathColumn,
+				baseUrl: cfg.baseUrl.trim() || undefined,
+			})
 			setProbes((p) => ({
 				...p,
-				[name]: { result: res.result, detail: res.detail, provider: res.provider },
+				[name]: {
+					result: res.result,
+					detail: res.detail,
+					provider: res.provider,
+					pathFormat: res.pathFormat,
+				},
 			}))
+			// Preselect only an unambiguous detection, and never override a recorded pick.
+			if (res.pathFormat?.format && !res.pathFormat.mixed && !cfg.pathFormat) {
+				update(name, {
+					pathFormat: res.pathFormat.format,
+					pathVariant: res.pathFormat.variant || res.pathFormat.suggestedVariant,
+					formatSource: 'detected',
+					formatConfidence: res.pathFormat.confidence,
+					formatSampled: res.pathFormat.sampled,
+				})
+			}
 			if (res.result === 'public') update(name, { access: 'public', adapter: 'custom-url' })
 			else if (res.result === 'private')
 				update(name, {
@@ -2162,6 +2262,12 @@ function ImportedMediaStorage() {
 				baseUrl?: string
 				access?: 'public' | 'private'
 				hasCredentials?: boolean
+				pathFormat?: string
+				pathVariant?: string
+				formatSource?: 'detected' | 'user'
+				formatConfidence?: number
+				formatSampled?: number
+				formatDrift?: MediaStorageConfig['formatDrift']
 			}
 		>
 		const detected = collections.filter((c) => c.source === 'external' && isMediaCollectionLike(c))
@@ -2177,6 +2283,12 @@ function ImportedMediaStorage() {
 						access: s.access || 'public',
 						credentials: emptyCreds(),
 						hasCredentials: Boolean(s.hasCredentials),
+						pathFormat: s.pathFormat,
+						pathVariant: s.pathVariant,
+						formatSource: s.formatSource,
+						formatConfidence: s.formatConfidence,
+						formatSampled: s.formatSampled,
+						formatDrift: s.formatDrift,
 					}
 				: {
 						enabled: true,
@@ -2214,6 +2326,14 @@ function ImportedMediaStorage() {
 					pathColumn: cfg.pathColumn,
 					access,
 				}
+				if (cfg.pathFormat) entry.pathFormat = cfg.pathFormat
+				if (cfg.pathVariant) entry.pathVariant = cfg.pathVariant
+				if (cfg.pathFormat && cfg.formatSource) entry.formatSource = cfg.formatSource
+				// Round-trip detection bookkeeping so an unrelated save doesn't drop it.
+				// `formatDrift` is only re-sent while unresolved (Keep/Switch clears it).
+				if (cfg.formatConfidence != null) entry.formatConfidence = cfg.formatConfidence
+				if (cfg.formatSampled != null) entry.formatSampled = cfg.formatSampled
+				if (cfg.formatDrift) entry.formatDrift = cfg.formatDrift
 				if (access === 'public') {
 					if (cfg.adapter !== 'absolute' && cfg.baseUrl.trim()) entry.baseUrl = cfg.baseUrl.trim()
 				} else {

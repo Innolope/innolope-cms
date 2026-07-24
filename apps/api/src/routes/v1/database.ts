@@ -642,14 +642,16 @@ export async function databaseRoutes(app: FastifyInstance) {
 				// upload later are written in the same shape. The customer's own site
 				// reads that column directly and never sees our read-side resolution, so
 				// a mismatch renders as a broken image on their pages, not here.
-				// Only fills a format that hasn't been set (or overridden) yet.
+				//
+				// Detection never overwrites a recorded format. A confident sample fills
+				// an unset one; a disagreeing or ambiguous sample is parked in
+				// `formatDrift` and surfaced as a warning for a human to resolve.
 				const storageMap = (settings.externalDb as Record<string, unknown>).mediaStorage as
 					| Record<string, Record<string, unknown>>
 					| undefined
 				if (storageMap && effectiveConnectionString) {
 					for (const [table, entry] of Object.entries(storageMap)) {
 						if (!entry || typeof entry !== 'object') continue
-						if (entry.pathFormat) continue
 						const pathColumn = entry.pathColumn as string | undefined
 						if (!pathColumn) continue
 						try {
@@ -661,7 +663,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 							await adapter.connect()
 							let samples: string[] = []
 							try {
-								const docs = await adapter.findAll(table, { limit: 12, offset: 0 })
+								const docs = await adapter.findAll(table, { limit: 50, offset: 0 })
 								samples = docs
 									.map((doc) => (doc as Record<string, unknown>)[pathColumn])
 									.filter((v): v is string => typeof v === 'string' && v.trim() !== '')
@@ -670,11 +672,64 @@ export async function databaseRoutes(app: FastifyInstance) {
 							}
 							const detected = detectMediaPathFormat(samples)
 							if (!detected) continue
+							const now = new Date().toISOString()
+							const recorded = entry.pathFormat as string | undefined
+
+							if (recorded) {
+								const agrees =
+									detected.format === recorded &&
+									(!entry.pathVariant ||
+										!detected.variant ||
+										detected.variant === entry.pathVariant)
+								if (agrees) {
+									if (entry.formatSource !== 'user') {
+										entry.formatSource = entry.formatSource || 'detected'
+										entry.formatConfidence = detected.confidence
+										entry.formatSampled = detected.sampled
+										entry.formatDetectedAt = now
+									}
+									delete entry.formatDrift
+								} else {
+									entry.formatDrift = {
+										format: detected.format,
+										variant: detected.variant,
+										confidence: detected.confidence,
+										detectedAt: now,
+									}
+									warnings.push(
+										`"${table}" is configured to store media paths as ${recorded}, but a fresh sample looks like ${detected.format} (${Math.round(detected.confidence * 100)}% of ${detected.sampled} rows). Review it under Imported media storage.`,
+									)
+								}
+								continue
+							}
+
+							if (detected.mixed) {
+								// Not trusted enough to commit: without a recorded format the
+								// write path falls back to storing a complete URL, which
+								// resolves everywhere even if it isn't the library's shape.
+								entry.formatDrift = {
+									format: detected.format,
+									variant: detected.variant,
+									confidence: detected.confidence,
+									detectedAt: now,
+								}
+								warnings.push(
+									`"${table}" stores media paths in mixed shapes — the most common is ${detected.format} (${detected.matched} of ${detected.sampled} sampled rows). Pick the format under Imported media storage; until then new uploads store a complete URL.`,
+								)
+								continue
+							}
+
 							entry.pathFormat = detected.format
-							if (detected.variant) entry.pathVariant = detected.variant
+							const variant = detected.variant || detected.suggestedVariant
+							if (variant && !entry.pathVariant) entry.pathVariant = variant
+							entry.formatSource = 'detected'
+							entry.formatConfidence = detected.confidence
+							entry.formatSampled = detected.sampled
+							entry.formatDetectedAt = now
+							delete entry.formatDrift
 							warnings.push(
 								`"${table}" stores media paths as ${detected.format}${
-									detected.variant ? ` (variant "${detected.variant}")` : ''
+									variant ? ` (variant "${variant}")` : ''
 								} — matched ${detected.matched} of ${detected.sampled} sampled rows. New uploads will use this shape; change it under Imported media storage.`,
 							)
 						} catch (err) {
@@ -1043,11 +1098,31 @@ export async function databaseRoutes(app: FastifyInstance) {
 				nextMap = {}
 				for (const [table, entry] of Object.entries(mediaStorage)) {
 					const incoming = { ...entry }
+					// `hasCredentials` is a sanitized echo, not a setting.
+					delete incoming.hasCredentials
 					const creds = incoming.credentials as Record<string, unknown> | undefined
 					if (!creds || Object.keys(creds).length === 0) {
 						const prevCreds = prevMap[table]?.credentials
 						if (prevCreds) incoming.credentials = prevCreds
 						else delete incoming.credentials
+					}
+					// A changed format arriving through this endpoint is a human's
+					// decision: record that so sync-time detection never overwrites it,
+					// and clear any pending drift — the human has just ruled on it. An
+					// unchanged format keeps its drift only if the client re-sent it
+					// (resolving via Keep/Switch omits it).
+					const prev = prevMap[table]
+					if (incoming.pathFormat) {
+						const changed =
+							incoming.pathFormat !== prev?.pathFormat ||
+							(incoming.pathVariant ?? '') !== (prev?.pathVariant ?? '')
+						incoming.formatSource = changed
+							? 'user'
+							: incoming.formatSource || prev?.formatSource || 'user'
+						if (changed) delete incoming.formatDrift
+						if (incoming.formatDetectedAt == null && prev?.formatDetectedAt) {
+							incoming.formatDetectedAt = prev.formatDetectedAt
+						}
 					}
 					nextMap[table] = incoming
 				}
@@ -1254,7 +1329,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					.select()
 					.from(content)
 					.where(and(eq(content.projectId, pid), eq(content.collectionId, col.id)))
-					.limit(8)
+					.limit(50)
 				for (const row of rows) {
 					const v = (row.metadata as Record<string, unknown> | null)?.[pathColumn]
 					if (typeof v === 'string' && v.trim()) values.push(v.trim())
@@ -1284,7 +1359,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				})
 				await adapter.connect()
 				try {
-					const docs = await adapter.findAll(table, { limit: 8, offset: 0 })
+					const docs = await adapter.findAll(table, { limit: 50, offset: 0 })
 					for (const doc of docs) {
 						const v = (doc as Record<string, unknown>)[pathColumn]
 						if (typeof v === 'string' && v.trim()) values.push(v.trim())

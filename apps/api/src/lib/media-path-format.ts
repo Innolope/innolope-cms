@@ -66,11 +66,25 @@ export function classifyMediaPath(value: string): ClassifiedMediaPath {
 	return { format: 'storage-key' }
 }
 
+/**
+ * Below this share of matching rows a detection is not trusted enough to be
+ * committed silently — the user has to confirm the format in Settings.
+ */
+export const MEDIA_FORMAT_CONFIDENCE_THRESHOLD = 0.8
+
 export interface DetectedMediaPathFormat extends ClassifiedMediaPath {
 	/** How many sampled values matched the winning format. */
 	matched: number
 	/** How many values were classified in total. */
 	sampled: number
+	/** Share of sampled rows matching the winner (`matched / sampled`, 0..1). */
+	confidence: number
+	/**
+	 * True when the sample doesn't clearly agree on one shape — the runner-up
+	 * holds a substantial share (≥25%) or the winner is below the confidence
+	 * threshold. Mixed detections must not be committed without a human.
+	 */
+	mixed: boolean
 	/** Every format seen, most common first — surfaced so the user can override. */
 	breakdown: Array<{ format: MediaPathFormat; count: number; variant?: string }>
 	/**
@@ -106,15 +120,34 @@ export function detectMediaPathFormat(values: string[]): DetectedMediaPathFormat
 	}
 
 	const breakdown = [...counts.values()].sort((a, b) => b.count - a.count)
-	const winner = breakdown[0]
 	const suggestedVariant = breakdown.find(
 		(b) => b.format === 'delivery-url-variant' && b.variant,
 	)?.variant
+
+	// The winning *format* is judged on aggregate counts: two variants of the
+	// same format still agree on the shape to write, while a bare-id/full-URL
+	// split does not. The winning variant is the most common one within that
+	// format (breakdown is already sorted).
+	const perFormat = new Map<MediaPathFormat, number>()
+	for (const b of breakdown) {
+		perFormat.set(b.format, (perFormat.get(b.format) ?? 0) + b.count)
+	}
+	const [winnerFormat, matched] = [...perFormat.entries()].sort((a, b) => b[1] - a[1])[0]
+	const winnerVariant = breakdown.find((b) => b.format === winnerFormat)?.variant
+	const runnerUp = Math.max(
+		0,
+		...[...perFormat.entries()].filter(([f]) => f !== winnerFormat).map(([, c]) => c),
+	)
+	const confidence = matched / usable.length
+	const mixed = runnerUp >= usable.length * 0.25 || confidence < MEDIA_FORMAT_CONFIDENCE_THRESHOLD
+
 	return {
-		format: winner.format,
-		variant: winner.variant,
-		matched: winner.count,
+		format: winnerFormat,
+		variant: winnerVariant,
+		matched,
 		sampled: usable.length,
+		confidence,
+		mixed,
 		breakdown: breakdown.map((b) => ({ format: b.format, count: b.count, variant: b.variant })),
 		suggestedVariant,
 	}
