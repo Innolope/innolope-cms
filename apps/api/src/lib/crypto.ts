@@ -5,13 +5,19 @@ const IV_LENGTH = 12
 const AUTH_TAG_LENGTH = 16
 
 function getKey(): Buffer {
-	const key = process.env.SSO_ENCRYPTION_KEY
+	// One key encrypts every secret at rest (SSO client secrets, integration
+	// OAuth tokens). INTEGRATION_ENCRYPTION_KEY exists so instances that never
+	// configured SSO get an aptly-named variable; SSO_ENCRYPTION_KEY remains the
+	// legacy/primary name.
+	const key = process.env.SSO_ENCRYPTION_KEY || process.env.INTEGRATION_ENCRYPTION_KEY
 	if (!key) {
-		throw new Error('SSO_ENCRYPTION_KEY is not set')
+		throw new Error(
+			'SSO_ENCRYPTION_KEY (or INTEGRATION_ENCRYPTION_KEY) is not set — required to encrypt stored secrets',
+		)
 	}
 	const buf = Buffer.from(key, 'base64')
 	if (buf.length !== 32) {
-		throw new Error('SSO_ENCRYPTION_KEY must be 32 bytes base64-encoded (256 bits)')
+		throw new Error('The encryption key must be 32 bytes base64-encoded (256 bits)')
 	}
 	return buf
 }

@@ -157,6 +157,7 @@ export async function unsplashRoutes(app: FastifyInstance) {
 				.limit(1)
 			const resolved = await resolveMediaAdapter(project?.settings, {
 				projectId: getProject(request).id,
+				app,
 			})
 			const result = await resolved.adapter.upload(buffer, filename, 'image/jpeg')
 

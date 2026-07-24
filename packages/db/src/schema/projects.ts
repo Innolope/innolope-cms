@@ -63,6 +63,8 @@ export interface ProjectSettings {
 	 */
 	requireReview?: boolean
 	cloudflare?: {
+		/** 'oauth' when managed by the Connect Cloudflare flow; 'manual' / unset otherwise. */
+		source?: 'oauth' | 'manual'
 		accountId?: string
 		apiToken?: string
 		imagesAccountHash?: string

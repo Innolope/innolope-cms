@@ -1,6 +1,10 @@
 export { aiSettings } from './ai-settings.js'
 export { apiKeys } from './api-keys.js'
 export { auditLogs } from './audit-logs.js'
+export {
+	cloudflareConnections,
+	cloudflareOauthStates,
+} from './cloudflare-connections.js'
 export { collections } from './collections.js'
 export { content, contentVersions } from './content.js'
 export { contentAnalytics } from './content-analytics.js'

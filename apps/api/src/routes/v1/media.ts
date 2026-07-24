@@ -12,6 +12,7 @@ import {
 	resolveMediaAdapter,
 } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
+import { CloudflareReconnectError } from '../../services/cloudflare-oauth.js'
 
 /**
  * Ownership of a legacy row that predates the `origin` column: local files are
@@ -132,10 +133,11 @@ export async function mediaRoutes(app: FastifyInstance) {
 		try {
 			resolved = await resolveMediaAdapter(project?.settings, {
 				projectId: getProject(request).id,
+				app,
 			})
 			result = await resolved.adapter.upload(buffer, file.filename, file.mimetype)
 		} catch (err) {
-			if (err instanceof MediaConfigError) {
+			if (err instanceof MediaConfigError || err instanceof CloudflareReconnectError) {
 				return reply.status(400).send({ error: err.message })
 			}
 			throw err
@@ -246,10 +248,15 @@ export async function mediaRoutes(app: FastifyInstance) {
 					.where(eq(projects.id, getProject(request).id))
 					.limit(1)
 				try {
-					const { adapter } = await resolveMediaAdapter(project?.settings)
+					const { adapter } = await resolveMediaAdapter(project?.settings, {
+						projectId: getProject(request).id,
+						app,
+					})
 					await adapter.delete(item.externalId)
 				} catch (err) {
-					if (!(err instanceof MediaConfigError)) throw err
+					if (!(err instanceof MediaConfigError || err instanceof CloudflareReconnectError)) {
+						throw err
+					}
 				}
 			}
 			await app.db.delete(media).where(eq(media.id, request.params.id))

@@ -1,6 +1,7 @@
 import multipart from '@fastify/multipart'
 import type { ProjectSettings } from '@innolope/db'
 import type { MediaAdapter } from '@innolope/types'
+import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
 import { LocalFsAdapter } from '../adapters/local-fs.js'
 import { isCloudMode } from '../lib/cloud-mode.js'
@@ -89,7 +90,7 @@ export interface ResolvedMediaAdapter {
 	 * settings, or the operator's storage on self-host.
 	 */
 	origin: MediaOrigin
-	credsSource: 'project-settings' | 'env' | 'none'
+	credsSource: 'oauth' | 'project-settings' | 'env' | 'none'
 }
 
 /**
@@ -105,12 +106,34 @@ export interface ResolvedMediaAdapter {
  */
 export async function resolveMediaAdapter(
 	settings: ProjectSettings | undefined,
-	opts?: { projectId?: string },
+	opts?: { projectId?: string; app?: FastifyInstance },
 ): Promise<ResolvedMediaAdapter> {
 	const name = resolveAdapterName(settings)
 
 	if (name === 'cloudflare') {
 		const cf = settings?.cloudflare ?? {}
+
+		// Highest priority: an active "Connect Cloudflare" OAuth connection —
+		// the user's own account, tokens managed (and refreshed) server-side.
+		if (opts?.app && opts.projectId && cf.source === 'oauth') {
+			const { getAccessToken } = await import('../services/cloudflare-oauth.js')
+			const oauthToken = await getAccessToken(opts.app, opts.projectId)
+			if (oauthToken && cf.accountId && cf.imagesAccountHash) {
+				const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
+				return {
+					adapter: new CloudflareImagesAdapter({
+						accountId: cf.accountId,
+						apiToken: oauthToken,
+						accountHash: cf.imagesAccountHash,
+						defaultVariant: cf.imagesVariant || process.env.CLOUDFLARE_IMAGES_VARIANT,
+					}),
+					adapterName: 'cloudflare',
+					origin: 'project',
+					credsSource: 'oauth',
+				}
+			}
+		}
+
 		const hasOwnCreds = Boolean(cf.accountId && cf.apiToken && cf.imagesAccountHash)
 		const accountId = cf.accountId || process.env.CLOUDFLARE_ACCOUNT_ID
 		const apiToken = cf.apiToken || process.env.CLOUDFLARE_API_TOKEN

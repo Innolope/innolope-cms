@@ -32,6 +32,7 @@ import { customDomainRoutes } from './routes/v1/custom-domain.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
 import { feedbackRoutes } from './routes/v1/feedback.js'
+import { cloudflareIntegrationRoutes } from './routes/v1/integrations/cloudflare.js'
 import { inviteRoutes } from './routes/v1/invites.js'
 import { licenseRoutes } from './routes/v1/license.js'
 import { localeRoutes } from './routes/v1/locales.js'
@@ -350,6 +351,7 @@ export async function buildApp() {
 	await app.register(collectionRoutes, { prefix: '/api/v1/collections' })
 	await app.register(localeRoutes, { prefix: '/api/v1/locales' })
 	await app.register(mediaRoutes, { prefix: '/api/v1/media' })
+	await app.register(cloudflareIntegrationRoutes, { prefix: '/api/v1/integrations/cloudflare' })
 	await app.register(statsRoutes, { prefix: '/api/v1/stats' })
 	await app.register(feedbackRoutes, { prefix: '/api/v1/feedback' })
 	await app.register(streamRoutes, { prefix: '/api/v1/stream' })

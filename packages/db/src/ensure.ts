@@ -383,6 +383,35 @@ export async function ensureTables(connectionUrl: string) {
 		`
 
 		await sql`
+			CREATE TABLE IF NOT EXISTS cloudflare_connections (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+				"accountId" TEXT,
+				"accountName" TEXT,
+				"accessTokenEnc" TEXT NOT NULL,
+				"refreshTokenEnc" TEXT,
+				"accessTokenExpiresAt" TIMESTAMPTZ,
+				scopes TEXT[],
+				status TEXT NOT NULL,
+				"connectedByUserId" UUID REFERENCES users(id),
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
+			CREATE TABLE IF NOT EXISTS cloudflare_oauth_states (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				state TEXT NOT NULL UNIQUE,
+				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				verifier TEXT NOT NULL,
+				"expiresAt" TIMESTAMPTZ NOT NULL,
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
 			CREATE TABLE IF NOT EXISTS scim_tokens (
 				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 				"connectionId" UUID NOT NULL REFERENCES sso_connections(id) ON DELETE CASCADE,
@@ -517,6 +546,7 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_identities_conn_subject_idx ON user_identities("connectionId", subject)`
 		await sql`CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities("userId")`
 		await sql`CREATE INDEX IF NOT EXISTS sso_auth_states_expires_idx ON sso_auth_states("expiresAt")`
+		await sql`CREATE INDEX IF NOT EXISTS cloudflare_oauth_states_expires_idx ON cloudflare_oauth_states("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS sso_replay_cache_expires_idx ON sso_replay_cache("expiresAt")`
 		await sql`CREATE INDEX IF NOT EXISTS scim_tokens_conn_idx ON scim_tokens("connectionId")`
 		await sql`CREATE INDEX IF NOT EXISTS oauth_auth_codes_user_idx ON oauth_auth_codes("userId")`
