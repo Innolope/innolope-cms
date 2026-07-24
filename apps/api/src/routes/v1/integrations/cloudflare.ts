@@ -8,6 +8,8 @@
  * GET  /status         → connection state for the settings UI (never tokens)
  * POST /select-account → finalize when the grant spans several accounts
  * POST /disconnect     → best-effort revoke + forget
+ * GET  /migration      → platform-hosted media count + job progress
+ * POST /migrate        → copy platform-hosted media into the connected account
  */
 import { cloudflareConnections, cloudflareOauthStates, projects } from '@innolope/db'
 import { and, eq, lt } from 'drizzle-orm'
@@ -15,6 +17,11 @@ import type { FastifyInstance } from 'fastify'
 import { encryptSecret } from '../../../lib/crypto.js'
 import { getUser } from '../../../plugins/auth.js'
 import { getProject } from '../../../plugins/project.js'
+import {
+	countMigratableMedia,
+	migrationProgress,
+	startMigration,
+} from '../../../services/cloudflare-migration.js'
 import {
 	buildAuthorizeUrl,
 	type CloudflareTokens,
@@ -260,6 +267,29 @@ export async function cloudflareIntegrationRoutes(app: FastifyInstance) {
 				.where(eq(projects.id, pid))
 		}
 		return { ok: true }
+	})
+
+	// Migration of platform-hosted media into the connected account: candidate
+	// count + progress of a running job.
+	app.get('/migration', { preHandler: [app.requireProject('admin')] }, async (request) => {
+		const pid = getProject(request).id
+		return {
+			candidates: await countMigratableMedia(app, pid),
+			job: migrationProgress(pid),
+		}
+	})
+
+	app.post('/migrate', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
+		const pid = getProject(request).id
+		try {
+			const started = await startMigration(app, pid)
+			if (!started) return reply.status(409).send({ error: 'A migration is already running' })
+			return { started: true }
+		} catch (err) {
+			return reply
+				.status(400)
+				.send({ error: err instanceof Error ? err.message : 'Could not start the migration' })
+		}
 	})
 }
 

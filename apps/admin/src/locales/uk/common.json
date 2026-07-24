@@ -445,7 +445,15 @@
 				"chooseAccountDesc": "Ваш дозвіл охоплює кілька акаунтів. Оберіть той, де зберігати медіа.",
 				"chooseAccountConfirm": "Використати цей акаунт",
 				"connectedToast": "Cloudflare підключено",
-				"errorToast": "Не вдалося підключити Cloudflare ({{reason}})"
+				"errorToast": "Не вдалося підключити Cloudflare ({{reason}})",
+				"migratePrompt": "Зображень усе ще в акаунті Innolope: {{count}}.",
+				"migrateButton": "Перенести {{count}} зображень у ваш акаунт",
+				"migrateTitle": "Перенести зображення у ваш акаунт Cloudflare?",
+				"migrateMessage": "{{count}} зображень буде скопійовано у ваш акаунт, а всі посилання в контенті оновлено на нові URL. Оригінали залишаться в акаунті Innolope як резерв.",
+				"migrateConfirm": "Перенести",
+				"migrateRunning": "Перенесення… {{processed}} з {{total}}",
+				"migrateDone": "Перенесення завершено — переміщено {{migrated}} зображень.",
+				"migrateDonePartial": "Перенесення завершено — {{migrated}} переміщено, {{failed}} з помилкою (можна повторити)."
 			},
 			"storageAdapter": "Адаптер сховища",
 			"setViaEnv": "Встановлено через змінну середовища",

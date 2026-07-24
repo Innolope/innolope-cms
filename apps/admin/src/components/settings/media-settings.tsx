@@ -31,6 +31,18 @@ interface CfConnectStatus {
 	accounts?: Array<{ id: string; name: string }>
 }
 
+interface MigrationState {
+	candidates: number
+	job: {
+		status: 'running' | 'done' | 'error'
+		total: number
+		processed: number
+		migrated: number
+		failed: Array<{ id: string; filename: string; error: string }>
+		error?: string
+	} | null
+}
+
 /**
  * One-click "Connect Cloudflare" — the OAuth alternative to typing an account
  * id, API token and Images hash by hand. Everything after consent (account id,
@@ -50,6 +62,43 @@ function CloudflareConnectCard({
 	const confirm = useConfirm()
 	const [busy, setBusy] = useState(false)
 	const [chosenAccount, setChosenAccount] = useState('')
+	const [migration, setMigration] = useState<MigrationState | null>(null)
+
+	const refreshMigration = useCallback(async () => {
+		try {
+			setMigration(await api.get<MigrationState>('/api/v1/integrations/cloudflare/migration'))
+		} catch {
+			// non-fatal — the card just hides the migration block
+		}
+	}, [])
+
+	// Once connected, offer moving platform-hosted images into the user's own
+	// account.
+	useEffect(() => {
+		if (status.status === 'active') refreshMigration()
+	}, [status.status, refreshMigration])
+
+	// While a migration runs, each state update schedules the next poll.
+	useEffect(() => {
+		if (migration?.job?.status !== 'running') return
+		const timer = setTimeout(refreshMigration, 2000)
+		return () => clearTimeout(timer)
+	}, [migration, refreshMigration])
+
+	const migrate = async () => {
+		const ok = await confirm({
+			title: t('settings.media.connect.migrateTitle'),
+			message: t('settings.media.connect.migrateMessage', { count: migration?.candidates ?? 0 }),
+			confirmLabel: t('settings.media.connect.migrateConfirm'),
+		})
+		if (!ok) return
+		try {
+			await api.post('/api/v1/integrations/cloudflare/migrate', {})
+			await refreshMigration()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.media.saveFailed'), 'error')
+		}
+	}
 
 	// The OAuth callback lands back here with ?cf=… — turn it into feedback.
 	useEffect(() => {
@@ -146,6 +195,38 @@ function CloudflareConnectCard({
 					<p className="mt-1 text-xs text-text-muted">
 						{t('settings.media.connect.connectedDesc')}
 					</p>
+					{migration?.job?.status === 'running' ? (
+						<p className="mt-2 text-xs text-text-secondary">
+							{t('settings.media.connect.migrateRunning', {
+								processed: migration.job.processed,
+								total: migration.job.total,
+							})}
+						</p>
+					) : migration?.job?.status === 'done' ? (
+						<p className="mt-2 text-xs text-text-secondary">
+							{migration.job.failed.length > 0
+								? t('settings.media.connect.migrateDonePartial', {
+										migrated: migration.job.migrated,
+										failed: migration.job.failed.length,
+									})
+								: t('settings.media.connect.migrateDone', {
+										migrated: migration.job.migrated,
+									})}
+						</p>
+					) : (migration?.candidates ?? 0) > 0 ? (
+						<div className="mt-2">
+							<p className="text-xs text-text-secondary">
+								{t('settings.media.connect.migratePrompt', { count: migration?.candidates })}
+							</p>
+							<button
+								type="button"
+								onClick={migrate}
+								className="mt-1.5 rounded border border-border px-2.5 py-1 text-xs text-text hover:bg-surface-alt"
+							>
+								{t('settings.media.connect.migrateButton', { count: migration?.candidates })}
+							</button>
+						</div>
+					) : null}
 					<button
 						type="button"
 						onClick={disconnect}

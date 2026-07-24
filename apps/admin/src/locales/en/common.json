@@ -441,7 +441,15 @@
 				"chooseAccountDesc": "Your grant covers several accounts. Pick the one to store media in.",
 				"chooseAccountConfirm": "Use this account",
 				"connectedToast": "Cloudflare connected",
-				"errorToast": "Cloudflare connection failed ({{reason}})"
+				"errorToast": "Cloudflare connection failed ({{reason}})",
+				"migratePrompt": "{{count}} images are still stored in Innolope's account.",
+				"migrateButton": "Move {{count}} images to your account",
+				"migrateTitle": "Move images to your Cloudflare account?",
+				"migrateMessage": "{{count}} images will be copied into your account and every reference in your content updated to the new URLs. The originals stay in Innolope's account as a backup.",
+				"migrateConfirm": "Move images",
+				"migrateRunning": "Moving images… {{processed}} of {{total}}",
+				"migrateDone": "Migration complete — {{migrated}} images moved.",
+				"migrateDonePartial": "Migration finished — {{migrated}} moved, {{failed}} failed (retry any time)."
 			},
 			"storageAdapter": "Storage adapter",
 			"setViaEnv": "Set via environment variable",
