@@ -5,7 +5,7 @@ import { Dropdown } from '../components/dropdown'
 import { LicenseGate } from '../components/license-gate'
 import { ImageThumb } from '../components/media/image-thumb'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
-import { api } from '../lib/api-client'
+import { ApiError, api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
 import { useConfirm } from '../lib/confirm'
@@ -123,7 +123,25 @@ function MediaLibraryContent() {
 			danger: true,
 		})
 		if (!ok) return
-		await api.delete(`/api/v1/media/${id}`)
+		try {
+			await api.delete(`/api/v1/media/${id}`)
+		} catch (err) {
+			// 409 = the file is still referenced by content; deleting would break
+			// those images. Surface the usage count and require a second, explicit
+			// confirmation before forcing.
+			if (err instanceof ApiError && err.status === 409) {
+				const forced = await confirm({
+					title: t('mediaRoute.delete.inUseTitle'),
+					message: err.message,
+					confirmLabel: t('mediaRoute.delete.inUseConfirm'),
+					danger: true,
+				})
+				if (!forced) return
+				await api.delete(`/api/v1/media/${id}?force=true`)
+			} else {
+				throw err
+			}
+		}
 		setSelected(null)
 		fetchMedia()
 	}

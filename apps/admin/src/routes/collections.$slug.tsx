@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
+import { ImageThumb } from '../components/media/image-thumb'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
@@ -274,7 +275,7 @@ function renderMetadataValue(value: unknown, ctx?: ColumnRenderCtx): ReactNode {
 		const imgUrl = extractImageUrl(value)
 		if (imgUrl)
 			return (
-				<img src={imgUrl} alt="" className="h-8 w-8 rounded object-cover border border-border" />
+				<ImageThumb url={imgUrl} className="h-8 w-8 rounded object-cover border border-border" />
 			)
 		// Localized `{ locale: text }` map — show the interface-language value.
 		if (ctx && isLocaleMap(value, ctx.locales)) {

@@ -1543,7 +1543,9 @@
 		"delete": {
 			"title": "Delete file",
 			"message": "Delete this file permanently? This cannot be undone.",
-			"confirm": "Delete"
+			"confirm": "Delete",
+			"inUseTitle": "File is still in use",
+			"inUseConfirm": "Delete anyway"
 		},
 		"details": {
 			"title": "Details",

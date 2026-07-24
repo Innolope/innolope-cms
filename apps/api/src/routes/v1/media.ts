@@ -1,4 +1,4 @@
-import { media, projects } from '@innolope/db'
+import { content, media, projects } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { cfImageVariants } from '../../lib/cf-images.js'
@@ -215,6 +215,30 @@ export async function mediaRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!item) return reply.status(404).send({ error: 'Media not found' })
+
+			// Deleting a file that content still points at breaks images everywhere
+			// that content renders. Refuse unless the caller explicitly forces it,
+			// so the UI can warn with the real usage count first.
+			const force = (request.query as { force?: string }).force === 'true'
+			if (!force && item.url) {
+				const needle = `%${item.url.replace(/([\\%_])/g, '\\$1')}%`
+				const [{ count }] = await app.db
+					.select({ count: sql<number>`count(*)` })
+					.from(content)
+					.where(
+						and(
+							eq(content.projectId, getProject(request).id),
+							sql`(${content.markdown} LIKE ${needle} OR ${content.metadata}::text LIKE ${needle})`,
+						),
+					)
+				const referencedBy = Number(count)
+				if (referencedBy > 0) {
+					return reply.status(409).send({
+						error: `This file is used in ${referencedBy} content item${referencedBy > 1 ? 's' : ''}. Deleting it will break those images.`,
+						referencedBy,
+					})
+				}
+			}
 			if (item.externalId) {
 				const [project] = await app.db
 					.select()
