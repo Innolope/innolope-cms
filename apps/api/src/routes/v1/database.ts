@@ -18,8 +18,14 @@ import {
 } from '../../adapters/mongo-introspect.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
+import {
+	customerVisibleUrl,
+	lintMediaValue,
+	type MediaHealthRow,
+	summarizeMediaHealth,
+} from '../../lib/media-health.js'
 import { detectMediaPathFormat } from '../../lib/media-path-format.js'
-import { getMediaStorageMap } from '../../lib/media-storage.js'
+import { getMediaStorageMap, resolveMediaValue } from '../../lib/media-storage.js'
 import { isWritableImportedStorage, uploadToImportedStorage } from '../../lib/media-upload.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -1435,4 +1441,293 @@ export async function databaseRoutes(app: FastifyInstance) {
 			}
 		},
 	)
+
+	// Judge the RAW stored values of an imported media library exactly as the
+	// customer's own site sees them. The CMS's read-side normalization can make a
+	// broken value render fine in-app — this check exists to unmask that.
+	app.post<{ Params: { id: string } }>(
+		'/:id/database/media-health',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { collectionId, limit } =
+				(request.body as { collectionId?: string; limit?: number }) || {}
+			if (!collectionId) return reply.status(400).send({ error: 'collectionId is required' })
+			const pid = getProject(request).id
+
+			const [col] = await app.db
+				.select()
+				.from(collections)
+				.where(and(eq(collections.id, collectionId), eq(collections.projectId, pid)))
+				.limit(1)
+			if (!col) return reply.status(404).send({ error: 'Collection not found' })
+			if (col.source !== 'external' || !col.externalTable) {
+				return reply.status(400).send({ error: 'Not an imported collection' })
+			}
+
+			const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+			const entry = getMediaStorageMap(project)[col.externalTable]
+			if (!entry?.pathColumn) {
+				return reply.status(400).send({ error: 'This library has no media storage configured' })
+			}
+			const saved = getSavedExternalDb(project)
+			const connStr = saved.connectionString as string | undefined
+			const dbType = saved.type as string | undefined
+			if (!connStr || !dbType) {
+				return reply.status(400).send({ error: 'No external database connection is saved' })
+			}
+			const ssrfError = await validateConnectionString(connStr)
+			if (ssrfError) return reply.status(400).send({ error: ssrfError })
+
+			const sampleLimit = Math.min(Math.max(Number(limit) || 25, 1), 100)
+			const adapter = createExternalDbAdapter({
+				type: dbType,
+				connectionString: connStr,
+				database: (saved.database as string | undefined) || undefined,
+			})
+			await adapter.connect()
+			let docs: Awaited<ReturnType<typeof adapter.findAll>>
+			try {
+				docs = await adapter.findAll(col.externalTable, { limit: sampleLimit, offset: 0 })
+			} finally {
+				await adapter.disconnect()
+			}
+
+			const checkRow = async (doc: (typeof docs)[number]): Promise<MediaHealthRow> => {
+				const externalId = String(doc._id)
+				const rawUnknown = doc[entry.pathColumn]
+				if (typeof rawUnknown !== 'string' || !rawUnknown.trim()) {
+					return {
+						externalId,
+						rawValue: typeof rawUnknown === 'string' ? rawUnknown : '',
+						verdict: 'skipped',
+						problems: ['empty-value'],
+						repairable: false,
+					}
+				}
+				const raw = rawUnknown.trim()
+				const lint = lintMediaValue(raw, entry)
+				const problems = [...lint.problems]
+
+				let url = customerVisibleUrl(raw, entry)
+				let signedCheckOnly = false
+				if (!url && entry.access === 'private' && entry.credentials) {
+					const resolved = await resolveMediaValue(raw, entry)
+					if (typeof resolved === 'string' && /^https?:\/\//i.test(resolved)) {
+						url = resolved
+						signedCheckOnly = true
+					}
+				}
+				if (!url) {
+					problems.push('not-probeable')
+					return { externalId, rawValue: raw, verdict: 'skipped', problems, repairable: false }
+				}
+				if (await validateConnectionString(url)) {
+					problems.push('unsafe-host')
+					return { externalId, rawValue: raw, verdict: 'skipped', problems, repairable: false }
+				}
+
+				const probed = await probeMediaUrl(url)
+				if (probed.ok) {
+					return {
+						externalId,
+						rawValue: raw,
+						verdict: 'ok',
+						problems,
+						repairable: true,
+						signedCheckOnly: signedCheckOnly || undefined,
+					}
+				}
+				problems.push(probed.status ? `http-${probed.status}` : 'network-error')
+
+				// Broken raw value — does the CMS's normalization hide it?
+				let masked = false
+				if (!signedCheckOnly) {
+					const normalized = await resolveMediaValue(raw, entry)
+					if (
+						typeof normalized === 'string' &&
+						normalized !== url &&
+						/^https?:\/\//i.test(normalized) &&
+						!(await validateConnectionString(normalized))
+					) {
+						masked = (await probeMediaUrl(normalized)).ok
+					}
+				}
+				if (masked) problems.push('masked-by-normalization')
+
+				// Only offer a repair that demonstrably resolves.
+				let suggestedFix: string | undefined
+				if (lint.suggestedFix && !(await validateConnectionString(lint.suggestedFix))) {
+					if ((await probeMediaUrl(lint.suggestedFix)).ok) suggestedFix = lint.suggestedFix
+				}
+
+				return {
+					externalId,
+					rawValue: raw,
+					verdict: masked ? 'masked' : 'broken',
+					problems,
+					suggestedFix,
+					repairable: lint.repairable && Boolean(suggestedFix),
+					signedCheckOnly: signedCheckOnly || undefined,
+				}
+			}
+
+			// Bounded concurrency: each row can cost several 8s-timeout probes.
+			const rows: MediaHealthRow[] = []
+			for (let i = 0; i < docs.length; i += 5) {
+				rows.push(...(await Promise.all(docs.slice(i, i + 5).map(checkRow))))
+			}
+
+			return { rows, summary: summarizeMediaHealth(rows) }
+		},
+	)
+
+	// Apply human-confirmed repairs to an imported media library. Every value is
+	// re-verified over HTTP immediately before it is written to the customer's DB.
+	app.post<{ Params: { id: string } }>(
+		'/:id/database/media-health/fix',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const { collectionId, rows, dryRun } =
+				(request.body as {
+					collectionId?: string
+					rows?: Array<{ externalId: string; newValue: string }>
+					dryRun?: boolean
+				}) || {}
+			if (!collectionId) return reply.status(400).send({ error: 'collectionId is required' })
+			if (!Array.isArray(rows) || rows.length === 0 || rows.length > 100) {
+				return reply.status(400).send({ error: 'rows must contain 1–100 entries' })
+			}
+			const pid = getProject(request).id
+
+			const [col] = await app.db
+				.select()
+				.from(collections)
+				.where(and(eq(collections.id, collectionId), eq(collections.projectId, pid)))
+				.limit(1)
+			if (!col) return reply.status(404).send({ error: 'Collection not found' })
+			if (col.source !== 'external' || !col.externalTable) {
+				return reply.status(400).send({ error: 'Not an imported collection' })
+			}
+			if (col.accessMode === 'read-only') {
+				return reply
+					.status(403)
+					.send({ error: 'This collection is connected read-only — fixes cannot be written' })
+			}
+
+			const [project] = await app.db.select().from(projects).where(eq(projects.id, pid)).limit(1)
+			if (!project) return reply.status(404).send({ error: 'Project not found' })
+			const entry = getMediaStorageMap(project)[col.externalTable]
+			if (!entry?.pathColumn) {
+				return reply.status(400).send({ error: 'This library has no media storage configured' })
+			}
+			const saved = getSavedExternalDb(project)
+			const connStr = saved.connectionString as string | undefined
+			const dbType = saved.type as string | undefined
+			if (!connStr || !dbType) {
+				return reply.status(400).send({ error: 'No external database connection is saved' })
+			}
+			const ssrfError = await validateConnectionString(connStr)
+			if (ssrfError) return reply.status(400).send({ error: ssrfError })
+
+			const verifyValue = async (newValue: string): Promise<string | null> => {
+				let url = customerVisibleUrl(newValue, entry)
+				if (!url && entry.access === 'private' && entry.credentials) {
+					const resolved = await resolveMediaValue(newValue, entry)
+					if (typeof resolved === 'string' && /^https?:\/\//i.test(resolved)) url = resolved
+				}
+				if (!url) return 'The new value cannot be verified against a URL'
+				if (await validateConnectionString(url)) return 'The new value resolves to a blocked host'
+				if (!(await probeMediaUrl(url)).ok)
+					return 'The new value does not resolve (HTTP check failed)'
+				return null
+			}
+
+			const adapter = createExternalDbAdapter({
+				type: dbType,
+				connectionString: connStr,
+				database: (saved.database as string | undefined) || undefined,
+			})
+			await adapter.connect()
+			const results: Array<{ externalId: string; ok: boolean; error?: string }> = []
+			try {
+				for (const row of rows) {
+					const newValue = typeof row.newValue === 'string' ? row.newValue.trim() : ''
+					if (!row.externalId || !newValue) {
+						results.push({ externalId: row.externalId ?? '', ok: false, error: 'Invalid row' })
+						continue
+					}
+					const verifyError = await verifyValue(newValue)
+					if (verifyError) {
+						results.push({ externalId: row.externalId, ok: false, error: verifyError })
+						continue
+					}
+					if (dryRun) {
+						results.push({ externalId: row.externalId, ok: true })
+						continue
+					}
+					try {
+						await adapter.update(col.externalTable, row.externalId, {
+							[entry.pathColumn]: newValue,
+						})
+						// Keep the local cache in step so the CMS shows the fixed value too.
+						const [cached] = await app.db
+							.select()
+							.from(content)
+							.where(
+								and(
+									eq(content.projectId, pid),
+									eq(content.collectionId, col.id),
+									eq(content.externalId, row.externalId),
+								),
+							)
+							.limit(1)
+						if (cached) {
+							const metadata = { ...((cached.metadata as Record<string, unknown>) || {}) }
+							metadata[entry.pathColumn] = newValue
+							await app.db
+								.update(content)
+								.set({ metadata, updatedAt: new Date() })
+								.where(eq(content.id, cached.id))
+						}
+						results.push({ externalId: row.externalId, ok: true })
+					} catch (err) {
+						results.push({
+							externalId: row.externalId,
+							ok: false,
+							error: err instanceof Error ? err.message : 'Update failed',
+						})
+					}
+				}
+			} finally {
+				await adapter.disconnect()
+			}
+
+			return {
+				results,
+				applied: dryRun ? 0 : results.filter((r) => r.ok).length,
+				dryRun: Boolean(dryRun),
+			}
+		},
+	)
+}
+
+/** GET the first byte of a URL to see whether it resolves; 8s timeout. */
+async function probeMediaUrl(url: string): Promise<{ ok: boolean; status?: number }> {
+	try {
+		const ctrl = new AbortController()
+		const timer = setTimeout(() => ctrl.abort(), 8000)
+		const res = await fetch(url, {
+			method: 'GET',
+			headers: { Range: 'bytes=0-0' },
+			redirect: 'follow',
+			signal: ctrl.signal,
+		})
+		clearTimeout(timer)
+		// Consume nothing: a Range request returns at most one byte anyway.
+		await res.body?.cancel()
+		return { ok: res.status === 200 || res.status === 206, status: res.status }
+	} catch {
+		return { ok: false }
+	}
 }

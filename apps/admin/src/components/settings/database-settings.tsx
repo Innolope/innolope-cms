@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
+import { useConfirm } from '../../lib/confirm'
 import {
 	type DetectedTable,
 	formatBytes,
@@ -2383,17 +2384,19 @@ function ImportedMediaStorage() {
 						hasCredentials: false,
 					}
 					return (
-						<MediaStorageCard
-							key={c.id}
-							name={c.name}
-							label={c.label || c.name}
-							columnNames={c.fields.map((f) => f.name)}
-							config={cfg}
-							probeState={probes[c.name]}
-							onChange={(patch) => update(c.name, patch)}
-							onChangeCreds={(patch) => updateCreds(c.name, patch)}
-							onProbe={() => probe(c.name)}
-						/>
+						<div key={c.id}>
+							<MediaStorageCard
+								name={c.name}
+								label={c.label || c.name}
+								columnNames={c.fields.map((f) => f.name)}
+								config={cfg}
+								probeState={probes[c.name]}
+								onChange={(patch) => update(c.name, patch)}
+								onChangeCreds={(patch) => updateCreds(c.name, patch)}
+								onProbe={() => probe(c.name)}
+							/>
+							<MediaHealthPanel collectionId={c.id} />
+						</div>
 					)
 				})}
 				<SaveBar
@@ -2405,5 +2408,202 @@ function ImportedMediaStorage() {
 				/>
 			</div>
 		</CollapsibleCard>
+	)
+}
+
+interface MediaHealthResponse {
+	rows: Array<{
+		externalId: string
+		rawValue: string
+		verdict: 'ok' | 'broken' | 'masked' | 'skipped'
+		problems: string[]
+		suggestedFix?: string
+		repairable: boolean
+	}>
+	summary: { total: number; ok: number; broken: number; masked: number; skipped: number }
+}
+
+/**
+ * On-demand check that an imported library's RAW stored values resolve the way
+ * the customer's own site reads them — the CMS's read-side normalization can
+ * make a broken value look fine in-app. Repairs are opt-in per row and the
+ * server re-verifies every value before writing it to the customer's database.
+ */
+function MediaHealthPanel({ collectionId }: { collectionId: string }) {
+	const { t } = useTranslation()
+	const { currentProject } = useAuth()
+	const toast = useToast()
+	const confirm = useConfirm()
+	const [loading, setLoading] = useState(false)
+	const [applying, setApplying] = useState(false)
+	const [data, setData] = useState<MediaHealthResponse | null>(null)
+	const [ticked, setTicked] = useState<Set<string>>(new Set())
+
+	const run = async () => {
+		if (!currentProject) return
+		setLoading(true)
+		setData(null)
+		setTicked(new Set())
+		try {
+			const res = await api.post<MediaHealthResponse>(
+				`/api/v1/projects/${currentProject.id}/database/media-health`,
+				{ collectionId, limit: 50 },
+			)
+			setData(res)
+			setTicked(new Set(res.rows.filter((r) => r.suggestedFix).map((r) => r.externalId)))
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.database.mediaHealth.failed'), 'error')
+		} finally {
+			setLoading(false)
+		}
+	}
+
+	const apply = async () => {
+		if (!currentProject || !data) return
+		const rows = data.rows
+			.filter((r) => r.suggestedFix && ticked.has(r.externalId))
+			.map((r) => ({ externalId: r.externalId, newValue: r.suggestedFix as string }))
+		if (rows.length === 0) return
+		const ok = await confirm({
+			title: t('settings.database.mediaHealth.applyConfirmTitle'),
+			message: t('settings.database.mediaHealth.applyConfirmMessage', { count: rows.length }),
+			confirmLabel: t('settings.database.mediaHealth.applyConfirmLabel'),
+		})
+		if (!ok) return
+		setApplying(true)
+		try {
+			const res = await api.post<{
+				results: Array<{ externalId: string; ok: boolean; error?: string }>
+				applied: number
+			}>(`/api/v1/projects/${currentProject.id}/database/media-health/fix`, {
+				collectionId,
+				rows,
+			})
+			const failed = res.results.filter((r) => !r.ok)
+			if (failed.length > 0) {
+				toast(
+					t('settings.database.mediaHealth.appliedPartial', {
+						applied: res.applied,
+						failed: failed.length,
+					}),
+					'error',
+				)
+			} else {
+				toast(t('settings.database.mediaHealth.applied', { count: res.applied }), 'success')
+			}
+			await run()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.database.mediaHealth.failed'), 'error')
+		} finally {
+			setApplying(false)
+		}
+	}
+
+	const verdictClass = (v: string) =>
+		v === 'ok'
+			? 'text-green-600 dark:text-green-400'
+			: v === 'skipped'
+				? 'text-text-muted'
+				: 'text-red-600 dark:text-red-400'
+
+	const findings = data ? data.rows.filter((r) => r.verdict !== 'ok') : []
+	const tickable = data ? data.rows.filter((r) => r.suggestedFix) : []
+
+	return (
+		<div className="mt-2 ml-1">
+			<div className="flex items-center gap-3">
+				<button
+					type="button"
+					onClick={run}
+					disabled={loading}
+					className="text-xs text-text-secondary underline underline-offset-2 hover:text-text disabled:opacity-50"
+				>
+					{loading
+						? t('settings.database.mediaHealth.running')
+						: t('settings.database.mediaHealth.run')}
+				</button>
+				{data && (
+					<span className="text-xs text-text-muted">
+						{t('settings.database.mediaHealth.summary', data.summary)}
+					</span>
+				)}
+			</div>
+			{data && findings.length > 0 && (
+				<div className="mt-2 max-w-2xl overflow-x-auto rounded border border-border">
+					<table className="w-full text-left text-xs">
+						<thead>
+							<tr className="border-b border-border text-text-muted">
+								<th className="px-2 py-1.5 font-normal">
+									{t('settings.database.mediaHealth.colStatus')}
+								</th>
+								<th className="px-2 py-1.5 font-normal">
+									{t('settings.database.mediaHealth.colValue')}
+								</th>
+								<th className="px-2 py-1.5 font-normal">
+									{t('settings.database.mediaHealth.colFix')}
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{findings.map((r) => (
+								<tr key={r.externalId} className="border-b border-border last:border-0 align-top">
+									<td className={`px-2 py-1.5 whitespace-nowrap ${verdictClass(r.verdict)}`}>
+										{t(`settings.database.mediaHealth.verdict.${r.verdict}`)}
+									</td>
+									<td className="px-2 py-1.5">
+										<span className="block max-w-[260px] truncate font-mono" title={r.rawValue}>
+											{r.rawValue || '—'}
+										</span>
+										{r.problems.length > 0 && (
+											<span className="text-[10px] text-text-muted">{r.problems.join(', ')}</span>
+										)}
+									</td>
+									<td className="px-2 py-1.5">
+										{r.suggestedFix ? (
+											<label className="flex items-start gap-1.5">
+												<input
+													type="checkbox"
+													checked={ticked.has(r.externalId)}
+													onChange={(e) => {
+														setTicked((prev) => {
+															const next = new Set(prev)
+															if (e.target.checked) next.add(r.externalId)
+															else next.delete(r.externalId)
+															return next
+														})
+													}}
+												/>
+												<span
+													className="block max-w-[260px] truncate font-mono"
+													title={r.suggestedFix}
+												>
+													{r.suggestedFix}
+												</span>
+											</label>
+										) : r.verdict === 'broken' || r.verdict === 'masked' ? (
+											<span className="text-text-muted">
+												{t('settings.database.mediaHealth.reupload')}
+											</span>
+										) : null}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+			{data && tickable.length > 0 && (
+				<button
+					type="button"
+					onClick={apply}
+					disabled={applying || ticked.size === 0}
+					className="mt-2 rounded border border-border px-2.5 py-1 text-xs text-text hover:bg-surface-alt disabled:opacity-50"
+				>
+					{applying
+						? t('settings.database.mediaHealth.applying')
+						: t('settings.database.mediaHealth.apply', { count: ticked.size })}
+				</button>
+			)}
+		</div>
 	)
 }

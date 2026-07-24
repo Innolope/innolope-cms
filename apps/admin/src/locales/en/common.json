@@ -814,6 +814,29 @@
 			"importedMediaDescription_one": "We check where the files for your imported media library are stored and show what we found below — confirm the host, and add credentials if they're private.",
 			"importedMediaDescription_other": "We check where the files for your imported media libraries are stored and show what we found below — confirm the host, and add credentials if they're private.",
 			"saveMediaStorage": "Save media storage",
+			"mediaHealth": {
+				"run": "Check media health",
+				"running": "Checking…",
+				"failed": "Media health check failed",
+				"summary": "{{ok}} ok · {{broken}} broken · {{masked}} masked · {{skipped}} skipped of {{total}} checked",
+				"colStatus": "Status",
+				"colValue": "Stored value",
+				"colFix": "Suggested fix",
+				"verdict": {
+					"ok": "OK",
+					"broken": "Broken",
+					"masked": "Broken on your site",
+					"skipped": "Skipped"
+				},
+				"reupload": "Re-upload needed — the file is missing from storage.",
+				"apply": "Apply {{count}} fixes",
+				"applying": "Applying…",
+				"applyConfirmTitle": "Write fixes to your database?",
+				"applyConfirmMessage": "{{count}} rows in your own database will be updated. Every new value has been verified to resolve over HTTP.",
+				"applyConfirmLabel": "Apply fixes",
+				"applied": "{{count}} rows fixed",
+				"appliedPartial": "{{applied}} rows fixed, {{failed}} failed"
+			},
 			"pathFormat": {
 				"label": "How paths are stored",
 				"unset": "Auto (detect from existing rows)",
