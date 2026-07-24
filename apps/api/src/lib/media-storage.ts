@@ -6,6 +6,7 @@
  * Public libraries: prefix relative paths with a configured base URL.
  * Private libraries: generate a short-lived presigned/signed URL using stored credentials.
  */
+import type { MediaPathFormat } from './media-path-format.js'
 import { cloudflareImageUrl, presignR2, signCloudflareImage } from './media-sign.js'
 
 export interface MediaStorageCredentials {
@@ -26,6 +27,15 @@ export interface MediaStorageEntry {
 	adapter: string
 	/** Column holding the file path/key. */
 	pathColumn: string
+	/**
+	 * The shape the source system stores in `pathColumn`, detected by sampling on
+	 * import and overridable in settings. New rows we write are formatted to match,
+	 * because the customer's site reads that column directly and never sees our
+	 * read-side normalization.
+	 */
+	pathFormat?: MediaPathFormat
+	/** Variant segment to use when `pathFormat` is `delivery-url-variant`. */
+	pathVariant?: string
 	/** Public base URL prepended to relative paths (public libraries). */
 	baseUrl?: string
 	/** Whether the files are publicly fetchable or require signed access. */

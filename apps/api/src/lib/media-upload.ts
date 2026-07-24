@@ -9,6 +9,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { CloudflareImagesAdapter } from '../adapters/cloudflare-images.js'
+import { formatMediaPath } from './media-path-format.js'
 import { presignR2Put } from './media-sign.js'
 import type { MediaStorageEntry } from './media-storage.js'
 
@@ -63,9 +64,14 @@ export async function uploadToImportedStorage(
 			accountHash: c.accountHash,
 		})
 		const result = await adapter.upload(buffer, filename, mimeType)
-		// The full delivery URL (`…/<hash>/<id>/public`), matching what the source
-		// system stores — see the note on `ImportedUploadResult.key`.
-		return { key: result.url }
+		// Match whatever shape this library already uses — see `formatMediaPath`.
+		return {
+			key: formatMediaPath(
+				{ id: result.id, url: result.url, accountHash: c.accountHash },
+				entry.pathFormat ?? 'delivery-url-variant',
+				entry.pathVariant,
+			),
+		}
 	}
 
 	if (entry.adapter === 'r2') {
@@ -94,7 +100,19 @@ export async function uploadToImportedStorage(
 		if (!res.ok) {
 			throw httpError(`R2 upload failed: ${res.status} ${res.statusText}`, 502)
 		}
-		return { key }
+		// R2 rows are presigned on read from the object key, so the key is the
+		// natural default — but a library that stores rooted paths or absolute CDN
+		// URLs gets those instead.
+		return {
+			key: formatMediaPath(
+				{
+					key,
+					url: entry.baseUrl ? `${entry.baseUrl.replace(/\/$/, '')}/${key}` : undefined,
+				},
+				entry.pathFormat ?? 'storage-key',
+				entry.pathVariant,
+			),
+		}
 	}
 
 	throw httpError(

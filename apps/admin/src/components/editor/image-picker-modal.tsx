@@ -12,6 +12,7 @@ import {
 } from '../../lib/media-sources'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
+import { ImageThumb } from '../media/image-thumb'
 import { UnsplashPicker } from '../media/unsplash-picker'
 
 export interface ImageSelection {
@@ -190,9 +191,10 @@ export function ImagePickerModal({ onSelect, onClose }: ImagePickerModalProps) {
 											title={asset.filename}
 											className="group relative aspect-square rounded-lg overflow-hidden border border-border hover:border-text-muted transition-colors"
 										>
-											<img
-												src={asset.variants?.thumbnail || asset.url}
+											<ImageThumb
+												url={asset.variants?.thumbnail || asset.url}
 												alt={asset.alt || asset.filename}
+												placeholderLabel={asset.filename}
 												className="w-full h-full object-cover"
 											/>
 											<span className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 text-[10px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">

@@ -810,7 +810,21 @@
 			"importedMediaTitle": "Imported media storage",
 			"importedMediaDescription_one": "We check where the files for your imported media library are stored and show what we found below — confirm the host, and add credentials if they're private.",
 			"importedMediaDescription_other": "We check where the files for your imported media libraries are stored and show what we found below — confirm the host, and add credentials if they're private.",
-			"saveMediaStorage": "Save media storage"
+			"saveMediaStorage": "Save media storage",
+			"pathFormat": {
+				"label": "How paths are stored",
+				"unset": "Auto (detect from existing rows)",
+				"help": "New uploads are written in this shape so the site reading this database can resolve them.",
+				"detected": "Detected {{format}} — matched {{matched}} of {{sampled}} sampled rows.",
+				"options": {
+					"delivery-url-variant": "Cloudflare delivery URL with variant (…/id/public)",
+					"delivery-url": "Cloudflare delivery URL, no variant (…/id)",
+					"absolute-url": "Absolute URL (https://…)",
+					"root-path": "Root-relative path (/uploads/a.jpg)",
+					"storage-key": "Bucket key (2024/a.jpg)",
+					"image-id": "Bare image ID"
+				}
+			}
 		}
 	},
 	"notFound": {

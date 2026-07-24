@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
 import { pickTitleField, resolveDisplayTitle } from '../../lib/display-title'
 import { useToast } from '../../lib/toast'
+import { ImageThumb } from '../media/image-thumb'
 
 interface RelatedDoc {
 	id: string
@@ -76,45 +77,8 @@ function resolveText(raw: unknown): string {
 	return ''
 }
 
-/** True when a string is usable as an <img> src (absolute URL, root path, or data URI). */
-function isImageUrl(value: string): boolean {
-	return /^(https?:\/\/|\/|data:image\/)/i.test(value.trim())
-}
-
 function docId(doc: RelatedDoc): string {
 	return doc.externalId || doc.id
-}
-
-function ImagePlaceholderIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			className={className}
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-		>
-			<rect x="3" y="3" width="18" height="18" rx="2" />
-			<circle cx="8.5" cy="8.5" r="1.5" />
-			<path d="m21 15-5-5L5 21" />
-		</svg>
-	)
-}
-
-/** Render an image, falling back to a placeholder icon for non-URL values or load errors. */
-function Thumb({ url, className }: { url: string; className: string }) {
-	const [failed, setFailed] = useState(false)
-	if (url && isImageUrl(url) && !failed) {
-		return <img src={url} alt="" className={className} onError={() => setFailed(true)} />
-	}
-	return (
-		<div className={`${className} flex items-center justify-center bg-input`}>
-			<ImagePlaceholderIcon className="h-1/2 w-1/2 text-text-muted" />
-		</div>
-	)
 }
 
 export function RelationField({
@@ -358,7 +322,7 @@ export function RelationField({
 							}`}
 						>
 							{urlField && (
-								<Thumb
+								<ImageThumb
 									key={docUrl}
 									url={docUrl}
 									className="h-6 w-6 shrink-0 rounded object-cover"
@@ -392,7 +356,7 @@ export function RelationField({
 		return (
 			<div className="space-y-1.5">
 				<div className="w-full aspect-video rounded border border-border overflow-hidden bg-input">
-					<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
+					<ImageThumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
 				</div>
 				{current && <p className="text-[10px] text-text-muted truncate">{docLabel(current)}</p>}
 				{!disabled && (
@@ -444,7 +408,7 @@ export function RelationField({
 			<div className="flex items-center gap-2">
 				{urlField && (
 					<div className="h-14 w-14 shrink-0 rounded border border-border overflow-hidden">
-						<Thumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
+						<ImageThumb key={currentUrl} url={currentUrl} className="h-full w-full object-cover" />
 					</div>
 				)}
 				<div className="relative flex-1 min-w-0" ref={ref}>

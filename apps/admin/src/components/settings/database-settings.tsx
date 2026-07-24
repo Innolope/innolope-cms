@@ -47,7 +47,25 @@ interface MediaStorageConfig {
 	credentials?: MediaCreds
 	/** Server flag: credentials are already stored (the values themselves are never sent). */
 	hasCredentials?: boolean
+	/**
+	 * Shape this library already stores in its path column. New uploads are written
+	 * to match, because the site reading this database never passes through the
+	 * CMS's read-side resolution.
+	 */
+	pathFormat?: string
+	/** Variant segment, when pathFormat is `delivery-url-variant`. */
+	pathVariant?: string
 }
+
+/** Selectable path shapes, in the order they're offered. Labels come from i18n. */
+export const MEDIA_PATH_FORMATS = [
+	'delivery-url-variant',
+	'delivery-url',
+	'absolute-url',
+	'root-path',
+	'storage-key',
+	'image-id',
+] as const
 
 // `label` is a brand name kept verbatim; `descKey` is an i18n key resolved at render.
 const DB_OPTIONS = [
@@ -627,6 +645,8 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					pathColumn: cfg.pathColumn,
 					access,
 				}
+				if (cfg.pathFormat) entry.pathFormat = cfg.pathFormat
+				if (cfg.pathVariant) entry.pathVariant = cfg.pathVariant
 				if (access === 'public') {
 					if (cfg.adapter !== 'absolute' && cfg.baseUrl.trim()) entry.baseUrl = cfg.baseUrl.trim()
 				} else {
@@ -739,21 +759,36 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		if (!cfg) return
 		setMediaProbes((p) => ({ ...p, [tableName]: { loading: true } }))
 		try {
-			const res = await api.post<{ result: string; detail?: string; provider?: string }>(
-				`/api/v1/projects/${currentProject.id}/database/media-probe`,
-				{
-					table: tableName,
-					type: dbType,
-					connectionString: connectionString || undefined,
-					database: selectedDb || undefined,
-					pathColumn: cfg.pathColumn,
-					baseUrl: cfg.baseUrl.trim() || undefined,
-				},
-			)
+			const res = await api.post<{
+				result: string
+				detail?: string
+				provider?: string
+				pathFormat?: ProbeState['pathFormat']
+			}>(`/api/v1/projects/${currentProject.id}/database/media-probe`, {
+				table: tableName,
+				type: dbType,
+				connectionString: connectionString || undefined,
+				database: selectedDb || undefined,
+				pathColumn: cfg.pathColumn,
+				baseUrl: cfg.baseUrl.trim() || undefined,
+			})
 			setMediaProbes((p) => ({
 				...p,
-				[tableName]: { result: res.result, detail: res.detail, provider: res.provider },
+				[tableName]: {
+					result: res.result,
+					detail: res.detail,
+					provider: res.provider,
+					pathFormat: res.pathFormat,
+				},
 			}))
+			// Preselect the shape the source already uses, so uploads we add later are
+			// written the same way. The user can still override it below.
+			if (res.pathFormat?.format) {
+				updateMediaConfig(tableName, {
+					pathFormat: res.pathFormat.format,
+					pathVariant: res.pathFormat.variant,
+				})
+			}
 			if (res.result === 'public')
 				updateMediaConfig(tableName, { access: 'public', adapter: 'custom-url' })
 			else if (res.result === 'private')
@@ -1636,6 +1671,13 @@ interface ProbeState {
 	detail?: string
 	/** Best-guess host detected from a sample URL (`r2`, `cloudflare-images`, …). */
 	provider?: string
+	/** How the source writes this column, detected from the same sample. */
+	pathFormat?: {
+		format: string
+		variant?: string
+		matched: number
+		sampled: number
+	}
 }
 
 function CredField({
@@ -1833,6 +1875,47 @@ function MediaStorageCard({
 								</button>
 							)
 						})}
+					</div>
+
+					{/* How this library writes its path column. Detected by sampling, and
+					    overridable — anything we upload later is written in this shape so the
+					    site reading the source database gets a value it can resolve. */}
+					<div>
+						<div className="block text-xs text-text-secondary mb-1">
+							{t('settings.database.pathFormat.label')}
+						</div>
+						<select
+							value={config.pathFormat || ''}
+							onChange={(e) => onChange({ pathFormat: e.target.value || undefined })}
+							className="w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text focus:outline-none focus:border-border-strong"
+						>
+							<option value="">{t('settings.database.pathFormat.unset')}</option>
+							{MEDIA_PATH_FORMATS.map((f) => (
+								<option key={f} value={f}>
+									{t(`settings.database.pathFormat.options.${f}`)}
+								</option>
+							))}
+						</select>
+						{config.pathFormat === 'delivery-url-variant' && (
+							<input
+								type="text"
+								value={config.pathVariant || ''}
+								onChange={(e) => onChange({ pathVariant: e.target.value || undefined })}
+								placeholder="public"
+								className="mt-2 w-full max-w-sm px-3 py-2 bg-input border border-border-strong rounded text-sm text-text font-mono focus:outline-none focus:border-border-strong"
+							/>
+						)}
+						<p className="mt-1 text-[11px] text-text-muted">
+							{probeState?.pathFormat
+								? t('settings.database.pathFormat.detected', {
+										format: t(
+											`settings.database.pathFormat.options.${probeState.pathFormat.format}`,
+										),
+										matched: probeState.pathFormat.matched,
+										sampled: probeState.pathFormat.sampled,
+									})
+								: t('settings.database.pathFormat.help')}
+						</p>
 					</div>
 
 					{/* Inputs for the chosen provider */}

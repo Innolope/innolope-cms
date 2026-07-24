@@ -18,6 +18,7 @@ import {
 } from '../../adapters/mongo-introspect.js'
 import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
+import { detectMediaPathFormat } from '../../lib/media-path-format.js'
 import { getMediaStorageMap } from '../../lib/media-storage.js'
 import { isWritableImportedStorage, uploadToImportedStorage } from '../../lib/media-upload.js'
 import { getUser } from '../../plugins/auth.js'
@@ -635,6 +636,51 @@ export async function databaseRoutes(app: FastifyInstance) {
 						mediaStorage ||
 						(savedExternalDb.mediaStorage as Record<string, unknown> | undefined) ||
 						undefined,
+				}
+
+				// Learn how each media library already stores its paths, so files we
+				// upload later are written in the same shape. The customer's own site
+				// reads that column directly and never sees our read-side resolution, so
+				// a mismatch renders as a broken image on their pages, not here.
+				// Only fills a format that hasn't been set (or overridden) yet.
+				const storageMap = (settings.externalDb as Record<string, unknown>).mediaStorage as
+					| Record<string, Record<string, unknown>>
+					| undefined
+				if (storageMap && effectiveConnectionString) {
+					for (const [table, entry] of Object.entries(storageMap)) {
+						if (!entry || typeof entry !== 'object') continue
+						if (entry.pathFormat) continue
+						const pathColumn = entry.pathColumn as string | undefined
+						if (!pathColumn) continue
+						try {
+							const adapter = createExternalDbAdapter({
+								type: type as string,
+								connectionString: effectiveConnectionString,
+								database: effectiveDatabase || undefined,
+							})
+							await adapter.connect()
+							let samples: string[] = []
+							try {
+								const docs = await adapter.findAll(table, { limit: 12, offset: 0 })
+								samples = docs
+									.map((doc) => (doc as Record<string, unknown>)[pathColumn])
+									.filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+							} finally {
+								await adapter.disconnect()
+							}
+							const detected = detectMediaPathFormat(samples)
+							if (!detected) continue
+							entry.pathFormat = detected.format
+							if (detected.variant) entry.pathVariant = detected.variant
+							warnings.push(
+								`"${table}" stores media paths as ${detected.format}${
+									detected.variant ? ` (variant "${detected.variant}")` : ''
+								} — matched ${detected.matched} of ${detected.sampled} sampled rows. New uploads will use this shape; change it under Imported media storage.`,
+							)
+						} catch (err) {
+							app.log.warn({ err, table }, 'Media path-format detection failed')
+						}
+					}
 				}
 			}
 
@@ -1308,6 +1354,9 @@ export async function databaseRoutes(app: FastifyInstance) {
 				privateHits,
 				sampleUrl,
 				provider: detectProvider(sampleUrl),
+				// How the source writes this column, so the settings UI can preselect
+				// the matching option (and show why) instead of making the user guess.
+				pathFormat: detectMediaPathFormat(values),
 			}
 		},
 	)

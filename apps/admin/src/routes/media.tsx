@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { LicenseGate } from '../components/license-gate'
+import { ImageThumb } from '../components/media/image-thumb'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
@@ -275,9 +276,10 @@ function MediaLibraryContent() {
 										}`}
 									>
 										{isImageAsset(item) ? (
-											<img
-												src={item.variants?.small || item.url}
+											<ImageThumb
+												url={item.variants?.small || item.url}
 												alt={item.alt || item.filename}
+												placeholderLabel={item.filename}
 												className="w-full h-full object-cover"
 											/>
 										) : (
@@ -327,10 +329,11 @@ function MediaLibraryContent() {
 				<div className="w-72 border-l border-border p-6 space-y-4 overflow-auto">
 					<h3 className="font-semibold text-sm">{t('mediaRoute.details.title')}</h3>
 					{isImageAsset(selected) && (
-						<img
-							src={selected.variants?.small || selected.url}
+						<ImageThumb
+							url={selected.variants?.small || selected.url}
 							alt={selected.alt || ''}
-							className="w-full rounded"
+							placeholderLabel={selected.filename}
+							className="w-full aspect-video rounded"
 						/>
 					)}
 					<dl className="text-sm space-y-2">
