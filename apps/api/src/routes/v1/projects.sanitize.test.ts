@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import type { projects } from '@innolope/db'
+import { describe, expect, it } from 'vitest'
 import { sanitizeProject } from './projects.js'
 
 const baseProject = (settings: Record<string, unknown>) =>

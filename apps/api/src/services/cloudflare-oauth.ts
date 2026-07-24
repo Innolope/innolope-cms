@@ -273,7 +273,7 @@ export async function getAccessToken(
 		.from(cloudflareConnections)
 		.where(eq(cloudflareConnections.projectId, projectId))
 		.limit(1)
-	if (!conn || conn.status !== 'active') return null
+	if (conn?.status !== 'active') return null
 
 	const expiresSoon =
 		conn.accessTokenExpiresAt && conn.accessTokenExpiresAt.getTime() - Date.now() < REFRESH_AHEAD_MS

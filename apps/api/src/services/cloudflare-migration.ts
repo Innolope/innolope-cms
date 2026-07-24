@@ -135,7 +135,7 @@ async function rewriteReferences(
 			col = loaded ?? null
 			colCache.set(row.collectionId, col)
 		}
-		if (!col || col.source !== 'external' || col.accessMode === 'read-only' || !col.externalTable) {
+		if (col?.source !== 'external' || col.accessMode === 'read-only' || !col.externalTable) {
 			continue
 		}
 		try {
