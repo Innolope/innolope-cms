@@ -37,4 +37,9 @@ describe('detectLocaleScriptMismatch', () => {
 	it('handles region-qualified locales', () => {
 		expect(detectLocaleScriptMismatch(UK_TEXT, 'en-US', ['en-US', 'uk-UA'])).toContain('"uk-UA"')
 	})
+
+	it('treats the informal "ua" code as Cyrillic (Klekit configures en+ua)', () => {
+		expect(detectLocaleScriptMismatch(UK_TEXT, 'en', ['en', 'ua'])).toContain('"ua"')
+		expect(detectLocaleScriptMismatch(UK_TEXT, 'ua', ['en', 'ua'])).toBeNull()
+	})
 })

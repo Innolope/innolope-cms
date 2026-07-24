@@ -76,8 +76,12 @@ function checkFieldType(field: CollectionField, value: unknown): string | null {
 	}
 }
 
-/** Locales whose primary script is Cyrillic — the distinction we can make cheaply. */
-const CYRILLIC_LOCALES = new Set(['uk', 'ru', 'be', 'bg', 'sr', 'mk', 'kk'])
+/**
+ * Locales whose primary script is Cyrillic — the distinction we can make
+ * cheaply. Includes "ua": not the ISO 639-1 code for Ukrainian (that's "uk"),
+ * but a common informal choice in real projects (Klekit configures en+ua).
+ */
+const CYRILLIC_LOCALES = new Set(['uk', 'ua', 'ru', 'be', 'bg', 'sr', 'mk', 'kk'])
 
 const baseLang = (locale: string) => locale.toLowerCase().split(/[-_]/)[0] ?? locale
 
