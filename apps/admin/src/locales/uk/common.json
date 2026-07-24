@@ -1587,7 +1587,15 @@
 			"files": "Файли"
 		},
 		"upload": "Завантажити",
+		"uploadTo": "Завантажити в {{target}}",
 		"uploading": "Завантаження…",
+		"filterChips": {
+			"all": "Усі"
+		},
+		"storageTags": {
+			"innolope": "Зберігає Innolope",
+			"yourStorage": "Ваше сховище"
+		},
 		"types": {
 			"video": "Відео",
 			"file": "Файл"
@@ -1612,6 +1620,7 @@
 			"size": "Розмір",
 			"url": "URL",
 			"copyUrl": "Копіювати URL",
+			"storage": "Сховище",
 			"uploaded": "Завантажено",
 			"altText": "Alt-текст",
 			"altPlaceholder": "Опишіть це зображення для пошукових систем і скрін-рідерів",

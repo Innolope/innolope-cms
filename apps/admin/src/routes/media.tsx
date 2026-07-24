@@ -11,9 +11,10 @@ import { useCollections } from '../lib/collections'
 import { useConfirm } from '../lib/confirm'
 import {
 	canUploadTo,
-	fetchMediaAssets,
+	fetchAllMediaAssets,
 	listMediaSources,
 	type MediaAsset,
+	type MediaSource,
 	PROJECT_LIBRARY_ID,
 	uploadToSource,
 } from '../lib/media-sources'
@@ -66,47 +67,57 @@ function MediaLibraryContent() {
 	const { collections } = useCollections()
 	const { currentProject } = useAuth()
 
-	// Media sources: the project library plus every imported media library. Without
-	// this the page showed only the project library while relation pickers offered a
-	// completely different set of files — the same asset was reachable from one place
-	// and invisible in the other.
+	// Media sources: the project library plus every imported media library. The
+	// grid shows all of them merged, newest first, each tile tagged with where
+	// its bytes live; chips narrow the view instead of a source dropdown.
 	const sources = listMediaSources(collections, t('mediaRoute.sources.library'))
-	const [sourceId, setSourceId] = useState<string>(PROJECT_LIBRARY_ID)
-	const source = sources.find((s) => s.id === sourceId) ?? sources[0]
-	const isImported = !!source?.collection
-	const canUpload = canUploadTo(source)
+	const [filterId, setFilterId] = useState<string>('all')
+	const activeSource = filterId === 'all' ? undefined : sources.find((s) => s.id === filterId)
+
+	// Where Upload sends files: an explicitly selected chip always wins. In the
+	// merged view, a project with exactly one writable imported library uploads
+	// there — that library is what the customer's site actually reads — and
+	// falls back to the project library otherwise.
+	const writableImported = sources.filter((s) => s.collection && canUploadTo(s))
+	const uploadTarget: MediaSource | undefined = activeSource
+		? canUploadTo(activeSource)
+			? activeSource
+			: undefined
+		: writableImported.length === 1
+			? writableImported[0]
+			: sources.find((s) => s.id === PROJECT_LIBRARY_ID)
+	const canUpload = Boolean(uploadTarget)
 
 	// Sync the alt-text editor whenever a different media item is opened.
 	useEffect(() => {
 		setAltDraft(selected?.alt || '')
 	}, [selected])
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the source id, not the derived object (whose identity changes every render).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the source count, not the derived array (whose identity changes every render).
 	const fetchMedia = useCallback(() => {
-		const active = sources.find((s) => s.id === sourceId) ?? sources[0]
-		if (!active) return
-		fetchMediaAssets(active, { limit: 50, type: typeFilter || undefined })
+		if (sources.length === 0) return
+		fetchAllMediaAssets(sources, { limit: 50, type: typeFilter || undefined })
 			.then(setItems)
 			.catch(() => {})
 			.finally(() => setReady(true))
-	}, [typeFilter, sourceId])
+	}, [typeFilter, sources.length])
 
 	useEffect(() => {
 		fetchMedia()
 	}, [fetchMedia])
 
-	// Switching source invalidates the open detail panel.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on sourceId alone.
+	// Narrowing the view invalidates the open detail panel.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on filterId alone.
 	useEffect(() => {
 		setSelected(null)
-	}, [sourceId])
+	}, [filterId])
 
 	const upload = async (files: FileList) => {
-		if (!source || !currentProject) return
+		if (!uploadTarget || !currentProject) return
 		setUploading(true)
 		for (const file of Array.from(files)) {
 			try {
-				await uploadToSource(source, file, currentProject.id)
+				await uploadToSource(uploadTarget, file, currentProject.id)
 			} catch {
 				// ignore individual failures
 			}
@@ -170,6 +181,20 @@ function MediaLibraryContent() {
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 	}
 
+	const visibleItems = filterId === 'all' ? items : items.filter((i) => i.sourceId === filterId)
+
+	/** Where an asset's bytes live, for the tag under each tile. */
+	const storageTag = (asset: MediaAsset) =>
+		asset.origin === 'platform'
+			? t('mediaRoute.storageTags.innolope')
+			: asset.origin === 'external'
+				? asset.sourceLabel
+				: t('mediaRoute.storageTags.yourStorage')
+
+	// Alt text and delete write through `/api/v1/media`, which only knows the
+	// project library; imported rows live in the customer's own database.
+	const selectedIsLibrary = selected?.sourceId === PROJECT_LIBRARY_ID
+
 	return (
 		<div className="flex h-full">
 			<div className="flex-1 p-8 pt-5 flex flex-col overflow-auto">
@@ -192,41 +217,53 @@ function MediaLibraryContent() {
 								{t('mediaRoute.tabs.unsplash')}
 							</button>
 						</div>
-						{/* Source switcher — only meaningful once an imported media library exists. */}
+						{/* Source filter chips — only meaningful once an imported media library exists. */}
 						{tab === 'uploaded' && sources.length > 1 && (
-							<Dropdown
-								value={sourceId}
-								onChange={setSourceId}
-								options={sources.map((s) => ({ value: s.id, label: s.label }))}
-								className="w-44"
-							/>
+							<div className="flex items-center gap-1.5">
+								{[{ id: 'all', label: t('mediaRoute.filterChips.all') }, ...sources].map((s) => (
+									<button
+										key={s.id}
+										type="button"
+										onClick={() => setFilterId(s.id)}
+										className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+											filterId === s.id
+												? 'border-text bg-surface-alt text-text'
+												: 'border-border text-text-secondary hover:text-text'
+										}`}
+									>
+										{s.label}
+									</button>
+								))}
+							</div>
 						)}
 					</div>
 					{items.length > 0 && (
 						<div className="flex items-center gap-2">
-							{/* The type filter is a project-library concept; imported libraries
-							    have no `type` column to filter on. */}
-							{!isImported && (
-								<Dropdown
-									value={typeFilter}
-									onChange={setTypeFilter}
-									options={[
-										{ value: '', label: t('mediaRoute.filter.all') },
-										{ value: 'image', label: t('mediaRoute.filter.images') },
-										{ value: 'video', label: t('mediaRoute.filter.videos') },
-										{ value: 'file', label: t('mediaRoute.filter.files') },
-									]}
-									className="w-32"
-								/>
-							)}
-							{canUpload && (
+							{/* The type filter only constrains project-library rows server-side;
+							    imported libraries rarely carry a type column and pass through. */}
+							<Dropdown
+								value={typeFilter}
+								onChange={setTypeFilter}
+								options={[
+									{ value: '', label: t('mediaRoute.filter.all') },
+									{ value: 'image', label: t('mediaRoute.filter.images') },
+									{ value: 'video', label: t('mediaRoute.filter.videos') },
+									{ value: 'file', label: t('mediaRoute.filter.files') },
+								]}
+								className="w-32"
+							/>
+							{canUpload && uploadTarget && (
 								<button
 									type="button"
 									onClick={() => fileRef.current?.click()}
 									disabled={uploading}
 									className="px-3 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
 								>
-									{uploading ? t('mediaRoute.uploading') : t('mediaRoute.upload')}
+									{uploading
+										? t('mediaRoute.uploading')
+										: uploadTarget.collection
+											? t('mediaRoute.uploadTo', { target: uploadTarget.label })
+											: t('mediaRoute.upload')}
 								</button>
 							)}
 							<input
@@ -247,7 +284,7 @@ function MediaLibraryContent() {
 					<div className="flex flex-col flex-1">
 						{!ready ? (
 							<div />
-						) : items.length === 0 ? (
+						) : visibleItems.length === 0 ? (
 							<div className="flex flex-col items-center pt-[15vh] text-center">
 								<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
 									<svg
@@ -282,37 +319,46 @@ function MediaLibraryContent() {
 							</div>
 						) : (
 							<div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-								{items.map((item) => (
-									<button
-										type="button"
-										key={item.id}
-										onClick={() => setSelected(item)}
-										className={`group relative aspect-square rounded-lg overflow-hidden border transition-colors ${
-											selected?.id === item.id
-												? 'border-text'
-												: 'border-border hover:border-text-muted'
-										}`}
-									>
-										{isImageAsset(item) ? (
-											<ImageThumb
-												url={item.variants?.small || item.url}
-												alt={item.alt || item.filename}
-												placeholderLabel={item.filename}
-												className="w-full h-full object-cover"
-											/>
-										) : (
-											<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
-												{item.mimeType?.startsWith('video/')
-													? t('mediaRoute.types.video')
-													: t('mediaRoute.types.file')}
-												<br />
+								{visibleItems.map((item) => (
+									<div key={`${item.sourceId}:${item.id}`}>
+										<button
+											type="button"
+											onClick={() => setSelected(item)}
+											className={`group relative block w-full aspect-square rounded-lg overflow-hidden border transition-colors ${
+												selected?.id === item.id && selected.sourceId === item.sourceId
+													? 'border-text'
+													: 'border-border hover:border-text-muted'
+											}`}
+										>
+											{isImageAsset(item) ? (
+												<ImageThumb
+													url={item.variants?.small || item.url}
+													alt={item.alt || item.filename}
+													placeholderLabel={item.filename}
+													className="w-full h-full object-cover"
+												/>
+											) : (
+												<div className="flex items-center justify-center h-full bg-surface text-text-secondary text-xs">
+													{item.mimeType?.startsWith('video/')
+														? t('mediaRoute.types.video')
+														: t('mediaRoute.types.file')}
+													<br />
+													{item.filename}
+												</div>
+											)}
+											<div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
 												{item.filename}
 											</div>
-										)}
-										<div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-xs text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
-											{item.filename}
+										</button>
+										<div className="mt-1 flex items-baseline justify-between gap-1.5 px-0.5">
+											<span className="truncate text-[11px] text-text-secondary">
+												{item.filename}
+											</span>
+											<span className="shrink-0 rounded bg-surface-alt px-1.5 py-px text-[10px] text-text-muted">
+												{storageTag(item)}
+											</span>
 										</div>
-									</button>
+									</div>
 								))}
 							</div>
 						)}
@@ -387,12 +433,11 @@ function MediaLibraryContent() {
 								<dd>{new Date(selected.createdAt).toLocaleString()}</dd>
 							</>
 						)}
+						<dt className="text-text-secondary">{t('mediaRoute.details.storage')}</dt>
+						<dd>{storageTag(selected)}</dd>
 					</dl>
 
-					{/* Alt text and delete write through `/api/v1/media`, which only knows the
-					    project library. An imported library's rows live in the customer's own
-					    database — edit or delete those from the collection itself. */}
-					{!isImported && isImageAsset(selected) && (
+					{selectedIsLibrary && isImageAsset(selected) && (
 						<div className="pt-4 border-t border-border space-y-1.5">
 							<label htmlFor="media-alt" className="text-text-secondary text-sm">
 								{t('mediaRoute.details.altText')}
@@ -417,7 +462,7 @@ function MediaLibraryContent() {
 					)}
 
 					<div className="pt-4 border-t border-border flex gap-2">
-						{!isImported && (
+						{selectedIsLibrary && (
 							<button
 								type="button"
 								onClick={() => deleteMedia(selected.id)}

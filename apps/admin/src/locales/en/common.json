@@ -1549,7 +1549,15 @@
 			"files": "Files"
 		},
 		"upload": "Upload",
+		"uploadTo": "Upload to {{target}}",
 		"uploading": "Uploading…",
+		"filterChips": {
+			"all": "All"
+		},
+		"storageTags": {
+			"innolope": "Managed by Innolope",
+			"yourStorage": "Your storage"
+		},
 		"types": {
 			"video": "Video",
 			"file": "File"
@@ -1574,6 +1582,7 @@
 			"size": "Size",
 			"url": "URL",
 			"copyUrl": "Copy URL",
+			"storage": "Storage",
 			"uploaded": "Uploaded",
 			"altText": "Alt text",
 			"altPlaceholder": "Describe this image for search engines and screen readers",

@@ -30,6 +30,15 @@ export interface MediaAsset {
 	createdAt?: string
 	/** Cloudflare Images renditions, project-library items only. */
 	variants?: { thumbnail: string; small: string; medium: string; large: string }
+	/** Which source this asset came from (`library` or a collection id). */
+	sourceId: string
+	sourceLabel: string
+	/**
+	 * Where the bytes live: `platform` = the shared cloud (Innolope) account,
+	 * `project` = the project's own storage, `external` = an imported library
+	 * in the customer's database. Drives the storage tag in the grid.
+	 */
+	origin?: 'platform' | 'project' | 'external'
 }
 
 export interface MediaSource {
@@ -78,6 +87,7 @@ interface RawMediaRow {
 	alt?: string | null
 	createdAt?: string
 	variants?: MediaAsset['variants']
+	origin?: 'platform' | 'project'
 }
 
 interface RawContentRow {
@@ -137,6 +147,9 @@ export async function fetchMediaAssets(
 			size: row.size,
 			createdAt: row.createdAt,
 			variants: row.variants,
+			sourceId: source.id,
+			sourceLabel: source.label,
+			origin: row.origin,
 		}))
 	}
 
@@ -170,9 +183,32 @@ export async function fetchMediaAssets(
 						? (meta[sizeField] as number)
 						: undefined,
 				createdAt: row.createdAt,
+				sourceId: source.id,
+				sourceLabel: source.label,
+				// Imported rows always live in the customer's own storage.
+				origin: 'external' as const,
 			}
 		})
 		.filter((a) => a.url !== '')
+}
+
+/**
+ * One merged, newest-first view over every source. Sources are fetched
+ * concurrently and independently — one broken imported library must not blank
+ * the whole grid, so failures just contribute nothing.
+ */
+export async function fetchAllMediaAssets(
+	sources: MediaSource[],
+	opts: { limit?: number; type?: string } = {},
+): Promise<MediaAsset[]> {
+	const results = await Promise.allSettled(sources.map((s) => fetchMediaAssets(s, opts)))
+	const merged = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+	return merged.sort((a, b) => {
+		// Undated rows sink to the end.
+		const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NEGATIVE_INFINITY
+		const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NEGATIVE_INFINITY
+		return tb - ta
+	})
 }
 
 /**
