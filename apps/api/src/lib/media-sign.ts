@@ -78,11 +78,16 @@ export async function presignR2Put(
  * A delivery URL is `/<accountHash>/<imageId>/<variant>` and the variant is
  * mandatory — `imagedelivery.net/<hash>/<id>` alone 404s. Sources that store the
  * bare id (or a URL without the trailing variant) are very common, so anything
- * missing one is given the account's default `public` variant.
+ * missing one is given `defaultVariant` — the library's configured variant name,
+ * falling back to Cloudflare's out-of-the-box `public`. Accounts can rename that
+ * variant, so callers that know the library should always pass theirs.
  */
-export function parseCloudflareImageValue(value: string): { imageId: string; variant: string } {
+export function parseCloudflareImageValue(
+	value: string,
+	defaultVariant = 'public',
+): { imageId: string; variant: string } {
 	let imageId = value
-	let variant = 'public'
+	let variant = defaultVariant
 	if (/^https?:\/\//i.test(value)) {
 		const parts = new URL(value).pathname.split('/').filter(Boolean)
 		// /<accountHash>/<imageId>/<variant>
@@ -100,8 +105,12 @@ export function parseCloudflareImageValue(value: string): { imageId: string; var
  * Build a complete, servable delivery URL from whatever shape the source stored —
  * a bare image id, a variant-less URL, or an already-complete URL.
  */
-export function cloudflareImageUrl(accountHash: string, value: string): string {
-	const { imageId, variant } = parseCloudflareImageValue(value)
+export function cloudflareImageUrl(
+	accountHash: string,
+	value: string,
+	defaultVariant?: string,
+): string {
+	const { imageId, variant } = parseCloudflareImageValue(value, defaultVariant)
 	return `https://imagedelivery.net/${accountHash}/${imageId}/${variant}`
 }
 
@@ -110,9 +119,10 @@ export function signCloudflareImage(
 	creds: ImagesCredentials,
 	value: string,
 	ttl = SIGNED_URL_TTL_SECONDS,
+	defaultVariant?: string,
 ): string {
 	// `value` may be a full delivery URL or a bare image id.
-	const { imageId, variant } = parseCloudflareImageValue(value)
+	const { imageId, variant } = parseCloudflareImageValue(value, defaultVariant)
 	const url = new URL(`https://imagedelivery.net/${creds.accountHash}/${imageId}/${variant}`)
 	url.searchParams.set('exp', String(Math.floor(Date.now() / 1000) + ttl))
 	const sig = createHmac('sha256', creds.signingKey)

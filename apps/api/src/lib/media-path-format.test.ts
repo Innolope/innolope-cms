@@ -72,6 +72,22 @@ describe('detectMediaPathFormat', () => {
 		])
 		expect(detected?.variant).toBe('public')
 	})
+
+	it('learns the account variant even when another format wins', () => {
+		const detected = detectMediaPathFormat([
+			'aaaaaaaa-1111-2222-3333-444444444444',
+			'bbbbbbbb-1111-2222-3333-444444444444',
+			'cccccccc-1111-2222-3333-444444444444',
+			`https://imagedelivery.net/${HASH}/d/hero`,
+		])
+		expect(detected?.format).toBe('image-id')
+		expect(detected?.suggestedVariant).toBe('hero')
+	})
+
+	it('suggests no variant when the sample has no complete delivery URLs', () => {
+		const detected = detectMediaPathFormat(['/uploads/a.jpg', '/uploads/b.jpg'])
+		expect(detected?.suggestedVariant).toBeUndefined()
+	})
 })
 
 describe('formatMediaPath', () => {

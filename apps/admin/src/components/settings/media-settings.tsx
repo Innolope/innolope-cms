@@ -28,6 +28,7 @@ export function MediaSettings() {
 	const [cfAccountId, setCfAccountId] = useState('')
 	const [cfApiToken, setCfApiToken] = useState('')
 	const [cfImagesHash, setCfImagesHash] = useState('')
+	const [cfImagesVariant, setCfImagesVariant] = useState('')
 	const [cfR2Bucket, setCfR2Bucket] = useState('')
 	const [cfR2AccessKey, setCfR2AccessKey] = useState('')
 	const [cfR2SecretKey, setCfR2SecretKey] = useState('')
@@ -50,6 +51,7 @@ export function MediaSettings() {
 			setCfAccountId((cf.accountId as string) || '')
 			setCfApiToken('')
 			setCfImagesHash((cf.imagesAccountHash as string) || '')
+			setCfImagesVariant((cf.imagesVariant as string) || '')
 			setCfR2Bucket((cf.r2Bucket as string) || '')
 			setCfR2AccessKey('')
 			setCfR2SecretKey('')
@@ -87,6 +89,7 @@ export function MediaSettings() {
 									accountId: cfAccountId,
 									apiToken: cfApiToken,
 									imagesAccountHash: cfImagesHash,
+									imagesVariant: cfImagesVariant,
 									r2Bucket: cfR2Bucket,
 									r2AccessKeyId: cfR2AccessKey,
 									r2SecretAccessKey: cfR2SecretKey,
@@ -187,6 +190,12 @@ export function MediaSettings() {
 							value={cfImagesHash}
 							onChange={setCfImagesHash}
 							envConfigured={envConfig?.env.imagesAccountHash}
+						/>
+						<CfField
+							label={t('settings.media.fields.imagesVariant')}
+							value={cfImagesVariant}
+							onChange={setCfImagesVariant}
+							placeholder="public"
 						/>
 						<CfField
 							label={t('settings.media.fields.r2Bucket')}

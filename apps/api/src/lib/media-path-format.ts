@@ -73,6 +73,13 @@ export interface DetectedMediaPathFormat extends ClassifiedMediaPath {
 	sampled: number
 	/** Every format seen, most common first — surfaced so the user can override. */
 	breakdown: Array<{ format: MediaPathFormat; count: number; variant?: string }>
+	/**
+	 * The account's variant name learned from any `delivery-url-variant` rows in
+	 * the sample — available even when another format wins, so a library that
+	 * mixes bare ids with a few complete URLs still reveals what its variant is
+	 * called (it is not always `public`).
+	 */
+	suggestedVariant?: string
 }
 
 /**
@@ -100,12 +107,16 @@ export function detectMediaPathFormat(values: string[]): DetectedMediaPathFormat
 
 	const breakdown = [...counts.values()].sort((a, b) => b.count - a.count)
 	const winner = breakdown[0]
+	const suggestedVariant = breakdown.find(
+		(b) => b.format === 'delivery-url-variant' && b.variant,
+	)?.variant
 	return {
 		format: winner.format,
 		variant: winner.variant,
 		matched: winner.count,
 		sampled: usable.length,
 		breakdown: breakdown.map((b) => ({ format: b.format, count: b.count, variant: b.variant })),
+		suggestedVariant,
 	}
 }
 

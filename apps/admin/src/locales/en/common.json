@@ -442,6 +442,7 @@
 				"accountId": "Account ID",
 				"apiToken": "API Token",
 				"imagesAccountHash": "Images Account Hash",
+				"imagesVariant": "Images Variant",
 				"r2Bucket": "R2 Bucket",
 				"r2AccessKeyId": "R2 Access Key ID",
 				"r2SecretAccessKey": "R2 Secret Access Key",

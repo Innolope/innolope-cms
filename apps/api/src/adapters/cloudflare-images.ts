@@ -4,6 +4,8 @@ interface CloudflareConfig {
 	accountId: string
 	apiToken: string
 	accountHash: string
+	/** Variant used in delivery URLs; accounts can rename the default `public`. */
+	defaultVariant?: string
 }
 
 export class CloudflareImagesAdapter implements MediaAdapter {
@@ -69,7 +71,7 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 		)
 	}
 
-	getUrl(id: string, variant = 'public'): string {
+	getUrl(id: string, variant = this.config.defaultVariant ?? 'public'): string {
 		return `https://imagedelivery.net/${this.config.accountHash}/${id}/${variant}`
 	}
 }

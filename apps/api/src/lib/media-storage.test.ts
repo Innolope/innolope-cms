@@ -20,6 +20,17 @@ describe('parseCloudflareImageValue', () => {
 		})
 	})
 
+	it('uses the caller-supplied default variant when the URL has none', () => {
+		expect(parseCloudflareImageValue(`https://imagedelivery.net/${HASH}/abc123`, 'hero')).toEqual({
+			imageId: 'abc123',
+			variant: 'hero',
+		})
+		expect(parseCloudflareImageValue('abc123', 'hero')).toEqual({
+			imageId: 'abc123',
+			variant: 'hero',
+		})
+	})
+
 	it('keeps an explicit variant', () => {
 		expect(parseCloudflareImageValue(`https://imagedelivery.net/${HASH}/abc123/thumb`)).toEqual({
 			imageId: 'abc123',
@@ -62,6 +73,27 @@ describe('resolveMediaValue — Cloudflare Images', () => {
 		await expect(resolveMediaValue('mami.png', cfEntry())).resolves.toBe(
 			`https://imagedelivery.net/${HASH}/mami.png/public`,
 		)
+	})
+
+	it('completes with the library-configured variant, not a hardcoded public', async () => {
+		await expect(
+			resolveMediaValue(
+				`https://imagedelivery.net/${HASH}/abc123`,
+				cfEntry({ pathVariant: 'hero' }),
+			),
+		).resolves.toBe(`https://imagedelivery.net/${HASH}/abc123/hero`)
+	})
+
+	it('signs with the library-configured variant', async () => {
+		const signed = (await resolveMediaValue(
+			'abc123',
+			cfEntry({
+				pathVariant: 'hero',
+				credentials: { accountHash: HASH, signingKey: 'deadbeef' },
+			}),
+		)) as string
+		expect(signed).toContain(`/${HASH}/abc123/hero`)
+		expect(signed).toContain('sig=')
 	})
 
 	it('still signs when a signing key is configured', async () => {

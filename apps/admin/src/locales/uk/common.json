@@ -446,6 +446,7 @@
 				"accountId": "ID акаунта",
 				"apiToken": "API-токен",
 				"imagesAccountHash": "Хеш акаунта Images",
+				"imagesVariant": "Варіант Images",
 				"r2Bucket": "Кошик R2",
 				"r2AccessKeyId": "Access Key ID для R2",
 				"r2SecretAccessKey": "Secret Access Key для R2",

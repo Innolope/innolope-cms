@@ -34,6 +34,7 @@ export async function createMediaAdapter(): Promise<MediaAdapter> {
 				accountId: requireEnv('CLOUDFLARE_ACCOUNT_ID'),
 				apiToken: requireEnv('CLOUDFLARE_API_TOKEN'),
 				accountHash: requireEnv('CLOUDFLARE_IMAGES_ACCOUNT_HASH'),
+				defaultVariant: process.env.CLOUDFLARE_IMAGES_VARIANT,
 			})
 		}
 		default:
@@ -78,7 +79,12 @@ export async function resolveMediaAdapter(
 			)
 		}
 		const { CloudflareImagesAdapter } = await import('../adapters/cloudflare-images.js')
-		return new CloudflareImagesAdapter({ accountId, apiToken, accountHash })
+		return new CloudflareImagesAdapter({
+			accountId,
+			apiToken,
+			accountHash,
+			defaultVariant: cf.imagesVariant || process.env.CLOUDFLARE_IMAGES_VARIANT,
+		})
 	}
 
 	// `s3` is declared in the ProjectSettings enum but has no adapter yet — fall back.

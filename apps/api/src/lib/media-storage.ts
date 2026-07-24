@@ -34,7 +34,13 @@ export interface MediaStorageEntry {
 	 * read-side normalization.
 	 */
 	pathFormat?: MediaPathFormat
-	/** Variant segment to use when `pathFormat` is `delivery-url-variant`. */
+	/**
+	 * The library's Cloudflare Images variant name. Used everywhere a delivery
+	 * URL is built or completed — writing new rows, completing variant-less
+	 * values on read, and signing private URLs. Defaults to `public` when unset,
+	 * but accounts can rename or delete that variant, so detection records the
+	 * variant the sampled rows actually use.
+	 */
 	pathVariant?: string
 	/** Public base URL prepended to relative paths (public libraries). */
 	baseUrl?: string
@@ -76,7 +82,7 @@ export async function resolveMediaValue(
 			accountHash &&
 			!(entry.access === 'private' && entry.credentials?.signingKey)
 		) {
-			return cloudflareImageUrl(accountHash, value)
+			return cloudflareImageUrl(accountHash, value, entry.pathVariant)
 		}
 	}
 
@@ -95,7 +101,12 @@ export async function resolveMediaValue(
 				)
 			}
 			if (entry.adapter === 'cloudflare-images' && c.accountHash && c.signingKey) {
-				return signCloudflareImage({ accountHash: c.accountHash, signingKey: c.signingKey }, value)
+				return signCloudflareImage(
+					{ accountHash: c.accountHash, signingKey: c.signingKey },
+					value,
+					undefined,
+					entry.pathVariant,
+				)
 			}
 		} catch {
 			return value

@@ -66,6 +66,15 @@ export interface ProjectSettings {
 		accountId?: string
 		apiToken?: string
 		imagesAccountHash?: string
+		/**
+		 * Cloudflare Images variant used when building delivery URLs
+		 * (`imagedelivery.net/<hash>/<id>/<variant>`). Defaults to `public`,
+		 * but accounts can rename or remove that variant.
+		 */
+		imagesVariant?: string
 		r2Bucket?: string
+		r2AccessKeyId?: string
+		r2SecretAccessKey?: string
+		r2Endpoint?: string
 	}
 }
