@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
+import { useConfirm } from '../../lib/confirm'
 import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
 import { SaveBar } from '../save-bar'
@@ -18,6 +19,198 @@ interface MediaEnvConfig {
 		r2SecretAccessKey: boolean
 		r2Endpoint: boolean
 	}
+}
+
+interface CfConnectStatus {
+	oauthAvailable: boolean
+	connected: boolean
+	status: 'pending_account' | 'active' | 'needs_reconnect' | null
+	accountId: string | null
+	accountName: string | null
+	scopes: string[]
+	accounts?: Array<{ id: string; name: string }>
+}
+
+/**
+ * One-click "Connect Cloudflare" — the OAuth alternative to typing an account
+ * id, API token and Images hash by hand. Everything after consent (account id,
+ * delivery hash, adapter selection) is discovered and written server-side.
+ */
+function CloudflareConnectCard({
+	status,
+	refresh,
+	onChanged,
+}: {
+	status: CfConnectStatus
+	refresh: () => Promise<void>
+	onChanged: () => Promise<void>
+}) {
+	const { t } = useTranslation()
+	const toast = useToast()
+	const confirm = useConfirm()
+	const [busy, setBusy] = useState(false)
+	const [chosenAccount, setChosenAccount] = useState('')
+
+	// The OAuth callback lands back here with ?cf=… — turn it into feedback.
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search)
+		const cf = params.get('cf')
+		if (!cf) return
+		if (cf === 'connected') {
+			toast(t('settings.media.connect.connectedToast'), 'success')
+			onChanged()
+		} else if (cf === 'error') {
+			toast(
+				t('settings.media.connect.errorToast', { reason: params.get('reason') || 'unknown' }),
+				'error',
+			)
+		}
+		const url = new URL(window.location.href)
+		url.searchParams.delete('cf')
+		url.searchParams.delete('reason')
+		window.history.replaceState({}, '', url.toString())
+	}, [toast, t, onChanged])
+
+	const start = async () => {
+		setBusy(true)
+		try {
+			const res = await api.post<{ url: string }>('/api/v1/integrations/cloudflare/start', {})
+			window.location.href = res.url
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.media.saveFailed'), 'error')
+			setBusy(false)
+		}
+	}
+
+	const selectAccount = async () => {
+		if (!chosenAccount) return
+		setBusy(true)
+		try {
+			await api.post('/api/v1/integrations/cloudflare/select-account', {
+				accountId: chosenAccount,
+			})
+			toast(t('settings.media.connect.connectedToast'), 'success')
+			await onChanged()
+			await refresh()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.media.saveFailed'), 'error')
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	const disconnect = async () => {
+		const ok = await confirm({
+			title: t('settings.media.connect.disconnectTitle'),
+			message: t('settings.media.connect.disconnectMessage'),
+			confirmLabel: t('settings.media.connect.disconnectConfirm'),
+			danger: true,
+		})
+		if (!ok) return
+		setBusy(true)
+		try {
+			await api.post('/api/v1/integrations/cloudflare/disconnect', {})
+			await onChanged()
+			await refresh()
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.media.saveFailed'), 'error')
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	return (
+		<div className="rounded-lg border border-border bg-surface p-4 max-w-xl">
+			{status.status === 'active' ? (
+				<div>
+					<div className="flex items-center gap-2">
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							className="text-accent shrink-0"
+						>
+							<polyline points="20 6 9 17 4 12" />
+						</svg>
+						<p className="text-sm font-medium text-text">
+							{t('settings.media.connect.connectedTo', {
+								account: status.accountName || status.accountId,
+							})}
+						</p>
+					</div>
+					<p className="mt-1 text-xs text-text-muted">
+						{t('settings.media.connect.connectedDesc')}
+					</p>
+					<button
+						type="button"
+						onClick={disconnect}
+						disabled={busy}
+						className="mt-3 rounded border border-border px-2.5 py-1 text-xs text-text hover:bg-surface-alt disabled:opacity-50"
+					>
+						{t('settings.media.connect.disconnect')}
+					</button>
+				</div>
+			) : status.status === 'pending_account' ? (
+				<div>
+					<p className="text-sm font-medium text-text">
+						{t('settings.media.connect.chooseAccountTitle')}
+					</p>
+					<p className="mt-1 text-xs text-text-muted">
+						{t('settings.media.connect.chooseAccountDesc')}
+					</p>
+					<div className="mt-2 space-y-1.5">
+						{(status.accounts || []).map((account) => (
+							<label key={account.id} className="flex items-center gap-2 text-sm text-text">
+								<input
+									type="radio"
+									name="cf-account"
+									value={account.id}
+									checked={chosenAccount === account.id}
+									onChange={() => setChosenAccount(account.id)}
+								/>
+								{account.name}
+							</label>
+						))}
+					</div>
+					<button
+						type="button"
+						onClick={selectAccount}
+						disabled={busy || !chosenAccount}
+						className="mt-3 rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+					>
+						{t('settings.media.connect.chooseAccountConfirm')}
+					</button>
+				</div>
+			) : (
+				<div>
+					{status.status === 'needs_reconnect' && (
+						<p className="mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+							{t('settings.media.connect.needsReconnect')}
+						</p>
+					)}
+					<p className="text-sm font-medium text-text">{t('settings.media.connect.title')}</p>
+					<p className="mt-1 text-xs text-text-muted">{t('settings.media.connect.desc')}</p>
+					<button
+						type="button"
+						onClick={start}
+						disabled={busy}
+						className="mt-3 rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+					>
+						{busy
+							? t('settings.media.connect.starting')
+							: status.status === 'needs_reconnect'
+								? t('settings.media.connect.reconnect')
+								: t('settings.media.connect.button')}
+					</button>
+				</div>
+			)}
+		</div>
+	)
 }
 
 export function MediaSettings() {
@@ -38,7 +231,21 @@ export function MediaSettings() {
 	const [envConfig, setEnvConfig] = useState<MediaEnvConfig | null>(null)
 	const [hasStoredToken, setHasStoredToken] = useState(false)
 	const [hasStoredR2Keys, setHasStoredR2Keys] = useState(false)
+	const [connectStatus, setConnectStatus] = useState<CfConnectStatus | null>(null)
 	const initialAdapter = useRef('local')
+
+	const refreshConnectStatus = useCallback(async () => {
+		if (!currentProject) return
+		try {
+			setConnectStatus(await api.get<CfConnectStatus>('/api/v1/integrations/cloudflare/status'))
+		} catch {
+			setConnectStatus(null)
+		}
+	}, [currentProject])
+
+	useEffect(() => {
+		refreshConnectStatus()
+	}, [refreshConnectStatus])
 
 	useEffect(() => {
 		if (currentProject) {
@@ -124,7 +331,8 @@ export function MediaSettings() {
 		return a
 	}
 
-	return (
+	const oauthAvailable = Boolean(connectStatus?.oauthAvailable)
+	const manualSection = (
 		<div className="space-y-4">
 			<div>
 				<div className="block text-xs text-text-secondary mb-1.5">
@@ -247,6 +455,31 @@ export function MediaSettings() {
 			)}
 
 			{!adapterSetViaEnv && <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />}
+		</div>
+	)
+
+	return (
+		<div className="space-y-4">
+			{connectStatus?.oauthAvailable && (
+				<CloudflareConnectCard
+					status={connectStatus}
+					refresh={refreshConnectStatus}
+					onChanged={async () => {
+						await refreshProjects()
+						await refreshConnectStatus()
+					}}
+				/>
+			)}
+			{oauthAvailable ? (
+				<details className="max-w-xl">
+					<summary className="cursor-pointer select-none text-xs text-text-secondary hover:text-text">
+						{t('settings.media.advanced')}
+					</summary>
+					<div className="mt-3">{manualSection}</div>
+				</details>
+			) : (
+				manualSection
+			)}
 		</div>
 	)
 }

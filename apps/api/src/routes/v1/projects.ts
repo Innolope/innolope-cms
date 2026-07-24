@@ -216,6 +216,9 @@ export async function projectRoutes(app: FastifyInstance) {
 				if (nextCf) {
 					// Drop the sanitized echo flags and restore secrets the client never saw.
 					const { hasApiToken: _t, hasR2Credentials: _r, ...cf } = nextCf
+					// `source: 'oauth'` marks a connection managed by the Connect flow;
+					// a settings save from the form must not silently drop it.
+					if (!cf.source && currentCf?.source) cf.source = currentCf.source
 					if (!cf.apiToken && currentCf?.apiToken) cf.apiToken = currentCf.apiToken
 					if (!cf.r2AccessKeyId && currentCf?.r2AccessKeyId) {
 						cf.r2AccessKeyId = currentCf.r2AccessKeyId
