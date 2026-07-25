@@ -97,6 +97,24 @@ describe('applyLocalizedWrite', () => {
 		expect(result).toEqual({ title: { en: 'English title', uk: 'Нова назва' } })
 	})
 
+	it('deletes one translation when its slot is null, keeping the rest', () => {
+		const result = applyLocalizedWrite(
+			localizedArticle,
+			{ metadata: { title: { uk: null } } },
+			{ locale: 'en', existing: { title: { en: 'English title', uk: 'Стара назва' } } },
+		)
+		expect(result).toEqual({ title: { en: 'English title' } })
+	})
+
+	it('folds the whole field to null when deleting its last translation', () => {
+		const result = applyLocalizedWrite(
+			localizedArticle,
+			{ metadata: { title: { en: null } } },
+			{ locale: 'en', existing: { title: { en: 'English title' } } },
+		)
+		expect(result).toEqual({ title: null })
+	})
+
 	it('folds the markdown body into the localized body field', () => {
 		const result = applyLocalizedWrite(
 			localizedArticle,

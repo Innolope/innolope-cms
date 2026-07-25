@@ -1,4 +1,5 @@
 import type { CollectionField } from '@innolope/config'
+import { isLocaleMap } from './localized-fields.js'
 
 export interface FieldValidationError {
 	field: string
@@ -13,7 +14,13 @@ export interface FieldValidationError {
  *  - required fields are enforced ONLY when the item is being published
  *    (`enforceRequired`) — drafts may be incomplete,
  *  - type checks are lenient (numeric strings count as numbers, any parseable
- *    value counts as a date) and skip ambiguous types (text/relation).
+ *    value counts as a date); text fields reject only shapes that can never
+ *    render (arrays, non-locale-map objects).
+ *
+ * On updates, `metadata` is the MERGED post-update view (so required-to-publish
+ * sees the whole record) while `updatedKeys` names the fields the write itself
+ * carried — type checks apply only to those, so a stored legacy value that
+ * predates a stricter check can never block an unrelated update.
  *
  * Returns a list of problems (empty = valid) so the caller can surface
  * field-level errors alongside the collection schema.
@@ -21,10 +28,11 @@ export interface FieldValidationError {
 export function validateContentMetadata(
 	fields: CollectionField[],
 	metadata: Record<string, unknown> | undefined,
-	opts: { enforceRequired: boolean },
+	opts: { enforceRequired: boolean; updatedKeys?: Iterable<string> },
 ): FieldValidationError[] {
 	const errors: FieldValidationError[] = []
 	const data = metadata ?? {}
+	const touched = opts.updatedKeys ? new Set(opts.updatedKeys) : null
 	for (const field of fields) {
 		const value = data[field.name]
 		const isEmpty = value === undefined || value === null || value === ''
@@ -34,6 +42,7 @@ export function validateContentMetadata(
 			}
 			continue
 		}
+		if (touched && !touched.has(field.name)) continue
 		const typeError = checkFieldType(field, value)
 		if (typeError) errors.push({ field: field.name, message: typeError })
 	}
@@ -70,10 +79,55 @@ function checkFieldType(field: CollectionField, value: unknown): string | null {
 			return typeof value === 'object' && !Array.isArray(value)
 				? null
 				: `"${field.name}" must be an object.`
+		case 'text': {
+			// Strings plus coercible scalars pass. Locale maps ({ en: "...", uk: "..." })
+			// pass on ANY text field — imported collections historically hold them
+			// without a `localized` flag, and the admin resolves them at runtime.
+			// Everything else (arrays, structured objects) would reach a rendering
+			// site as "[object Object]", so it is rejected at write time instead of
+			// being discovered on the published page.
+			if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+				return null
+			}
+			if (isLocaleMap(value)) return null
+			const shape = Array.isArray(value) ? 'an array' : `a ${typeof value}`
+			return `"${field.name}" is a text field and must be a plain string${
+				field.localized ? ' or a { locale: text } map (e.g. { "en": "...", "uk": "..." })' : ''
+			}, not ${shape}. It would be stored raw and render as "[object Object]" on the site. Structured data belongs in a field typed "object" or "array".`
+		}
 		default:
-			// text / relation and anything else — accept as-is to stay forgiving.
+			// relation and anything else — accept as-is to stay forgiving.
 			return null
 	}
+}
+
+/**
+ * Advisory (never blocking) warnings about the SHAPE of an incoming write —
+ * things that are legal to store but usually mean the caller misread the
+ * schema. Returned to the caller alongside the write result.
+ *
+ * Today: a { locale: text } map written to a text field that is NOT marked
+ * translatable. It is accepted (imported data legitimately looks like this),
+ * but an agent doing it on purpose almost always wanted either a translatable
+ * field or a plain string — say so instead of letting the mismatch surface as
+ * a rendering bug later.
+ */
+export function collectFieldWarnings(
+	fields: CollectionField[],
+	incoming: Record<string, unknown> | undefined,
+): string[] {
+	const warnings: string[] = []
+	if (!incoming) return warnings
+	for (const field of fields) {
+		if (field.type !== 'text' || field.localized) continue
+		if (!(field.name in incoming)) continue
+		if (isLocaleMap(incoming[field.name])) {
+			warnings.push(
+				`"${field.name}" received a { locale: text } map, but the field is not marked translatable — the map is stored as-is and sites that expect a plain string will render it wrong. Either pass a plain string, or mark the field localized in the collection schema so per-language values are handled properly.`,
+			)
+		}
+	}
+	return warnings
 }
 
 /**

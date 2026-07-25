@@ -14,7 +14,9 @@ import {
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
+import { contentFilterWhere } from '../../services/content-filter.js'
 import {
+	collectFieldWarnings,
 	contentValidationError,
 	detectLocaleScriptMismatch,
 	validateContentMetadata,
@@ -37,6 +39,8 @@ import {
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs } from '../../services/markdown-cache.js'
+import { mergeMetadataUpdate } from '../../services/metadata-merge.js'
+import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
 /**
  * Gate + validate a write that puts a record into `scheduled`.
@@ -60,6 +64,10 @@ function checkSchedulable(
 }
 
 export async function contentRoutes(app: FastifyInstance) {
+	// Multi-select actions for the list view. Registered here rather than in
+	// app.ts so they share this prefix and its project scoping.
+	await contentBulkActionRoutes(app)
+
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
 		const params = contentListSchema.parse(request.query)
@@ -121,52 +129,22 @@ export async function contentRoutes(app: FastifyInstance) {
 			}
 		}
 
-		const conditions = [eq(content.projectId, pid)]
-		if (status) conditions.push(eq(content.status, status))
-		if (collectionId) conditions.push(eq(content.collectionId, collectionId))
 		// When the caller has no specific collectionId filter, narrow the list to
 		// the collections they may read (single source of truth for read scoping).
+		let scopedCollectionIds: string[] | undefined
 		if (!collectionId) {
 			const scope = await resolveReadableCollectionScope(request)
 			if (scope.scoped) {
 				if (scope.allowedIds.length === 0) {
 					return { data: [], pagination: { page, limit, total: 0, totalPages: 0 } }
 				}
-				conditions.push(inArray(content.collectionId, scope.allowedIds))
-			}
-		}
-		if (locale) conditions.push(eq(content.locale, locale))
-		if (search) {
-			conditions.push(
-				sql`(${content.markdown} ILIKE ${`%${search}%`} OR ${content.metadata}::text ILIKE ${`%${search}%`})`,
-			)
-		}
-
-		// Date range filters — strings are passed through to Postgres which parses them
-		if (updatedFrom) conditions.push(sql`${content.updatedAt} >= ${updatedFrom}`)
-		if (updatedTo) conditions.push(sql`${content.updatedAt} <= ${updatedTo}`)
-		if (createdFrom) conditions.push(sql`${content.createdAt} >= ${createdFrom}`)
-		if (createdTo) conditions.push(sql`${content.createdAt} <= ${createdTo}`)
-		if (publishedFrom) conditions.push(sql`${content.publishedAt} >= ${publishedFrom}`)
-		if (publishedTo) conditions.push(sql`${content.publishedAt} <= ${publishedTo}`)
-
-		// Metadata equality filters: keys validated against identifier regex to keep injection out of sql.raw
-		if (metadata) {
-			try {
-				const parsed = JSON.parse(metadata) as Record<string, unknown>
-				if (parsed && typeof parsed === 'object') {
-					for (const [field, value] of Object.entries(parsed)) {
-						if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) continue
-						if (value === null || value === undefined || value === '') continue
-						conditions.push(sql`${content.metadata}->>${sql.raw(`'${field}'`)} = ${String(value)}`)
-					}
-				}
-			} catch {
-				// Ignore malformed metadata param rather than 500ing
+				scopedCollectionIds = scope.allowedIds
 			}
 		}
 
-		const where = and(...conditions)
+		// Shared with the bulk-action endpoint so "select all matching" resolves to
+		// exactly the rows this list shows.
+		const where = contentFilterWhere(params, { projectId: pid, scopedCollectionIds })
 		const orderDir = sortOrder === 'asc' ? asc : desc
 
 		// Resolve the requested sort into an order expression. Real columns sort directly;
@@ -569,7 +547,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			locale,
 			locales,
 		)
-		return reply.status(201).send(languageWarning ? { ...created, languageWarning } : created)
+		const fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
+		return reply.status(201).send({
+			...created,
+			...(languageWarning && { languageWarning }),
+			...(fieldWarnings.length > 0 && { fieldWarnings }),
+		})
 	})
 
 	// Bulk create content (editor+, project-scoped)
@@ -696,6 +679,9 @@ export async function contentRoutes(app: FastifyInstance) {
 				locales,
 			)
 			if (warning) languageWarnings.push({ index, warning })
+			for (const shapeWarning of collectFieldWarnings(col.fields, item.metadata)) {
+				languageWarnings.push({ index, warning: shapeWarning })
+			}
 		}
 
 		// Duplicate-slug pre-check across the batch (the transaction re-checks, this
@@ -967,10 +953,21 @@ export async function contentRoutes(app: FastifyInstance) {
 					locale: current.locale,
 					existing: current.metadata as Record<string, unknown>,
 				})
-				const merged = { ...(current.metadata as Record<string, unknown>), ...item.metadata }
-				const errors = validateContentMetadata(col.fields, merged, {
-					enforceRequired: mergedStatus === 'published',
-				})
+				// Same MERGE semantics as the single-item update: item.metadata becomes
+				// the full post-update blob (null deletes a key), so the transaction
+				// below writes the same fields everywhere — external row and cache alike.
+				const updatedKeys = Object.keys(item.metadata ?? {})
+				item.metadata = mergeMetadataUpdate(
+					current.metadata as Record<string, unknown>,
+					item.metadata,
+				)
+				const errors = validateContentMetadata(
+					col.fields,
+					item.metadata ?? (current.metadata as Record<string, unknown>),
+					// Type-check only the touched fields — legacy values must not block
+					// an unrelated update (mirrors the single-item path).
+					{ enforceRequired: mergedStatus === 'published', updatedKeys },
+				)
 				if (errors.length > 0) itemErrors.push({ index, id: item.id, errors })
 			}
 		}
@@ -1019,7 +1016,8 @@ export async function contentRoutes(app: FastifyInstance) {
 					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
 				}
 				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-					const nextMetadata = { ...current.metadata, ...item.metadata }
+					// item.metadata was already merged with the stored blob in the pre-pass.
+					const nextMetadata = item.metadata ?? (current.metadata as Record<string, unknown>)
 					const now = new Date()
 					const externalData = buildExternalData(col, {
 						slug: item.slug ?? current.slug,
@@ -1044,7 +1042,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}
 					// Keep the cache in step with what the external row now holds, so the
 					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata = mergeExternalTimestamps(item.metadata ?? current.metadata, externalData)
+					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData)
 				}
 
 				await tx.insert(contentVersions).values({
@@ -1176,16 +1174,14 @@ export async function contentRoutes(app: FastifyInstance) {
 				updatedAt: _ua,
 				...input
 			} = contentInputSchema.partial().parse(request.body)
-			// Frontmatter normalization on update. Unlike create, `metadata` here has
-			// REPLACE semantics — so frontmatter-only fields must not become the whole
-			// metadata. Strip the block now; merge the fields after `current` loads
-			// (into explicit metadata if provided, else into the current row's).
-			let frontmatterMeta: Record<string, unknown> | undefined
+			// Frontmatter normalization on update: strip the block and fold its fields
+			// into the incoming metadata (explicit metadata keys win). The merge with
+			// the stored row happens below for all metadata alike.
 			if (input.markdown !== undefined) {
 				const { body, meta } = parseFrontmatter(input.markdown)
 				if (Object.keys(meta).length > 0) {
 					input.markdown = body
-					frontmatterMeta = meta
+					input.metadata = { ...meta, ...(input.metadata ?? {}) }
 				}
 			}
 
@@ -1211,15 +1207,6 @@ export async function contentRoutes(app: FastifyInstance) {
 				return reply.status(scheduleError.status).send({ error: scheduleError.error })
 			}
 
-			// Fold stripped frontmatter fields in: under explicit metadata when the
-			// caller sent one (their keys win), otherwise into the current metadata so
-			// a markdown-only update never wipes unrelated fields.
-			if (frontmatterMeta) {
-				input.metadata = input.metadata
-					? { ...frontmatterMeta, ...input.metadata }
-					: { ...(current.metadata as Record<string, unknown>), ...frontmatterMeta }
-			}
-
 			const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write')
 			if (!writeAccess.ok) {
 				return reply.status(writeAccess.status).send({ error: writeAccess.error })
@@ -1241,24 +1228,37 @@ export async function contentRoutes(app: FastifyInstance) {
 				return reply.status(403).send({ error: 'This collection is read-only' })
 			}
 
-			// Validate the post-update metadata against the schema (required enforced
-			// only when the result is published). Uses the merged view so a partial
-			// update isn't judged as if it replaced everything.
+			// Fold localized fields against the stored map first — a bare string here
+			// means "this record's language", not "replace every translation".
 			if (col) {
-				// Fold localized fields against the stored map first — a bare string here
-				// means "this record's language", not "replace every translation".
 				input.metadata = applyLocalizedWrite(col.fields, input, {
 					locale: current.locale,
 					existing: current.metadata as Record<string, unknown>,
 				})
-				const mergedMetadata = { ...current.metadata, ...input.metadata }
+			}
+			// Update metadata is a shallow MERGE into the stored blob (a partial
+			// update never wipes fields the caller didn't send); an explicit null
+			// deletes a key. This merged view is the single source for validation,
+			// the external write, and the cached row — they must not diverge.
+			const updatedKeys = Object.keys(input.metadata ?? {})
+			const mergedMetadata = mergeMetadataUpdate(
+				current.metadata as Record<string, unknown>,
+				input.metadata,
+			)
+			let fieldWarnings: string[] = []
+			if (col) {
 				const nextStatus = input.status ?? current.status
-				const updateErrors = validateContentMetadata(col.fields, mergedMetadata, {
-					enforceRequired: nextStatus === 'published',
-				})
+				const updateErrors = validateContentMetadata(
+					col.fields,
+					mergedMetadata ?? (current.metadata as Record<string, unknown>),
+					// Type-check only the fields this write touches: a legacy value that
+					// predates stricter checks must not block an unrelated update.
+					{ enforceRequired: nextStatus === 'published', updatedKeys },
+				)
 				if (updateErrors.length > 0) {
 					return reply.status(400).send(contentValidationError(col.fields, updateErrors))
 				}
+				fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
 			}
 
 			// The publish date after this update: an explicit value wins (that's how a
@@ -1271,9 +1271,9 @@ export async function contentRoutes(app: FastifyInstance) {
 					: current.publishedAt
 
 			// Metadata to cache locally — `undefined` leaves the stored blob untouched.
-			let cachedMetadata = input.metadata
+			let cachedMetadata = mergedMetadata
 			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-				const nextMetadata = { ...current.metadata, ...input.metadata }
+				const nextMetadata = mergedMetadata ?? (current.metadata as Record<string, unknown>)
 				const now = new Date()
 				const externalData = buildExternalData(col, {
 					slug: input.slug ?? current.slug,
@@ -1302,8 +1302,10 @@ export async function contentRoutes(app: FastifyInstance) {
 					return reply.status(502).send({ error: 'Failed to sync to external database' })
 				}
 				// Keep the cache in step with what the external row now holds, so the editor
-				// doesn't read back a stale/blank createdAt/updatedAt.
-				cachedMetadata = mergeExternalTimestamps(input.metadata ?? current.metadata, externalData)
+				// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
+				// merged view that was just written — the cache and the source database
+				// must hold the same fields.
+				cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData)
 			}
 
 			await app.db.insert(contentVersions).values({
@@ -1345,7 +1347,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				timestamp: new Date().toISOString(),
 			})
 
-			return updated
+			return fieldWarnings.length > 0 ? { ...updated, fieldWarnings } : updated
 		},
 	)
 
@@ -1507,11 +1509,76 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			if (!version) return reply.status(404).send({ error: `Version ${targetVersion} not found` })
 
+			// A revert is an edit like any other, so it has to reach the source
+			// database too. Without this the CMS rolled back alone and the customer's
+			// site kept serving the newer content — the reason the editor used to hide
+			// version history for external collections entirely.
+			const [revertCol] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, current.collectionId),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (revertCol?.source === 'external' && revertCol.accessMode === 'read-only') {
+				return reply.status(403).send({ error: 'This collection is read-only' })
+			}
+
+			let revertExternalId = current.externalId
+			let revertMetadata = version.metadata
+			if (
+				revertCol?.source === 'external' &&
+				revertCol.accessMode === 'read-write' &&
+				revertCol.externalTable
+			) {
+				const externalData = buildExternalData(revertCol, {
+					slug: current.slug,
+					status: current.status,
+					metadata: version.metadata,
+					markdown: version.markdown,
+					createdAt: current.createdAt,
+					updatedAt: new Date(),
+					publishedAt: current.publishedAt,
+				})
+				try {
+					if (revertExternalId) {
+						await updateExternalDb(
+							app,
+							getProject(request).id,
+							revertCol,
+							revertExternalId,
+							externalData,
+						)
+					} else {
+						const inserted = await insertIntoExternalDb(
+							app,
+							getProject(request).id,
+							revertCol,
+							externalData,
+						)
+						revertExternalId = inserted?._id ?? null
+					}
+				} catch (err) {
+					app.log.warn(err, 'Failed to sync revert to external DB')
+					// Nothing has been written locally yet, so the record is untouched on
+					// both sides — a retry is safe.
+					return reply.status(502).send({ error: 'Failed to sync to external database' })
+				}
+				revertMetadata = mergeExternalTimestamps(
+					version.metadata,
+					externalData,
+				) as typeof version.metadata
+			}
+
 			await app.db.insert(contentVersions).values({
 				contentId: current.id,
 				version: current.version,
 				markdown: current.markdown,
 				metadata: current.metadata,
+				createdBy: getUser(request).id,
 			})
 
 			const html = await renderMarkdown(version.markdown)
@@ -1519,10 +1586,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				.update(content)
 				.set({
 					markdown: version.markdown,
-					metadata: version.metadata,
+					metadata: revertMetadata,
 					html,
 					version: current.version + 1,
 					updatedAt: new Date(),
+					...(revertExternalId && { externalId: revertExternalId }),
 				})
 				.where(
 					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),

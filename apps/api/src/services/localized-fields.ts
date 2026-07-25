@@ -130,12 +130,23 @@ export function findLocalizedBodyField(fields: CollectionField[]): string | null
  *  - a bare string targets a single language: the row's `locale` slot,
  *  - an explicit map is applied per-locale (so a partial `{ uk: ... }` write
  *    updates Ukrainian and leaves English alone),
+ *  - a `null`/`undefined` slot in an explicit map DELETES that translation
+ *    (mirrors the metadata-level "null deletes the key" update rule); if that
+ *    empties the map, the whole field folds to null so the metadata merge
+ *    removes it instead of storing an empty `{}`,
  *  - anything else passes through untouched for the validator to judge.
  */
 function foldIntoLocaleMap(existing: unknown, incoming: unknown, locale: string): unknown {
 	const base: Record<string, unknown> = isLocaleMap(existing) ? { ...existing } : {}
 	if (typeof incoming === 'string') return { ...base, [locale]: incoming }
-	if (isLocaleMap(incoming)) return { ...base, ...incoming }
+	if (isLocaleMap(incoming)) {
+		const merged: Record<string, unknown> = { ...base }
+		for (const [key, value] of Object.entries(incoming)) {
+			if (value === null || value === undefined) delete merged[key]
+			else merged[key] = value
+		}
+		return Object.keys(merged).length > 0 ? merged : null
+	}
 	return incoming
 }
 

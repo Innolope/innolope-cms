@@ -515,6 +515,8 @@ interface ContentItem {
 	externalId?: string | null
 	/** Advisory: text script contradicts the declared locale (create responses only). */
 	languageWarning?: string
+	/** Advisory: incoming metadata shape looked wrong (e.g. locale map on a non-translatable field). */
+	fieldWarnings?: string[]
 }
 
 interface ProjectItem {

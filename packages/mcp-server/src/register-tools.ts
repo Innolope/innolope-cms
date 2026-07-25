@@ -43,7 +43,11 @@ export const SERVER_INSTRUCTIONS = `Innolope is a headless CMS: content you writ
 
 Content model:
 - Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
-- The title goes in metadata.title ONLY. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page.
+- The title goes in metadata.title ONLY, as a short plain string. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page. Never put body prose in the title.
+
+Updating content:
+- update_content / bulk_update MERGE metadata at the top level: send only the fields you are changing — omitted fields keep their stored values. Sending a field's value as null deletes it.
+- For external read-write collections, writes sync to the source database synchronously — a successful create/update response means the external row already holds the change (the response echoes the external id).
 
 Languages — check the collection before writing a translation, because there are two models and picking the wrong one publishes broken pages:
 - If get_collection_schema marks any field "translatable" (localized), ONE record holds every language: write a locale map, e.g. metadata: { title: { "en": "...", "uk": "..." } }. Do NOT create a second record for the other language — the site reads both out of the same record, so a sibling record renders as a page with missing fields.
@@ -71,6 +75,16 @@ const DEFAULT_CONTENT_BYTES = 50_000
 
 const NO_PROJECT_MESSAGE =
 	'No active project. Call use_project (or create_project) first — list_projects shows what is available.'
+
+/** The API's marker for a request that arrived without project context. */
+function isMissingProjectError(err: unknown): boolean {
+	if (!(err instanceof InnolopeApiError)) return false
+	const body = (err.body ?? {}) as Record<string, unknown>
+	const messages = [err.message, body.error, body.message].filter(
+		(m): m is string => typeof m === 'string',
+	)
+	return messages.some((m) => m.includes('Project context required'))
+}
 
 /**
  * Truncate `body` to min(toolLimit, server max) bytes, appending which limit
@@ -106,6 +120,42 @@ function renderMetadataBlock(metadata: Record<string, unknown> | undefined): str
 		JSON.stringify(metadata, null, 2),
 		'```',
 	]
+}
+
+/**
+ * Resolve a human-readable title from metadata that may hold either a plain
+ * string or a `{ locale: text }` map (imported collections store the latter).
+ * Without this, every list/read surface stringified the map to the literal
+ * "[object Object]". Preference order: the record's own locale, then "en",
+ * then the first non-empty translation.
+ */
+function displayTitle(metadata: unknown, locale?: string | null): string | undefined {
+	const title = (metadata as Record<string, unknown> | undefined)?.title
+	if (typeof title === 'string') return title || undefined
+	if (typeof title === 'number') return String(title)
+	if (title && typeof title === 'object' && !Array.isArray(title)) {
+		const map = title as Record<string, unknown>
+		for (const key of [locale, 'en', ...Object.keys(map)]) {
+			const value = key ? map[key] : undefined
+			if (typeof value === 'string' && value.trim()) return value
+		}
+	}
+	return undefined
+}
+
+/**
+ * Warn when metadata.title looks like it carries the article BODY: multi-line
+ * text, literal "\n" escape sequences, or running length. Field reports show
+ * agents pasting entire articles into the title (which sites then render as a
+ * giant heading) — warn, because a long single-line title can be legitimate.
+ */
+function titleShapeWarning(metadata: Record<string, unknown> | undefined): string | null {
+	const title = metadata?.title
+	if (typeof title !== 'string') return null
+	if (!title.includes('\n') && !title.includes('\\n') && title.length <= 300) return null
+	return `metadata.title looks like body content (it is very long or contains line breaks${
+		title.includes('\\n') ? ', including literal "\\n" sequences that render as-is' : ''
+	}). The title is a short heading that sites render as the page title; the prose belongs in the markdown parameter (and long structured fields in their own metadata fields). Consider fixing it with update_content.`
 }
 
 /**
@@ -351,7 +401,17 @@ export function registerTools(
 			const start = Date.now()
 			const params = args as Record<string, unknown>
 			try {
-				const result = await def.handler(args)
+				let result: ToolResult
+				try {
+					result = await def.handler(args)
+				} catch (err) {
+					// Sessions are in-memory: a reconnect or server redeploy silently
+					// drops the active project, and every project-scoped call then fails.
+					// Recover in place — re-select the only project when there is only
+					// one, and retry — instead of erroring a previously-working session.
+					if (!isMissingProjectError(err) || !(await autoSelectProject())) throw err
+					result = await def.handler(args)
+				}
 				client.trackToolCall({
 					tool: def.name,
 					durationMs: Date.now() - start,
@@ -368,6 +428,9 @@ export function registerTools(
 					error: err instanceof Error ? err.message : String(err),
 					params,
 				})
+				if (isMissingProjectError(err)) {
+					return fail(await noProjectMessage())
+				}
 				const message =
 					err instanceof InnolopeApiError
 						? formatApiError(err)
@@ -390,9 +453,43 @@ export function registerTools(
 		)
 	}
 
+	/**
+	 * Recover a lost project binding without the caller's help: when the
+	 * credential can see exactly one project, that project is the only possible
+	 * answer — select it and carry on. Returns true when a project is now active.
+	 */
+	const autoSelectProject = async (): Promise<boolean> => {
+		try {
+			const projects = await client.listProjects()
+			if (projects.length === 1) {
+				client.setProject(projects[0].id)
+				return true
+			}
+		} catch {
+			/* fall through to the caller's error path */
+		}
+		return false
+	}
+
+	/**
+	 * "No project" error that carries the way out: the available projects are
+	 * listed inline so recovery is one use_project call, not a list_projects
+	 * round-trip first. (Sessions are in-memory — a reconnect or redeploy drops
+	 * the selection, so this is a normal event, not an edge case.)
+	 */
+	const noProjectMessage = async (): Promise<string> => {
+		const projects = await client.listProjects().catch(() => [])
+		if (projects.length === 0) return NO_PROJECT_MESSAGE
+		const lines = projects.map((p) => `- ${p.name} (slug: ${p.slug}, id: ${p.id})`)
+		return `No active project — the session's project selection was lost (this happens after a reconnect or server restart; it is safe to just re-select). Call use_project with one of:\n${lines.join('\n')}`
+	}
+
 	/** Shared guard: fail (isError) when no project is active, instead of success-shaped text. */
-	const requireProject = (): ToolResult | null =>
-		client.getProjectId() ? null : fail(NO_PROJECT_MESSAGE)
+	const requireProject = async (): Promise<ToolResult | null> => {
+		if (client.getProjectId()) return null
+		if (await autoSelectProject()) return null
+		return fail(await noProjectMessage())
+	}
 
 	/**
 	 * Echo the active project in every project-scoped response, so a response
@@ -410,6 +507,7 @@ export function registerTools(
 		slug: z.string().nullable(),
 		status: z.string(),
 		title: z.string(),
+		locale: z.string().nullable(),
 		externalId: z.string().nullable(),
 	}
 	const listOutputSchema = {
@@ -459,14 +557,15 @@ export function registerTools(
 		slug: string | null
 		status: string
 		metadata: unknown
+		locale?: string | null
 		externalId?: string | null
 	}) => {
-		const title = (item.metadata as Record<string, unknown>)?.title
 		return {
 			id: item.id,
 			slug: item.slug,
 			status: item.status,
-			title: String(title ?? item.slug ?? item.id),
+			title: displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id,
+			locale: item.locale ?? null,
 			externalId: item.externalId ?? null,
 		}
 	}
@@ -585,7 +684,7 @@ export function registerTools(
 				),
 		},
 		handler: async ({ name, label, description, fields, titleField, template }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			let resolvedLabel = label
 			let resolvedDescription = description
@@ -628,7 +727,7 @@ export function registerTools(
 				.describe('Granular permissions (default: full access ["*"])'),
 		},
 		handler: async ({ name, permissions }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			const key = await client.createProjectApiKey({
 				name: name ?? 'MCP-generated key',
@@ -705,11 +804,14 @@ export function registerTools(
 		items: Array<z.objectOutputType<typeof bulkItemShape, z.ZodTypeAny>>
 		dryRun?: boolean
 	}): Promise<ToolResult> => {
-		const guard = requireProject()
+		const guard = await requireProject()
 		if (guard) return guard
 		const result = await client.bulkCreateContent(items, { dryRun })
 		const titleWarnings = items
-			.map((item, index) => ({ index, warning: titleHeadingWarning(item.markdown, item.metadata) }))
+			.flatMap((item, index) => [
+				{ index, warning: titleHeadingWarning(item.markdown, item.metadata) },
+				{ index, warning: titleShapeWarning(item.metadata) },
+			])
 			.filter((w): w is { index: number; warning: string } => w.warning !== null)
 		const warnings =
 			(result.warnings?.length
@@ -777,7 +879,7 @@ export function registerTools(
 			database: z.string().optional().describe('Database name (MongoDB)'),
 		},
 		handler: async ({ type, connectionString, database }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			const result = await client.testExternalDatabase({ type, connectionString, database })
 			return result.ok
@@ -797,7 +899,7 @@ export function registerTools(
 			database: z.string().optional().describe('Database name (MongoDB)'),
 		},
 		handler: async ({ type, connectionString, database }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			const result = await client.scanExternalDatabase({ type, connectionString, database })
 			if (result.tables.length === 0) return text('No tables found.')
@@ -834,7 +936,7 @@ export function registerTools(
 				.describe('Whether edits sync back to the source (default: read-write)'),
 		},
 		handler: async ({ type, connectionString, database, tables, accessMode }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			await client.configureExternalDatabase({
 				type,
@@ -859,7 +961,7 @@ export function registerTools(
 		operationType: 'metadata',
 		schema: {},
 		handler: async () => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			const { summary, jobs } = await client.getImportStatus()
 			if (jobs.length === 0) return text('No import jobs for this project.')
@@ -884,7 +986,12 @@ export function registerTools(
 		schema: {
 			collectionId: z.string().uuid().optional().describe('Filter by collection UUID'),
 			status: z.enum(CONTENT_STATUSES).optional().describe('Filter by status'),
-			locale: z.string().optional().describe('Filter by locale'),
+			locale: z
+				.string()
+				.optional()
+				.describe(
+					"Filter by the RECORD's locale tag (each result echoes it). Note: on collections with translatable fields one record holds every language under this one tag, so this filter does not split languages — read the locale maps instead. Imported records default to the project's default locale unless tagged otherwise.",
+				),
 			search: z.string().optional().describe('Full-text search query'),
 			page: z.number().optional().describe('Page number (default: 1)'),
 			limit: z.number().optional().describe('Items per page (default: 25, max: 100)'),
@@ -893,7 +1000,10 @@ export function registerTools(
 		handler: async ({ collectionId, status, locale, search, page, limit }) => {
 			const result = await client.listContent({ collectionId, status, locale, search, page, limit })
 			const summaries = result.data.map(summarize)
-			const lines = summaries.map((s) => `- [${s.status}] ${s.title} (${s.slug}) — id: ${s.id}`)
+			const lines = summaries.map(
+				(s) =>
+					`- [${s.status}${s.locale ? `, ${s.locale}` : ''}] ${s.title} (${s.slug}) — id: ${s.id}`,
+			)
 			return {
 				...text(`Found ${result.pagination.total} items${projectSuffix()}:\n${lines.join('\n')}`),
 				structuredContent: {
@@ -932,6 +1042,7 @@ export function registerTools(
 			status: z.string(),
 			version: z.number(),
 			title: z.string(),
+			locale: z.string().nullable(),
 			externalId: z.string().nullable(),
 			metadata: z.record(z.unknown()),
 			markdown: z.string(),
@@ -939,11 +1050,11 @@ export function registerTools(
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
 			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
-			const title = (item.metadata as Record<string, unknown>)?.title || item.slug
+			const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 			const body = [
 				`# ${title}`,
 				``,
-				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Version:** ${item.version}${
+				`**Slug:** ${item.slug} | **Status:** ${item.status} | **Locale:** ${item.locale ?? '(none)'} | **Version:** ${item.version}${
 					item.externalId ? ` | **External ID:** ${item.externalId}` : ''
 				}`,
 				...renderMetadataBlock(item.metadata),
@@ -963,7 +1074,8 @@ export function registerTools(
 					slug: item.slug ?? null,
 					status: item.status,
 					version: item.version,
-					title: String(title ?? item.id),
+					title,
+					locale: item.locale ?? null,
 					externalId: item.externalId ?? null,
 					metadata: item.metadata ?? {},
 					// Clients that prefer structured output never render the text
@@ -1038,13 +1150,18 @@ export function registerTools(
 				args.slug && created.slug && args.slug !== created.slug
 					? `\nNote: the slug was normalized from "${args.slug}" to "${created.slug}" (lowercase letters/digits; separators "-" and "_" are kept, everything else becomes "-").`
 					: ''
-			const warning = created.languageWarning ? `\n\n⚠ ${created.languageWarning}` : ''
-			const titleWarning = titleHeadingWarning(args.markdown, args.metadata)
-			const titleNote = titleWarning ? `\n\n⚠ ${titleWarning}` : ''
+			const warnings = [
+				created.languageWarning,
+				titleHeadingWarning(args.markdown, args.metadata),
+				titleShapeWarning(args.metadata),
+				...(created.fieldWarnings ?? []),
+			].filter((w): w is string => !!w)
 			return text(
 				`Content created${projectSuffix()}.\nID: ${created.id}\nSlug: ${created.slug}\nStatus: ${created.status}\nLocale: ${created.locale}${
-					created.externalId ? `\nExternal ID: ${created.externalId}` : ''
-				}${slugNote}${warning}${titleNote}`,
+					created.externalId
+						? `\nExternal ID: ${created.externalId} — synced to the source database.`
+						: ''
+				}${slugNote}${warnings.map((w) => `\n\n⚠ ${w}`).join('')}`,
 			)
 		},
 	})
@@ -1052,7 +1169,7 @@ export function registerTools(
 	defineTool({
 		name: 'update_content',
 		description:
-			"Update an existing content item. Only provide fields to change. metadata is validated against the collection schema merged with the current values; required fields are enforced when the result is published. On translatable fields an update targets a single language and never drops the record's other translations — pass a locale map to set specific languages, or a plain string to set the record's own locale.",
+			'Update an existing content item. Only provide fields to change. metadata is MERGED into the stored metadata at the top level: fields you omit keep their current values, fields you send replace them, and sending null for a field deletes it — never resend the whole object just to change one field. Validation runs on the merged result; required fields are enforced when the result is published. On translatable fields an update targets a single language and never drops the record\'s other translations — pass a locale map to set specific languages ({ "uk": null } deletes one translation), or a plain string to set the record\'s own locale. For external read-write collections the write syncs to the source database synchronously: a successful response means the external row is already updated.',
 		operationType: 'update',
 		schema: {
 			id: z.string().uuid().describe('Content item UUID'),
@@ -1094,9 +1211,18 @@ export function registerTools(
 					.then((item) => item.metadata as Record<string, unknown>)
 					.catch(() => undefined)
 			}
-			const titleWarning = titleHeadingWarning(updates.markdown, metadata)
+			const warnings = [
+				titleHeadingWarning(updates.markdown, metadata),
+				titleShapeWarning(updates.metadata),
+				...(updated.fieldWarnings ?? []),
+			].filter((w): w is string => !!w)
+			// externalId on a successful update means the external row is in sync —
+			// the write path is synchronous and fails the request (502) otherwise.
+			const externalNote = updated.externalId
+				? `\nExternal ID: ${updated.externalId} — synced to the source database.`
+				: ''
 			return text(
-				`Content updated. Version: ${updated.version}${titleWarning ? `\n\n⚠ ${titleWarning}` : ''}`,
+				`Content updated. Version: ${updated.version}${externalNote}${warnings.map((w) => `\n\n⚠ ${w}`).join('')}`,
 			)
 		},
 	})
@@ -1133,7 +1259,7 @@ export function registerTools(
 		handler: async ({ id, collectionId, confirm }) => {
 			if (confirm !== true) {
 				const item = await client.getContent(id, collectionId)
-				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
+				const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 				return text(
 					`This will PERMANENTLY delete "${title}" (slug: ${item.slug}, status: ${item.status}, version: ${item.version}, id: ${item.id}), including any backing external database record. This cannot be undone.\n\nNothing was deleted. Re-call delete_content with confirm: true to proceed.`,
 				)
@@ -1163,7 +1289,7 @@ export function registerTools(
 			})
 			if (results.data.length === 0) return text(`No content found${projectSuffix()}.`)
 			const items = results.data.map((item) => {
-				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
+				const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 				return `- ${title} (${item.slug}) — ${item.status}`
 			})
 			return text(
@@ -1228,7 +1354,7 @@ export function registerTools(
 			limit: z.number().optional().describe('Items per page (default: 25)'),
 		},
 		handler: async ({ type, search, page, limit }) => {
-			const guard = requireProject()
+			const guard = await requireProject()
 			if (guard) return guard
 			const result = await client.listMedia({ type, search, page, limit })
 			if (result.data.length === 0) {
@@ -1261,7 +1387,7 @@ export function registerTools(
 		},
 		handler: async ({ id, collectionId }) => {
 			const item = await client.getContent(id, collectionId)
-			const title = (item.metadata as Record<string, unknown>)?.title || item.slug || item.id
+			const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 			const refs = extractImageRefs(item.markdown ?? '', item.metadata as Record<string, unknown>)
 			if (refs.length === 0) {
 				return text(
@@ -1447,7 +1573,10 @@ export function registerTools(
 		handler: async ({ collectionId, filters, page, limit }) => {
 			const result = await client.queryByFields(collectionId, filters, page, limit)
 			const summaries = result.data.map(summarize)
-			const lines = summaries.map((s) => `- [${s.status}] ${s.title} (${s.slug}) — id: ${s.id}`)
+			const lines = summaries.map(
+				(s) =>
+					`- [${s.status}${s.locale ? `, ${s.locale}` : ''}] ${s.title} (${s.slug}) — id: ${s.id}`,
+			)
 			return {
 				...text(`Found ${result.pagination.total} items${projectSuffix()}:\n${lines.join('\n')}`),
 				structuredContent: {
@@ -1498,7 +1627,7 @@ export function registerTools(
 	defineTool({
 		name: 'bulk_update',
 		description:
-			"Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Metadata is validated merged with each item's current values. The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.",
+			"Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Each item's metadata is MERGED into its stored metadata at the top level (omitted fields are kept, null deletes a field — same semantics as update_content). The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.",
 		operationType: 'update',
 		schema: {
 			items: z
@@ -1575,7 +1704,7 @@ export function registerTools(
 							relations[field.name] = {
 								id: related.id,
 								slug: related.slug,
-								title: (related.metadata as Record<string, unknown>)?.title || related.slug,
+								title: displayTitle(related.metadata, related.locale) ?? related.slug ?? related.id,
 							}
 						} catch {
 							/* relation target may not exist */
@@ -1586,7 +1715,7 @@ export function registerTools(
 				/* collection not found */
 			}
 
-			const title = (item.metadata as Record<string, unknown>)?.title || item.slug
+			const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 			const parts = [
 				`# ${title}`,
 				``,
@@ -1625,7 +1754,7 @@ export function registerTools(
 		handler: async ({ collectionId, limit }) => {
 			const result = await client.listContent({ collectionId, limit: limit || 10 })
 			const items = result.data.map((item) => {
-				const title = (item.metadata as Record<string, unknown>)?.title || item.slug
+				const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 				return `- [${item.status}] ${title} — v${item.version}, updated ${item.updatedAt}`
 			})
 			return text(

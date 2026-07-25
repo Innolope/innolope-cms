@@ -1,6 +1,6 @@
 import type { CollectionField } from '@innolope/config'
 import { describe, expect, it } from 'vitest'
-import { validateContentMetadata } from './content-validation.js'
+import { collectFieldWarnings, validateContentMetadata } from './content-validation.js'
 
 const fields: CollectionField[] = [
 	{ name: 'title', type: 'text', required: true },
@@ -58,5 +58,84 @@ describe('validateContentMetadata', () => {
 		)
 		const badFields = errors.map((e) => e.field).sort()
 		expect(badFields).toEqual(['difficulty', 'servings', 'tags'])
+	})
+
+	it('rejects arrays and structured objects on text fields', () => {
+		const errors = validateContentMetadata(
+			fields,
+			{ title: { blocks: [{ type: 'h1' }] } },
+			{ enforceRequired: false },
+		)
+		expect(errors).toHaveLength(1)
+		expect(errors[0].field).toBe('title')
+		expect(errors[0].message).toContain('[object Object]')
+
+		const arrayErrors = validateContentMetadata(
+			fields,
+			{ title: ['one', 'two'] },
+			{ enforceRequired: false },
+		)
+		expect(arrayErrors.map((e) => e.field)).toEqual(['title'])
+	})
+
+	it('accepts locale maps on text fields, localized or not (imported data has them unflagged)', () => {
+		const localized: CollectionField[] = [{ name: 'title', type: 'text', localized: true }]
+		expect(
+			validateContentMetadata(
+				localized,
+				{ title: { en: 'Hello', uk: 'Привіт' } },
+				{ enforceRequired: false },
+			),
+		).toEqual([])
+		expect(
+			validateContentMetadata(fields, { title: { en: 'Hello' } }, { enforceRequired: false }),
+		).toEqual([])
+	})
+
+	it('type-checks only updatedKeys, but still enforces required on the merged view', () => {
+		// A legacy structured object stored in `title` must not block an update
+		// that only touches `servings`...
+		const merged = { title: { blocks: [] }, servings: 3 }
+		expect(
+			validateContentMetadata(fields, merged, {
+				enforceRequired: false,
+				updatedKeys: ['servings'],
+			}),
+		).toEqual([])
+		// ...while the same write DOES get its own fields checked...
+		expect(
+			validateContentMetadata(
+				fields,
+				{ ...merged, servings: 'lots' },
+				{ enforceRequired: false, updatedKeys: ['servings'] },
+			),
+		).toHaveLength(1)
+		// ...and required-to-publish still looks at the whole merged record.
+		expect(
+			validateContentMetadata(
+				fields,
+				{ servings: 3 },
+				{
+					enforceRequired: true,
+					updatedKeys: ['servings'],
+				},
+			).map((e) => e.field),
+		).toEqual(['title'])
+	})
+})
+
+describe('collectFieldWarnings', () => {
+	it('warns when a locale map lands on a non-translatable text field', () => {
+		const warnings = collectFieldWarnings(fields, { title: { en: 'Hello', uk: 'Привіт' } })
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]).toContain('not marked translatable')
+	})
+
+	it('stays quiet for plain strings, localized fields, and untouched fields', () => {
+		const localized: CollectionField[] = [{ name: 'title', type: 'text', localized: true }]
+		expect(collectFieldWarnings(fields, { title: 'Hello' })).toEqual([])
+		expect(collectFieldWarnings(localized, { title: { en: 'Hello' } })).toEqual([])
+		expect(collectFieldWarnings(fields, { servings: 2 })).toEqual([])
+		expect(collectFieldWarnings(fields, undefined)).toEqual([])
 	})
 })
