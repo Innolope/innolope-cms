@@ -354,6 +354,7 @@ export class InnolopeClient {
 			markdown?: string
 			metadata?: Record<string, unknown>
 			status?: string
+			publishedAt?: string
 		},
 	) {
 		return this.request<ContentItem>(`/api/v1/content/${id}`, {

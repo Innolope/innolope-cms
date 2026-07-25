@@ -14,13 +14,14 @@ import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { SortIcon } from '../components/icons'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ImageThumb } from '../components/media/image-thumb'
+import { ScheduledBadge } from '../components/scheduled-badge'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
 import { usePrompt } from '../lib/confirm'
 import { pickTitleField, resolveDisplayTitle } from '../lib/display-title'
 import { isLocaleMap, resolveLocalizedValue } from '../lib/locale-value'
-import { absoluteDate, relativeTime } from '../lib/relative-time'
+import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
 import { type FilterMap, useUrlFilters } from '../lib/use-url-filters'
@@ -42,7 +43,7 @@ function CollectionLayout() {
 interface ContentItem {
 	id: string
 	slug: string
-	status: 'draft' | 'pending_review' | 'published' | 'archived'
+	status: 'draft' | 'pending_review' | 'scheduled' | 'published' | 'archived'
 	metadata: Record<string, unknown>
 	locale: string
 	version: number
@@ -80,6 +81,7 @@ interface SyncPreview {
 
 const STATUS_STYLES: Record<string, string> = {
 	draft: 'bg-surface-alt text-text-secondary',
+	scheduled: 'bg-surface-alt text-text-secondary',
 	pending_review: 'bg-surface-alt text-text',
 	published: 'bg-surface-alt text-text',
 	archived: 'bg-surface-alt text-text-muted',
@@ -87,6 +89,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 const STATUS_KEYS: Record<string, string> = {
 	draft: 'collections.list.status.draft',
+	scheduled: 'collections.list.status.scheduled',
 	pending_review: 'collections.list.status.pendingReview',
 	published: 'collections.list.status.published',
 	archived: 'collections.list.status.archived',
@@ -94,6 +97,7 @@ const STATUS_KEYS: Record<string, string> = {
 
 const STATUS_OPTION_KEYS: Record<string, string> = {
 	draft: 'collections.list.statusOptions.draft',
+	scheduled: 'collections.list.statusOptions.scheduled',
 	pending_review: 'collections.list.statusOptions.pendingReview',
 	published: 'collections.list.statusOptions.published',
 	archived: 'collections.list.statusOptions.archived',
@@ -175,11 +179,24 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 			label: t('collections.list.columns.status'),
 			sortable: true,
 			sortKey: 'status',
-			render: (item) => (
-				<span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}>
-					{STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
-				</span>
-			),
+			// A scheduled record wears the badge itself (clock + date on hover). Any
+			// other status with a future date gets the badge *alongside* its pill —
+			// that combination is unusual and worth flagging rather than hiding.
+			render: (item) =>
+				item.status === 'scheduled' && item.publishedAt ? (
+					<ScheduledBadge date={item.publishedAt} />
+				) : (
+					<span className="inline-flex items-center gap-1.5">
+						<span
+							className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLES[item.status] || ''}`}
+						>
+							{STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
+						</span>
+						{isFuture(item.publishedAt) && item.publishedAt && (
+							<ScheduledBadge date={item.publishedAt} />
+						)}
+					</span>
+				),
 		},
 		{
 			id: 'locale',
@@ -233,8 +250,13 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 			sortKey: 'publishedAt',
 			render: (item) =>
 				item.publishedAt ? (
-					<span className="text-text-secondary" title={absoluteDate(item.publishedAt)}>
-						{relativeTime(item.publishedAt)}
+					<span className="inline-flex items-center gap-1.5">
+						<span className="text-text-secondary" title={absoluteDate(item.publishedAt)}>
+							{relativeTime(item.publishedAt)}
+						</span>
+						{item.status !== 'scheduled' && isFuture(item.publishedAt) && (
+							<ScheduledBadge date={item.publishedAt} />
+						)}
 					</span>
 				) : (
 					<span className="text-text-muted">—</span>

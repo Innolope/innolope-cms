@@ -46,6 +46,7 @@ import { tlsRoutes } from './routes/v1/tls.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { initAutoEmbedding } from './services/embedding.js'
 import { initImportWorker } from './services/import-worker.js'
+import { initScheduledPublisher } from './services/scheduled-publisher.js'
 import { initWebhookDispatcher } from './services/webhook-dispatch.js'
 
 /** Resolve a safe, concrete CORS origin from ADMIN_URL, rejecting wildcards/malformed values. */
@@ -220,6 +221,7 @@ export async function buildApp() {
 	initWebhookDispatcher(app)
 	initAutoEmbedding(app)
 	initImportWorker(app)
+	initScheduledPublisher(app)
 	await app.register(emailPlugin)
 	await app.register(mediaPlugin)
 

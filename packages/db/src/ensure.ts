@@ -524,6 +524,10 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS content_project_collection_external_idx ON content("projectId","collectionId","externalId")`
 		await sql`CREATE INDEX IF NOT EXISTS content_project_status_created_idx ON content("projectId",status,"createdAt")`
 		await sql`CREATE INDEX IF NOT EXISTS content_project_updated_idx ON content("projectId","updatedAt")`
+		// The scheduled publisher polls project-wide for due rows every minute. A
+		// partial index keeps that a tiny lookup no matter how much published content
+		// the table holds — scheduled rows are always a handful.
+		await sql`CREATE INDEX IF NOT EXISTS content_scheduled_due_idx ON content("publishedAt") WHERE status = 'scheduled'`
 		await sql`CREATE INDEX IF NOT EXISTS versions_content_idx ON content_versions("contentId",version)`
 		await sql`CREATE INDEX IF NOT EXISTS media_project_type_idx ON media("projectId",type)`
 		await sql`CREATE INDEX IF NOT EXISTS api_keys_project_idx ON api_keys("projectId")`

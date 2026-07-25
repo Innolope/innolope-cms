@@ -5,6 +5,7 @@ interface CollectionField {
 	localized?: boolean
 }
 
+import { CONTENT_STATUSES } from '@innolope/config'
 import type { collections, content, contentVersions, Database } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
@@ -43,8 +44,10 @@ function isUniqueViolation(err: unknown): boolean {
 	return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
 }
 
-const VALID_STATUSES = new Set(['draft', 'pending_review', 'published', 'archived'])
-type ContentStatus = 'draft' | 'pending_review' | 'published' | 'archived'
+// Derived from the shared list so a new status can't be accepted by the API and
+// silently coerced to `published` when the same value is read back from a source DB.
+const VALID_STATUSES = new Set<string>(CONTENT_STATUSES)
+type ContentStatus = (typeof CONTENT_STATUSES)[number]
 type ContentTable = typeof content
 type SyncOptions = {
 	batchSize?: number

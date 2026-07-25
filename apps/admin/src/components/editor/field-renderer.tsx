@@ -49,7 +49,7 @@ function toDateInputValue(v: unknown): string {
  * `<input type="datetime-local">` expects, in the viewer's local timezone.
  * (`toISOString` would shift the displayed clock time by the UTC offset.)
  */
-function toDateTimeInputValue(v: unknown): string {
+export function toDateTimeInputValue(v: unknown): string {
 	if (!v) return ''
 	const d = new Date(v as string)
 	if (Number.isNaN(d.getTime())) return ''

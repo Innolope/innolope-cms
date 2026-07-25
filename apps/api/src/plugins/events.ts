@@ -6,6 +6,7 @@ export interface CmsEvent {
 		| 'content:created'
 		| 'content:updated'
 		| 'content:published'
+		| 'content:scheduled'
 		| 'content:deleted'
 		| 'content:submitted'
 		| 'content:approved'

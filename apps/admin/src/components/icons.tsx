@@ -62,6 +62,16 @@ export function SparklesIcon({ className }: IconProps) {
 	)
 }
 
+/** A publish date that hasn't arrived yet. */
+export function ClockIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="9" />
+			<path d="M12 7v5l3 2" />
+		</Svg>
+	)
+}
+
 /** Column sort state: ascending, descending, or sortable-but-unsorted. */
 export function SortIcon({ dir, className }: IconProps & { dir: 'asc' | 'desc' | null }) {
 	if (dir === 'asc')

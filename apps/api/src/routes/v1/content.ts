@@ -1,4 +1,9 @@
-import { contentInputSchema, contentListSchema } from '@innolope/config'
+import {
+	type ContentStatus,
+	contentInputSchema,
+	contentListSchema,
+	validateSchedule,
+} from '@innolope/config'
 import { collections, content, contentAnalytics, contentVersions, media } from '@innolope/db'
 import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -31,6 +36,27 @@ import {
 } from '../../services/external-content.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { cacheMissingDocs } from '../../services/markdown-cache.js'
+
+/**
+ * Gate + validate a write that puts a record into `scheduled`.
+ *
+ * Scheduling is a licensed feature, so setting the status needs the entitlement —
+ * but the background publisher deliberately keeps running without it, so content
+ * already scheduled when a license lapses still goes live instead of being
+ * stranded. Returns null when the write is allowed.
+ */
+function checkSchedulable(
+	app: FastifyInstance,
+	status: string | undefined,
+	publishedAt: string | Date | null | undefined,
+): { status: number; error: string } | null {
+	if (status !== 'scheduled') return null
+	if (!app.license.hasFeature('scheduling')) {
+		return { status: 403, error: 'Scheduled publishing requires a Pro license.' }
+	}
+	const message = validateSchedule(status, publishedAt)
+	return message ? { status: 400, error: message } : null
+}
 
 export async function contentRoutes(app: FastifyInstance) {
 	// List content (viewer+, project-scoped)
@@ -398,6 +424,9 @@ export async function contentRoutes(app: FastifyInstance) {
 		// frontmatter pasted into markdown is stripped into metadata here
 		// (explicit metadata keys win). Also coalesces omitted markdown to "".
 		Object.assign(input, normalizeIncomingMarkdown(input.markdown, input.metadata))
+		const scheduleError = checkSchedulable(app, input.status, input.publishedAt)
+		if (scheduleError)
+			return reply.status(scheduleError.status).send({ error: scheduleError.error })
 		const writeAccess = await checkCollectionAccess(request, input.collectionId, 'write')
 		if (!writeAccess.ok) return reply.status(writeAccess.status).send({ error: writeAccess.error })
 		const html = await renderMarkdown(input.markdown)
@@ -635,6 +664,15 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				continue
 			}
+			const scheduleIssue = checkSchedulable(app, item.status, item.publishedAt)
+			if (scheduleIssue) {
+				itemErrors.push({
+					index,
+					slug: item.slug,
+					errors: [{ field: 'publishedAt', message: scheduleIssue.error }],
+				})
+				continue
+			}
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
 			})
@@ -836,6 +874,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				markdown?: string
 				metadata?: Record<string, unknown>
 				status?: string
+				publishedAt?: string
 			}>
 			dryRun?: boolean
 		}
@@ -896,9 +935,22 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				continue
 			}
+			const mergedStatus = item.status ?? current.status
+			const scheduleIssue = checkSchedulable(
+				app,
+				mergedStatus,
+				item.publishedAt ?? current.publishedAt,
+			)
+			if (scheduleIssue) {
+				itemErrors.push({
+					index,
+					id: item.id,
+					errors: [{ field: 'publishedAt', message: scheduleIssue.error }],
+				})
+				continue
+			}
 			if (col) {
 				const merged = { ...(current.metadata as Record<string, unknown>), ...item.metadata }
-				const mergedStatus = item.status ?? current.status
 				const errors = validateContentMetadata(col.fields, merged, {
 					enforceRequired: mergedStatus === 'published',
 				})
@@ -937,6 +989,13 @@ export async function contentRoutes(app: FastifyInstance) {
 				const col = updateColMap.get(current.collectionId)
 
 				let externalId = current.externalId
+				// Same rule as the single-item update: an explicit date wins, a first
+				// publish stamps now, otherwise keep what's stored.
+				const nextPublishedAt = item.publishedAt
+					? new Date(item.publishedAt)
+					: item.status === 'published' && !current.publishedAt
+						? new Date()
+						: current.publishedAt
 				// Metadata to cache locally — `undefined` leaves the stored blob untouched.
 				let cachedMetadata = item.metadata
 				if (col?.source === 'external' && col.accessMode === 'read-only') {
@@ -952,8 +1011,7 @@ export async function contentRoutes(app: FastifyInstance) {
 						markdown: item.markdown ?? current.markdown,
 						createdAt: current.createdAt,
 						updatedAt: now,
-						publishedAt:
-							item.status === 'published' && !current.publishedAt ? now : current.publishedAt,
+						publishedAt: nextPublishedAt,
 					})
 
 					if (externalId) {
@@ -988,11 +1046,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						...(item.markdown && { markdown: item.markdown }),
 						...(html && { html }),
 						...(cachedMetadata && { metadata: cachedMetadata }),
-						...(item.status && {
-							status: item.status as 'draft' | 'pending_review' | 'published' | 'archived',
-						}),
+						...(item.status && { status: item.status as ContentStatus }),
 						version: current.version + 1,
 						updatedAt: new Date(),
+						publishedAt: nextPublishedAt,
 						...(externalId && { externalId }),
 					})
 					.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
@@ -1093,11 +1150,13 @@ export async function contentRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('editor')] },
 		async (request, reply) => {
-			// Strip create-only timestamp fields — updates must not backdate createdAt or rewrite history.
+			// Strip create-only timestamp fields — updates must not backdate createdAt or
+			// rewrite edit history. `publishedAt` is deliberately NOT stripped: it is the
+			// schedule, so an editor has to be able to move it (and must, to schedule a
+			// record that already exists).
 			const {
 				createdAt: _ca,
 				updatedAt: _ua,
-				publishedAt: _pa,
 				...input
 			} = contentInputSchema.partial().parse(request.body)
 			// Frontmatter normalization on update. Unlike create, `metadata` here has
@@ -1122,6 +1181,18 @@ export async function contentRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!current) return reply.status(404).send({ error: 'Content not found' })
+
+			// A record can be scheduled by this update, or already be scheduled and have
+			// only its date moved — either way the effective pair has to be valid.
+			const nextScheduleStatus = input.status ?? current.status
+			const scheduleError = checkSchedulable(
+				app,
+				nextScheduleStatus,
+				input.publishedAt ?? current.publishedAt,
+			)
+			if (scheduleError) {
+				return reply.status(scheduleError.status).send({ error: scheduleError.error })
+			}
 
 			// Fold stripped frontmatter fields in: under explicit metadata when the
 			// caller sent one (their keys win), otherwise into the current metadata so
@@ -1167,6 +1238,15 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 			}
 
+			// The publish date after this update: an explicit value wins (that's how a
+			// record gets scheduled or rescheduled), otherwise going live for the first
+			// time stamps now, otherwise it stays as it was.
+			const nextPublishedAt = input.publishedAt
+				? new Date(input.publishedAt)
+				: input.status === 'published' && !current.publishedAt
+					? new Date()
+					: current.publishedAt
+
 			// Metadata to cache locally — `undefined` leaves the stored blob untouched.
 			let cachedMetadata = input.metadata
 			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
@@ -1179,8 +1259,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					markdown: input.markdown ?? current.markdown,
 					createdAt: current.createdAt,
 					updatedAt: now,
-					publishedAt:
-						input.status === 'published' && !current.publishedAt ? now : current.publishedAt,
+					publishedAt: nextPublishedAt,
 				})
 
 				try {
@@ -1223,9 +1302,9 @@ export async function contentRoutes(app: FastifyInstance) {
 					...(html && { html }),
 					version: newVersion,
 					updatedAt: new Date(),
-					...(input.status === 'published' && !current.publishedAt
-						? { publishedAt: new Date() }
-						: {}),
+					// Always an override: `...input` carries publishedAt as an ISO string,
+					// which the timestamp column can't take.
+					publishedAt: nextPublishedAt,
 					...(externalId && { externalId }),
 				})
 				.where(eq(content.id, request.params.id))

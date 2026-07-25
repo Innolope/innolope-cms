@@ -7,6 +7,8 @@
 		"failed": "Failed",
 		"loading": "Loading…",
 		"logout": "Logout",
+		"scheduled": "Scheduled",
+		"scheduledFor": "Scheduled for {{date}} — publishes {{relative}}",
 		"signOut": "Sign out",
 		"time": {
 			"justNow": "just now"
@@ -1119,12 +1121,14 @@
 			"status": {
 				"draft": "draft",
 				"pendingReview": "pending review",
+				"scheduled": "scheduled",
 				"published": "published",
 				"archived": "archived"
 			},
 			"statusOptions": {
 				"draft": "Draft",
 				"pendingReview": "Pending Review",
+				"scheduled": "Scheduled",
 				"published": "Published",
 				"archived": "Archived"
 			},
@@ -1346,9 +1350,12 @@
 			"hideAi": "Hide AI",
 			"aiAssistant": "AI Assistant",
 			"additionalFields": "Additional fields ({{count}})",
+			"scheduleHint": "Publishes automatically {{relative}}.",
+			"scheduleOverdueHint": "This time has passed — the record publishes on the next check (within a minute).",
 			"fields": {
 				"slug": "Slug",
 				"status": "Status",
+				"publishAt": "Publish at",
 				"tags": "Tags",
 				"version": "Version",
 				"externalId": "External ID"
@@ -1356,6 +1363,7 @@
 			"statusOptions": {
 				"draft": "Draft",
 				"pendingReview": "Pending Review",
+				"scheduled": "Scheduled",
 				"published": "Published",
 				"archived": "Archived"
 			},

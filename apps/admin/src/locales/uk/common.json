@@ -7,6 +7,8 @@
 		"failed": "Не вдалося",
 		"loading": "Завантаження…",
 		"logout": "Вийти",
+		"scheduled": "Заплановано",
+		"scheduledFor": "Заплановано на {{date}} — опублікується {{relative}}",
 		"signOut": "Вийти",
 		"time": {
 			"justNow": "щойно"
@@ -1143,12 +1145,14 @@
 			"status": {
 				"draft": "чернетка",
 				"pendingReview": "очікує перевірки",
+				"scheduled": "заплановано",
 				"published": "опубліковано",
 				"archived": "архівовано"
 			},
 			"statusOptions": {
 				"draft": "Чернетка",
 				"pendingReview": "Очікує перевірки",
+				"scheduled": "Заплановано",
 				"published": "Опубліковано",
 				"archived": "Архівовано"
 			},
@@ -1376,9 +1380,12 @@
 			"hideAi": "Сховати AI",
 			"aiAssistant": "AI-помічник",
 			"additionalFields": "Додаткові поля ({{count}})",
+			"scheduleHint": "Опублікується автоматично {{relative}}.",
+			"scheduleOverdueHint": "Цей час уже минув — запис опублікується під час наступної перевірки (протягом хвилини).",
 			"fields": {
 				"slug": "Slug",
 				"status": "Статус",
+				"publishAt": "Опублікувати о",
 				"tags": "Теги",
 				"version": "Версія",
 				"externalId": "Зовнішній ID"
@@ -1386,6 +1393,7 @@
 			"statusOptions": {
 				"draft": "Чернетка",
 				"pendingReview": "Очікує перевірки",
+				"scheduled": "Заплановано",
 				"published": "Опубліковано",
 				"archived": "Архівовано"
 			},

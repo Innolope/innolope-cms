@@ -21,6 +21,7 @@ const EVENT_MAP: Record<CmsEvent['type'], string> = {
 	'content:created': 'cms_content_created',
 	'content:updated': 'cms_content_updated',
 	'content:published': 'cms_content_published',
+	'content:scheduled': 'cms_content_scheduled',
 	'content:deleted': 'cms_content_deleted',
 	'content:submitted': 'cms_content_submitted',
 	'content:approved': 'cms_content_approved',

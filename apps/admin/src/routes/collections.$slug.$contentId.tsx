@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { Dropdown } from '../components/dropdown'
-import { FieldRenderer } from '../components/editor/field-renderer'
+import { FieldRenderer, toDateTimeInputValue } from '../components/editor/field-renderer'
 import { JsonField } from '../components/editor/json-field'
 import { LocalizationBar, localeDisplayName } from '../components/editor/localization-bar'
 import { LocalizedTextField } from '../components/editor/localized-text-field'
@@ -13,6 +13,7 @@ import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
 import { RelationField } from '../components/editor/relation-field'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
+import { ScheduledBadge } from '../components/scheduled-badge'
 import { VersionPanel } from '../components/versions/version-panel'
 import { ApiError, api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
@@ -20,6 +21,7 @@ import { useCollections } from '../lib/collections'
 import { useConfirm, usePrompt } from '../lib/confirm'
 import { resolveDisplayTitle } from '../lib/display-title'
 import { fieldLabel } from '../lib/field-label'
+import { isFuture, relativeTime } from '../lib/relative-time'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
 
@@ -62,6 +64,33 @@ const HIDDEN_FIELDS = new Set(['title', 'content', 'body', 'tags', 'status', '__
  */
 const BODY_FIELD_NAMES = ['content', 'body', 'markdown', 'text', 'html']
 
+/**
+ * Schema field names that hold the record's publish date. A future value in one
+ * of these gets the "Scheduled" badge next to its picker; other date fields
+ * (eventDate, deadline, …) are legitimately in the future and stay unmarked.
+ */
+const PUBLISH_DATE_FIELD_NAMES = new Set([
+	'publishedat',
+	'published_at',
+	'publishat',
+	'publish_at',
+	'publishdate',
+	'publish_date',
+	'datepublished',
+])
+
+/**
+ * Default schedule when the editor picks "Scheduled" on a record with no date:
+ * the next full hour. Returned in the `yyyy-MM-ddThh:mm` shape the datetime-local
+ * input needs (local time — the value is converted to UTC on save).
+ */
+function defaultScheduleTime(): string {
+	const d = new Date()
+	d.setHours(d.getHours() + 1, 0, 0, 0)
+	const pad = (n: number) => String(n).padStart(2, '0')
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /** Relation fields whose name reads like an image — surfaced as a full-width preview. */
 const IMAGE_FIELD_NAME_RE = /image|photo|cover|banner|thumbnail|avatar|logo|featured|picture/i
 
@@ -79,6 +108,7 @@ interface ContentItem {
 	version: number
 	collectionId: string
 	externalId?: string
+	publishedAt?: string | null
 	live?: boolean
 }
 
@@ -594,6 +624,9 @@ function CollectionContentEditor() {
 	const [title, setTitle] = useState('')
 	const [contentSlug, setContentSlug] = useState('')
 	const [status, setStatus] = useState('draft')
+	// Publish date. Only surfaced in the UI for scheduling — the API stamps it on
+	// first publish, so an empty string means "leave whatever is stored".
+	const [publishedAt, setPublishedAt] = useState('')
 	const [tags, setTags] = useState<string[]>([])
 	const [version, setVersion] = useState(1)
 	const [dirty, setDirty] = useState(false)
@@ -607,6 +640,7 @@ function CollectionContentEditor() {
 	const [showExtraFields, setShowExtraFields] = useState(false)
 	const license = useLicense()
 	const aiLicensed = hasFeature(license, 'ai-assistant')
+	const schedulingLicensed = hasFeature(license, 'scheduling')
 	const [showAi, setShowAi] = useState(false)
 	const [aiTargetField, setAiTargetField] = useState<string | null>(null)
 	const [aiSelectedText, _setAiSelectedText] = useState<string | null>(null)
@@ -659,6 +693,7 @@ function CollectionContentEditor() {
 					setTitle(titleIsLocalized ? '' : (mergedMeta.title as string) || '')
 					setContentSlug(item.slug)
 					setStatus(item.status)
+					setPublishedAt(toDateTimeInputValue(item.publishedAt))
 					setTags(toStringArray(mergedMeta.tags))
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
@@ -853,6 +888,17 @@ function CollectionContentEditor() {
 		}
 	}
 
+	/**
+	 * The publish date to send with a save. Only sent while scheduling: the API
+	 * otherwise owns this field (it stamps it on first publish), and echoing a
+	 * value back on every save would let a stale editor state rewrite it.
+	 */
+	const schedulePayload = () => {
+		if (status !== 'scheduled' || !publishedAt) return {}
+		const at = new Date(publishedAt)
+		return Number.isNaN(at.getTime()) ? {} : { publishedAt: at.toISOString() }
+	}
+
 	const save = async () => {
 		if (!collection) return
 		if (isReadOnly) {
@@ -877,6 +923,7 @@ function CollectionContentEditor() {
 					markdown,
 					metadata,
 					status,
+					...schedulePayload(),
 				})
 				refreshCollections()
 				navigate({ to: `/collections/${slug}/${created.id}` })
@@ -886,6 +933,7 @@ function CollectionContentEditor() {
 					markdown,
 					metadata,
 					status,
+					...schedulePayload(),
 				})
 			}
 			setDirty(false)
@@ -1392,7 +1440,17 @@ function CollectionContentEditor() {
 	// every widget honours the same `ui` blob (placeholder, readOnly, separator,
 	// helpText, …) instead of just the text branch.
 	const renderSchemaField = (f: (typeof visibleSchemaFields)[number]) => (
-		<Field key={f.name} label={fieldLabel(f)} error={fieldErrors[f.name]} helpText={f.ui?.helpText}>
+		<Field
+			key={f.name}
+			label={fieldLabel(f)}
+			error={fieldErrors[f.name]}
+			helpText={f.ui?.helpText}
+			badge={
+				PUBLISH_DATE_FIELD_NAMES.has(f.name.toLowerCase()) && isFuture(extraFields[f.name]) ? (
+					<ScheduledBadge date={extraFields[f.name] as string} />
+				) : null
+			}
+		>
 			<FieldRenderer
 				field={f}
 				value={extraFields[f.name]}
@@ -1866,6 +1924,9 @@ function CollectionContentEditor() {
 							value={status}
 							onChange={(v) => {
 								setStatus(v)
+								// Scheduling without a date is rejected by the API, so seed a
+								// sensible one (the next full hour) as soon as it's picked.
+								if (v === 'scheduled' && !publishedAt) setPublishedAt(defaultScheduleTime())
 								setDirty(true)
 							}}
 							options={[
@@ -1874,12 +1935,47 @@ function CollectionContentEditor() {
 									value: 'pending_review',
 									label: t('collections.detail.statusOptions.pendingReview'),
 								},
+								// Offered only with the license — but always shown when the record
+								// is already scheduled, so a lapsed license can still unschedule.
+								...(schedulingLicensed || status === 'scheduled'
+									? [
+											{
+												value: 'scheduled',
+												label: t('collections.detail.statusOptions.scheduled'),
+											},
+										]
+									: []),
 								{ value: 'published', label: t('collections.detail.statusOptions.published') },
 								{ value: 'archived', label: t('collections.detail.statusOptions.archived') },
 							]}
 							className="w-full"
 						/>
 					</Field>
+
+					{/* Publish date — shown only while scheduling. Afterwards the date is
+					    history and sits with the other timestamps. */}
+					{status === 'scheduled' && (
+						<Field
+							label={t('collections.detail.fields.publishAt')}
+							badge={isFuture(publishedAt) ? <ScheduledBadge date={publishedAt} /> : null}
+							helpText={
+								isFuture(publishedAt)
+									? t('collections.detail.scheduleHint', { relative: relativeTime(publishedAt) })
+									: t('collections.detail.scheduleOverdueHint')
+							}
+						>
+							<input
+								type="datetime-local"
+								value={publishedAt}
+								onChange={(e) => {
+									setPublishedAt(e.target.value)
+									setDirty(true)
+								}}
+								disabled={isReadOnly}
+								className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+							/>
+						</Field>
+					)}
 
 					{/* Full-width preview of the collection's image (e.g. featuredImage). The
 				    RelationField in `imagePreview` mode shows the actual image at sidebar
@@ -2278,16 +2374,22 @@ function Field({
 	children,
 	error,
 	helpText,
+	badge,
 }: {
 	label: string
 	children: React.ReactNode
 	error?: string | null
 	helpText?: string | null
+	/** Optional status chip rendered on the label row, right of the label text. */
+	badge?: React.ReactNode
 }) {
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: generic field wrapper — the control is passed in as children and rendered inside this label.
 		<label className="block">
-			<span className="block text-xs text-text-secondary mb-1.5">{label}</span>
+			<span className="flex items-center gap-2 mb-1.5">
+				<span className="text-xs text-text-secondary">{label}</span>
+				{badge}
+			</span>
 			{children}
 			{helpText && !error && <span className="block text-xs text-text-muted mt-1">{helpText}</span>}
 			{error && (

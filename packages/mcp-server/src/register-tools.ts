@@ -1024,7 +1024,19 @@ export function registerTools(
 					'Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1)',
 				),
 			metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
-			status: z.enum(CONTENT_STATUSES).optional().describe('New status'),
+			status: z
+				.enum(CONTENT_STATUSES)
+				.optional()
+				.describe(
+					'New status. Use "scheduled" together with publishedAt to publish automatically at that moment.',
+				),
+			publishedAt: z
+				.string()
+				.datetime()
+				.optional()
+				.describe(
+					'Publish date (ISO 8601). Required when status is "scheduled"; a future value keeps the record out of the published set until then.',
+				),
 		},
 		handler: async ({ id, ...updates }) => {
 			const updated = await client.updateContent(id, updates)

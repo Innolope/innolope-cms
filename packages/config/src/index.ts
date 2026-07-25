@@ -9,4 +9,5 @@ export {
 	contentInputSchema,
 	contentListSchema,
 	envSchema,
+	validateSchedule,
 } from './validation.js'

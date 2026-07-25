@@ -24,7 +24,10 @@ export const content = pgTable(
 		// display title at save time. Postgres treats nulls as distinct in the
 		// unique index, so multiple null-slug rows can coexist.
 		slug: text(),
-		status: text({ enum: ['draft', 'pending_review', 'published', 'archived'] })
+		// Mirrors CONTENT_STATUSES in @innolope/config. `scheduled` rows are picked up
+		// by services/scheduled-publisher.ts once `publishedAt` passes. Kept as a
+		// literal (not an import) so the schema package stays dependency-free.
+		status: text({ enum: ['draft', 'pending_review', 'scheduled', 'published', 'archived'] })
 			.notNull()
 			.default('draft'),
 		collectionId: uuid()

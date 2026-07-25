@@ -5,14 +5,39 @@ import { z } from 'zod'
  * its enum from this list (or a named slice of it) so the accepted values can't
  * drift between endpoints.
  */
-export const CONTENT_STATUSES = ['draft', 'pending_review', 'published', 'archived'] as const
+export const CONTENT_STATUSES = [
+	'draft',
+	'pending_review',
+	'scheduled',
+	'published',
+	'archived',
+] as const
 export type ContentStatus = (typeof CONTENT_STATUSES)[number]
 
 /**
  * Statuses a caller may set directly on create. `pending_review` is entered via
  * the submit-for-review workflow, and `archived` via update — not at creation.
  */
-export const CREATABLE_CONTENT_STATUSES = ['draft', 'published'] as const
+export const CREATABLE_CONTENT_STATUSES = ['draft', 'scheduled', 'published'] as const
+
+/**
+ * `scheduled` means "publish this at `publishedAt`, not before". The background
+ * publisher flips it to `published` once that moment passes, so the date is
+ * mandatory — a scheduled record without one would never publish.
+ *
+ * Shared by the REST handlers and the MCP tools so both reject the same shape.
+ * Returns an error message, or null when the combination is valid.
+ */
+export function validateSchedule(
+	status: string | undefined,
+	publishedAt: string | Date | null | undefined,
+): string | null {
+	if (status !== 'scheduled') return null
+	if (!publishedAt) return 'Scheduled content needs a publish date (publishedAt).'
+	const at = publishedAt instanceof Date ? publishedAt : new Date(publishedAt)
+	if (Number.isNaN(at.getTime())) return 'publishedAt is not a valid date.'
+	return null
+}
 
 export const contentInputSchema = z.object({
 	// Slug is optional — when null/missing, the record has no permalink (used by
