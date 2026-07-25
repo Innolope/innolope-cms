@@ -1625,7 +1625,6 @@
 			"video": "Video",
 			"file": "File"
 		},
-		"dropHere": "Drop files here or click Upload",
 		"empty": {
 			"title": "No media files yet",
 			"subtitle": "Upload images, videos, or files by dragging them into the drop zone or clicking Upload.",
@@ -1657,6 +1656,18 @@
 		},
 		"sources": {
 			"library": "Uploads"
+		},
+		"uploadModal": {
+			"title": "Upload files",
+			"destination": "Files upload to {{target}}",
+			"dropHint": "Drag and drop files here, or",
+			"browse": "Browse files",
+			"remove": "Remove {{name}}",
+			"uploadCount_one": "Upload {{count}} file",
+			"uploadCount_other": "Upload {{count}} files",
+			"uploadedCount_one": "{{count}} file uploaded",
+			"uploadedCount_other": "{{count}} files uploaded",
+			"partialFailed": "{{failed}} of {{total}} files failed to upload — see the list for details"
 		}
 	},
 	"reviewQueue": {

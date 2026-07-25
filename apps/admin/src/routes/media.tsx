@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { LicenseGate } from '../components/license-gate'
 import { ImageThumb } from '../components/media/image-thumb'
 import { UnsplashPicker } from '../components/media/unsplash-picker'
+import { formatFileSize, UploadModal } from '../components/media/upload-modal'
 import { ApiError, api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
@@ -16,7 +17,6 @@ import {
 	type MediaAsset,
 	type MediaSource,
 	PROJECT_LIBRARY_ID,
-	uploadToSource,
 } from '../lib/media-sources'
 
 export const Route = createFileRoute('/media')({
@@ -57,12 +57,14 @@ function MediaLibraryContent() {
 	}
 	const [items, setItems] = useState<MediaAsset[]>([])
 	const [ready, setReady] = useState(false)
-	const [uploading, setUploading] = useState(false)
 	const [selected, setSelected] = useState<MediaAsset | null>(null)
 	const [typeFilter, setTypeFilter] = useState('')
 	const [altDraft, setAltDraft] = useState('')
 	const [savingAlt, setSavingAlt] = useState(false)
-	const fileRef = useRef<HTMLInputElement>(null)
+	// Upload modal: opened by the Upload button, or by dragging files anywhere
+	// over the page (the drop then lands on the modal's own drop surface).
+	const [uploadOpen, setUploadOpen] = useState(false)
+	const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>(undefined)
 	const confirm = useConfirm()
 	const { collections } = useCollections()
 	const { currentProject } = useAuth()
@@ -112,19 +114,37 @@ function MediaLibraryContent() {
 		setSelected(null)
 	}, [filterId])
 
-	const upload = async (files: FileList) => {
-		if (!uploadTarget || !currentProject) return
-		setUploading(true)
-		for (const file of Array.from(files)) {
-			try {
-				await uploadToSource(uploadTarget, file, currentProject.id)
-			} catch {
-				// ignore individual failures
-			}
+	const openUpload = useCallback((files?: File[]) => {
+		setDroppedFiles(files)
+		setUploadOpen(true)
+	}, [])
+
+	// Page-wide drop target (the pattern WordPress's library set): dragging
+	// files anywhere over the page opens the upload modal, whose surface then
+	// receives the drop — no hunting for a dedicated corner of the screen.
+	// dragover/drop are prevented window-wide so a drop that misses the modal
+	// (or lands before it mounts) can't make the browser navigate to the file.
+	useEffect(() => {
+		if (tab !== 'uploaded' || !canUpload) return
+		const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files')
+		const onDragEnter = (e: DragEvent) => {
+			if (hasFiles(e)) openUpload()
 		}
-		setUploading(false)
-		fetchMedia()
-	}
+		const onDragOver = (e: DragEvent) => {
+			if (hasFiles(e)) e.preventDefault()
+		}
+		const onDrop = (e: DragEvent) => {
+			if (hasFiles(e)) e.preventDefault()
+		}
+		window.addEventListener('dragenter', onDragEnter)
+		window.addEventListener('dragover', onDragOver)
+		window.addEventListener('drop', onDrop)
+		return () => {
+			window.removeEventListener('dragenter', onDragEnter)
+			window.removeEventListener('dragover', onDragOver)
+			window.removeEventListener('drop', onDrop)
+		}
+	}, [tab, canUpload, openUpload])
 
 	const deleteMedia = async (asset: MediaAsset) => {
 		if (!currentProject) return
@@ -183,12 +203,6 @@ function MediaLibraryContent() {
 		} finally {
 			setSavingAlt(false)
 		}
-	}
-
-	const formatSize = (bytes: number) => {
-		if (bytes < 1024) return `${bytes} B`
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 	}
 
 	const visibleItems = filterId === 'all' ? items : items.filter((i) => i.sourceId === filterId)
@@ -271,24 +285,14 @@ function MediaLibraryContent() {
 							{canUpload && uploadTarget && (
 								<button
 									type="button"
-									onClick={() => fileRef.current?.click()}
-									disabled={uploading}
-									className="px-3 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover disabled:opacity-50"
+									onClick={() => openUpload()}
+									className="px-3 py-2 bg-btn-primary text-btn-primary-text rounded-md text-sm font-medium hover:bg-btn-primary-hover"
 								>
-									{uploading
-										? t('mediaRoute.uploading')
-										: uploadTarget.collection
-											? t('mediaRoute.uploadTo', { target: uploadTarget.label })
-											: t('mediaRoute.upload')}
+									{uploadTarget.collection
+										? t('mediaRoute.uploadTo', { target: uploadTarget.label })
+										: t('mediaRoute.upload')}
 								</button>
 							)}
-							<input
-								ref={fileRef}
-								type="file"
-								multiple
-								className="hidden"
-								onChange={(e) => e.target.files && upload(e.target.files)}
-							/>
 						</div>
 					)}
 				</div>
@@ -326,7 +330,7 @@ function MediaLibraryContent() {
 								{canUpload && (
 									<button
 										type="button"
-										onClick={() => fileRef.current?.click()}
+										onClick={() => openUpload()}
 										className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 									>
 										{t('mediaRoute.empty.uploadFirst')}
@@ -379,30 +383,22 @@ function MediaLibraryContent() {
 							</div>
 						)}
 
-						{/* Drop zone at bottom — hidden for reference-only libraries. */}
-						<div className={`mt-auto pt-4 ${canUpload ? '' : 'hidden'}`}>
-							{/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop zone; keyboard users upload via the Choose Files button. */}
-							<div
-								className="border-2 border-dashed border-border rounded-lg py-16 px-6 text-text-secondary text-sm hover:border-text-muted transition-colors flex items-center justify-center"
-								onDragOver={(e) => {
-									e.preventDefault()
-									e.currentTarget.classList.add('border-text-secondary')
-								}}
-								onDragLeave={(e) => {
-									e.currentTarget.classList.remove('border-text-secondary')
-								}}
-								onDrop={(e) => {
-									e.preventDefault()
-									e.currentTarget.classList.remove('border-text-secondary')
-									if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
-								}}
-							>
-								{t('mediaRoute.dropHere')}
-							</div>
-						</div>
 					</div>
 				)}
 			</div>
+
+			{uploadOpen && uploadTarget && currentProject && (
+				<UploadModal
+					target={uploadTarget}
+					projectId={currentProject.id}
+					initialFiles={droppedFiles}
+					onClose={() => {
+						setUploadOpen(false)
+						setDroppedFiles(undefined)
+					}}
+					onUploaded={fetchMedia}
+				/>
+			)}
 
 			{/* Detail panel */}
 			{selected && (
@@ -428,7 +424,7 @@ function MediaLibraryContent() {
 						{selected.size !== undefined && (
 							<>
 								<dt className="text-text-secondary">{t('mediaRoute.details.size')}</dt>
-								<dd>{formatSize(selected.size)}</dd>
+								<dd>{formatFileSize(selected.size)}</dd>
 							</>
 						)}
 						<dt className="text-text-secondary">{t('mediaRoute.details.url')}</dt>
