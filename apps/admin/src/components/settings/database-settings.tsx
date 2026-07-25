@@ -1,3 +1,4 @@
+import type { CollectionField } from '@innolope/config'
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -5,6 +6,7 @@ import { api } from '../../lib/api-client'
 import { useAuth } from '../../lib/auth'
 import { useCollections } from '../../lib/collections'
 import { useConfirm } from '../../lib/confirm'
+import { detectDroppedFields } from '../../lib/schema-customizations'
 import {
 	type DetectedTable,
 	formatBytes,
@@ -18,6 +20,15 @@ import { useToast } from '../../lib/toast'
 import { Dropdown } from '../dropdown'
 import { useLicense } from '../license-gate'
 import { SaveBar } from '../save-bar'
+
+/** The slice of GET /api/v1/collections the re-sync overwrite check needs. */
+interface CollectionSchemaRow {
+	name: string
+	label: string
+	source: string
+	externalTable?: string | null
+	fields: CollectionField[]
+}
 
 interface MediaCreds {
 	accountId: string
@@ -363,6 +374,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	const navigate = useNavigate()
 	const _license = useLicense()
 	const toast = useToast()
+	const confirm = useConfirm()
 
 	const needsDbSelectFor = (type: string) => type === 'mongodb' || type === 'firebase'
 	const isNoSqlType = (type: string) => type === 'mongodb' || type === 'firebase'
@@ -880,6 +892,55 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 			toast(t('settings.database.selectAtLeastOne'), 'error')
 			return
 		}
+
+		// Re-sync rebuilds each collection's fields from the scan. The API re-applies
+		// schema-editor configuration by field name, so labels, widgets and required
+		// ticks survive on their own — the only unrecoverable case is a field whose
+		// column the scan no longer sees, which disappears along with its settings.
+		// That one is worth stopping for.
+		//
+		// Fetched rather than read from the collections context: an unloaded context
+		// would report "nothing to lose" and wave the re-sync straight through, which
+		// is the one failure mode this check exists to prevent.
+		let current: CollectionSchemaRow[]
+		try {
+			current = await api.get<CollectionSchemaRow[]>('/api/v1/collections')
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('settings.database.resyncFailed'), 'error')
+			return
+		}
+		const dropping = tablesToSave.flatMap((tbl) => {
+			const col = current.find(
+				(c) => c.source === 'external' && (c.externalTable ?? c.name) === tbl.name,
+			)
+			if (!col) return []
+			const dropped = detectDroppedFields(
+				col.fields,
+				tbl.columns.map((c) => c.name),
+			)
+			return dropped.length > 0 ? [{ label: col.label || col.name, dropped }] : []
+		})
+		if (dropping.length > 0) {
+			const fieldCount = dropping.reduce((sum, d) => sum + d.dropped.length, 0)
+			const detail = dropping
+				.map(
+					({ label, dropped }) =>
+						`${label} — ${dropped
+							.map((f) =>
+								f.configured ? `${f.name} (${t('settings.database.fieldConfigured')})` : f.name,
+							)
+							.join(', ')}`,
+				)
+				.join('; ')
+			const ok = await confirm({
+				title: t('settings.database.resyncDropTitle'),
+				message: t('settings.database.resyncDropMessage', { count: fieldCount, detail }),
+				confirmLabel: t('settings.database.resyncDropConfirm'),
+				danger: true,
+			})
+			if (!ok) return
+		}
+
 		setResyncing(true)
 		setResyncPhase('importing')
 		try {

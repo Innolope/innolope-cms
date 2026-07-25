@@ -9,6 +9,7 @@ import { CONTENT_STATUSES } from '@innolope/config'
 import type { collections, content, contentVersions, Database } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
+import { BODY_FIELD_NAMES } from './localized-fields.js'
 
 /**
  * Source-table column names checked (in order) when auto-detecting an
@@ -187,18 +188,45 @@ export function documentToMarkdown(
 	return { markdown: bodyContent, metadata }
 }
 
-/** Find the most likely "body" field in a document */
-function findBodyField(doc: ExternalDocument, _fields: CollectionField[]): string | null {
-	const bodyNames = ['content', 'body', 'description', 'text', 'markdown', 'html']
-	for (const name of bodyNames) {
-		if (doc[name] && typeof doc[name] === 'string' && (doc[name] as string).length > 100)
-			return name
+/**
+ * Find the field holding the record's body.
+ *
+ * The candidate names and their order are shared with `buildExternalData`, which
+ * writes the markdown back into the first one the collection maps. If the two
+ * disagreed the body would be lifted out of `metadata` on read and then dropped
+ * on write, so they must stay in step.
+ *
+ * The collection schema is authoritative: a declared body field is the body even
+ * when the sampled document has it empty or missing. That is what stops an empty
+ * source body from being cached as `metadata.content = ""` — a value which then
+ * outranks `markdown` in `buildExternalData` and silently discards whatever the
+ * editor typed.
+ *
+ * There is deliberately NO minimum length on the canonical names. A short body
+ * is still a body; the old 100-character floor pushed it into `metadata`, where
+ * the editor hides `content`/`body`, and the article rendered blank.
+ */
+function findBodyField(doc: ExternalDocument, fields: CollectionField[]): string | null {
+	for (const name of BODY_FIELD_NAMES) {
+		if ((fields ?? []).some((field) => field.name === name)) return name
+	}
+	// No usable schema — a MongoDB collection introspected while empty has no
+	// fields at all. Fall back to the document's own keys, same names, same order.
+	for (const name of BODY_FIELD_NAMES) {
+		const value = doc[name]
 		// A localized body (`content: { en, ua }`) is still the body — without this it
 		// fell through to `metadata` as an anonymous object and the editor, which hides
 		// `content`/`body`, never rendered it at all.
-		if (isLocaleMap(doc[name]) && flattenLocaleMap(doc[name] as Record<string, string>).length > 0)
-			return name
+		if (typeof value === 'string' || isLocaleMap(value)) return name
 	}
+	// Last resort: a body living under a name we cannot write back to. These keep
+	// the 100-character floor — a short `description` is a structured field, not a
+	// body, and lifting it out of metadata on a hunch would cost more than it
+	// gains when the write path can't return it to the source document.
+	if (isLocaleMap(doc.description) && flattenLocaleMap(doc.description).length > 0) {
+		return 'description'
+	}
+	if (typeof doc.description === 'string' && doc.description.length > 100) return 'description'
 	let longest = ''
 	let longestKey: string | null = null
 	for (const [key, value] of Object.entries(doc)) {

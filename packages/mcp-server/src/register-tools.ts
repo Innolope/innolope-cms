@@ -45,6 +45,11 @@ Content model:
 - Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
 - The title goes in metadata.title ONLY. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page.
 
+Languages — check the collection before writing a translation, because there are two models and picking the wrong one publishes broken pages:
+- If get_collection_schema marks any field "translatable" (localized), ONE record holds every language: write a locale map, e.g. metadata: { title: { "en": "...", "uk": "..." } }. Do NOT create a second record for the other language — the site reads both out of the same record, so a sibling record renders as a page with missing fields.
+- A plain string on a translatable field is filed under the record's locale and leaves the other translations untouched, so you can add one language at a time.
+- If no field is translatable, languages are separate records: create one per language and set the \`locale\` parameter.
+
 Markdown authoring (bodies render as CommonMark):
 - Single newlines do NOT render as line breaks — consecutive lines flow together into one paragraph. For an intentional line break within a block (label/value rows, address-style lines), end the line with two trailing spaces.
 - A blank line starts a new paragraph with visible vertical spacing. Never put a blank line between a sentence and its continuation; use blank lines only between real paragraphs.
@@ -424,6 +429,31 @@ export function registerTools(
 		})
 		.passthrough()
 
+	/**
+	 * Where a collection's writes actually land. External read-only collections
+	 * accept writes that never reach the customer's database, which looks like a
+	 * successful create until someone checks the live site — so it's stated up
+	 * front rather than left for the caller to infer.
+	 */
+	const writeTargetNote = (c: {
+		source?: string
+		accessMode?: string | null
+		externalTable?: string | null
+	}): string => {
+		if (c.source !== 'external') return 'stored by the CMS'
+		const table = c.externalTable ? ` "${c.externalTable}"` : ''
+		return c.accessMode === 'read-write'
+			? `external${table} — writes sync to the source database`
+			: `external${table}, READ-ONLY — writes are cached by the CMS only and never reach the source database`
+	}
+
+	/** Names the fields stored as per-language maps, for the schema summary. */
+	const localizedNote = (fields: Array<{ name: string; localized?: boolean }>): string => {
+		const names = fields.filter((f) => f.localized).map((f) => f.name)
+		if (names.length === 0) return ''
+		return `\n  Translatable fields (one value per language): ${names.join(', ')}. Pass a locale map — e.g. { "${names[0]}": { "en": "...", "uk": "..." } } — or a plain string, which is filed under the record's locale and leaves the other translations untouched.`
+	}
+
 	const summarize = (item: {
 		id: string
 		slug: string | null
@@ -634,12 +664,17 @@ export function registerTools(
 			.describe(
 				'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 			),
-		metadata: z.record(z.unknown()).optional().describe('Metadata fields'),
+		metadata: z
+			.record(z.unknown())
+			.optional()
+			.describe(
+				'Metadata fields. For fields get_collection_schema marks translatable, pass a locale map — { "en": "...", "uk": "..." } — or a plain string, which is filed under this item\'s locale.',
+			),
 		locale: z
 			.string()
 			.optional()
 			.describe(
-				"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in.",
+				"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in. On a collection with translatable fields this selects which language slot a plain string fills; it is NOT a way to file a second item for the same article.",
 			),
 		status: z
 			.enum(CREATABLE_CONTENT_STATUSES)
@@ -947,7 +982,7 @@ export function registerTools(
 	defineTool({
 		name: 'create_content',
 		description:
-			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them); markdown is the optional prose body and may be omitted for data-only records. The title goes in metadata.title ONLY — never repeat it as a leading H1 in markdown (sites render the title field separately, so a duplicate H1 shows the title twice on the page). Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
+			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them, and to check whether the collection writes to an external database and which fields are translatable); markdown is the optional prose body and may be omitted for data-only records. The title goes in metadata.title ONLY — never repeat it as a leading H1 in markdown (sites render the title field separately, so a duplicate H1 shows the title twice on the page). If the collection has translatable fields, one record holds every language — pass locale maps instead of creating a second record for the translation. Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
 		operationType: 'create',
 		schema: {
 			slug: z
@@ -963,12 +998,17 @@ export function registerTools(
 				.describe(
 					'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 				),
-			metadata: z.record(z.unknown()).optional().describe('Metadata (title, tags, etc.)'),
+			metadata: z
+				.record(z.unknown())
+				.optional()
+				.describe(
+					'Metadata (title, tags, etc.). For fields get_collection_schema marks translatable, pass a locale map — { "en": "...", "uk": "..." } — or a plain string, which is filed under this record\'s locale.',
+				),
 			locale: z
 				.string()
 				.optional()
 				.describe(
-					"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in.",
+					"Locale code — must be one of the project's configured locales (shown by list_projects/use_project). Defaults to the project's default locale. IMPORTANT: match the language the content is actually written in. On a collection with translatable fields this selects which language slot a plain string fills; it is NOT a way to file a second record for the same article.",
 				),
 			status: z
 				.enum(CREATABLE_CONTENT_STATUSES)
@@ -1012,7 +1052,7 @@ export function registerTools(
 	defineTool({
 		name: 'update_content',
 		description:
-			'Update an existing content item. Only provide fields to change. metadata is validated against the collection schema merged with the current values; required fields are enforced when the result is published.',
+			"Update an existing content item. Only provide fields to change. metadata is validated against the collection schema merged with the current values; required fields are enforced when the result is published. On translatable fields an update targets a single language and never drops the record's other translations — pass a locale map to set specific languages, or a plain string to set the record's own locale.",
 		operationType: 'update',
 		schema: {
 			id: z.string().uuid().describe('Content item UUID'),
@@ -1021,9 +1061,14 @@ export function registerTools(
 				.string()
 				.optional()
 				.describe(
-					'Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1)',
+					"Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1). When the collection's body field is translatable, this replaces the body for the record's own locale and leaves the other translations alone.",
 				),
-			metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
+			metadata: z
+				.record(z.unknown())
+				.optional()
+				.describe(
+					'Updated metadata. For translatable fields pass a locale map — { "uk": "..." } updates Ukrainian only — or a plain string to update this record\'s locale.',
+				),
 			status: z
 				.enum(CONTENT_STATUSES)
 				.optional()
@@ -1293,7 +1338,7 @@ export function registerTools(
 	defineTool({
 		name: 'list_collections',
 		description:
-			'List all content collections (content types) with their field schemas. Use this to understand what structured data is available before querying content. Example: list_collections() returns collection names, slugs, and field definitions.',
+			'List all content collections (content types) with their field schemas, where each one stores its data (CMS-internal, or an external database that is read-write or read-only), and which fields are translatable. Use this to understand what structured data is available before querying or writing content. Example: list_collections() returns collection names, slugs, and field definitions.',
 		operationType: 'metadata',
 		schema: {},
 		outputSchema: {
@@ -1305,6 +1350,9 @@ export function registerTools(
 						name: z.string(),
 						label: z.string(),
 						description: z.string().nullable().optional(),
+						source: z.string().nullable().optional(),
+						accessMode: z.string().nullable().optional(),
+						externalTable: z.string().nullable().optional(),
 						fields: z.array(collectionFieldSchema),
 					})
 					.passthrough(),
@@ -1315,9 +1363,12 @@ export function registerTools(
 			const summary = collections
 				.map((c) => {
 					const fields = c.fields
-						.map((f) => `${f.name} (${f.type}${f.required ? ', required' : ''})`)
+						.map(
+							(f) =>
+								`${f.name} (${f.type}${f.required ? ', required' : ''}${f.localized ? ', translatable' : ''})`,
+						)
 						.join(', ')
-					return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Fields: ${fields || 'None'}`
+					return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Storage: ${writeTargetNote(c)}\n  Fields: ${fields || 'None'}${localizedNote(c.fields)}`
 				})
 				.join('\n\n')
 			return {
@@ -1331,6 +1382,9 @@ export function registerTools(
 						name: c.name,
 						label: c.label,
 						description: c.description ?? null,
+						source: c.source ?? null,
+						accessMode: c.accessMode ?? null,
+						externalTable: c.externalTable ?? null,
 						fields: c.fields,
 					})),
 				},
@@ -1341,7 +1395,7 @@ export function registerTools(
 	defineTool({
 		name: 'get_collection_schema',
 		description:
-			'Get the detailed schema of a specific collection, including all field definitions with types, requirements, and options. Call this before create_content / bulk_create to know which metadata fields to set.',
+			'Get the detailed schema of a specific collection: every field definition with its type, requirements and options, whether the field is translatable (stored as one value per language), and where writes land (CMS-internal, or an external database that is read-write or read-only). Call this before create_content / bulk_create to know which metadata fields to set.',
 		operationType: 'metadata',
 		schema: { id: z.string().uuid().describe('Collection UUID') },
 		outputSchema: {
@@ -1349,12 +1403,17 @@ export function registerTools(
 			name: z.string(),
 			label: z.string(),
 			description: z.string().nullable().optional(),
+			source: z.string().nullable().optional(),
+			accessMode: z.string().nullable().optional(),
+			externalTable: z.string().nullable().optional(),
 			fields: z.array(collectionFieldSchema),
 		},
 		handler: async ({ id }) => {
 			const col = await client.getCollection(id)
 			return {
-				...text(JSON.stringify(col, null, 2)),
+				...text(
+					`Storage: ${writeTargetNote(col)}${localizedNote(col.fields)}\n\n${JSON.stringify(col, null, 2)}`,
+				),
 				// Project to the declared output shape — structuredContent is validated
 				// strictly against outputSchema; the text channel carries the full JSON.
 				structuredContent: {
@@ -1362,6 +1421,9 @@ export function registerTools(
 					name: col.name,
 					label: col.label,
 					description: col.description ?? null,
+					source: col.source ?? null,
+					accessMode: col.accessMode ?? null,
+					externalTable: col.externalTable ?? null,
 					fields: col.fields,
 				},
 			}
@@ -1421,7 +1483,7 @@ export function registerTools(
 	defineTool({
 		name: 'bulk_create',
 		description:
-			'Create multiple content items in one call. Maximum 50 items. Each item requires collectionId and markdown; slug is optional (derived from metadata.title or the markdown heading when omitted). Call get_collection_schema(collectionId) first to see the fields to set via metadata. The batch is all-or-nothing: if any item is invalid, nothing is created and every problem is reported per item. Pass dryRun: true first to validate the batch without writing. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
+			'Create multiple content items in one call. Maximum 50 items. Each item requires collectionId and markdown; slug is optional (derived from metadata.title or the markdown heading when omitted). Call get_collection_schema(collectionId) first to see the fields to set via metadata. If the collection has translatable fields, an article and its translation are ONE item with locale maps — not two items. The batch is all-or-nothing: if any item is invalid, nothing is created and every problem is reported per item. Pass dryRun: true first to validate the batch without writing. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
 		operationType: 'create',
 		schema: {
 			items: z.array(z.object(bulkItemShape)).describe('Array of content items to create'),

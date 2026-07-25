@@ -422,7 +422,8 @@
 				"customRoles": "Custom Roles",
 				"whiteLabel": "White-Label",
 				"reviewWorkflows": "Review Workflows",
-				"mediaIntegrations": "Media Library"
+				"mediaIntegrations": "Media Library",
+				"coverGenerator": "Cover Generator"
 			}
 		},
 		"media": {
@@ -744,6 +745,11 @@
 				"importing": "Importing collection schema…",
 				"refreshing": "Refreshing collections…"
 			},
+			"resyncDropTitle": "Some fields will be removed",
+			"resyncDropMessage_one": "Your field settings — labels, field types, required ticks — are kept automatically. But {{count}} field is no longer in your database and will be removed along with its settings: {{detail}}. Continue?",
+			"resyncDropMessage_other": "Your field settings — labels, field types, required ticks — are kept automatically. But {{count}} fields are no longer in your database and will be removed along with their settings: {{detail}}. Continue?",
+			"resyncDropConfirm": "Re-sync and remove",
+			"fieldConfigured": "configured",
 			"stepOfTotal": "Step {{current}} of {{total}}",
 			"selectCollectionsToDisplay": "Select collections to display",
 			"noCollectionsFound": "No collections found in this database.",

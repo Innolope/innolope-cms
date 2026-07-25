@@ -15,6 +15,35 @@ export interface CollectionFieldUi {
 	subFields?: CollectionField[]
 }
 
+/**
+ * True when a field carries configuration a database scan never produces —
+ * evidence a human edited it in the schema editor.
+ *
+ * Shared by the API (which re-applies these properties across a re-sync) and the
+ * admin (which warns before any of them are lost), so the two cannot drift apart
+ * on what counts as someone's work.
+ *
+ * `options` and `ui.subFields` are excluded: enum detection and array-shape
+ * detection produce those automatically and re-derive them on every sync, so
+ * counting them would report edits nobody made. `ui.readOnly` counts only off
+ * `__v`, the one field the import wizard marks read-only itself.
+ */
+export function hasFieldCustomizations(field: CollectionField): boolean {
+	const ui = field.ui
+	return Boolean(
+		field.label ||
+			field.required ||
+			field.defaultValue !== undefined ||
+			ui?.widget ||
+			ui?.hidden ||
+			ui?.placeholder ||
+			ui?.helpText ||
+			ui?.rows !== undefined ||
+			ui?.separator ||
+			(ui?.readOnly && field.name !== '__v'),
+	)
+}
+
 export interface CollectionField {
 	name: string
 	label?: string

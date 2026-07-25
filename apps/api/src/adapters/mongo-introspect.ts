@@ -143,29 +143,42 @@ export async function detectMongoArrayShapes(
 	return result
 }
 
+export interface MongoLocaleDetection {
+	/** Union of locale codes seen across every sampled collection. */
+	locales: string[]
+	/** Table name → names of the fields whose values are locale maps. */
+	localizedFields: Map<string, Set<string>>
+}
+
 /**
- * Sample documents from the named MongoDB collections and return the union of
- * 2-character keys found in object-valued fields whose values are strings
- * across multiple documents. This is the convention this CMS uses for
- * localized text (`{ en: "...", ua: "..." }`) — so the set of keys is a
- * faithful proxy for which locales the data is authored in.
+ * Sample documents from the named MongoDB collections and detect localized text
+ * — fields whose value is a `{ en: "...", ua: "..." }` map, the convention this
+ * CMS uses. Returns both the union of locale codes (which seeds
+ * `settings.locales`) and, per collection, which fields carry those maps (which
+ * marks the schema fields `localized: true`).
+ *
+ * The per-field result is what lets a write know it must fold a value into the
+ * existing map instead of replacing it; without it, writing one language to a
+ * bilingual document silently drops the other.
  *
  * Bounded: samples at most 20 docs per collection and only inspects the top
- * level of each document. A key needs ≥2 string-valued occurrences across all
- * samples to qualify, which keeps incidental short-keyed objects (e.g. a
- * configuration blob with a 2-letter shortcode) from polluting the result.
+ * level of each document. A code needs ≥2 string-valued occurrences to make the
+ * locale union, and a field must look locale-shaped in ≥2 sampled docs (or in
+ * the only doc, for a near-empty collection) to be marked localized — which
+ * keeps an incidental short-keyed object from being mistaken for translations.
  */
 export async function detectMongoLocales(
 	connectionString: string,
 	database: string | undefined,
 	tableNames: string[],
-): Promise<string[]> {
+): Promise<MongoLocaleDetection> {
 	const { MongoClient } = await import('mongodb')
 	const client = new MongoClient(connectionString, { serverSelectionTimeoutMS: 10000 })
 	try {
 		await client.connect()
 		const db = database ? client.db(database) : client.db()
 		const counts = new Map<string, number>()
+		const localizedFields = new Map<string, Set<string>>()
 		for (const name of tableNames) {
 			let samples: unknown[] = []
 			try {
@@ -173,21 +186,41 @@ export async function detectMongoLocales(
 			} catch {
 				continue
 			}
+			// Per-field tally of "this value was locale-shaped in this document".
+			const fieldHits = new Map<string, number>()
 			for (const doc of samples) {
 				if (!doc || typeof doc !== 'object') continue
-				for (const value of Object.values(doc as Record<string, unknown>)) {
+				for (const [field, value] of Object.entries(doc as Record<string, unknown>)) {
 					if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-					for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+					const entries = Object.entries(value as Record<string, unknown>)
+					if (entries.length === 0) continue
+					let localeKeys = 0
+					for (const [k, v] of entries) {
 						// Only keep plausible 2-letter ISO-ish codes mapping to non-empty
 						// strings; rules out `_id`/`__v`/numeric flags/etc.
 						if (typeof v !== 'string' || v.length === 0) continue
 						if (!/^[a-z]{2}$/.test(k)) continue
 						counts.set(k, (counts.get(k) ?? 0) + 1)
+						localeKeys++
+					}
+					// Every key must be a locale code for the FIELD to count as localized.
+					// A structured blob like `{ platform, url, id }` can contribute a stray
+					// code to the union above, but must never mark the field translatable.
+					if (localeKeys > 0 && localeKeys === entries.length) {
+						fieldHits.set(field, (fieldHits.get(field) ?? 0) + 1)
 					}
 				}
 			}
+			const threshold = Math.min(2, samples.length || 1)
+			const qualified = new Set(
+				[...fieldHits.entries()].filter(([, n]) => n >= threshold).map(([field]) => field),
+			)
+			if (qualified.size > 0) localizedFields.set(name, qualified)
 		}
-		return [...counts.entries()].filter(([, n]) => n >= 2).map(([code]) => code)
+		return {
+			locales: [...counts.entries()].filter(([, n]) => n >= 2).map(([code]) => code),
+			localizedFields,
+		}
 	} finally {
 		await client.close().catch(() => undefined)
 	}

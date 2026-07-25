@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import type { CollectionField } from '@innolope/config'
 import { collections, content, importJobs, projects } from '@innolope/db'
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -10,13 +9,12 @@ import {
 } from '../../adapters/connection-guard.js'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import {
-	buildSubField,
 	classifyMongoValue,
 	detectMongoArrayShapes,
 	detectMongoLocales,
 	type ObjectArrayShape,
 } from '../../adapters/mongo-introspect.js'
-import { mapColumnType, tableNameToLabel } from '../../adapters/type-mapper.js'
+import { tableNameToLabel } from '../../adapters/type-mapper.js'
 import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
 import {
 	conformsToSiteConvention,
@@ -36,6 +34,10 @@ import {
 } from '../../lib/media-upload.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
+import {
+	buildCollectionFields,
+	mergeFieldCustomizations,
+} from '../../services/collection-schema.js'
 
 /** Best-guess the media host (`r2` | `cloudflare-images` | `s3` | `cloudinary`) from a sample URL. */
 function detectProvider(url: string | undefined): string | undefined {
@@ -97,17 +99,6 @@ function sanitizeProject(project: typeof projects.$inferSelect) {
 	}
 	return { ...project, settings }
 }
-
-const FIELD_TYPES = new Set([
-	'text',
-	'number',
-	'boolean',
-	'date',
-	'enum',
-	'relation',
-	'object',
-	'array',
-])
 
 export async function databaseRoutes(app: FastifyInstance) {
 	// Test external database connection
@@ -757,7 +748,10 @@ export async function databaseRoutes(app: FastifyInstance) {
 			// objects (the convention used by this CMS), union those locale codes into
 			// `settings.locales` so the editor's dual-mode/translate UI lights up
 			// without requiring the admin to manually edit "Available locales".
+			// The per-field half of the result is consulted when building each
+			// collection's schema below, so those fields carry `localized: true`.
 			// Bounded work: sample at most 20 docs per selected collection.
+			let localizedFields: Map<string, Set<string>> = new Map()
 			if (
 				type === 'mongodb' &&
 				effectiveConnectionString &&
@@ -770,13 +764,14 @@ export async function databaseRoutes(app: FastifyInstance) {
 						effectiveDatabase || undefined,
 						tables.map((t) => t.name),
 					)
-					if (detected.length > 0) {
+					localizedFields = detected.localizedFields
+					if (detected.locales.length > 0) {
 						const existing = Array.isArray(settings.locales)
 							? (settings.locales as string[])
 							: ['en']
 						const merged: string[] = []
 						const seen = new Set<string>()
-						for (const code of [...existing, ...detected]) {
+						for (const code of [...existing, ...detected.locales]) {
 							if (!seen.has(code)) {
 								seen.add(code)
 								merged.push(code)
@@ -789,6 +784,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 								`Detected ${added.length === 1 ? 'locale' : 'locales'} ${added.join(', ')} in your content. Added to project locales.`,
 							)
 						}
+					}
+					const localizedCount = [...localizedFields.values()].reduce(
+						(sum, set) => sum + set.size,
+						0,
+					)
+					if (localizedCount > 0) {
+						warnings.push(
+							`${localizedCount} ${localizedCount === 1 ? 'field stores' : 'fields store'} one value per language. Marked as translatable so edits update a single language instead of replacing every translation.`,
+						)
 					}
 				} catch (err) {
 					app.log.warn({ err }, 'Locale auto-detection failed; leaving settings.locales as-is')
@@ -865,7 +869,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 				for (const table of tables) {
 					const [existing] = await app.db
-						.select({ id: collections.id })
+						.select({ id: collections.id, fields: collections.fields })
 						.from(collections)
 						.where(
 							and(
@@ -875,53 +879,21 @@ export async function databaseRoutes(app: FastifyInstance) {
 						)
 						.limit(1)
 
-					// Map column types to field types. MongoDB scan columns already carry a
-					// resolved CollectionField type; SQL columns carry a raw data_type string.
-					// Only genuinely database-owned columns are marked read-only. Lifecycle
-					// timestamps (createdAt/updatedAt/publishedAt) are deliberately NOT:
-					// editors routinely need to backdate a post, and the site consuming the
-					// source database usually renders `createdAt` as the published date. They
-					// stay ordinary editable `date` fields; an admin who wants one locked can
-					// tick Advanced → Read-only in the collection schema editor.
-					const SYSTEM_FIELDS = new Set(['__v'])
-					// `slug` is also kept out of the schema fields list — it's already
-					// represented at the top level of every content row as `content.slug`,
-					// and the editor renders a dedicated slug input. Letting it through
-					// as a schema field produced a duplicate input AND a duplicate value
-					// in the saved payload (top-level + metadata.slug).
-					const tableShapes = arrayShapes.get(table.name)
-					const fields = table.columns
-						.filter((c) => c.name !== '_id' && c.name !== 'id' && c.name !== 'slug')
-						.map((c) => {
-							const isSystem = SYSTEM_FIELDS.has(c.name)
-							const resolvedType = (
-								FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)
-							) as CollectionField['type']
-
-							// Build the optional UI hint blob. Read-only (system fields)
-							// and subFields (array-of-object shape) coexist when both
-							// apply; the spread keeps the field shape compact when
-							// neither does.
-							let ui: { readOnly?: boolean; subFields?: CollectionField[] } | undefined
-							if (isSystem) ui = { ...(ui ?? {}), readOnly: true }
-							const shape = resolvedType === 'array' ? tableShapes?.get(c.name) : undefined
-							if (shape && shape.keys.length > 0) {
-								ui = {
-									...(ui ?? {}),
-									subFields: shape.keys.map((key) => buildSubField(key, shape)),
-								}
-							}
-
-							return {
-								name: c.name,
-								type: resolvedType,
-								required: false,
-								localized: false,
-								...(c.relationTo && { relationTo: c.relationTo }),
-								...(c.relationIsArray && { relationIsArray: true }),
-								...(ui && { ui }),
-							}
-						})
+					const detectedFields = buildCollectionFields(table.columns, {
+						arrayShapes: arrayShapes.get(table.name),
+						localizedFields: localizedFields.get(table.name),
+					})
+					// Re-applying the collection's own schema-editor work on top of the
+					// fresh detection is what lets a re-sync upgrade types and localization
+					// flags without resetting labels, widgets and required ticks.
+					const { fields, unpreserved } = mergeFieldCustomizations(existing?.fields, detectedFields)
+					for (const change of unpreserved) {
+						warnings.push(
+							change.kind === 'removed'
+								? `"${table.name}": the field "${change.field}" is no longer in the source table and was removed from the schema, along with its settings.`
+								: `"${table.name}": the field "${change.field}" changed type from ${change.from} to ${change.to} to match the source data. Its other settings were kept.`,
+						)
+					}
 
 					// Collection already imported — refresh its detected field schema so
 					// re-running the wizard upgrades types (e.g. text → relation/date).

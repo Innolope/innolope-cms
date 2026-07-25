@@ -35,6 +35,7 @@ import {
 	updateExternalDb,
 } from '../../services/external-content.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
+import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs } from '../../services/markdown-cache.js'
 
 /**
@@ -460,6 +461,10 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 		const locale = input.locale || defaultLocale
 
+		// On a collection whose fields hold one value per language, a plain string
+		// belongs in this record's locale slot — not in place of the whole map.
+		input.metadata = applyLocalizedWrite(col.fields, input, { locale })
+
 		// Validate metadata against the collection's field schema. Required fields
 		// are enforced only when publishing; drafts may be incomplete. Extra keys
 		// are ignored. On failure, echo the schema so the caller can self-correct.
@@ -673,6 +678,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				continue
 			}
+			// Same locale-map fold as the single-item create. Done here, before
+			// validation, so the transaction below writes the normalized value.
+			item.metadata = applyLocalizedWrite(col.fields, item, {
+				locale: item.locale || defaultLocale,
+			})
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
 			})
@@ -950,6 +960,13 @@ export async function contentRoutes(app: FastifyInstance) {
 				continue
 			}
 			if (col) {
+				// Fold localized fields against what the row already holds, so updating
+				// one language keeps the others. Done in this pre-pass so the
+				// transaction below sees the normalized metadata.
+				item.metadata = applyLocalizedWrite(col.fields, item, {
+					locale: current.locale,
+					existing: current.metadata as Record<string, unknown>,
+				})
 				const merged = { ...(current.metadata as Record<string, unknown>), ...item.metadata }
 				const errors = validateContentMetadata(col.fields, merged, {
 					enforceRequired: mergedStatus === 'published',
@@ -1228,6 +1245,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			// only when the result is published). Uses the merged view so a partial
 			// update isn't judged as if it replaced everything.
 			if (col) {
+				// Fold localized fields against the stored map first — a bare string here
+				// means "this record's language", not "replace every translation".
+				input.metadata = applyLocalizedWrite(col.fields, input, {
+					locale: current.locale,
+					existing: current.metadata as Record<string, unknown>,
+				})
 				const mergedMetadata = { ...current.metadata, ...input.metadata }
 				const nextStatus = input.status ?? current.status
 				const updateErrors = validateContentMetadata(col.fields, mergedMetadata, {

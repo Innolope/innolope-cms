@@ -533,10 +533,21 @@ interface CollectionItem {
 	label: string
 	name: string
 	description: string | null
+	/** 'internal' (stored by the CMS) or 'external' (backed by the customer's own database). */
+	source?: string
+	/**
+	 * For external collections: whether writes reach the source database.
+	 * 'read-only' means a create/update is cached by the CMS and never leaves it —
+	 * the site reading the source database will not see it.
+	 */
+	accessMode?: string | null
+	/** For external collections: the table/collection in the source database. */
+	externalTable?: string | null
 	fields: Array<{
 		name: string
 		type: string
 		required?: boolean
+		/** Value is a per-language map (`{ en, uk }`) in the source database. */
 		localized?: boolean
 		options?: string[]
 	}>

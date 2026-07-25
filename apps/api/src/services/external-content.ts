@@ -6,6 +6,7 @@ import { marked } from 'marked'
 import { createExternalDbAdapter, type ExternalDocument } from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
+import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
 
 export function sanitizeHtml(html: string): string {
@@ -85,9 +86,7 @@ export function buildExternalData(
 	// sends `content: { en, ua }` in metadata while `markdown` only carries the
 	// flattened preview copy, and writing that back would collapse the locale map
 	// to a single string in the source database.
-	const bodyField = ['content', 'body', 'markdown', 'text', 'html'].find((field) =>
-		fieldNames.has(field),
-	)
+	const bodyField = BODY_FIELD_NAMES.find((field) => fieldNames.has(field))
 	if (bodyField && input.markdown !== undefined && !(bodyField in data)) {
 		data[bodyField] = input.markdown
 	}
