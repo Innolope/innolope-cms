@@ -28,6 +28,7 @@ import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { collectionRoutes } from './routes/v1/collections.js'
 import { contentRoutes } from './routes/v1/content.js'
+import { coverRoutes } from './routes/v1/covers.js'
 import { customDomainRoutes } from './routes/v1/custom-domain.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
@@ -358,6 +359,7 @@ export async function buildApp() {
 	await app.register(feedbackRoutes, { prefix: '/api/v1/feedback' })
 	await app.register(streamRoutes, { prefix: '/api/v1/stream' })
 	await app.register(unsplashRoutes, { prefix: '/api/v1/unsplash' })
+	await app.register(coverRoutes, { prefix: '/api/v1/covers' })
 
 	// Enterprise Edition routes
 	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })

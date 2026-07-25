@@ -79,4 +79,22 @@ export interface ProjectSettings {
 		r2SecretAccessKey?: string
 		r2Endpoint?: string
 	}
+	/**
+	 * Generated record covers (Pro: `cover-generator`).
+	 *
+	 * The CMS ships no cover design system — motifs and palettes are per-brand,
+	 * so they live in the customer's own repo. `templateUrl` points at an
+	 * endpoint returning a self-contained HTML document for one cover; the CMS
+	 * renders that through Cloudflare Browser Rendering, stores the image, and
+	 * writes the URL back onto the record.
+	 *
+	 * Called as `GET {templateUrl}?slug=…&format=…`, must return `text/html`.
+	 */
+	covers?: {
+		templateUrl?: string
+		/** Optional bearer token sent to templateUrl. */
+		templateToken?: string
+		/** Stage sizes the template supports; the first is the default. */
+		formats?: { name: string; width: number; height: number }[]
+	}
 }
