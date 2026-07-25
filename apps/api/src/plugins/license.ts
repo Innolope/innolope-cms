@@ -14,6 +14,7 @@ export type LicenseFeature =
 	| 'white-label'
 	| 'review-workflows'
 	| 'media-integrations'
+	| 'cover-generator'
 	| 'custom-domain'
 	| 'remote-mcp'
 
@@ -77,8 +78,19 @@ const ALL_FEATURES: LicenseFeature[] = [
 	'white-label',
 	'review-workflows',
 	'media-integrations',
+	'cover-generator',
 	'custom-domain',
 	'remote-mcp',
+]
+
+// Features sold with the Pro plan; everything else in ALL_FEATURES is Enterprise.
+// Used only to word the 403 — entitlement itself always comes from the signed
+// license payload, never from this list.
+const PRO_FEATURES: LicenseFeature[] = [
+	'ai-assistant',
+	'media-integrations',
+	'remote-mcp',
+	'cover-generator',
 ]
 
 export function decodeLicenseKey(
@@ -214,7 +226,7 @@ export const licensePlugin = fp(async (app: FastifyInstance) => {
 		(feature: LicenseFeature) => async (_request: FastifyRequest, reply: FastifyReply) => {
 			if (!license.hasFeature(feature)) {
 				return reply.status(403).send({
-					error: `This feature requires an Innolope ${feature === 'ai-assistant' || feature === 'media-integrations' ? 'Pro' : 'Enterprise'} license.`,
+					error: `This feature requires an Innolope ${PRO_FEATURES.includes(feature) ? 'Pro' : 'Enterprise'} license.`,
 					feature,
 					upgradeUrl: 'https://innolope.com/apps/cms#pricing',
 				})

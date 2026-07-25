@@ -28,7 +28,12 @@ const COMMUNITY_LICENSE: LicenseInfo = {
 }
 
 // Features that belong to the Pro tier; everything else gated is Enterprise.
-const PRO_FEATURES = new Set(['ai-assistant', 'media-integrations', 'remote-mcp'])
+const PRO_FEATURES = new Set([
+	'ai-assistant',
+	'media-integrations',
+	'remote-mcp',
+	'cover-generator',
+])
 
 const LicenseContext = createContext<LicenseContextValue>({
 	...COMMUNITY_LICENSE,

@@ -16,6 +16,7 @@ const FEATURE_KEYS: Record<string, string> = {
 	'white-label': 'settings.license.features.whiteLabel',
 	'review-workflows': 'settings.license.features.reviewWorkflows',
 	'media-integrations': 'settings.license.features.mediaIntegrations',
+	'cover-generator': 'settings.license.features.coverGenerator',
 }
 
 const PLAN_KEYS: Record<string, string> = {
