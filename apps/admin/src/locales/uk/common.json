@@ -146,7 +146,7 @@
 	},
 	"ai": {
 		"toolbar": {
-			"ai": "✨ AI",
+			"ai": "AI",
 			"rewrite": "Переписати",
 			"shorter": "Коротше",
 			"fix": "Виправити",
@@ -286,11 +286,12 @@
 			"selectLabel": "Виберіть {{label}}…",
 			"none": "— Немає —",
 			"noRecordsYet": "Записів ще немає.",
-			"chooseExisting": "Обрати наявний",
+			"chooseExisting": "Обрати з наявних",
 			"pickTitle": "Оберіть: {{label}}",
 			"createNew": "+ Створити новий {{label}}",
 			"uploadImage": "Завантажити зображення",
-			"changeImage": "Змінити зображення",
+			"replaceImage": "Замінити зображення",
+			"uploadNew": "Завантажити нове",
 			"removeImage": "Видалити зображення",
 			"uploading": "Завантаження…",
 			"newDialogTitle": "Новий {{label}}",

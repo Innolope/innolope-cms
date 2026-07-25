@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SparklesIcon } from '../components/icons'
 import { useLicense } from '../components/license-gate'
 import { api } from '../lib/api-client'
 
@@ -151,7 +152,7 @@ function Onboarding() {
 				{step === 2 && (
 					<div className="max-w-md mx-auto text-center">
 						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mb-4 mx-auto">
-							<span className="text-2xl">✨</span>
+							<SparklesIcon className="w-6 h-6 text-text-secondary" />
 						</div>
 						<h1 className="text-2xl font-bold mb-2">{t('onboarding.activateTitle')}</h1>
 						<p className="text-text-secondary mb-6">{t('onboarding.activateSubtitle')}</p>

@@ -19,7 +19,9 @@ import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
 import { useConfirm, usePrompt } from '../lib/confirm'
 import { resolveDisplayTitle } from '../lib/display-title'
+import { fieldLabel } from '../lib/field-label'
 import { useToast } from '../lib/toast'
+import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
 
 /** Normalize a stored value (array or comma string) to a string array. */
 function toStringArray(v: unknown): string[] {
@@ -1390,12 +1392,7 @@ function CollectionContentEditor() {
 	// every widget honours the same `ui` blob (placeholder, readOnly, separator,
 	// helpText, …) instead of just the text branch.
 	const renderSchemaField = (f: (typeof visibleSchemaFields)[number]) => (
-		<Field
-			key={f.name}
-			label={f.label?.trim() || f.name}
-			error={fieldErrors[f.name]}
-			helpText={f.ui?.helpText}
-		>
+		<Field key={f.name} label={fieldLabel(f)} error={fieldErrors[f.name]} helpText={f.ui?.helpText}>
 			<FieldRenderer
 				field={f}
 				value={extraFields[f.name]}
@@ -1692,9 +1689,12 @@ function CollectionContentEditor() {
 							<div className="flex gap-6 items-start">
 								{visiblePaneLocales.map((paneLocale, paneIndex) => {
 									const isPrimaryPane = paneIndex === 0
-									// A secondary pane can only render against locale maps; with a
-									// plain-string value there is nothing to put in it yet.
-									if (!isPrimaryPane && !titleMap && !bodyMap) return null
+									// A secondary pane can only *edit* a locale map. While the value is
+									// still a plain string it renders a placeholder carrying the opt-in
+									// instead of disappearing — split view must always show two columns,
+									// otherwise the toggle looks like it did nothing.
+									const titleEditable = isPrimaryPane || !!titleMap
+									const bodyEditable = isPrimaryPane || !!bodyMap
 									return (
 										<div key={paneLocale} className="flex-1 min-w-0">
 											{visiblePaneLocales.length > 1 && (
@@ -1702,72 +1702,59 @@ function CollectionContentEditor() {
 													{localeDisplayName(paneLocale)}
 												</div>
 											)}
-											<input
-												type="text"
-												value={titleMap ? (titleMap[paneLocale] ?? '') : title}
-												onChange={(e) => {
-													if (titleMap) {
-														setTitleLocale(paneLocale, e.target.value)
-														return
-													}
-													setTitle(e.target.value)
-													setDirty(true)
-													if (isNew) setContentSlug(generateSlug(e.target.value))
-												}}
-												placeholder={t('collections.detail.titlePlaceholder')}
-												disabled={isReadOnly}
-												className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-6 placeholder:text-text-muted disabled:opacity-60"
-											/>
+											{titleEditable ? (
+												<TitleInput
+													value={titleMap ? (titleMap[paneLocale] ?? '') : title}
+													onChange={(v) => {
+														if (titleMap) {
+															setTitleLocale(paneLocale, v)
+															return
+														}
+														setTitle(v)
+														setDirty(true)
+														if (isNew) setContentSlug(generateSlug(v))
+													}}
+													placeholder={t('collections.detail.titlePlaceholder')}
+													disabled={isReadOnly}
+												/>
+											) : (
+												<TranslationOptIn
+													className="mb-6"
+													lang={localeDisplayName(paneLocale)}
+													action={t('collections.detail.enableTranslations.forTitle')}
+													onEnable={isReadOnly ? undefined : () => enableTranslations('title')}
+												/>
+											)}
 
-											<MarkdownEditor
-												content={bodyMap ? (bodyMap[paneLocale] ?? '') : markdown}
-												onChange={(v) => {
-													if (isReadOnly) return
-													if (bodyMap) {
-														setBodyLocale(paneLocale, v)
-														return
+											{bodyEditable ? (
+												<MarkdownEditor
+													content={bodyMap ? (bodyMap[paneLocale] ?? '') : markdown}
+													onChange={(v) => {
+														if (isReadOnly) return
+														if (bodyMap) {
+															setBodyLocale(paneLocale, v)
+															return
+														}
+														setMarkdown(v)
+														setDirty(true)
+													}}
+												/>
+											) : (
+												<TranslationOptIn
+													className="min-h-[16rem]"
+													lang={localeDisplayName(paneLocale)}
+													action={t('collections.detail.enableTranslations.forBody')}
+													onEnable={
+														isReadOnly || !bodyFieldName
+															? undefined
+															: () => enableTranslations('body')
 													}
-													setMarkdown(v)
-													setDirty(true)
-												}}
-											/>
+												/>
+											)}
 										</div>
 									)
 								})}
 							</div>
-
-							{/* Opt-in strip: shown in compare mode while title and/or body are
-							    still plain strings. Full-width under the panes rather than a third
-							    column, so the editors keep the whole width once one is converted.
-							    Converting changes the value's shape in the source database, so it
-							    never happens implicitly. */}
-							{localeUi.mode === 'compare' && !isReadOnly && (!titleMap || !bodyMap) && (
-								<div className="mt-4 rounded-lg border border-dashed border-border p-4 flex flex-wrap items-center gap-3">
-									<p className="text-sm text-text-secondary flex-1 min-w-[16rem]">
-										{t('collections.detail.enableTranslations.prompt', {
-											lang: localeDisplayName(localeUi.rightLocale),
-										})}
-									</p>
-									{!titleMap && (
-										<button
-											type="button"
-											onClick={() => enableTranslations('title')}
-											className="px-3 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
-										>
-											{t('collections.detail.enableTranslations.forTitle')}
-										</button>
-									)}
-									{bodyFieldName && !bodyMap && (
-										<button
-											type="button"
-											onClick={() => enableTranslations('body')}
-											className="px-3 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
-										>
-											{t('collections.detail.enableTranslations.forBody')}
-										</button>
-									)}
-								</div>
-							)}
 
 							{editorContainerRef.current && aiSelectedText && (
 								<SelectionToolbar
@@ -1898,7 +1885,7 @@ function CollectionContentEditor() {
 				    RelationField in `imagePreview` mode shows the actual image at sidebar
 				    width plus the picker/upload control to change it. */}
 					{imageField && (
-						<Field label={imageField.label?.trim() || imageField.name}>
+						<Field label={fieldLabel(imageField)}>
 							<RelationField
 								value={String(extraFields[imageField.name] ?? '')}
 								relationTo={imageField.relationTo}
@@ -2210,6 +2197,78 @@ function CollectionContentEditor() {
 					</div>
 				)}
 			</div>
+		</div>
+	)
+}
+
+/**
+ * The record's headline. A textarea rather than an input so a long title wraps
+ * onto as many lines as it needs instead of scrolling out of sight behind the
+ * right edge — the auto-size hook keeps the box exactly as tall as its content.
+ * Enter is swallowed: the title is a single logical line.
+ */
+function TitleInput({
+	value,
+	onChange,
+	placeholder,
+	disabled,
+}: {
+	value: string
+	onChange: (value: string) => void
+	placeholder: string
+	disabled?: boolean
+}) {
+	const ref = useAutoSizeTextarea(value)
+	return (
+		<textarea
+			ref={ref}
+			rows={1}
+			value={value}
+			onChange={(e) => onChange(e.target.value)}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter') e.preventDefault()
+			}}
+			placeholder={placeholder}
+			disabled={disabled}
+			className="w-full text-3xl font-bold leading-tight bg-transparent border-none outline-none mb-6 resize-none overflow-hidden placeholder:text-text-muted disabled:opacity-60"
+		/>
+	)
+}
+
+/**
+ * Placeholder for a compare pane whose value is still a plain string. Converting
+ * it to a locale map changes the shape of the value in the source database, so it
+ * stays an explicit action — but the pane itself always renders, so split view
+ * visibly splits.
+ */
+function TranslationOptIn({
+	lang,
+	action,
+	onEnable,
+	className,
+}: {
+	lang: string
+	action: string
+	onEnable?: () => void
+	className?: string
+}) {
+	const { t } = useTranslation()
+	return (
+		<div
+			className={`rounded-lg border border-dashed border-border p-6 flex flex-col items-center justify-center gap-3 text-center ${className ?? ''}`}
+		>
+			<p className="text-sm text-text-secondary">
+				{t('collections.detail.enableTranslations.prompt', { lang })}
+			</p>
+			{onEnable && (
+				<button
+					type="button"
+					onClick={onEnable}
+					className="px-3 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
+				>
+					{action}
+				</button>
+			)}
 		</div>
 	)
 }

@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { MailIcon } from '../components/icons'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/forgot-password')({
@@ -39,7 +40,7 @@ function ForgotPassword() {
 				{sent ? (
 					<div className="text-center space-y-4">
 						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mx-auto">
-							<span className="text-xl">✉️</span>
+							<MailIcon className="w-5 h-5 text-text-secondary" />
 						</div>
 						<p className="text-sm text-text-muted">
 							<Trans

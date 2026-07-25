@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { SparklesIcon } from '../icons'
 
 interface SelectionToolbarProps {
 	containerRef: React.RefObject<HTMLElement | null>
@@ -56,6 +57,7 @@ export function SelectionToolbar({ containerRef, onAction, fieldName }: Selectio
 			<div className="flex items-center gap-0.5 bg-surface border border-border-strong rounded-lg shadow-xl px-1 py-1 animate-in fade-in slide-in-from-bottom-1 duration-150">
 				<ToolbarButton
 					label={t('ai.toolbar.ai')}
+					icon={<SparklesIcon />}
 					onClick={() => onAction('custom', selectedText, fieldName)}
 				/>
 				<Divider />
@@ -80,7 +82,15 @@ export function SelectionToolbar({ containerRef, onAction, fieldName }: Selectio
 	)
 }
 
-function ToolbarButton({ label, onClick }: { label: string; onClick: () => void }) {
+function ToolbarButton({
+	label,
+	icon,
+	onClick,
+}: {
+	label: string
+	icon?: React.ReactNode
+	onClick: () => void
+}) {
 	return (
 		<button
 			type="button"
@@ -88,8 +98,9 @@ function ToolbarButton({ label, onClick }: { label: string; onClick: () => void 
 				e.preventDefault()
 				onClick()
 			}}
-			className="px-2 py-1 text-[11px] text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors whitespace-nowrap"
+			className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-text-muted hover:text-text hover:bg-surface-alt rounded transition-colors whitespace-nowrap"
 		>
+			{icon}
 			{label}
 		</button>
 	)

@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
+import { SortIcon } from '../components/icons'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ImageThumb } from '../components/media/image-thumb'
 import { api } from '../lib/api-client'
@@ -950,7 +951,7 @@ function CollectionContentList() {
 																		: 'text-text-muted opacity-0 transition-opacity group-hover:opacity-100'
 																}
 															>
-																{active ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+																<SortIcon dir={active ? sort.dir : null} className="w-3 h-3" />
 															</span>
 														</button>
 													) : (

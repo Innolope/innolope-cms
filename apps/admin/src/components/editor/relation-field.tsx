@@ -81,6 +81,69 @@ function docId(doc: RelatedDoc): string {
 	return doc.externalId || doc.id
 }
 
+/** Shared geometry for the small inline glyphs on the image action buttons. */
+function Icon({ children }: { children: React.ReactNode }) {
+	return (
+		<svg
+			width="13"
+			height="13"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+			className="shrink-0"
+		>
+			{children}
+		</svg>
+	)
+}
+
+const IconUpload = (
+	<Icon>
+		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+		<polyline points="17 8 12 3 7 8" />
+		<line x1="12" y1="3" x2="12" y2="15" />
+	</Icon>
+)
+
+const IconLibrary = (
+	<Icon>
+		<rect x="3" y="3" width="18" height="18" rx="2" />
+		<circle cx="8.5" cy="8.5" r="1.5" />
+		<polyline points="21 15 16 10 5 21" />
+	</Icon>
+)
+
+const IconReplace = (
+	<Icon>
+		<polyline points="23 4 23 10 17 10" />
+		<polyline points="1 20 1 14 7 14" />
+		<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+	</Icon>
+)
+
+const IconTrash = (
+	<Icon>
+		<polyline points="3 6 5 6 21 6" />
+		<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+		<path d="M10 11v6M14 11v6" />
+		<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+	</Icon>
+)
+
+const IconClose = (
+	<Icon>
+		<path d="M18 6 6 18" />
+		<path d="m6 6 12 12" />
+	</Icon>
+)
+
+const imageBtnCls =
+	'inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover'
+
 export function RelationField({
 	value,
 	relationTo,
@@ -98,6 +161,9 @@ export function RelationField({
 	const [loading, setLoading] = useState(false)
 	const [open, setOpen] = useState(false)
 	const [uploading, setUploading] = useState(false)
+	// Featured-image mode only: the Replace button has been pressed and the row is
+	// showing the "choose existing / upload new" choice.
+	const [replacing, setReplacing] = useState(false)
 	const [creating, setCreating] = useState(false)
 	const [createName, setCreateName] = useState('')
 	const [createSaving, setCreateSaving] = useState(false)
@@ -142,6 +208,13 @@ export function RelationField({
 	useEffect(() => {
 		if (creating) createInputRef.current?.focus()
 	}, [creating])
+
+	// A new image landed (picked or uploaded) — collapse the replace row back to
+	// Replace / Remove so the field returns to its resting state.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` is the trigger, not a read dependency.
+	useEffect(() => {
+		setReplacing(false)
+	}, [value])
 
 	// Click-outside closing only applies to the dropdown; the modal picker has
 	// its own backdrop button and would close instantly under this handler.
@@ -374,9 +447,9 @@ export function RelationField({
 						type="button"
 						onClick={() => setOpen(false)}
 						aria-label={t('common.closeDialog')}
-						className="rounded px-1.5 text-sm text-text-secondary hover:text-text"
+						className="rounded p-1 text-text-secondary hover:text-text"
 					>
-						✕
+						{IconClose}
 					</button>
 				</div>
 				{loading ? (
@@ -426,8 +499,9 @@ export function RelationField({
 								onChange('')
 								setOpen(false)
 							}}
-							className="text-xs text-text-secondary hover:text-text"
+							className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text"
 						>
+							{IconTrash}
 							{t('editor.relationField.removeImage')}
 						</button>
 					) : (
@@ -450,11 +524,52 @@ export function RelationField({
 		</div>
 	)
 
-	// Featured-image mode: a full-width preview above a Choose / Upload / Remove row.
+	// Upload control, shared by both layouts — a <label> wrapping a hidden file input.
+	const uploadButton = (labelText: string, className: string) => (
+		<label className={`${className} cursor-pointer`}>
+			{IconUpload}
+			{uploading ? t('editor.relationField.uploading') : labelText}
+			<input
+				type="file"
+				accept="image/*"
+				className="hidden"
+				disabled={uploading}
+				onChange={(e) => {
+					const file = e.target.files?.[0]
+					if (file) handleUpload(file)
+					e.target.value = ''
+				}}
+			/>
+		</label>
+	)
+
+	// Featured-image mode: a full-width preview above the action row.
 	// Nothing here is gated on `urlField` — when the related collection exposes no
 	// detectable file column the preview falls back to a placeholder tile and the
 	// picker still works, instead of the field rendering as an empty gap.
+	//
+	// With an image set the row stays at two decisions (Replace / Remove) so the
+	// destructive one isn't sitting between two ways of picking a photo; Replace
+	// then expands into the same source choice an empty field shows up front.
 	if (imagePreview) {
+		const sourceChoice = (
+			<>
+				<button type="button" onClick={() => setOpen(true)} className={imageBtnCls}>
+					{IconLibrary}
+					{t('editor.relationField.chooseExisting')}
+				</button>
+				{urlField && canWrite && uploadButton(t('editor.relationField.uploadNew'), imageBtnCls)}
+				{value && (
+					<button
+						type="button"
+						onClick={() => setReplacing(false)}
+						className="px-2 py-1.5 text-xs text-text-secondary hover:text-text"
+					>
+						{t('common.cancel')}
+					</button>
+				)}
+			</>
+		)
 		return (
 			<div className="space-y-1.5">
 				<div className="w-full aspect-video rounded border border-border overflow-hidden bg-input">
@@ -462,40 +577,24 @@ export function RelationField({
 				</div>
 				{current && <p className="text-[10px] text-text-muted truncate">{docLabel(current)}</p>}
 				{!disabled && (
-					<div className="relative flex flex-wrap gap-2" ref={ref}>
-						<button
-							type="button"
-							onClick={() => setOpen((o) => !o)}
-							className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
-						>
-							{t('editor.relationField.chooseExisting')}
-						</button>
-						{urlField && canWrite && (
-							<label className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover cursor-pointer">
-								{uploading
-									? t('editor.relationField.uploading')
-									: t('editor.relationField.changeImage')}
-								<input
-									type="file"
-									accept="image/*"
-									className="hidden"
-									disabled={uploading}
-									onChange={(e) => {
-										const file = e.target.files?.[0]
-										if (file) handleUpload(file)
-										e.target.value = ''
-									}}
-								/>
-							</label>
-						)}
-						{value && (
-							<button
-								type="button"
-								onClick={() => onChange('')}
-								className="inline-flex items-center px-2.5 py-1.5 bg-btn-secondary text-text rounded text-xs font-medium hover:bg-btn-secondary-hover"
-							>
-								{t('editor.relationField.removeImage')}
-							</button>
+					<div className="relative flex flex-wrap items-center gap-2" ref={ref}>
+						{value && !replacing ? (
+							<>
+								<button type="button" onClick={() => setReplacing(true)} className={imageBtnCls}>
+									{IconReplace}
+									{t('editor.relationField.replaceImage')}
+								</button>
+								<button
+									type="button"
+									onClick={() => onChange('')}
+									className={`${imageBtnCls} hover:text-red-500`}
+								>
+									{IconTrash}
+									{t('editor.relationField.removeImage')}
+								</button>
+							</>
+						) : (
+							sourceChoice
 						)}
 						{open && pickerModal}
 					</div>
@@ -547,22 +646,13 @@ export function RelationField({
 
 			{value && <p className="text-[10px] text-text-muted font-mono truncate">{value}</p>}
 
-			{urlField && !disabled && canWrite && (
-				<label className="inline-flex items-center px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover cursor-pointer">
-					{uploading ? t('editor.relationField.uploading') : t('editor.relationField.uploadImage')}
-					<input
-						type="file"
-						accept="image/*"
-						className="hidden"
-						disabled={uploading}
-						onChange={(e) => {
-							const file = e.target.files?.[0]
-							if (file) handleUpload(file)
-							e.target.value = ''
-						}}
-					/>
-				</label>
-			)}
+			{urlField &&
+				!disabled &&
+				canWrite &&
+				uploadButton(
+					t('editor.relationField.uploadImage'),
+					'inline-flex items-center gap-1.5 px-2 py-1 bg-btn-secondary text-text rounded text-xs hover:bg-btn-secondary-hover',
+				)}
 
 			{creating && createDialog}
 		</div>

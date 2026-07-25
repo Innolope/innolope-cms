@@ -146,7 +146,7 @@
 	},
 	"ai": {
 		"toolbar": {
-			"ai": "✨ AI",
+			"ai": "AI",
 			"rewrite": "Rewrite",
 			"shorter": "Shorter",
 			"fix": "Fix",
@@ -286,11 +286,12 @@
 			"selectLabel": "Select {{label}}…",
 			"none": "— None —",
 			"noRecordsYet": "No records yet.",
-			"chooseExisting": "Choose existing",
+			"chooseExisting": "Choose from existing",
 			"pickTitle": "Choose {{label}}",
 			"createNew": "+ Create new {{label}}",
 			"uploadImage": "Upload image",
-			"changeImage": "Change image",
+			"replaceImage": "Replace image",
+			"uploadNew": "Upload new",
 			"removeImage": "Remove image",
 			"uploading": "Uploading…",
 			"newDialogTitle": "New {{label}}",

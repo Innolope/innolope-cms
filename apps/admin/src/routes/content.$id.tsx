@@ -5,6 +5,7 @@ import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
 import { Dropdown } from '../components/dropdown'
 import { MarkdownEditor } from '../components/editor/markdown-editor'
+import { SparklesIcon } from '../components/icons'
 import { hasFeature, useLicense } from '../components/license-gate'
 import { VersionPanel } from '../components/versions/version-panel'
 import { api } from '../lib/api-client'
@@ -290,7 +291,7 @@ function ContentEditor() {
 							className="fixed bottom-6 right-6 w-10 h-10 bg-surface text-text rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-40 border border-border"
 							title={t('content.openAiAssistant')}
 						>
-							<span className="text-lg">✨</span>
+							<SparklesIcon className="w-[18px] h-[18px]" />
 						</button>
 					)}
 				</div>

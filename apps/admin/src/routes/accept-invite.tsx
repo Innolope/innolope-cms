@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { CheckIcon, MailIcon } from '../components/icons'
 import { api } from '../lib/api-client'
 
 export const Route = createFileRoute('/accept-invite')({
@@ -55,7 +56,7 @@ function AcceptInvite() {
 				{status === 'success' && (
 					<div className="space-y-3">
 						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mx-auto">
-							<span className="text-2xl">✓</span>
+							<CheckIcon className="w-6 h-6 text-text-secondary" />
 						</div>
 						<p className="text-sm text-text">{message}</p>
 						<p className="text-xs text-text-muted">{t('acceptInvite.redirecting')}</p>
@@ -65,7 +66,7 @@ function AcceptInvite() {
 				{status === 'register' && (
 					<div className="space-y-4">
 						<div className="w-12 h-12 bg-surface-alt rounded-xl flex items-center justify-center mx-auto">
-							<span className="text-2xl">✉️</span>
+							<MailIcon className="w-6 h-6 text-text-secondary" />
 						</div>
 						<p className="text-sm text-text">{message}</p>
 						<p className="text-xs text-text-muted">
