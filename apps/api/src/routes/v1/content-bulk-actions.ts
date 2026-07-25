@@ -16,6 +16,10 @@
 import { collections, content, contentVersions } from '@innolope/db'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import {
+	checkCollectionAccess,
+	resolveReadableCollectionScope,
+} from '../../lib/collection-access.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import { type ContentFilterParams, contentFilterWhere } from '../../services/content-filter.js'
@@ -159,9 +163,26 @@ async function resolveSelection(
 		return { status: 400, error: 'Provide either ids or filter' }
 	}
 
+	// Same read gates as the list endpoint: a named collection must be readable,
+	// and an unscoped filter is narrowed to the member's readable collections —
+	// otherwise a restricted member could select (and then act on) rows the list
+	// would never have shown them.
+	if (body.filter.collectionId) {
+		const access = await checkCollectionAccess(req, body.filter.collectionId, 'read')
+		if (!access.ok) return { status: access.status, error: access.error }
+	}
+	let scopedCollectionIds: string[] | undefined
+	if (!body.filter.collectionId) {
+		const scope = await resolveReadableCollectionScope(req)
+		if (scope.scoped) {
+			if (scope.allowedIds.length === 0) return { ids: [] }
+			scopedCollectionIds = scope.allowedIds
+		}
+	}
+
 	// "Select all matching" — resolved through the same conditions the list uses,
 	// so what the user saw counted is what gets acted on.
-	const where = contentFilterWhere(body.filter, { projectId: pid })
+	const where = contentFilterWhere(body.filter, { projectId: pid, scopedCollectionIds })
 	const [{ count }] = await app.db
 		.select({ count: sql<number>`cast(count(*) as int)` })
 		.from(content)
@@ -187,6 +208,25 @@ async function loadCollections(app: FastifyInstance, projectId: string, collecti
 }
 
 /**
+ * The write-access gate the single-record routes apply, evaluated once per
+ * distinct collection in the selection. Rows in a denied collection become
+ * failed ItemResults (per-row outcome, like every other failure here) rather
+ * than failing the whole batch — a selection spanning collections should still
+ * process the ones the member may write.
+ */
+async function deniedWriteAccess(
+	req: FastifyRequest,
+	collectionIds: string[],
+): Promise<Map<string, string>> {
+	const denied = new Map<string, string>()
+	for (const id of collectionIds) {
+		const access = await checkCollectionAccess(req, id, 'write')
+		if (!access.ok) denied.set(id, access.error)
+	}
+	return denied
+}
+
+/**
  * Delete rows, cascading to the external database where one backs them.
  *
  * Mirrors the single-record delete: the CMS row goes first, and a failure to
@@ -203,10 +243,17 @@ async function deleteMany(
 		.select()
 		.from(content)
 		.where(and(eq(content.projectId, pid), inArray(content.id, ids)))
-	const colMap = await loadCollections(app, pid, [...new Set(rows.map((r) => r.collectionId))])
+	const distinctCollectionIds = [...new Set(rows.map((r) => r.collectionId))]
+	const colMap = await loadCollections(app, pid, distinctCollectionIds)
+	const denied = await deniedWriteAccess(req, distinctCollectionIds)
 	const results: ItemResult[] = []
 
 	for (const row of rows) {
+		const deniedError = denied.get(row.collectionId)
+		if (deniedError) {
+			results.push({ id: row.id, ok: false, error: deniedError })
+			continue
+		}
 		const col = colMap.get(row.collectionId)
 		if (col?.source === 'external' && col.accessMode === 'read-only') {
 			results.push({ id: row.id, ok: false, error: `Collection is read-only: ${col.name}` })
@@ -264,11 +311,18 @@ async function updateMany(
 		.select()
 		.from(content)
 		.where(and(eq(content.projectId, pid), inArray(content.id, ids)))
-	const colMap = await loadCollections(app, pid, [...new Set(rows.map((r) => r.collectionId))])
+	const distinctCollectionIds = [...new Set(rows.map((r) => r.collectionId))]
+	const colMap = await loadCollections(app, pid, distinctCollectionIds)
+	const denied = await deniedWriteAccess(req, distinctCollectionIds)
 	const nextStatus = action === 'set-field' ? undefined : STATUS_FOR_ACTION[action as StatusAction]
 	const results: ItemResult[] = []
 
 	for (const row of rows) {
+		const deniedError = denied.get(row.collectionId)
+		if (deniedError) {
+			results.push({ id: row.id, ok: false, error: deniedError })
+			continue
+		}
 		const col = colMap.get(row.collectionId)
 		if (col?.source === 'external' && col.accessMode === 'read-only') {
 			results.push({ id: row.id, ok: false, error: `Collection is read-only: ${col.name}` })
