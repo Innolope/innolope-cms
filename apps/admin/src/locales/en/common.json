@@ -1788,5 +1788,9 @@
 				"createFirst": "Create Your First API Key"
 			}
 		}
+	},
+	"appUpdate": {
+		"available": "A new version of the admin is available.",
+		"reload": "Reload"
 	}
 }

@@ -5,6 +5,7 @@ import { type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { hasFeature, LicenseProvider, ProBadge, useLicense } from '../components/license-gate'
 import { ProjectSelector } from '../components/project-selector'
+import { UpdateNotice } from '../components/update-notice'
 import { api, loginUrlPreservingNext } from '../lib/api-client'
 import { AuthProvider, useAuth } from '../lib/auth'
 import {
@@ -29,6 +30,7 @@ function RootWithAuth() {
 					<LicenseProvider>
 						<CollectionsProvider>
 							<ToastProvider>
+								<UpdateNotice />
 								<ConfirmProvider>
 									<AuthGate />
 								</ConfirmProvider>
