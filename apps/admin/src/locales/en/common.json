@@ -144,7 +144,16 @@
 		"revert": "Revert",
 		"revertFailed": "Revert failed",
 		"reverting": "Reverting…",
-		"revertToVersion": "Revert to v{{version}}"
+		"revertToVersion": "Revert to v{{version}}",
+		"viewingBanner": "You're viewing version {{version}} — the current version is v{{current}}",
+		"viewingHint": "Editing is disabled until you go back or restore.",
+		"backToCurrent": "Back to current",
+		"restoreThis": "Restore this version",
+		"restored": "Restored version {{version}}",
+		"currentOption": "v{{version}} (current)",
+		"discardTitle": "Discard unsaved changes?",
+		"discardMessage": "You have unsaved edits. Switching versions will discard them.",
+		"discardConfirm": "Discard and switch"
 	},
 	"ai": {
 		"toolbar": {
@@ -1517,6 +1526,36 @@
 				"deleteFailed": "Delete failed",
 				"noExternalDb": "No external DB config"
 			}
+		},
+		"bulk": {
+			"selected_one": "{{count}} selected",
+			"selected_other": "{{count}} selected",
+			"selectAllMatching": "Select all {{count}} matching this filter",
+			"selectPage": "Select all rows on this page",
+			"selectRow": "Select row",
+			"clear": "Clear",
+			"publish": "Publish",
+			"unpublish": "Unpublish",
+			"archive": "Archive",
+			"submitForReview": "Submit for review",
+			"setField": "Set a field…",
+			"delete": "Delete",
+			"deleteTitle_one": "Delete {{count}} record?",
+			"deleteTitle_other": "Delete {{count}} records?",
+			"deleteMessage_one": "This permanently deletes {{count}} record. Records backed by an external database are removed there too. This cannot be undone.",
+			"deleteMessage_other": "This permanently deletes {{count}} records. Records backed by an external database are removed there too. This cannot be undone.",
+			"deleteConfirm": "Delete",
+			"done_one": "{{count}} record updated",
+			"done_other": "{{count}} records updated",
+			"partial": "{{succeeded}} updated, {{failed}} failed. {{reason}}",
+			"failed": "The bulk action failed",
+			"overLimit": "{{count}} records selected — the maximum per action is {{max}}. Narrow the filter and try again.",
+			"setFieldTitle": "Set a field value",
+			"setFieldMessage_one": "Applies to {{count}} selected record. Existing values in that field are replaced.",
+			"setFieldMessage_other": "Applies to {{count}} selected records. Existing values in that field are replaced.",
+			"setFieldNoFields": "This collection has no fields that can be set in bulk.",
+			"setFieldValuePlaceholder": "Value",
+			"setFieldApply": "Apply"
 		}
 	},
 	"content": {

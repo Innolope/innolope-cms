@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
+import { BulkActionsBar } from '../components/content/bulk-actions-bar'
 import { FilterBar, type FilterDescriptor } from '../components/filter-bar'
 import { SortIcon } from '../components/icons'
 import { hasFeature, ProBadge, UpgradePrompt, useLicense } from '../components/license-gate'
@@ -513,6 +514,30 @@ function CollectionContentList() {
 	const filterQuery = useMemo(() => filtersToQueryParams(filters).toString(), [filters])
 	const hasActiveFilters = Object.keys(filters).length > 0
 
+	// --- Multi-select --------------------------------------------------------
+	// `selected` holds ids ticked on the current page; `allMatching` escalates to
+	// every record the filter matches, which the server resolves for itself.
+	const [selected, setSelected] = useState<Set<string>>(new Set())
+	const [allMatching, setAllMatching] = useState(false)
+	const clearSelection = useCallback(() => {
+		setSelected(new Set())
+		setAllMatching(false)
+	}, [])
+	// Anything that changes which rows are on screen invalidates the selection —
+	// acting on rows the user can no longer see is how bulk deletes go wrong.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the identity of these values IS the trigger; clearSelection is stable.
+	useEffect(() => {
+		clearSelection()
+	}, [page, search, filterQuery, sort, clearSelection])
+
+	/** The active filter as the bulk endpoint expects it (same params as the list). */
+	const bulkFilter = useMemo(() => {
+		const params = filtersToQueryParams(filters)
+		if (collection) params.set('collectionId', collection.id)
+		if (search) params.set('search', search)
+		return Object.fromEntries(params)
+	}, [filters, search, collection])
+
 	const fetchContent = useCallback(() => {
 		if (!collection) return
 		const params = new URLSearchParams()
@@ -893,6 +918,20 @@ function CollectionContentList() {
 						</div>
 					)}
 
+					{selected.size > 0 && collection && (
+						<BulkActionsBar
+							selectedIds={[...selected]}
+							total={total}
+							allMatching={allMatching}
+							onSelectAllMatching={() => setAllMatching(true)}
+							onClear={clearSelection}
+							filter={bulkFilter}
+							fields={collection.fields}
+							showSubmitForReview={showReviewQueue}
+							onDone={fetchContent}
+						/>
+					)}
+
 					<div
 						className={
 							total > 0 || search || hasActiveFilters ? 'rounded-lg border border-border' : ''
@@ -948,6 +987,26 @@ function CollectionContentList() {
 							<table className="w-full text-sm">
 								<thead>
 									<tr className="text-left text-text-secondary border-b border-border">
+										<th className="w-10 px-4 py-3">
+											<input
+												type="checkbox"
+												aria-label={t('collections.bulk.selectPage')}
+												checked={items.length > 0 && selected.size === items.length}
+												// A partly-ticked page reads as neither on nor off.
+												ref={(el) => {
+													if (el) {
+														el.indeterminate = selected.size > 0 && selected.size < items.length
+													}
+												}}
+												onChange={(e) => {
+													setAllMatching(false)
+													setSelected(
+														e.target.checked ? new Set(items.map((it) => it.id)) : new Set(),
+													)
+												}}
+												className="cursor-pointer"
+											/>
+										</th>
 										{visibleColumns.map((col) => {
 											const sortKey = col.sortable ? col.sortKey : undefined
 											const active = sortKey != null && sort.key === sortKey
@@ -988,8 +1047,29 @@ function CollectionContentList() {
 									{items.map((item) => (
 										<tr
 											key={item.id}
-											className="border-b border-border hover:bg-surface-alt transition-colors"
+											className={`border-b border-border transition-colors ${
+												selected.has(item.id) ? 'bg-surface-alt' : 'hover:bg-surface-alt'
+											}`}
 										>
+											<td className="w-10 px-4 py-3">
+												<input
+													type="checkbox"
+													aria-label={t('collections.bulk.selectRow')}
+													checked={selected.has(item.id)}
+													onChange={(e) => {
+														// Ticking one row steps back out of "all matching" —
+														// the two modes can't both be true.
+														setAllMatching(false)
+														setSelected((prev) => {
+															const next = new Set(prev)
+															if (e.target.checked) next.add(item.id)
+															else next.delete(item.id)
+															return next
+														})
+													}}
+													className="cursor-pointer"
+												/>
+											</td>
 											{visibleColumns.map((col) => (
 												<td key={col.id} className="px-4 py-3">
 													{col.render(item, renderCtx)}
