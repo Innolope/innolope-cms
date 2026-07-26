@@ -448,6 +448,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		// are ignored. On failure, echo the schema so the caller can self-correct.
 		const createErrors = validateContentMetadata(col.fields, input.metadata, {
 			enforceRequired: input.status === 'published',
+			locales,
 		})
 		if (createErrors.length > 0) {
 			return reply.status(400).send(contentValidationError(col.fields, createErrors))
@@ -668,6 +669,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
+				locales,
 			})
 			if (errors.length > 0) {
 				itemErrors.push({ index, slug: item.slug, errors })
@@ -966,7 +968,11 @@ export async function contentRoutes(app: FastifyInstance) {
 					item.metadata ?? (current.metadata as Record<string, unknown>),
 					// Type-check only the touched fields — legacy values must not block
 					// an unrelated update (mirrors the single-item path).
-					{ enforceRequired: mergedStatus === 'published', updatedKeys },
+					{
+						enforceRequired: mergedStatus === 'published',
+						updatedKeys,
+						locales: getProject(request).locales,
+					},
 				)
 				if (errors.length > 0) itemErrors.push({ index, id: item.id, errors })
 			}
@@ -1253,7 +1259,11 @@ export async function contentRoutes(app: FastifyInstance) {
 					mergedMetadata ?? (current.metadata as Record<string, unknown>),
 					// Type-check only the fields this write touches: a legacy value that
 					// predates stricter checks must not block an unrelated update.
-					{ enforceRequired: nextStatus === 'published', updatedKeys },
+					{
+						enforceRequired: nextStatus === 'published',
+						updatedKeys,
+						locales: getProject(request).locales,
+					},
 				)
 				if (updateErrors.length > 0) {
 					return reply.status(400).send(contentValidationError(col.fields, updateErrors))

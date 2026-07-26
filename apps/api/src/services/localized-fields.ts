@@ -106,6 +106,27 @@ export function isLocaleMap(
 }
 
 /**
+ * Loose companion to `isLocaleMap`: a plain non-empty object whose every key is
+ * a locale code (configured or recognized), with NO constraint on the values.
+ * Catches locale-keyed structures that aren't `{ locale: text }` maps — per-
+ * language arrays like `{ en: [...], uk: [...] }` (legitimate, e.g. localized
+ * tags) and record wrappers like `{ en: { title... } }` (an anti-pattern the
+ * validator rejects).
+ */
+export function isLocaleKeyedObject(
+	value: unknown,
+	locales: string[] = [],
+): value is Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const keys = Object.keys(value)
+	if (keys.length === 0) return false
+	const locSet = new Set(locales)
+	return keys.every(
+		(k) => locSet.has(k) || (KNOWN_LOCALE_CODES.has(k.toLowerCase()) && looksLikeLocaleCode(k)),
+	)
+}
+
+/**
  * Field names treated as the record's body, in precedence order. Shared with
  * `buildExternalData` so the field it writes the markdown into is exactly the
  * field this module checks for a `localized` flag.
@@ -127,7 +148,8 @@ export function findLocalizedBodyField(fields: CollectionField[]): string | null
 /**
  * Fold one write into a locale map without losing the other translations.
  *
- *  - a bare string targets a single language: the row's `locale` slot,
+ *  - a bare string — or a bare array, for localized array fields like tags —
+ *    targets a single language: the row's `locale` slot,
  *  - an explicit map is applied per-locale (so a partial `{ uk: ... }` write
  *    updates Ukrainian and leaves English alone),
  *  - a `null`/`undefined` slot in an explicit map DELETES that translation
@@ -137,9 +159,9 @@ export function findLocalizedBodyField(fields: CollectionField[]): string | null
  *  - anything else passes through untouched for the validator to judge.
  */
 function foldIntoLocaleMap(existing: unknown, incoming: unknown, locale: string): unknown {
-	const base: Record<string, unknown> = isLocaleMap(existing) ? { ...existing } : {}
-	if (typeof incoming === 'string') return { ...base, [locale]: incoming }
-	if (isLocaleMap(incoming)) {
+	const base: Record<string, unknown> = isLocaleKeyedObject(existing) ? { ...existing } : {}
+	if (typeof incoming === 'string' || Array.isArray(incoming)) return { ...base, [locale]: incoming }
+	if (isLocaleKeyedObject(incoming)) {
 		const merged: Record<string, unknown> = { ...base }
 		for (const [key, value] of Object.entries(incoming)) {
 			if (value === null || value === undefined) delete merged[key]

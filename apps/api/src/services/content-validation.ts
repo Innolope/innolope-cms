@@ -1,5 +1,10 @@
 import type { CollectionField } from '@innolope/config'
-import { isLocaleMap } from './localized-fields.js'
+import {
+	KNOWN_LOCALE_CODES,
+	isLocaleKeyedObject,
+	isLocaleMap,
+	looksLikeLocaleCode,
+} from './localized-fields.js'
 
 export interface FieldValidationError {
 	field: string
@@ -28,7 +33,7 @@ export interface FieldValidationError {
 export function validateContentMetadata(
 	fields: CollectionField[],
 	metadata: Record<string, unknown> | undefined,
-	opts: { enforceRequired: boolean; updatedKeys?: Iterable<string> },
+	opts: { enforceRequired: boolean; updatedKeys?: Iterable<string>; locales?: string[] },
 ): FieldValidationError[] {
 	const errors: FieldValidationError[] = []
 	const data = metadata ?? {}
@@ -45,6 +50,76 @@ export function validateContentMetadata(
 		if (touched && !touched.has(field.name)) continue
 		const typeError = checkFieldType(field, value)
 		if (typeError) errors.push({ field: field.name, message: typeError })
+	}
+	if (opts.locales && opts.locales.length > 0) {
+		errors.push(...checkLocaleShapes(fields, data, touched, opts.locales))
+	}
+	return errors
+}
+
+/**
+ * Locale-format checks, active only when the caller supplies the project's
+ * configured locales (the create/update paths — publish re-validates stored
+ * metadata and must not choke on legacy shapes).
+ *
+ * Localization is per-FIELD in this CMS: one record, each translatable field a
+ * `{ locale: value }` map. Two wrong formats are rejected at write time because
+ * both store fine and then publish broken pages silently:
+ *  1. Record-wrapped locales — metadata: { en: { title... }, uk: {...} }. The
+ *     locale keys aren't fields, so sites read nothing at all.
+ *  2. Locale maps keyed by unconfigured codes — { "uk": ... } on a project
+ *     configured en+ua. The translation is stored but never rendered.
+ */
+function checkLocaleShapes(
+	fields: CollectionField[],
+	data: Record<string, unknown>,
+	touched: Set<string> | null,
+	locales: string[],
+): FieldValidationError[] {
+	const errors: FieldValidationError[] = []
+	const fieldNames = new Set(fields.map((f) => f.name))
+	const locSet = new Set(locales)
+	const exampleMap = `{ "title": { ${locales.map((l) => `"${l}": "..."`).join(', ')} } }`
+	for (const [key, value] of Object.entries(data)) {
+		if (touched && !touched.has(key)) continue
+		if (fieldNames.has(key)) {
+			if (!isLocaleKeyedObject(value, locales)) continue
+			const keys = Object.keys(value)
+			// Only police maps that are clearly translations: they name at least one
+			// configured locale, or every value is per-language text. A structured
+			// object whose keys merely resemble codes ({ id: 5, no: 3 }) matches
+			// neither and stays out of scope.
+			const translationShaped =
+				keys.some((k) => locSet.has(k)) ||
+				Object.values(value).every((v) => v == null || typeof v === 'string')
+			if (!translationShaped) continue
+			const bad = keys.filter((k) => !locSet.has(k))
+			if (bad.length > 0) {
+				errors.push({
+					field: key,
+					message: `"${key}" holds translations keyed ${bad
+						.map((b) => `"${b}"`)
+						.join(
+							', ',
+						)}, but this project's locales are: ${locales.join(', ')}. A translation under any other code is stored but never rendered — use the configured codes exactly.`,
+				})
+			}
+			continue
+		}
+		// Unknown top-level key that is (or acts like) a locale code: the caller
+		// wrapped the record per language instead of per field.
+		const wrapsFields =
+			!!value &&
+			typeof value === 'object' &&
+			!Array.isArray(value) &&
+			Object.keys(value).some((k) => fieldNames.has(k))
+		const knownCode = KNOWN_LOCALE_CODES.has(key.toLowerCase()) && looksLikeLocaleCode(key)
+		if (locSet.has(key) || (knownCode && wrapsFields)) {
+			errors.push({
+				field: key,
+				message: `Metadata keys must be field names, not locale codes — "${key}" looks like a record wrapped per language ({ "${key}": { ... } }). Localization is per-field: keep ONE record and give each translatable field a locale map, e.g. ${exampleMap}.`,
+			})
+		}
 	}
 	return errors
 }
@@ -73,8 +148,17 @@ function checkFieldType(field: CollectionField, value: unknown): string | null {
 				return `"${field.name}" must be one of: ${field.options.join(', ')}.`
 			}
 			return null
-		case 'array':
-			return Array.isArray(value) ? null : `"${field.name}" must be an array.`
+		case 'array': {
+			if (Array.isArray(value)) return null
+			// Per-language arrays — localized tags and the like: { en: [...], uk: [...] }.
+			if (
+				isLocaleKeyedObject(value) &&
+				Object.values(value).every((v) => v == null || Array.isArray(v))
+			) {
+				return null
+			}
+			return `"${field.name}" must be an array, or a { locale: [...] } map of per-language arrays.`
+		}
 		case 'object':
 			return typeof value === 'object' && !Array.isArray(value)
 				? null
@@ -106,11 +190,11 @@ function checkFieldType(field: CollectionField, value: unknown): string | null {
  * things that are legal to store but usually mean the caller misread the
  * schema. Returned to the caller alongside the write result.
  *
- * Today: a { locale: text } map written to a text field that is NOT marked
- * translatable. It is accepted (imported data legitimately looks like this),
- * but an agent doing it on purpose almost always wanted either a translatable
- * field or a plain string — say so instead of letting the mismatch surface as
- * a rendering bug later.
+ * Today: a { locale: text } map written to a text field — or per-language
+ * arrays written to an array field — that is NOT marked translatable. Both are
+ * accepted (imported data legitimately looks like this), but an agent doing it
+ * on purpose almost always wanted the field marked translatable — say so
+ * instead of letting the mismatch surface as a rendering bug later.
  */
 export function collectFieldWarnings(
 	fields: CollectionField[],
@@ -119,11 +203,20 @@ export function collectFieldWarnings(
 	const warnings: string[] = []
 	if (!incoming) return warnings
 	for (const field of fields) {
-		if (field.type !== 'text' || field.localized) continue
-		if (!(field.name in incoming)) continue
-		if (isLocaleMap(incoming[field.name])) {
+		if (field.localized || !(field.name in incoming)) continue
+		const value = incoming[field.name]
+		if (field.type === 'text' && isLocaleMap(value)) {
 			warnings.push(
 				`"${field.name}" received a { locale: text } map, but the field is not marked translatable — the map is stored as-is and sites that expect a plain string will render it wrong. Either pass a plain string, or mark the field localized in the collection schema so per-language values are handled properly.`,
+			)
+		}
+		if (
+			field.type === 'array' &&
+			isLocaleKeyedObject(value) &&
+			Object.values(value).every((v) => v == null || Array.isArray(v))
+		) {
+			warnings.push(
+				`"${field.name}" received per-language arrays ({ locale: [...] }), but the field is not marked translatable — sites that expect a plain array will render it wrong. Mark the field localized in the collection schema so per-language values are handled properly.`,
 			)
 		}
 	}

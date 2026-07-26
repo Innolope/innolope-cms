@@ -44,14 +44,18 @@ export const SERVER_INSTRUCTIONS = `Innolope is a headless CMS: content you writ
 Content model:
 - Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
 - The title goes in metadata.title ONLY, as a short plain string. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page. Never put body prose in the title.
+- Markdown is the canonical body format. Never write rich-text editor state (Lexical/Slate/ProseMirror/EditorJS JSON) or raw HTML documents into the body or a content field — sites render CommonMark, and serialized editor JSON reaches the page as literal text.
 
 Updating content:
 - update_content / bulk_update MERGE metadata at the top level: send only the fields you are changing — omitted fields keep their stored values. Sending a field's value as null deletes it.
 - For external read-write collections, writes sync to the source database synchronously — a successful create/update response means the external row already holds the change (the response echoes the external id).
 
-Languages — check the collection before writing a translation, because there are two models and picking the wrong one publishes broken pages:
-- If get_collection_schema marks any field "translatable" (localized), ONE record holds every language: write a locale map, e.g. metadata: { title: { "en": "...", "uk": "..." } }. Do NOT create a second record for the other language — the site reads both out of the same record, so a sibling record renders as a page with missing fields.
+Languages — field-level locale maps are the canonical localization format (the standard across headless CMSs): ONE record holds every language, and each translatable FIELD is a { locale: value } map. Check the collection before writing a translation, because picking the wrong model publishes broken pages:
+- If get_collection_schema marks any field "translatable" (localized), write locale maps, e.g. metadata: { title: { "en": "...", "uk": "..." } }. Do NOT create a second record for the other language — the site reads both out of the same record, so a sibling record renders as a page with missing fields.
+- NEVER wrap the whole record per language — metadata: { "en": { title... }, "uk": {...} } is rejected: the locale keys are not fields, so sites would read nothing at all. Localization nests inside each field, not around the record.
+- Locale-map keys must be the project's configured locale codes EXACTLY (use_project/list_projects show them). A translation under any other code — e.g. "uk" on a project configured "ua" — is never rendered, so such writes are rejected.
 - A plain string on a translatable field is filed under the record's locale and leaves the other translations untouched, so you can add one language at a time.
+- Tags and similar reader-facing lists are display text too: when the field is translatable, pass per-language arrays — { "en": [...], "uk": [...] } — not one array mixing languages.
 - If no field is translatable, languages are separate records: create one per language and set the \`locale\` parameter.
 
 Markdown authoring (bodies render as CommonMark):
@@ -180,6 +184,31 @@ function titleHeadingWarning(
 			.trim()
 	if (normalize(heading) !== normalize(title)) return null
 	return `The markdown body starts with an H1 that duplicates metadata.title ("${title}"). Sites render the title field separately, so the page will show the title twice. Keep the title only in metadata.title and remove the leading H1 from the markdown.`
+}
+
+/**
+ * Warn when the "markdown" body is actually something else — serialized
+ * rich-text editor state (Lexical/EditorJS/Slate JSON) or a full HTML document.
+ * Sites render the body as CommonMark, so editor JSON reaches the page as
+ * literal text. Warn instead of blocking: markdown containing a JSON code
+ * sample is legitimate, so only whole-body shapes are flagged.
+ */
+function bodyFormatWarning(markdown: string | undefined): string | null {
+	if (!markdown) return null
+	const body = markdown.trim()
+	if (/^<!doctype\s|^<html[\s>]/i.test(body)) {
+		return 'The markdown body is an HTML document. Bodies render as CommonMark — send markdown prose instead (inline HTML tags are fine, full documents are not).'
+	}
+	if (!(body.startsWith('{') && body.endsWith('}'))) return null
+	try {
+		const parsed = JSON.parse(body) as Record<string, unknown>
+		if (parsed && typeof parsed === 'object' && ('root' in parsed || 'blocks' in parsed)) {
+			return 'The markdown body looks like serialized rich-text editor state (Lexical/EditorJS JSON), not markdown. Sites render bodies as CommonMark, so this JSON would appear on the page as literal text — convert the content to markdown and resend.'
+		}
+	} catch {
+		// Not JSON — an ordinary body that happens to start with "{".
+	}
+	return null
 }
 
 /** File extensions treated as images when scanning metadata values for references. */
@@ -549,7 +578,7 @@ export function registerTools(
 	const localizedNote = (fields: Array<{ name: string; localized?: boolean }>): string => {
 		const names = fields.filter((f) => f.localized).map((f) => f.name)
 		if (names.length === 0) return ''
-		return `\n  Translatable fields (one value per language): ${names.join(', ')}. Pass a locale map — e.g. { "${names[0]}": { "en": "...", "uk": "..." } } — or a plain string, which is filed under the record's locale and leaves the other translations untouched.`
+		return `\n  Translatable fields (one value per language): ${names.join(', ')}. Pass a locale map keyed by the project's configured locale codes — e.g. { "${names[0]}": { "en": "...", "uk": "..." } }, or { "tags": { "en": [...], "uk": [...] } } for array fields — or a plain value, which is filed under the record's locale and leaves the other translations untouched. Never wrap the whole record per language ({ "en": {...} } as metadata is rejected).`
 	}
 
 	const summarize = (item: {
@@ -761,13 +790,13 @@ export function registerTools(
 			.string()
 			.optional()
 			.describe(
-				'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+				'Markdown body (prose only, CommonMark — never rich-text editor JSON or a full HTML document). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 			),
 		metadata: z
 			.record(z.unknown())
 			.optional()
 			.describe(
-				'Metadata fields. For fields get_collection_schema marks translatable, pass a locale map — { "en": "...", "uk": "..." } — or a plain string, which is filed under this item\'s locale.',
+				'Metadata fields. For fields get_collection_schema marks translatable, pass a locale map keyed by the project\'s configured locale codes — { "en": "...", "uk": "..." } — or a plain string, which is filed under this item\'s locale. Never wrap the whole item per language ({ "en": {...} } is rejected).',
 			),
 		locale: z
 			.string()
@@ -811,6 +840,7 @@ export function registerTools(
 			.flatMap((item, index) => [
 				{ index, warning: titleHeadingWarning(item.markdown, item.metadata) },
 				{ index, warning: titleShapeWarning(item.metadata) },
+				{ index, warning: bodyFormatWarning(item.markdown) },
 			])
 			.filter((w): w is { index: number; warning: string } => w.warning !== null)
 		const warnings =
@@ -1094,7 +1124,7 @@ export function registerTools(
 	defineTool({
 		name: 'create_content',
 		description:
-			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them, and to check whether the collection writes to an external database and which fields are translatable); markdown is the optional prose body and may be omitted for data-only records. The title goes in metadata.title ONLY — never repeat it as a leading H1 in markdown (sites render the title field separately, so a duplicate H1 shows the title twice on the page). If the collection has translatable fields, one record holds every language — pass locale maps instead of creating a second record for the translation. Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
+			'Create a content record. Structured fields go in metadata (the single source of truth — call get_collection_schema(collectionId) first to see them, and to check whether the collection writes to an external database and which fields are translatable); markdown is the optional prose body and may be omitted for data-only records. The title goes in metadata.title ONLY — never repeat it as a leading H1 in markdown (sites render the title field separately, so a duplicate H1 shows the title twice on the page). If the collection has translatable fields, one record holds every language — localization is per FIELD ({ title: { "en": "...", "uk": "..." } }, keys = the project\'s configured locale codes exactly), never per record ({ "en": { title... } } is rejected) and never a second record for the translation. Created as draft by default. slug is optional — derived from metadata.title or the markdown heading. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps. Example: create_content({ collectionId: "...", metadata: { title: "My Article" }, markdown: "# Hello" })',
 		operationType: 'create',
 		schema: {
 			slug: z
@@ -1108,13 +1138,13 @@ export function registerTools(
 				.string()
 				.optional()
 				.describe(
-					'Markdown body (prose only). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
+					'Markdown body (prose only, CommonMark — never rich-text editor JSON or a full HTML document). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 				),
 			metadata: z
 				.record(z.unknown())
 				.optional()
 				.describe(
-					'Metadata (title, tags, etc.). For fields get_collection_schema marks translatable, pass a locale map — { "en": "...", "uk": "..." } — or a plain string, which is filed under this record\'s locale.',
+					'Metadata (title, tags, etc.). For fields get_collection_schema marks translatable, pass a locale map keyed by the project\'s configured locale codes — { "en": "...", "uk": "..." }, or { "en": [...], "uk": [...] } for translatable array fields like tags — or a plain value, which is filed under this record\'s locale. Never wrap the whole record per language ({ "en": {...} } is rejected).',
 				),
 			locale: z
 				.string()
@@ -1154,6 +1184,7 @@ export function registerTools(
 				created.languageWarning,
 				titleHeadingWarning(args.markdown, args.metadata),
 				titleShapeWarning(args.metadata),
+				bodyFormatWarning(args.markdown),
 				...(created.fieldWarnings ?? []),
 			].filter((w): w is string => !!w)
 			return text(
@@ -1184,7 +1215,7 @@ export function registerTools(
 				.record(z.unknown())
 				.optional()
 				.describe(
-					'Updated metadata. For translatable fields pass a locale map — { "uk": "..." } updates Ukrainian only — or a plain string to update this record\'s locale.',
+					'Updated metadata. For translatable fields pass a locale map keyed by the project\'s configured locale codes — { "uk": "..." } updates that one language only — or a plain string to update this record\'s locale. Never wrap the whole record per language ({ "en": {...} } is rejected).',
 				),
 			status: z
 				.enum(CONTENT_STATUSES)
@@ -1214,6 +1245,7 @@ export function registerTools(
 			const warnings = [
 				titleHeadingWarning(updates.markdown, metadata),
 				titleShapeWarning(updates.metadata),
+				bodyFormatWarning(updates.markdown),
 				...(updated.fieldWarnings ?? []),
 			].filter((w): w is string => !!w)
 			// externalId on a successful update means the external row is in sync —
@@ -1612,7 +1644,7 @@ export function registerTools(
 	defineTool({
 		name: 'bulk_create',
 		description:
-			'Create multiple content items in one call. Maximum 50 items. Each item requires collectionId and markdown; slug is optional (derived from metadata.title or the markdown heading when omitted). Call get_collection_schema(collectionId) first to see the fields to set via metadata. If the collection has translatable fields, an article and its translation are ONE item with locale maps — not two items. The batch is all-or-nothing: if any item is invalid, nothing is created and every problem is reported per item. Pass dryRun: true first to validate the batch without writing. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
+			'Create multiple content items in one call. Maximum 50 items. Each item requires collectionId and markdown; slug is optional (derived from metadata.title or the markdown heading when omitted). Call get_collection_schema(collectionId) first to see the fields to set via metadata. If the collection has translatable fields, an article and its translation are ONE item with per-field locale maps ({ title: { "en": "...", "uk": "..." } }, keys = configured locale codes) — not two items, and never metadata wrapped per language ({ "en": {...} } is rejected). The batch is all-or-nothing: if any item is invalid, nothing is created and every problem is reported per item. Pass dryRun: true first to validate the batch without writing. Pass createdAt/updatedAt/publishedAt (ISO 8601) when importing existing content to preserve original timestamps.',
 		operationType: 'create',
 		schema: {
 			items: z.array(z.object(bulkItemShape)).describe('Array of content items to create'),
@@ -1627,7 +1659,7 @@ export function registerTools(
 	defineTool({
 		name: 'bulk_update',
 		description:
-			"Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Each item's metadata is MERGED into its stored metadata at the top level (omitted fields are kept, null deletes a field — same semantics as update_content). The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.",
+			"Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Each item's metadata is MERGED into its stored metadata at the top level (omitted fields are kept, null deletes a field — same semantics as update_content). On translatable fields pass locale maps keyed by the project's configured locale codes ({ \"uk\": \"...\" } updates that one language only); never wrap an item's metadata per language ({ \"en\": {...} } is rejected). The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.",
 		operationType: 'update',
 		schema: {
 			items: z

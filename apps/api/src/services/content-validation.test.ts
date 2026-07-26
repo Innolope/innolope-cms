@@ -139,3 +139,86 @@ describe('collectFieldWarnings', () => {
 		expect(collectFieldWarnings(fields, undefined)).toEqual([])
 	})
 })
+
+describe('locale-format checks (active when opts.locales is set)', () => {
+	const locales = ['en', 'ua']
+
+	it('rejects metadata wrapped per record ({ en: { title... } })', () => {
+		const errors = validateContentMetadata(
+			fields,
+			{ en: { title: 'Hello', tags: ['a'] }, ua: { title: 'Привіт' } },
+			{ enforceRequired: false, locales },
+		)
+		expect(errors.map((e) => e.field).sort()).toEqual(['en', 'ua'])
+		expect(errors[0].message).toContain('per-field')
+	})
+
+	it('rejects record wrapping under a known but unconfigured code', () => {
+		const errors = validateContentMetadata(
+			fields,
+			{ uk: { title: 'Привіт' } },
+			{ enforceRequired: false, locales },
+		)
+		expect(errors.map((e) => e.field)).toEqual(['uk'])
+	})
+
+	it('rejects locale-map keys that are not configured project locales', () => {
+		const errors = validateContentMetadata(
+			fields,
+			{ title: { en: 'Hello', uk: 'Привіт' } },
+			{ enforceRequired: false, locales },
+		)
+		expect(errors).toHaveLength(1)
+		expect(errors[0].field).toBe('title')
+		expect(errors[0].message).toContain('"uk"')
+		expect(errors[0].message).toContain('en, ua')
+	})
+
+	it('accepts configured-locale maps, including per-language arrays for tags', () => {
+		const errors = validateContentMetadata(
+			fields,
+			{ title: { en: 'Hello', ua: 'Привіт' }, tags: { en: ['design'], ua: ['дизайн'] } },
+			{ enforceRequired: false, locales },
+		)
+		expect(errors).toEqual([])
+	})
+
+	it('leaves structured objects whose keys merely resemble locale codes alone', () => {
+		// "id" (Indonesian) and "no" (Norwegian) are recognized codes, but the
+		// values are not translations and no configured locale appears.
+		const withStats: CollectionField[] = [...fields, { name: 'stats', type: 'object' }]
+		const errors = validateContentMetadata(
+			withStats,
+			{ title: 'X', stats: { id: 5, no: 3 } },
+			{ enforceRequired: false, locales },
+		)
+		expect(errors).toEqual([])
+	})
+
+	it('checks only touched keys on updates, and stays off without opts.locales', () => {
+		expect(
+			validateContentMetadata(
+				fields,
+				{ title: { en: 'x', uk: 'y' }, servings: 2 },
+				{ enforceRequired: false, locales, updatedKeys: ['servings'] },
+			),
+		).toEqual([])
+		expect(
+			validateContentMetadata(fields, { title: { en: 'x', uk: 'y' } }, { enforceRequired: false }),
+		).toEqual([])
+	})
+})
+
+describe('collectFieldWarnings — per-language arrays', () => {
+	it('warns when per-language arrays land on a non-translatable array field', () => {
+		const warnings = collectFieldWarnings(fields, { tags: { en: ['design'], ua: ['дизайн'] } })
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]).toContain('not marked translatable')
+	})
+
+	it('stays quiet when the array field is localized or holds a plain array', () => {
+		const localizedTags: CollectionField[] = [{ name: 'tags', type: 'array', localized: true }]
+		expect(collectFieldWarnings(localizedTags, { tags: { en: ['a'] } })).toEqual([])
+		expect(collectFieldWarnings(fields, { tags: ['a', 'b'] })).toEqual([])
+	})
+})

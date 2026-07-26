@@ -1,6 +1,11 @@
 import type { CollectionField } from '@innolope/config'
 import { describe, expect, it } from 'vitest'
-import { applyLocalizedWrite, findLocalizedBodyField, isLocaleMap } from './localized-fields.js'
+import {
+	applyLocalizedWrite,
+	findLocalizedBodyField,
+	isLocaleKeyedObject,
+	isLocaleMap,
+} from './localized-fields.js'
 
 const localizedArticle: CollectionField[] = [
 	{ name: 'title', type: 'text', localized: true },
@@ -164,5 +169,43 @@ describe('applyLocalizedWrite', () => {
 			{ locale: 'uk' },
 		)
 		expect(result).toEqual({ content: { uk: 'Just the body.' } })
+	})
+})
+
+describe('isLocaleKeyedObject', () => {
+	it('accepts locale-keyed values regardless of value shape', () => {
+		expect(isLocaleKeyedObject({ en: ['a'], uk: ['б'] })).toBe(true)
+		expect(isLocaleKeyedObject({ en: { title: 'x' } })).toBe(true)
+		expect(isLocaleKeyedObject({ ua: 'b' }, ['en', 'ua'])).toBe(true)
+	})
+
+	it('rejects objects with any non-locale key, empties, arrays and primitives', () => {
+		expect(isLocaleKeyedObject({ en: 'a', platform: 'linkedin' })).toBe(false)
+		expect(isLocaleKeyedObject({})).toBe(false)
+		expect(isLocaleKeyedObject(['en'])).toBe(false)
+		expect(isLocaleKeyedObject('en')).toBe(false)
+		expect(isLocaleKeyedObject(null)).toBe(false)
+	})
+})
+
+describe('applyLocalizedWrite — localized array fields', () => {
+	const localizedTags: CollectionField[] = [{ name: 'tags', type: 'array', localized: true }]
+
+	it('folds a bare array under the row locale, keeping other languages', () => {
+		const out = applyLocalizedWrite(
+			localizedTags,
+			{ metadata: { tags: ['design', 'education'] } },
+			{ locale: 'ua', existing: { tags: { en: ['old'] } } },
+		)
+		expect(out).toEqual({ tags: { en: ['old'], ua: ['design', 'education'] } })
+	})
+
+	it('merges a partial per-language array map without dropping the other language', () => {
+		const out = applyLocalizedWrite(
+			localizedTags,
+			{ metadata: { tags: { ua: ['освіта'] } } },
+			{ locale: 'en', existing: { tags: { en: ['design'] } } },
+		)
+		expect(out).toEqual({ tags: { en: ['design'], ua: ['освіта'] } })
 	})
 })
