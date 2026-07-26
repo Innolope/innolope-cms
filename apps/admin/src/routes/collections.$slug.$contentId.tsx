@@ -1534,6 +1534,18 @@ function CollectionContentEditor() {
 		)
 
 	/**
+	 * Whether any field *other than* the given one already holds translations. The
+	 * opt-in banner claims "this record stores one language" — a false statement when
+	 * e.g. the body is a locale map and only the title is still a plain string, so the
+	 * banner switches to per-field copy in that case.
+	 */
+	const recordHasTranslationsBesides = (fieldName: string | null) =>
+		visibleSchemaFields.some((f) => f.name !== fieldName && isFieldLocalized(f)) ||
+		Object.entries(extraFields).some(
+			([k, v]) => k !== fieldName && isLocaleMap(v, projectLocales, allowKnownCodes),
+		)
+
+	/**
 	 * "Article-shaped" records have a long-form body — they get the big title input
 	 * and the markdown editor as the central element, with schema fields in the sidebar.
 	 *
@@ -1929,6 +1941,7 @@ function CollectionContentEditor() {
 													<TranslationOptIn
 														className="mb-6"
 														lang={localeDisplayName(paneLocale)}
+														othersTranslated={recordHasTranslationsBesides('title')}
 														action={t('collections.detail.enableTranslations.forTitle')}
 														onEnable={isReadOnly ? undefined : () => enableTranslations('title')}
 													/>
@@ -1951,6 +1964,7 @@ function CollectionContentEditor() {
 													<TranslationOptIn
 														className="min-h-[16rem]"
 														lang={localeDisplayName(paneLocale)}
+														othersTranslated={recordHasTranslationsBesides(bodyFieldName)}
 														action={t('collections.detail.enableTranslations.forBody')}
 														onEnable={
 															isReadOnly || !bodyFieldName
@@ -2508,11 +2522,15 @@ function TranslationOptIn({
 	action,
 	onEnable,
 	className,
+	othersTranslated,
 }: {
 	lang: string
 	action: string
 	onEnable?: () => void
 	className?: string
+	/** Other fields on the record already hold locale maps — the record-scoped
+	 * "stores one language" claim would be false, so use the per-field wording. */
+	othersTranslated?: boolean
 }) {
 	const { t } = useTranslation()
 	return (
@@ -2520,7 +2538,12 @@ function TranslationOptIn({
 			className={`rounded-lg border border-dashed border-border p-6 flex flex-col items-center justify-center gap-3 text-center ${className ?? ''}`}
 		>
 			<p className="text-sm text-text-secondary">
-				{t('collections.detail.enableTranslations.prompt', { lang })}
+				{t(
+					othersTranslated
+						? 'collections.detail.enableTranslations.promptOthersTranslated'
+						: 'collections.detail.enableTranslations.prompt',
+					{ lang },
+				)}
 			</p>
 			{onEnable && (
 				<button

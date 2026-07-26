@@ -1457,6 +1457,7 @@
 				"message": "The \"{{field}}\" field currently stores one plain string. Enabling translations converts it to a per-language object, so anything reading this record from the source database must read the language key instead of the raw value.",
 				"confirm": "Enable translations",
 				"prompt": "This record stores one language. Enable translations to write a {{lang}} version alongside it.",
+				"promptOthersTranslated": "Other fields on this record are already translated, but this one still stores a single language. Enable translations to write a {{lang}} version alongside it.",
 				"forTitle": "Enable for title",
 				"forBody": "Enable for body"
 			}
