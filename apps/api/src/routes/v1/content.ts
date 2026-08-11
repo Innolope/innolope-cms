@@ -75,23 +75,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			const access = await checkCollectionAccess(request, params.collectionId, 'read')
 			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 		}
-		const {
-			page,
-			limit,
-			sortBy,
-			sortOrder,
-			status,
-			collectionId,
-			locale,
-			search,
-			updatedFrom,
-			updatedTo,
-			createdFrom,
-			createdTo,
-			publishedFrom,
-			publishedTo,
-			metadata,
-		} = params
+		const { page, limit, sortBy, sortOrder, collectionId, search } = params
 		const offset = (page - 1) * limit
 		const pid = getProject(request).id
 
