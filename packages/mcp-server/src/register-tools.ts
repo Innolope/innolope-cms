@@ -1659,7 +1659,7 @@ export function registerTools(
 	defineTool({
 		name: 'bulk_update',
 		description:
-			"Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Each item's metadata is MERGED into its stored metadata at the top level (omitted fields are kept, null deletes a field — same semantics as update_content). On translatable fields pass locale maps keyed by the project's configured locale codes ({ \"uk\": \"...\" } updates that one language only); never wrap an item's metadata per language ({ \"en\": {...} } is rejected). The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.",
+			'Update multiple content items in one call. Maximum 50 items. Each item requires an id; other fields are optional. Each item\'s metadata is MERGED into its stored metadata at the top level (omitted fields are kept, null deletes a field — same semantics as update_content). On translatable fields pass locale maps keyed by the project\'s configured locale codes ({ "uk": "..." } updates that one language only); never wrap an item\'s metadata per language ({ "en": {...} } is rejected). The batch is all-or-nothing: if any item is invalid, nothing is updated and every problem is reported per item. Pass dryRun: true first to validate without writing.',
 		operationType: 'update',
 		schema: {
 			items: z

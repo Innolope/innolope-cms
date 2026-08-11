@@ -10,6 +10,25 @@ describe('classifyMongoValue', () => {
 		expect(classifyMongoValue(new Date()).type).toBe('date')
 	})
 
+	it('flags a full ISO-8601 string without promoting it off text', () => {
+		// A Mongo document written by an ORM stores createdAt as a string. Typing it
+		// `date` would make the CMS write a BSON Date back into the same column, so
+		// only the widget hint changes.
+		const iso = classifyMongoValue('2026-07-27T13:59:56.481Z')
+		expect(iso.type).toBe('text')
+		expect(iso.isIsoDate).toBe(true)
+		expect(classifyMongoValue('2026-07-27T13:59:56+02:00').isIsoDate).toBe(true)
+	})
+
+	it('does not flag loosely date-shaped strings', () => {
+		// `new Date()` parses far too much — "7" is a valid date to it. A bare date
+		// with no time is also excluded: the picker would invent a midnight.
+		expect(classifyMongoValue('2026-07-27').isIsoDate).toBe(false)
+		expect(classifyMongoValue('7').isIsoDate).toBe(false)
+		expect(classifyMongoValue('July 27, 2026').isIsoDate).toBe(false)
+		expect(classifyMongoValue('2026-13-45T99:99:99Z').isIsoDate).toBe(false)
+	})
+
 	it('treats null/undefined as unknown', () => {
 		expect(classifyMongoValue(null).type).toBe('unknown')
 		expect(classifyMongoValue(undefined).type).toBe('unknown')

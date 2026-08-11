@@ -73,6 +73,7 @@ describe('publishDueContent', () => {
 		syncExternalStatus.mockReset()
 		syncExternalStatus.mockImplementation(async () => {
 			calls.push('external')
+			return { synced: true }
 		})
 	})
 
@@ -106,6 +107,16 @@ describe('publishDueContent', () => {
 		await expect(publishDueContent(app)).resolves.toBe(0)
 		expect(calls.some((c) => c.startsWith('update:'))).toBe(false)
 		expect(emitted).toHaveLength(0)
+	})
+
+	it('publishes locally when the source table cannot record a status', async () => {
+		// Retrying would pin the row in the queue forever: a collection whose source
+		// has no status column will never gain one mid-flight. The record was visible
+		// to the site all along, so the local flip is the honest outcome.
+		syncExternalStatus.mockResolvedValueOnce({ synced: false, reason: 'unsupported' })
+		const { app, emitted } = fakeApp([row], (r) => [{ ...r, status: 'published' }])
+		await expect(publishDueContent(app)).resolves.toBe(1)
+		expect(emitted).toHaveLength(1)
 	})
 
 	it('emits nothing when another instance already claimed the row', async () => {

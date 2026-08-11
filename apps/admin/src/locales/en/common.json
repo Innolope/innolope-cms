@@ -1373,7 +1373,10 @@
 				"publishAt": "Publish at",
 				"tags": "Tags",
 				"version": "Version",
-				"externalId": "External ID"
+				"externalId": "External ID",
+				"published": "Published",
+				"createdAt": "Created",
+				"updatedAt": "Last edited"
 			},
 			"statusOptions": {
 				"draft": "Draft",
@@ -1460,7 +1463,9 @@
 				"promptOthersTranslated": "Other fields on this record are already translated, but this one still stores a single language. Enable translations to write a {{lang}} version alongside it.",
 				"forTitle": "Enable for title",
 				"forBody": "Enable for body"
-			}
+			},
+			"statusNotSyncedWarning": "This collection's source table has no status column, so publishing state stays inside the CMS. Anything reading the source database directly still sees this record.",
+			"statusReadOnlyWarning": "This collection is read-only, so status changes stay inside the CMS and never reach the source database."
 		},
 		"edit": {
 			"title": "Edit: {{name}}",

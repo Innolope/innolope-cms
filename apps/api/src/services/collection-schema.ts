@@ -20,6 +20,12 @@ export interface DetectedColumn {
 	type: string
 	relationTo?: string
 	relationIsArray?: boolean
+	/**
+	 * A `text` column whose every sampled value was a full ISO-8601 timestamp.
+	 * The type stays `text` so writes keep storing strings; this only upgrades the
+	 * editor's widget from a raw input to a datetime picker.
+	 */
+	isIsoDate?: boolean
 }
 
 const FIELD_TYPES = new Set([
@@ -87,6 +93,12 @@ export function buildCollectionFields(
 			const shape = resolvedType === 'array' ? opts.arrayShapes?.get(c.name) : undefined
 			if (shape && shape.keys.length > 0) {
 				ui = { ...(ui ?? {}), subFields: shape.keys.map((key) => buildSubField(key, shape)) }
+			}
+			// A column the source stores as an ISO string is a date to the editor and a
+			// string to the database. Detection can't make it `type: 'date'` without
+			// changing what gets written back, so the widget carries the intent instead.
+			if (c.isIsoDate && resolvedType === 'text' && !isLocalized) {
+				ui = { ...(ui ?? {}), widget: 'datetime' }
 			}
 
 			return {

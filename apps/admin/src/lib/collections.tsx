@@ -1,4 +1,4 @@
-import type { CollectionField } from '@innolope/config'
+import type { CollectionField, ExternalStatusSupport } from '@innolope/config'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { api } from './api-client'
 import { useAuth } from './auth'
@@ -27,6 +27,12 @@ export interface CollectionWithCount {
 	 * are reference-only, so the UI hides their upload controls.
 	 */
 	mediaWritable?: boolean
+	/**
+	 * Whether a status change on this collection actually reaches the source row.
+	 * `supported: false` means unpublishing hides a record from the CMS but not from
+	 * anything reading the source database — which is the site.
+	 */
+	statusSync?: ExternalStatusSupport
 	/** Tri-state sidebar visibility. Defaults to 'auto'. */
 	sidebarMode?: 'auto' | 'show' | 'hide'
 	/** Server-computed: another collection references this one via a relation field. */

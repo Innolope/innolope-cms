@@ -1,8 +1,8 @@
 import type { CollectionField } from '@innolope/config'
 import {
-	KNOWN_LOCALE_CODES,
 	isLocaleKeyedObject,
 	isLocaleMap,
+	KNOWN_LOCALE_CODES,
 	looksLikeLocaleCode,
 } from './localized-fields.js'
 

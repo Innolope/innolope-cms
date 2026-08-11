@@ -1,4 +1,4 @@
-import type { CollectionField } from '@innolope/config'
+import { type CollectionField, externalStatusSupport } from '@innolope/config'
 import { collections, content, contentVersions, importJobs, projects } from '@innolope/db'
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -13,8 +13,8 @@ import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
 import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
 
-function getExternalDbConfig(project: typeof projects.$inferSelect | undefined) {
-	const extDb = (project?.settings as unknown as Record<string, unknown>)?.externalDb as
+function getExternalDbConfig(project: { settings?: unknown } | undefined) {
+	const extDb = (project?.settings as Record<string, unknown> | undefined)?.externalDb as
 		| Record<string, unknown>
 		| undefined
 	if (!extDb?.type || !extDb?.connectionString) return null
@@ -118,11 +118,20 @@ export async function collectionRoutes(app: FastifyInstance) {
 			.where(eq(projects.id, pid))
 			.limit(1)
 		const mediaStorage = getMediaStorageMap(projectSettings)
+		const dbType = getExternalDbConfig(projectSettings)?.type ?? null
 		return results.map((r) => {
 			const entry = r.externalTable ? mediaStorage[r.externalTable] : undefined
 			return {
 				...r,
 				isLinkedTarget: targets.byId.get(r.id) === true,
+				// Whether an unpublished record in this collection is actually hidden from
+				// the site, or only from the CMS. The editor warns on the latter.
+				statusSync: externalStatusSupport({
+					source: r.source,
+					accessMode: r.accessMode,
+					fields: r.fields,
+					dbType,
+				}),
 				mediaPathColumn: entry?.pathColumn || null,
 				// Public/custom-url libraries are read-only references — the UI hides
 				// their upload controls rather than offering a button that always 400s.

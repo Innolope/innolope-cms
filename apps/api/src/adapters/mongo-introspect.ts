@@ -1,10 +1,26 @@
 import type { CollectionField } from '@innolope/config'
 
+/**
+ * A full ISO-8601 date-time. Deliberately strict: a bare `2026-07-27` or any
+ * other loosely date-shaped string stays text, because `new Date()` accepts far
+ * too much (`"7"` parses) and mislabelling a real text column as a date would
+ * hand the editor a picker that mangles the value on save.
+ */
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+
+/** Whether a string is a full ISO-8601 timestamp that also parses as a real date. */
+export function isIsoDateTimeString(value: unknown): boolean {
+	if (typeof value !== 'string' || !ISO_DATETIME_RE.test(value)) return false
+	return !Number.isNaN(new Date(value).getTime())
+}
+
 /** Classify a runtime MongoDB value into a CollectionField type. */
 export function classifyMongoValue(value: unknown): {
 	type: string
 	isObjectId: boolean
 	isArray: boolean
+	/** Set for strings that are full ISO-8601 timestamps (see `isIsoDateTimeString`). */
+	isIsoDate?: boolean
 } {
 	if (value === null || value === undefined)
 		return { type: 'unknown', isObjectId: false, isArray: false }
@@ -24,7 +40,17 @@ export function classifyMongoValue(value: unknown): {
 		return { type: 'array', isObjectId: false, isArray: true }
 	}
 	const t = typeof value
-	if (t === 'string') return { type: 'text', isObjectId: false, isArray: false }
+	if (t === 'string') {
+		// Stays `text` on purpose. The column holds strings and must keep holding
+		// them — writing a BSON Date into it would leave one column with two types,
+		// which sorts wrong. The flag only upgrades the editor's widget.
+		return {
+			type: 'text',
+			isObjectId: false,
+			isArray: false,
+			isIsoDate: isIsoDateTimeString(value),
+		}
+	}
 	if (t === 'number') return { type: 'number', isObjectId: false, isArray: false }
 	if (t === 'boolean') return { type: 'boolean', isObjectId: false, isArray: false }
 	return { type: 'object', isObjectId: false, isArray: false }

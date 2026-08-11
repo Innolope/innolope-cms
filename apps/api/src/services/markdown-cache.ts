@@ -379,8 +379,8 @@ async function applySyncBatch(
 	const toUpdate: Array<{ existing: (typeof existingRows)[number]; next: CachedContentValues }> = []
 
 	for (const doc of docs) {
-		const { values, slug } = buildCachedContentValues(doc, collection, opts)
 		const existing = existingByExternalId.get(doc._id)
+		const { values, slug } = buildCachedContentValues(doc, collection, opts, existing)
 		if (existing) {
 			if (diffCachedContent(existing, values).length > 0) {
 				toUpdate.push({ existing, next: values })
@@ -539,8 +539,10 @@ export async function previewMarkdownCacheSync(
 		)
 
 		for (const doc of docs) {
-			const { values, slug } = buildCachedContentValues(doc, collection, {})
+			// Same `existing` the sync itself will see, so the preview can't promise a
+			// status change the apply won't make.
 			const existing = existingByExternalId.get(doc._id)
+			const { values, slug } = buildCachedContentValues(doc, collection, {}, existing)
 
 			if (!existing) {
 				total++
@@ -614,7 +616,8 @@ export function externalDocToContentItem(
 		metadata,
 		markdown,
 		html: markdownToBasicHtml(markdown),
-		status: normalizeStatus(metadata.status),
+		// Live rows are not persisted and have no CMS row to preserve a status from.
+		status: resolveCachedStatus(metadata.status),
 		locale: 'en',
 		version: 1,
 		createdBy: null,
@@ -635,6 +638,13 @@ function buildCachedContentValues(
 		fields: CollectionField[]
 	},
 	opts: Pick<SyncOptions, 'userId'>,
+	/**
+	 * The cached row this document will update, when there is one. A source
+	 * document with no usable status keeps whatever the CMS already decided —
+	 * only a row the CMS has never seen defaults to `published` (a legacy article
+	 * being imported for the first time is already live on the site).
+	 */
+	existing?: { status?: string | null },
 ): { values: CachedContentValues; slug: string | null } {
 	const { markdown, metadata } = documentToMarkdown(doc, collection.fields)
 	const slug = slugFromDoc(metadata)
@@ -655,7 +665,7 @@ function buildCachedContentValues(
 			markdown,
 			html,
 			externalId: doc._id,
-			status: normalizeStatus(metadata.status),
+			status: resolveCachedStatus(metadata.status, existing?.status),
 			locale: 'en',
 			createdBy: opts.userId || null,
 			...(createdAt ? { createdAt } : {}),
@@ -693,9 +703,35 @@ function stableValue(value: unknown): string {
 	return String(value ?? '')
 }
 
-function normalizeStatus(value: unknown): ContentStatus {
+/**
+ * Map a source value onto a CMS status, or `undefined` when the source carries
+ * none we recognise.
+ *
+ * Absence is not a statement that the record is published. Collections whose
+ * source table has no `status` column used to coerce to `published` on every
+ * sync, which resurrected every local draft and every scheduled row the moment
+ * anyone re-synced. An unrecognised non-empty value (`"active"`) is treated the
+ * same way: it isn't a status we model, and guessing `published` is exactly the
+ * failure being fixed.
+ */
+function readExternalStatus(value: unknown): ContentStatus | undefined {
 	if (typeof value === 'string' && VALID_STATUSES.has(value)) return value as ContentStatus
-	return 'published'
+	return undefined
+}
+
+/**
+ * The status a synced row should end up with.
+ *
+ * The source wins when it says something we understand. Otherwise the CMS keeps
+ * its own decision — a draft stays a draft, a scheduled row stays queued. Only a
+ * row the CMS has never seen falls through to `published`, which is right: a
+ * legacy article being imported for the first time is already live on the site.
+ */
+export function resolveCachedStatus(
+	sourceStatus: unknown,
+	existingStatus?: string | null,
+): ContentStatus {
+	return readExternalStatus(sourceStatus) ?? readExternalStatus(existingStatus) ?? 'published'
 }
 
 function toDate(value: unknown): Date | undefined {

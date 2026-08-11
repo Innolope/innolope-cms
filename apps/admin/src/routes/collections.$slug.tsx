@@ -21,8 +21,10 @@ import { useAuth } from '../lib/auth'
 import { type CollectionWithCount, useCollections } from '../lib/collections'
 import { usePrompt } from '../lib/confirm'
 import { pickTitleField, resolveDisplayTitle } from '../lib/display-title'
+import { fieldLabel } from '../lib/field-label'
 import { isLocaleMap, resolveLocalizedValue } from '../lib/locale-value'
 import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
+import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
 import { type FilterMap, useUrlFilters } from '../lib/use-url-filters'
@@ -266,10 +268,10 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 	]
 
 	const metadataCols: ColumnDescriptor[] = fields
-		.filter((f) => f.name !== primaryField)
+		.filter((f) => f.name !== primaryField && !SYSTEM_COLUMN_TWINS.has(f.name) && !f.ui?.hidden)
 		.map((f) => ({
 			id: `meta:${f.name}`,
-			label: f.name,
+			label: fieldLabel(f),
 			sortable: SORTABLE_FIELD_TYPES.has(f.type),
 			sortKey: SORTABLE_FIELD_TYPES.has(f.type) ? `meta:${f.name}` : undefined,
 			render: (item, ctx) => renderMetadataValue(item.metadata?.[f.name], ctx),
@@ -328,17 +330,22 @@ function buildFilters(collection: CollectionWithCount, t: Translator): FilterDes
 		{ id: 'createdAt', label: t('collections.list.columns.created'), type: 'date-range' },
 		{ id: 'publishedAt', label: t('collections.list.columns.published'), type: 'date-range' },
 	]
-	const metadata: FilterDescriptor[] = (collection.fields || []).map((f) => {
-		if (f.options && f.options.length > 0) {
-			return {
-				id: `meta:${f.name}`,
-				label: f.name,
-				type: 'enum',
-				options: f.options.map((o) => ({ value: o, label: o })),
+	// Same dedupe as the columns: a `createdAt` schema field would otherwise sit in
+	// the filter list next to the built-in "Created" range, filtering the identical
+	// value through a different query parameter.
+	const metadata: FilterDescriptor[] = (collection.fields || [])
+		.filter((f) => !SYSTEM_COLUMN_TWINS.has(f.name) && !f.ui?.hidden)
+		.map((f) => {
+			if (f.options && f.options.length > 0) {
+				return {
+					id: `meta:${f.name}`,
+					label: fieldLabel(f),
+					type: 'enum',
+					options: f.options.map((o) => ({ value: o, label: o })),
+				}
 			}
-		}
-		return { id: `meta:${f.name}`, label: f.name, type: 'text' }
-	})
+			return { id: `meta:${f.name}`, label: fieldLabel(f), type: 'text' }
+		})
 	return [...builtins, ...metadata]
 }
 
@@ -378,7 +385,9 @@ function filtersToQueryParams(filters: FilterMap): URLSearchParams {
 	return out
 }
 
-const DEFAULT_COLUMNS = ['title', 'slug', 'status', 'updatedAt']
+// Publish date over creation date: for a content list, when something went live is
+// the operative fact. `createdAt` stays available in the picker.
+const DEFAULT_COLUMNS = ['title', 'slug', 'status', 'updatedAt', 'publishedAt']
 const PINNED_COLUMNS = ['title']
 
 function CollectionContentList() {

@@ -38,6 +38,19 @@ describe('buildCollectionFields', () => {
 		const [field] = buildCollectionFields([column('createdAt', 'date')])
 		expect(field.ui?.readOnly).toBeUndefined()
 	})
+
+	it('gives an ISO-string column a datetime widget without changing its type', () => {
+		// The column holds strings and must keep holding them, so the type stays
+		// `text` — only the editor's widget is upgraded from a raw input to a picker.
+		const [field] = buildCollectionFields([{ name: 'createdAt', type: 'text', isIsoDate: true }])
+		expect(field.type).toBe('text')
+		expect(field.ui?.widget).toBe('datetime')
+	})
+
+	it('leaves an ordinary text column alone', () => {
+		const [field] = buildCollectionFields([column('author')])
+		expect(field.ui?.widget).toBeUndefined()
+	})
 })
 
 describe('mergeFieldCustomizations', () => {

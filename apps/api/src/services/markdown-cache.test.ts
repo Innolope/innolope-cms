@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { documentToMarkdown } from './markdown-cache.js'
+import { documentToMarkdown, resolveCachedStatus } from './markdown-cache.js'
+
+describe('resolveCachedStatus', () => {
+	it('takes the source status when it says something we understand', () => {
+		expect(resolveCachedStatus('draft', 'published')).toBe('draft')
+		expect(resolveCachedStatus('archived')).toBe('archived')
+	})
+
+	it('keeps the local status when the source table has no status column', () => {
+		// Regression: this used to coerce to `published`, so re-syncing a collection
+		// whose source has no status column resurrected every draft and every
+		// scheduled row — and then wrote `published` back to the source on next edit.
+		expect(resolveCachedStatus(undefined, 'draft')).toBe('draft')
+		expect(resolveCachedStatus(null, 'scheduled')).toBe('scheduled')
+	})
+
+	it('keeps the local status for a value that is not a status we model', () => {
+		expect(resolveCachedStatus('active', 'draft')).toBe('draft')
+	})
+
+	it('defaults to published only for a row the CMS has never seen', () => {
+		// A legacy article being imported for the first time is already live.
+		expect(resolveCachedStatus(undefined)).toBe('published')
+		expect(resolveCachedStatus(undefined, null)).toBe('published')
+	})
+})
 
 const LONG_UA = `Перший освітній навігатор у маркетингу. ${'а'.repeat(150)}`
 const LONG_EN = `The first educational navigator in marketing. ${'a'.repeat(200)}`

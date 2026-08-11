@@ -491,7 +491,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 			const inserted = await insertIntoExternalDb(app, getProject(request).id, col, externalData)
 			externalId = inserted?._id
-			cachedMetadata = mergeExternalTimestamps(cachedMetadata, externalData)
+			cachedMetadata = mergeExternalTimestamps(cachedMetadata, externalData, col.fields)
 		}
 
 		let created: typeof content.$inferSelect
@@ -1048,7 +1048,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}
 					// Keep the cache in step with what the external row now holds, so the
 					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData)
+					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
 				}
 
 				await tx.insert(contentVersions).values({
@@ -1171,15 +1171,14 @@ export async function contentRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('editor')] },
 		async (request, reply) => {
-			// Strip create-only timestamp fields — updates must not backdate createdAt or
-			// rewrite edit history. `publishedAt` is deliberately NOT stripped: it is the
-			// schedule, so an editor has to be able to move it (and must, to schedule a
-			// record that already exists).
-			const {
-				createdAt: _ca,
-				updatedAt: _ua,
-				...input
-			} = contentInputSchema.partial().parse(request.body)
+			// `updatedAt` is edit history and stays server-owned — a client must not be
+			// able to claim a row was last touched at a time of its choosing.
+			//
+			// `createdAt` and `publishedAt` are content dates, not history: the editor
+			// surfaces both, imported posts routinely need backdating to keep a feed in
+			// order, and `publishedAt` *is* the schedule, so moving it is how an existing
+			// record gets scheduled at all.
+			const { updatedAt: _ua, ...input } = contentInputSchema.partial().parse(request.body)
 			// Frontmatter normalization on update: strip the block and fold its fields
 			// into the incoming metadata (explicit metadata keys win). The merge with
 			// the stored row happens below for all metadata alike.
@@ -1280,6 +1279,10 @@ export async function contentRoutes(app: FastifyInstance) {
 					? new Date()
 					: current.publishedAt
 
+			// Creation date: an explicit value wins so an imported post can be backdated
+			// to its original date, otherwise it stays as it was.
+			const nextCreatedAt = input.createdAt ? new Date(input.createdAt) : current.createdAt
+
 			// Metadata to cache locally — `undefined` leaves the stored blob untouched.
 			let cachedMetadata = mergedMetadata
 			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
@@ -1290,7 +1293,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					status: input.status ?? current.status,
 					metadata: nextMetadata,
 					markdown: input.markdown ?? current.markdown,
-					createdAt: current.createdAt,
+					createdAt: nextCreatedAt,
 					updatedAt: now,
 					publishedAt: nextPublishedAt,
 				})
@@ -1315,7 +1318,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
 				// merged view that was just written — the cache and the source database
 				// must hold the same fields.
-				cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData)
+				cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
 			}
 
 			await app.db.insert(contentVersions).values({
@@ -1337,9 +1340,10 @@ export async function contentRoutes(app: FastifyInstance) {
 					...(html && { html }),
 					version: newVersion,
 					updatedAt: new Date(),
-					// Always an override: `...input` carries publishedAt as an ISO string,
-					// which the timestamp column can't take.
+					// Always overrides: `...input` carries these as ISO strings, which the
+					// timestamp columns can't take.
 					publishedAt: nextPublishedAt,
+					createdAt: nextCreatedAt,
 					...(externalId && { externalId }),
 				})
 				.where(eq(content.id, request.params.id))
@@ -1580,6 +1584,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				revertMetadata = mergeExternalTimestamps(
 					version.metadata,
 					externalData,
+					revertCol.fields,
 				) as typeof version.metadata
 			}
 
@@ -1877,7 +1882,10 @@ export async function contentRoutes(app: FastifyInstance) {
 					item.collectionId,
 					item.externalId,
 					'draft',
-					null,
+					// The local row keeps its publishedAt, so the source row must too.
+					// Rejection returns a record to draft; it does not erase the date the
+					// record was once published or scheduled for.
+					item.publishedAt,
 				)
 			} catch (err) {
 				app.log.warn(err, 'Failed to sync rejection to external DB')
@@ -1958,6 +1966,11 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			try {
 				const inserted = await insertIntoExternalDb(app, getProject(request).id, targetCol, data)
+				// Every submitted value fell outside the target collection's schema, so
+				// there is nothing to write. Say that rather than inserting a blank row.
+				if (!inserted) {
+					return reply.status(400).send({ error: 'No values match the target collection’s fields' })
+				}
 				return reply.status(201).send({ _id: inserted._id })
 			} catch (err) {
 				app.log.warn(err, 'Failed to insert relation record')

@@ -21,7 +21,8 @@ import { useCollections } from '../lib/collections'
 import { useConfirm, usePrompt } from '../lib/confirm'
 import { resolveDisplayTitle } from '../lib/display-title'
 import { fieldLabel } from '../lib/field-label'
-import { isFuture, relativeTime } from '../lib/relative-time'
+import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
+import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
 
@@ -109,6 +110,8 @@ interface ContentItem {
 	collectionId: string
 	externalId?: string
 	publishedAt?: string | null
+	createdAt?: string | null
+	updatedAt?: string | null
 	live?: boolean
 }
 
@@ -644,9 +647,15 @@ function CollectionContentEditor() {
 	const [title, setTitle] = useState('')
 	const [contentSlug, setContentSlug] = useState('')
 	const [status, setStatus] = useState('draft')
-	// Publish date. Only surfaced in the UI for scheduling — the API stamps it on
+	// Content dates, held as `datetime-local` strings. The API stamps publishedAt on
 	// first publish, so an empty string means "leave whatever is stored".
 	const [publishedAt, setPublishedAt] = useState('')
+	const [createdAt, setCreatedAt] = useState('')
+	// Edit time is server-owned — displayed, never sent.
+	const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+	// What the record held when it loaded. A date is only sent when it differs, so
+	// a save from a stale tab can't rewrite a stamp it never touched.
+	const loadedDates = useRef({ publishedAt: '', createdAt: '' })
 	const [tags, setTags] = useState<string[]>([])
 	const [version, setVersion] = useState(1)
 	const [dirty, setDirty] = useState(false)
@@ -743,7 +752,12 @@ function CollectionContentEditor() {
 
 					setContentSlug(item.slug)
 					setStatus(item.status)
-					setPublishedAt(toDateTimeInputValue(item.publishedAt))
+					const loadedPublishedAt = toDateTimeInputValue(item.publishedAt)
+					const loadedCreatedAt = toDateTimeInputValue(item.createdAt)
+					setPublishedAt(loadedPublishedAt)
+					setCreatedAt(loadedCreatedAt)
+					setUpdatedAt(item.updatedAt ?? null)
+					loadedDates.current = { publishedAt: loadedPublishedAt, createdAt: loadedCreatedAt }
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
 					setIsLive(Boolean(item.live))
@@ -1004,14 +1018,34 @@ function CollectionContentEditor() {
 	}
 
 	/**
-	 * The publish date to send with a save. Only sent while scheduling: the API
-	 * otherwise owns this field (it stamps it on first publish), and echoing a
-	 * value back on every save would let a stale editor state rewrite it.
+	 * The content dates to send with a save.
+	 *
+	 * Only what the editor actually changed goes on the wire. The API owns these
+	 * otherwise — it stamps `publishedAt` on first publish — and echoing the loaded
+	 * value back on every save would let a stale tab rewrite a stamp it never
+	 * touched. Scheduling is the exception: the date is mandatory there, so it is
+	 * always sent.
 	 */
-	const schedulePayload = () => {
-		if (status !== 'scheduled' || !publishedAt) return {}
-		const at = new Date(publishedAt)
-		return Number.isNaN(at.getTime()) ? {} : { publishedAt: at.toISOString() }
+	const datesPayload = () => {
+		const out: Record<string, string> = {}
+		const iso = (value: string) => {
+			const at = new Date(value)
+			return Number.isNaN(at.getTime()) ? null : at.toISOString()
+		}
+
+		if (status === 'scheduled' && publishedAt) {
+			const at = iso(publishedAt)
+			if (at) out.publishedAt = at
+		} else if (publishedAt !== loadedDates.current.publishedAt) {
+			const at = publishedAt ? iso(publishedAt) : null
+			if (at) out.publishedAt = at
+		}
+
+		if (createdAt !== loadedDates.current.createdAt) {
+			const at = createdAt ? iso(createdAt) : null
+			if (at) out.createdAt = at
+		}
+		return out
 	}
 
 	const save = async () => {
@@ -1038,7 +1072,7 @@ function CollectionContentEditor() {
 					markdown,
 					metadata,
 					status,
-					...schedulePayload(),
+					...datesPayload(),
 				})
 				refreshCollections()
 				navigate({ to: `/collections/${slug}/${created.id}` })
@@ -1048,7 +1082,7 @@ function CollectionContentEditor() {
 					markdown,
 					metadata,
 					status,
-					...schedulePayload(),
+					...datesPayload(),
 				})
 			}
 			setDirty(false)
@@ -1263,10 +1297,29 @@ function CollectionContentEditor() {
 	// rendered a duplicate input and serialized to both `slug` and
 	// `metadata.slug` on save. This filter handles collections imported before
 	// the sync-side `slug` exclusion landed.
+	// Lifecycle timestamps are filtered out for the same reason as `slug`: they
+	// already exist on the content row and are edited through the Dates block at the
+	// bottom of the sidebar. Rendering the schema twin as well gave an imported
+	// collection two "Created at" inputs writing the same value by two routes.
 	const visibleSchemaFields =
 		collection?.fields?.filter(
-			(f) => !HIDDEN_FIELDS.has(f.name) && !f.ui?.hidden && f.name !== 'slug',
+			(f) =>
+				!HIDDEN_FIELDS.has(f.name) &&
+				!f.ui?.hidden &&
+				f.name !== 'slug' &&
+				!SYSTEM_COLUMN_TWINS.has(f.name),
 		) ?? []
+
+	// Why a status change won't reach the source row, if it won't. `supported` covers
+	// every internal collection and every schemaless target, so this is null for all
+	// but SQL-backed collections with no status column and read-only ones.
+	const statusSyncWarning = (() => {
+		const support = collection?.statusSync
+		if (!support || support.supported) return null
+		return support.reason === 'read-only'
+			? t('collections.detail.statusReadOnlyWarning')
+			: t('collections.detail.statusNotSyncedWarning')
+	})()
 
 	// The collection's primary image — a relation to a media-backed collection, or a
 	// relation whose name reads like an image. It's rendered as a full-width preview near
@@ -2116,6 +2169,15 @@ function CollectionContentEditor() {
 							/>
 						</Field>
 
+						{/* An unpublished record whose status can't reach the source database is
+					    still live on the site. Say so where the expectation is formed —
+					    silence here is what let a draft sit on production unnoticed. */}
+						{statusSyncWarning && status !== 'published' && (
+							<div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+								{statusSyncWarning}
+							</div>
+						)}
+
 						{/* Publish date — shown only while scheduling. Afterwards the date is
 					    history and sits with the other timestamps. */}
 						{status === 'scheduled' && (
@@ -2208,6 +2270,54 @@ function CollectionContentEditor() {
 				    (title+markdown in the center). For form-shaped records they're rendered
 				    in the central column above; the sidebar keeps only save/meta. */}
 						{isArticleLayout && schemaFieldsBlock}
+
+						{/* Content dates. One control per concept, sourced from the content row —
+				    an imported collection's `createdAt`/`updatedAt` schema fields are
+				    filtered out of the block above precisely so this is the only place
+				    they're edited. Published is omitted while scheduling, where the
+				    dedicated picker above owns the same value. */}
+						{!isNew && (
+							<div className="space-y-4 border-t border-border pt-4">
+								{status !== 'scheduled' && (
+									<Field
+										label={t('collections.detail.fields.published')}
+										badge={isFuture(publishedAt) ? <ScheduledBadge date={publishedAt} /> : null}
+									>
+										<input
+											type="datetime-local"
+											value={publishedAt}
+											onChange={(e) => {
+												setPublishedAt(e.target.value)
+												setDirty(true)
+											}}
+											disabled={isReadOnly}
+											className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+										/>
+									</Field>
+								)}
+								<Field label={t('collections.detail.fields.createdAt')}>
+									<input
+										type="datetime-local"
+										value={createdAt}
+										onChange={(e) => {
+											setCreatedAt(e.target.value)
+											setDirty(true)
+										}}
+										disabled={isReadOnly}
+										className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
+									/>
+								</Field>
+								{/* Server-owned: shown so the record's history is legible, never sent. */}
+								<Field label={t('collections.detail.fields.updatedAt')}>
+									<p
+										className="text-sm text-text-secondary"
+										title={updatedAt ? absoluteDate(updatedAt) : undefined}
+									>
+										{updatedAt ? relativeTime(updatedAt) : '—'}
+									</p>
+								</Field>
+							</div>
+						)}
 
 						{/* Additional fields — fields in metadata not in the schema */}
 						{(() => {

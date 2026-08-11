@@ -39,6 +39,47 @@ export function validateSchedule(
 	return null
 }
 
+/**
+ * External targets that accept a key the detected schema never declared.
+ *
+ * MongoDB is schemaless: writing `status` to a document that has never had one
+ * simply adds the field. Every SQL target errors on an unknown column, so there
+ * the CMS can only write what the collection actually maps.
+ */
+export const SCHEMALESS_EXTERNAL_DB_TYPES = ['mongodb'] as const
+
+export function isSchemalessExternalDb(dbType: string | null | undefined): boolean {
+	return !!dbType && (SCHEMALESS_EXTERNAL_DB_TYPES as readonly string[]).includes(dbType)
+}
+
+export type ExternalStatusSupport =
+	| { supported: true }
+	| { supported: false; reason: 'read-only' | 'no-status-column' }
+
+/**
+ * Can a CMS status change actually reach the source row?
+ *
+ * This is the difference between "this record is a draft" and "this record is
+ * hidden from the site". For an internal collection they are the same thing —
+ * the CMS owns the row. For an external one the site reads the source database
+ * directly, so a draft it can't see the status of stays published in practice.
+ *
+ * Shared by the API (which warns on write and skips a doomed sync) and the admin
+ * (which warns in the editor) so the two can't disagree about what's supported.
+ */
+export function externalStatusSupport(input: {
+	source: string | null | undefined
+	accessMode: string | null | undefined
+	fields: Array<{ name: string }> | null | undefined
+	dbType: string | null | undefined
+}): ExternalStatusSupport {
+	if (input.source !== 'external') return { supported: true }
+	if (input.accessMode === 'read-only') return { supported: false, reason: 'read-only' }
+	if (isSchemalessExternalDb(input.dbType)) return { supported: true }
+	if ((input.fields ?? []).some((field) => field.name === 'status')) return { supported: true }
+	return { supported: false, reason: 'no-status-column' }
+}
+
 export const contentInputSchema = z.object({
 	// Slug is optional — when null/missing, the record has no permalink (used by
 	// imported collections where the source had no slug-like field). When

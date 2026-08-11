@@ -1,4 +1,9 @@
-export type ContentStatus = 'draft' | 'published' | 'archived'
+/**
+ * Kept in step with `CONTENT_STATUSES` in `@innolope/config`, which the API
+ * validates against. This list was short by `pending_review` and `scheduled` for
+ * a while, so the SDK's types rejected statuses the API happily returned.
+ */
+export type ContentStatus = 'draft' | 'pending_review' | 'scheduled' | 'published' | 'archived'
 
 export interface Content {
 	id: string

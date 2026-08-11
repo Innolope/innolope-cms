@@ -228,7 +228,11 @@ export function FieldRenderer({
 	}
 
 	// `date` ───────────────────────────────────────────────────────────────────
-	if (f.type === 'date') {
+	// Also reached by a `text` field carrying a date widget: sources that store
+	// timestamps as ISO strings keep `type: 'text'` so writes stay strings, and say
+	// so through `ui.widget` instead. Either way the value written back is an ISO
+	// string, which is what both shapes already hold.
+	if (f.type === 'date' || ((widget === 'datetime' || widget === 'date') && f.type === 'text')) {
 		if (widget === 'datetime') {
 			return (
 				<input

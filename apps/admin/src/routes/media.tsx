@@ -382,7 +382,6 @@ function MediaLibraryContent() {
 								))}
 							</div>
 						)}
-
 					</div>
 				)}
 			</div>

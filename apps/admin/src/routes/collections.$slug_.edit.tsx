@@ -41,7 +41,21 @@ const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'enum', 'relation', 'o
  * + the renderer dispatch in `collections.$slug.$contentId.tsx`.
  */
 const WIDGETS_BY_TYPE: Record<string, string[]> = {
-	text: ['input', 'textarea', 'dropdown', 'radio', 'richtext', 'slug', 'url', 'markdown'],
+	// `date`/`datetime` on a text field: the source stores the timestamp as an ISO
+	// string and must keep receiving one, so the type stays text and only the widget
+	// changes. Detection sets this automatically for all-ISO columns.
+	text: [
+		'input',
+		'textarea',
+		'dropdown',
+		'radio',
+		'richtext',
+		'slug',
+		'url',
+		'markdown',
+		'date',
+		'datetime',
+	],
 	number: ['input', 'currency', 'range'],
 	boolean: ['checkbox', 'switch'],
 	date: ['date', 'datetime'],

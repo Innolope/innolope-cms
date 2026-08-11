@@ -75,7 +75,7 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 	let published = 0
 	for (const item of due) {
 		try {
-			await syncExternalStatus(
+			const outcome = await syncExternalStatus(
 				app,
 				item.projectId,
 				item.collectionId,
@@ -83,6 +83,15 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 				'published',
 				item.publishedAt,
 			)
+			// A collection whose source table cannot record a status will never be able
+			// to. Retrying would pin the row in the queue forever, so publish it locally
+			// and log — the record was already visible to the site the whole time.
+			if (!outcome.synced && outcome.reason === 'unsupported') {
+				app.log.warn(
+					{ contentId: item.id, collectionId: item.collectionId },
+					'Scheduled publish: source table cannot record status; published locally only',
+				)
+			}
 		} catch (err) {
 			// Leave the row scheduled and try again next tick — an external database
 			// that is briefly unreachable must not silently publish only locally.

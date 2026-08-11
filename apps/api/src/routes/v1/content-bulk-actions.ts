@@ -382,7 +382,7 @@ async function updateMany(
 					const inserted = await insertIntoExternalDb(app, pid, col, externalData)
 					externalId = inserted?._id ?? null
 				}
-				cachedMetadata = mergeExternalTimestamps(metadata, externalData)
+				cachedMetadata = mergeExternalTimestamps(metadata, externalData, col.fields)
 			}
 
 			await app.db.insert(contentVersions).values({

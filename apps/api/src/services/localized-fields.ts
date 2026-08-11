@@ -160,7 +160,8 @@ export function findLocalizedBodyField(fields: CollectionField[]): string | null
  */
 function foldIntoLocaleMap(existing: unknown, incoming: unknown, locale: string): unknown {
 	const base: Record<string, unknown> = isLocaleKeyedObject(existing) ? { ...existing } : {}
-	if (typeof incoming === 'string' || Array.isArray(incoming)) return { ...base, [locale]: incoming }
+	if (typeof incoming === 'string' || Array.isArray(incoming))
+		return { ...base, [locale]: incoming }
 	if (isLocaleKeyedObject(incoming)) {
 		const merged: Record<string, unknown> = { ...base }
 		for (const [key, value] of Object.entries(incoming)) {

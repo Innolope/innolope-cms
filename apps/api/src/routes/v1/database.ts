@@ -320,6 +320,12 @@ export async function databaseRoutes(app: FastifyInstance) {
 							isArray: boolean
 							objectIdSamples: unknown[]
 							relationTo?: string
+							/**
+							 * True only while every sampled value of this column has been a full
+							 * ISO-8601 timestamp. One value that isn't demotes it permanently —
+							 * a column that is *mostly* dates is not a date column.
+							 */
+							isIsoDate?: boolean
 						}
 						const scanned: Array<{
 							name: string
@@ -341,8 +347,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 									if (cls.type === 'unknown') continue
 									let entry = fields.get(name)
 									if (!entry) {
-										entry = { type: cls.type, isArray: cls.isArray, objectIdSamples: [] }
+										entry = {
+											type: cls.type,
+											isArray: cls.isArray,
+											objectIdSamples: [],
+											isIsoDate: cls.isIsoDate === true,
+										}
 										fields.set(name, entry)
+									} else if (!cls.isIsoDate) {
+										entry.isIsoDate = false
 									}
 									if (cls.isObjectId) {
 										const ids = cls.isArray ? (value as unknown[]) : [value]
@@ -416,6 +429,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 								type: entry.type,
 								...(entry.relationTo && { relationTo: entry.relationTo }),
 								...(entry.type === 'relation' && entry.isArray && { relationIsArray: true }),
+								...(entry.type === 'text' && entry.isIsoDate && { isIsoDate: true as const }),
 							})),
 							count: tbl.count,
 							sizeBytes: tbl.sizeBytes,
