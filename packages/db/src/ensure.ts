@@ -273,6 +273,8 @@ export async function ensureTables(connectionUrl: string) {
 				url TEXT NOT NULL,
 				secret TEXT NOT NULL,
 				events JSONB NOT NULL DEFAULT '[]',
+				"headersEnc" JSONB,
+				"customPayload" TEXT,
 				active BOOLEAN NOT NULL DEFAULT true,
 				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
 				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -288,6 +290,7 @@ export async function ensureTables(connectionUrl: string) {
 				status TEXT NOT NULL DEFAULT 'pending',
 				"statusCode" INT,
 				"responseBody" TEXT,
+				"sentBody" TEXT,
 				attempts INT NOT NULL DEFAULT 0,
 				"nextRetry" TIMESTAMPTZ,
 				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -514,6 +517,9 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS "canPublishDirectly" BOOLEAN`
 		await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS "collectionIds" JSONB`
 		await sql`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS "authMethod" TEXT NOT NULL DEFAULT 'password'`
+		await sql`ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS "headersEnc" JSONB`
+		await sql`ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS "customPayload" TEXT`
+		await sql`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS "sentBody" TEXT`
 
 		// ── Indexes ─────────────────────────────────────────────────────────────
 		await sql`CREATE UNIQUE INDEX IF NOT EXISTS projects_customDomain_unique ON projects("customDomain")`

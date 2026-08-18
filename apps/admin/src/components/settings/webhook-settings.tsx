@@ -10,6 +10,8 @@ interface Webhook {
 	events: string[]
 	active: boolean
 	secret?: string
+	headerNames?: string[]
+	customPayload?: string | null
 	createdAt: string
 }
 
@@ -22,10 +24,16 @@ interface Delivery {
 	createdAt: string
 }
 
+interface HeaderRow {
+	name: string
+	value: string
+}
+
 const EVENT_TYPES = [
 	'content:created',
 	'content:updated',
 	'content:published',
+	'content:scheduled',
 	'content:deleted',
 	'content:submitted',
 	'content:approved',
@@ -34,18 +42,28 @@ const EVENT_TYPES = [
 	'media:deleted',
 ]
 
+const HEADER_NAME_PATTERN = /^[A-Za-z0-9-]{1,128}$/
+
 export function WebhookSettings() {
 	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
 	const [hooks, setHooks] = useState<Webhook[]>([])
 	const [loading, setLoading] = useState(true)
-	const [showCreate, setShowCreate] = useState(false)
-	const [newUrl, setNewUrl] = useState('')
-	const [newEvents, setNewEvents] = useState<string[]>([])
 	const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 	const [expandedId, setExpandedId] = useState<string | null>(null)
 	const [deliveries, setDeliveries] = useState<Delivery[]>([])
+
+	// null = form closed, 'new' = creating, otherwise the webhook being edited
+	const [editing, setEditing] = useState<'new' | Webhook | null>(null)
+	const [formUrl, setFormUrl] = useState('')
+	const [formEvents, setFormEvents] = useState<string[]>([])
+	const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
+	// Header values are write-only server-side; editing starts from the stored
+	// names as read-only chips until the user chooses to replace the whole set.
+	const [replaceHeaders, setReplaceHeaders] = useState(false)
+	const [payloadMode, setPayloadMode] = useState<'default' | 'custom'>('default')
+	const [payloadText, setPayloadText] = useState('')
 
 	const fetchHooks = useCallback(async () => {
 		setLoading(true)
@@ -62,20 +80,80 @@ export function WebhookSettings() {
 		fetchHooks()
 	}, [fetchHooks])
 
-	const create = async () => {
-		if (!newUrl.trim()) return
+	const openCreate = () => {
+		setEditing('new')
+		setFormUrl('')
+		setFormEvents([])
+		setHeaderRows([])
+		setReplaceHeaders(true)
+		setPayloadMode('default')
+		setPayloadText('')
+	}
+
+	const openEdit = (hook: Webhook) => {
+		setEditing(hook)
+		setFormUrl(hook.url)
+		setFormEvents(hook.events)
+		setHeaderRows([])
+		setReplaceHeaders(!hook.headerNames || hook.headerNames.length === 0)
+		setPayloadMode(hook.customPayload ? 'custom' : 'default')
+		setPayloadText(hook.customPayload ?? '')
+	}
+
+	const buildHeaders = (): Record<string, string> | null => {
+		const headers: Record<string, string> = {}
+		for (const row of headerRows) {
+			const name = row.name.trim()
+			if (!name && !row.value) continue
+			if (!HEADER_NAME_PATTERN.test(name) || !row.value) {
+				toast(t('settings.webhook.invalidHeaderName'), 'error')
+				return null
+			}
+			headers[name] = row.value
+		}
+		return headers
+	}
+
+	const buildPayload = (): { customPayload: string | null } | null => {
+		if (payloadMode === 'default') return { customPayload: null }
 		try {
-			const created = await api.post<Webhook>('/api/v1/ee/webhooks', {
-				url: newUrl,
-				events: newEvents.length > 0 ? newEvents : undefined,
-			})
-			setCreatedSecret(created.secret || null)
-			setNewUrl('')
-			setNewEvents([])
-			setShowCreate(false)
+			const parsed = JSON.parse(payloadText)
+			if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error()
+		} catch {
+			toast(t('settings.webhook.invalidJson'), 'error')
+			return null
+		}
+		return { customPayload: payloadText }
+	}
+
+	const save = async () => {
+		if (!formUrl.trim()) return
+		const payload = buildPayload()
+		if (!payload) return
+		const headers = replaceHeaders ? buildHeaders() : undefined
+		if (replaceHeaders && headers === null) return
+
+		try {
+			if (editing === 'new') {
+				const created = await api.post<Webhook>('/api/v1/ee/webhooks', {
+					url: formUrl,
+					events: formEvents.length > 0 ? formEvents : undefined,
+					...(headers && Object.keys(headers).length > 0 && { headers }),
+					...(payload.customPayload && payload),
+				})
+				setCreatedSecret(created.secret || null)
+			} else if (editing) {
+				await api.put(`/api/v1/ee/webhooks/${editing.id}`, {
+					url: formUrl,
+					events: formEvents,
+					...(replaceHeaders && { headers }),
+					...payload,
+				})
+			}
+			setEditing(null)
 			fetchHooks()
 		} catch (err) {
-			toast(err instanceof Error ? err.message : t('settings.webhook.createFailed'), 'error')
+			toast(err instanceof Error ? err.message : t('settings.webhook.saveFailed'), 'error')
 		}
 	}
 
@@ -125,21 +203,27 @@ export function WebhookSettings() {
 	}
 
 	const toggleEvent = (event: string) => {
-		setNewEvents((prev) =>
+		setFormEvents((prev) =>
 			prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
 		)
 	}
 
+	const setHeaderRow = (index: number, patch: Partial<HeaderRow>) => {
+		setHeaderRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+	}
+
 	if (loading) return <p className="text-sm text-text-secondary">{t('common.loading')}</p>
+
+	const editingHook = editing !== null && editing !== 'new' ? editing : null
 
 	return (
 		<div className="space-y-4">
 			<div className="flex items-center justify-between mb-4">
 				<p className="text-text-secondary text-sm">{t('settings.webhook.intro')}</p>
-				{!showCreate && (
+				{!editing && (
 					<button
 						type="button"
-						onClick={() => setShowCreate(true)}
+						onClick={openCreate}
 						className="px-3 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 					>
 						{t('settings.webhook.create')}
@@ -163,7 +247,7 @@ export function WebhookSettings() {
 				</div>
 			)}
 
-			{hooks.length === 0 && !showCreate && !createdSecret ? (
+			{hooks.length === 0 && !editing && !createdSecret ? (
 				<div className="flex flex-col items-center justify-center py-16 text-center">
 					<div className="w-14 h-14 rounded-2xl bg-surface-alt flex items-center justify-center mb-4">
 						<svg
@@ -187,7 +271,7 @@ export function WebhookSettings() {
 					</p>
 					<button
 						type="button"
-						onClick={() => setShowCreate(true)}
+						onClick={openCreate}
 						className="px-4 py-2 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 					>
 						{t('settings.webhook.createFirst')}
@@ -206,6 +290,20 @@ export function WebhookSettings() {
 											: t('settings.webhook.allEvents')}
 										{' · '}
 										{hook.active ? t('settings.webhook.active') : t('settings.webhook.paused')}
+										{hook.headerNames && hook.headerNames.length > 0 && (
+											<>
+												{' · '}
+												{t('settings.webhook.customHeadersBadge', {
+													count: hook.headerNames.length,
+												})}
+											</>
+										)}
+										{hook.customPayload && (
+											<>
+												{' · '}
+												{t('settings.webhook.customPayloadBadge')}
+											</>
+										)}
 									</p>
 								</div>
 								<div className="flex gap-1.5 ml-3">
@@ -222,6 +320,13 @@ export function WebhookSettings() {
 										className="px-2 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
 									>
 										{t('settings.webhook.test')}
+									</button>
+									<button
+										type="button"
+										onClick={() => openEdit(hook)}
+										className="px-2 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
+									>
+										{t('settings.webhook.edit')}
 									</button>
 									<button
 										type="button"
@@ -270,7 +375,7 @@ export function WebhookSettings() {
 				</div>
 			)}
 
-			{showCreate ? (
+			{editing ? (
 				<div className="border border-border rounded-lg p-4 space-y-3">
 					<div>
 						<label htmlFor="webhook-url" className="block text-xs text-text-secondary mb-1">
@@ -279,8 +384,8 @@ export function WebhookSettings() {
 						<input
 							id="webhook-url"
 							type="url"
-							value={newUrl}
-							onChange={(e) => setNewUrl(e.target.value)}
+							value={formUrl}
+							onChange={(e) => setFormUrl(e.target.value)}
 							placeholder="https://example.com/webhook"
 							className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
 						/>
@@ -296,7 +401,7 @@ export function WebhookSettings() {
 									type="button"
 									onClick={() => toggleEvent(event)}
 									className={`px-2 py-1 rounded text-xs border ${
-										newEvents.includes(event)
+										formEvents.includes(event)
 											? 'border-border-strong bg-surface-alt text-text'
 											: 'border-border text-text-secondary hover:border-border-strong'
 									}`}
@@ -306,17 +411,121 @@ export function WebhookSettings() {
 							))}
 						</div>
 					</div>
+					<div>
+						<div className="block text-xs text-text-secondary mb-1.5">
+							{t('settings.webhook.headersLabel')}
+						</div>
+						{editingHook && !replaceHeaders ? (
+							<div className="flex flex-wrap items-center gap-1.5">
+								{(editingHook.headerNames ?? []).map((name) => (
+									<span
+										key={name}
+										className="px-2 py-1 rounded text-xs border border-border font-mono text-text-secondary"
+									>
+										{name}
+									</span>
+								))}
+								<button
+									type="button"
+									onClick={() => setReplaceHeaders(true)}
+									className="px-2 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
+								>
+									{t('settings.webhook.replaceHeaders')}
+								</button>
+							</div>
+						) : (
+							<div className="space-y-1.5">
+								{editingHook && (editingHook.headerNames?.length ?? 0) > 0 && (
+									<p className="text-xs text-text-secondary">
+										{t('settings.webhook.headersReplaceHint')}
+									</p>
+								)}
+								{headerRows.map((row, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable identity while being typed
+									<div key={index} className="flex gap-1.5">
+										<input
+											type="text"
+											value={row.name}
+											onChange={(e) => setHeaderRow(index, { name: e.target.value })}
+											placeholder={t('settings.webhook.headerName')}
+											className="w-1/3 px-3 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong"
+										/>
+										<input
+											type="password"
+											value={row.value}
+											onChange={(e) => setHeaderRow(index, { value: e.target.value })}
+											placeholder={t('settings.webhook.headerValue')}
+											autoComplete="off"
+											className="flex-1 px-3 py-1.5 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong"
+										/>
+										<button
+											type="button"
+											onClick={() => setHeaderRows((prev) => prev.filter((_, i) => i !== index))}
+											className="px-2 py-1 text-danger rounded text-xs hover:opacity-80"
+										>
+											{t('settings.webhook.removeHeader')}
+										</button>
+									</div>
+								))}
+								<button
+									type="button"
+									onClick={() => setHeaderRows((prev) => [...prev, { name: '', value: '' }])}
+									className="px-2 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
+								>
+									{t('settings.webhook.addHeader')}
+								</button>
+								<p className="text-xs text-text-secondary">{t('settings.webhook.headersHint')}</p>
+							</div>
+						)}
+					</div>
+					<div>
+						<div className="block text-xs text-text-secondary mb-1.5">
+							{t('settings.webhook.payloadModeLabel')}
+						</div>
+						<div className="flex gap-1.5 mb-1.5">
+							{(['default', 'custom'] as const).map((mode) => (
+								<button
+									key={mode}
+									type="button"
+									onClick={() => setPayloadMode(mode)}
+									className={`px-2 py-1 rounded text-xs border ${
+										payloadMode === mode
+											? 'border-border-strong bg-surface-alt text-text'
+											: 'border-border text-text-secondary hover:border-border-strong'
+									}`}
+								>
+									{mode === 'default'
+										? t('settings.webhook.payloadModeDefault')
+										: t('settings.webhook.payloadModeCustom')}
+								</button>
+							))}
+						</div>
+						{payloadMode === 'custom' && (
+							<>
+								<textarea
+									value={payloadText}
+									onChange={(e) => setPayloadText(e.target.value)}
+									rows={4}
+									placeholder={'{"event_type": "blog-published"}'}
+									className="w-full px-3 py-2 bg-input border border-border rounded text-xs font-mono focus:outline-none focus:border-border-strong"
+								/>
+								<p className="text-xs text-text-secondary mt-1">
+									{t('settings.webhook.customPayloadHint')}
+								</p>
+							</>
+						)}
+					</div>
 					<div className="flex gap-2 pt-1">
 						<button
 							type="button"
-							onClick={create}
+							onClick={save}
 							className="px-4 py-1.5 bg-btn-primary text-btn-primary-text rounded text-sm font-medium hover:bg-btn-primary-hover"
 						>
-							{t('settings.webhook.create')}
+							{editing === 'new' ? t('settings.webhook.create') : t('settings.webhook.save')}
 						</button>
 						<button
 							type="button"
-							onClick={() => setShowCreate(false)}
+							onClick={() => setEditing(null)}
 							className="px-4 py-1.5 bg-btn-secondary rounded text-sm hover:bg-btn-secondary-hover"
 						>
 							{t('settings.webhook.dismiss')}

@@ -11,6 +11,13 @@ export const webhooks = pgTable(
 		url: text().notNull(),
 		secret: text().notNull(),
 		events: jsonb().$type<string[]>().notNull().default([]),
+		// Header name -> AES-256-GCM-encrypted value. Names stay plaintext so the
+		// API can list them; values hold credentials (e.g. bearer tokens) and are
+		// write-only after creation.
+		headersEnc: jsonb().$type<Record<string, string>>(),
+		// JSON template for the request body ({{...}} placeholders inside string
+		// values). NULL sends the default CMS event envelope.
+		customPayload: text(),
 		active: boolean().notNull().default(true),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
@@ -32,6 +39,9 @@ export const webhookDeliveries = pgTable(
 			.default('pending'),
 		statusCode: integer(),
 		responseBody: text(),
+		// Exact body sent (truncated) — differs from `payload` when the webhook
+		// uses a custom template; `payload` stays the render/retry source of truth.
+		sentBody: text(),
 		attempts: integer().notNull().default(0),
 		nextRetry: timestamp({ withTimezone: true }),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

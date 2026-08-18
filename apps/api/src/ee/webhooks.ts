@@ -1,12 +1,99 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { validatePublicUrl } from '../adapters/connection-guard.js'
+import { encryptSecret } from '../lib/crypto.js'
 import { getProject } from '../plugins/project.js'
+import { dispatchDelivery } from '../services/webhook-dispatch.js'
 
 /** Minimum entropy (hex chars) for a caller-supplied webhook signing secret. */
 const MIN_WEBHOOK_SECRET_LENGTH = 32
+
+const HEADER_NAME_PATTERN = /^[A-Za-z0-9-]{1,128}$/
+
+// Names the dispatcher owns (signature/id) or that would corrupt the request.
+const FORBIDDEN_HEADER_NAMES = new Set([
+	'host',
+	'content-length',
+	'transfer-encoding',
+	'connection',
+	'x-webhook-signature',
+	'x-webhook-id',
+])
+
+const headersSchema = z
+	.record(z.string(), z.string().min(1).max(2048))
+	.superRefine((headers, ctx) => {
+		const names = Object.keys(headers)
+		if (names.length > 20) {
+			ctx.addIssue({ code: 'custom', message: 'At most 20 custom headers are allowed.' })
+		}
+		for (const name of names) {
+			if (!HEADER_NAME_PATTERN.test(name)) {
+				ctx.addIssue({
+					code: 'custom',
+					message: `Invalid header name "${name}" — use letters, digits and hyphens.`,
+				})
+			} else if (FORBIDDEN_HEADER_NAMES.has(name.toLowerCase())) {
+				ctx.addIssue({ code: 'custom', message: `The "${name}" header cannot be customized.` })
+			}
+		}
+	})
+
+const customPayloadSchema = z
+	.string()
+	.max(8192, 'Custom payload template must be at most 8 KB.')
+	.refine((value) => {
+		try {
+			const parsed = JSON.parse(value)
+			return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+		} catch {
+			return false
+		}
+	}, 'Custom payload must be a valid JSON object.')
+
+export const createWebhookSchema = z.object({
+	url: z.string().min(1, 'URL is required'),
+	events: z.array(z.string()).optional(),
+	secret: z.string().optional(),
+	active: z.boolean().optional(),
+	headers: headersSchema.optional(),
+	customPayload: customPayloadSchema.nullish(),
+})
+
+// undefined = leave unchanged; null (or {} for headers) = clear.
+export const updateWebhookSchema = z.object({
+	url: z.string().min(1).optional(),
+	events: z.array(z.string()).optional(),
+	active: z.boolean().optional(),
+	headers: headersSchema.nullish(),
+	customPayload: customPayloadSchema.nullish(),
+})
+
+/**
+ * Strip everything secret from a webhook row: the signing secret and the
+ * encrypted header values. Callers get the header names so the UI can show
+ * what's configured without ever seeing a value again.
+ */
+export function sanitizeWebhook<
+	T extends { secret: string; headersEnc?: Record<string, string> | null },
+>(webhook: T): Omit<T, 'secret' | 'headersEnc'> & { headerNames: string[] } {
+	const { secret: _secret, headersEnc, ...rest } = webhook
+	return { ...rest, headerNames: headersEnc ? Object.keys(headersEnc) : [] }
+}
+
+function encryptHeaders(headers: Record<string, string>): Record<string, string> {
+	const encrypted: Record<string, string> = {}
+	for (const [name, value] of Object.entries(headers)) {
+		encrypted[name] = encryptSecret(value)
+	}
+	return encrypted
+}
+
+const MISSING_KEY_ERROR =
+	'This server has no encryption key configured (set SSO_ENCRYPTION_KEY or INTEGRATION_ENCRYPTION_KEY) — required to store custom headers.'
 
 export async function webhookRoutes(app: FastifyInstance) {
 	// List webhooks (admin+, project-scoped, requires license)
@@ -19,7 +106,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 				.from(webhooks)
 				.where(eq(webhooks.projectId, getProject(request).id))
 				.orderBy(desc(webhooks.createdAt))
-			return { data: items }
+			return { data: items.map(sanitizeWebhook) }
 		},
 	)
 
@@ -28,14 +115,11 @@ export async function webhookRoutes(app: FastifyInstance) {
 		'/',
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('webhooks')] },
 		async (request, reply) => {
-			const { url, events, secret, active } = request.body as {
-				url: string
-				events?: string[]
-				secret?: string
-				active?: boolean
+			const parsed = createWebhookSchema.safeParse(request.body)
+			if (!parsed.success) {
+				return reply.status(400).send({ error: parsed.error.issues[0].message })
 			}
-
-			if (!url) return reply.status(400).send({ error: 'URL is required' })
+			const { url, events, secret, active, headers, customPayload } = parsed.data
 
 			const urlError = await validatePublicUrl(url)
 			if (urlError) return reply.status(400).send({ error: urlError })
@@ -47,6 +131,15 @@ export async function webhookRoutes(app: FastifyInstance) {
 			}
 			const webhookSecret = secret || randomBytes(32).toString('hex')
 
+			let headersEnc: Record<string, string> | null = null
+			if (headers && Object.keys(headers).length > 0) {
+				try {
+					headersEnc = encryptHeaders(headers)
+				} catch {
+					return reply.status(400).send({ error: MISSING_KEY_ERROR })
+				}
+			}
+
 			const [created] = await app.db
 				.insert(webhooks)
 				.values({
@@ -54,12 +147,14 @@ export async function webhookRoutes(app: FastifyInstance) {
 					url,
 					secret: webhookSecret,
 					events: events || [],
+					headersEnc,
+					customPayload: customPayload ?? null,
 					active: active ?? true,
 				})
 				.returning()
 
 			// Return the secret only on creation (never again)
-			return reply.status(201).send({ ...created, secret: webhookSecret })
+			return reply.status(201).send({ ...sanitizeWebhook(created), secret: webhookSecret })
 		},
 	)
 
@@ -68,15 +163,30 @@ export async function webhookRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('webhooks')] },
 		async (request, reply) => {
-			const { url, events, active } = request.body as {
-				url?: string
-				events?: string[]
-				active?: boolean
+			const parsed = updateWebhookSchema.safeParse(request.body)
+			if (!parsed.success) {
+				return reply.status(400).send({ error: parsed.error.issues[0].message })
 			}
+			const { url, events, active, headers, customPayload } = parsed.data
 
 			if (url !== undefined) {
 				const urlError = await validatePublicUrl(url)
 				if (urlError) return reply.status(400).send({ error: urlError })
+			}
+
+			// Headers replace as a whole map: values are write-only, so a partial
+			// merge could never round-trip through the UI.
+			let headersUpdate: { headersEnc: Record<string, string> | null } | undefined
+			if (headers !== undefined) {
+				if (headers === null || Object.keys(headers).length === 0) {
+					headersUpdate = { headersEnc: null }
+				} else {
+					try {
+						headersUpdate = { headersEnc: encryptHeaders(headers) }
+					} catch {
+						return reply.status(400).send({ error: MISSING_KEY_ERROR })
+					}
+				}
 			}
 
 			const [updated] = await app.db
@@ -85,6 +195,8 @@ export async function webhookRoutes(app: FastifyInstance) {
 					...(url !== undefined && { url }),
 					...(events !== undefined && { events }),
 					...(active !== undefined && { active }),
+					...headersUpdate,
+					...(customPayload !== undefined && { customPayload }),
 					updatedAt: new Date(),
 				})
 				.where(
@@ -93,7 +205,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 				.returning()
 
 			if (!updated) return reply.status(404).send({ error: 'Webhook not found' })
-			return updated
+			return sanitizeWebhook(updated)
 		},
 	)
 
@@ -154,7 +266,8 @@ export async function webhookRoutes(app: FastifyInstance) {
 		},
 	)
 
-	// Test webhook
+	// Test webhook — same pipeline as real deliveries (custom headers and payload
+	// apply), but failures are not retried.
 	app.post<{ Params: { id: string } }>(
 		'/:id/test',
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('webhooks')] },
@@ -180,9 +293,6 @@ export async function webhookRoutes(app: FastifyInstance) {
 				timestamp: new Date().toISOString(),
 			}
 
-			const body = JSON.stringify(payload)
-			const signature = createHmac('sha256', webhook.secret).update(body).digest('hex')
-
 			const [delivery] = await app.db
 				.insert(webhookDeliveries)
 				.values({
@@ -190,43 +300,25 @@ export async function webhookRoutes(app: FastifyInstance) {
 					event: 'webhook:test',
 					payload,
 					status: 'pending',
-					attempts: 1,
+					attempts: 0,
 				})
 				.returning()
 
-			try {
-				const response = await fetch(webhook.url, {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'X-Webhook-Signature': signature,
-						'X-Webhook-Id': webhook.id,
-					},
-					body,
-					signal: AbortSignal.timeout(10_000),
-				})
+			await dispatchDelivery(app, webhook, delivery, { retry: false })
 
-				const responseBody = await response.text().catch(() => '')
-				await app.db
-					.update(webhookDeliveries)
-					.set({
-						status: response.ok ? 'success' : 'failed',
-						statusCode: response.status,
-						responseBody: responseBody.slice(0, 1000),
-					})
-					.where(eq(webhookDeliveries.id, delivery.id))
+			const [result] = await app.db
+				.select()
+				.from(webhookDeliveries)
+				.where(eq(webhookDeliveries.id, delivery.id))
+				.limit(1)
 
-				return { success: response.ok, statusCode: response.status }
-			} catch {
-				await app.db
-					.update(webhookDeliveries)
-					.set({
-						status: 'failed',
-						responseBody: 'Connection failed',
-					})
-					.where(eq(webhookDeliveries.id, delivery.id))
-
-				return { success: false, error: 'Connection failed' }
+			if (result?.status === 'success') {
+				return { success: true, statusCode: result.statusCode }
+			}
+			return {
+				success: false,
+				...(result?.statusCode != null && { statusCode: result.statusCode }),
+				error: result?.responseBody || 'Connection failed',
 			}
 		},
 	)

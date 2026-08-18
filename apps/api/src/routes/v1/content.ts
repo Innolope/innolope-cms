@@ -11,6 +11,7 @@ import {
 	checkCollectionAccess,
 	resolveReadableCollectionScope,
 } from '../../lib/collection-access.js'
+import { emitContentStatusEvent } from '../../lib/content-events.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -514,15 +515,11 @@ export async function contentRoutes(app: FastifyInstance) {
 			throw err
 		}
 
-		app.events.emit({
-			type: 'content:created',
-			data: {
-				id: created.id,
-				slug: created.slug,
-				status: created.status,
-				projectId: getProject(request).id,
-			},
-			timestamp: new Date().toISOString(),
+		emitContentStatusEvent(app, {
+			base: 'content:created',
+			previousStatus: null,
+			updated: created,
+			projectId: getProject(request).id,
 		})
 
 		// Advisory only: warn when the text's script contradicts the declared locale
@@ -828,15 +825,11 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		for (const result of created) {
-			app.events.emit({
-				type: 'content:created',
-				data: {
-					id: result.id,
-					slug: result.slug,
-					status: result.status,
-					projectId: getProject(request).id,
-				},
-				timestamp: new Date().toISOString(),
+			emitContentStatusEvent(app, {
+				base: 'content:created',
+				previousStatus: null,
+				updated: result,
+				projectId: getProject(request).id,
 			})
 		}
 
@@ -1066,10 +1059,11 @@ export async function contentRoutes(app: FastifyInstance) {
 		})
 
 		for (const result of updated) {
-			app.events.emit({
-				type: 'content:updated',
-				data: { id: result.id, slug: result.slug, projectId: getProject(request).id },
-				timestamp: new Date().toISOString(),
+			emitContentStatusEvent(app, {
+				base: 'content:updated',
+				previousStatus: currentMap.get(result.id)?.status,
+				updated: result,
+				projectId: getProject(request).id,
 			})
 		}
 
@@ -1830,10 +1824,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				.where(eq(content.id, request.params.id))
 				.returning()
 
-			app.events.emit({
-				type: 'content:approved',
-				data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
-				timestamp: new Date().toISOString(),
+			emitContentStatusEvent(app, {
+				base: 'content:approved',
+				previousStatus: item.status,
+				updated,
+				projectId: getProject(request).id,
 			})
 
 			return updated
