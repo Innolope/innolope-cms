@@ -101,7 +101,10 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 
 		const [updated] = await app.db
 			.update(content)
-			.set({ status: 'published', updatedAt: new Date() })
+			// No request behind this one: the publisher, not a client, performed the
+			// last write. Leaving the previous source in place would credit whoever
+			// scheduled the post with a publish they were not present for.
+			.set({ status: 'published', updatedAt: new Date(), updatedBy: null, updatedSource: 'system' })
 			.where(and(eq(content.id, item.id), eq(content.status, 'scheduled')))
 			.returning()
 		if (!updated) continue // another instance got there first

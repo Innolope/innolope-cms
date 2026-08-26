@@ -121,6 +121,41 @@ describe.skipIf(!hasTestDb)('content write attribution and history (real Postgre
 		expect((await history(id)).current).toMatchObject({ source: 'mcp', status: 'published' })
 	})
 
+	it('attributes scheduling and unscheduling too', async () => {
+		const id = await createPost(asAdmin(), `schedule-${randomUUID().slice(0, 6)}`)
+		const publishedAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+		const scheduled = await app.inject({
+			method: 'POST',
+			url: `/api/v1/ee/scheduling/${id}/schedule`,
+			headers: asMcp(),
+			payload: { publishedAt },
+		})
+		expect(scheduled.statusCode).toBe(200)
+		expect((await history(id)).current).toMatchObject({ source: 'mcp', status: 'scheduled' })
+
+		const unscheduled = await app.inject({
+			method: 'DELETE',
+			url: `/api/v1/ee/scheduling/${id}/schedule`,
+			headers: asAdmin(),
+		})
+		expect(unscheduled.statusCode).toBe(200)
+		expect((await history(id)).current).toMatchObject({ source: 'admin', status: 'draft' })
+	})
+
+	// A limit is a query string, so it arrives as whatever the caller typed. An
+	// invalid one must not reach Postgres as a negative or fractional LIMIT.
+	it('clamps a nonsensical limit instead of failing the request', async () => {
+		const id = await createPost(asAdmin(), `limit-${randomUUID().slice(0, 6)}`)
+		for (const limit of ['-5', 'abc', '0', '2.5', '99999']) {
+			const res = await app.inject({
+				method: 'GET',
+				url: `/api/v1/content/${id}/history?limit=${limit}`,
+				headers: asAdmin(),
+			})
+			expect(res.statusCode, `limit=${limit}`).toBe(200)
+		}
+	})
+
 	it('discards a forged client value rather than storing it', async () => {
 		const id = await createPost(
 			{ ...asAdmin(), 'x-innolope-client': 'wordpress' },

@@ -1666,7 +1666,10 @@ export async function contentRoutes(app: FastifyInstance) {
 			const access = await checkCollectionAccess(request, item.collectionId, 'read')
 			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 
-			const limit = Math.min(Number(request.query.limit) || 20, 100)
+			// Clamp rather than trust: a negative or fractional limit reaches Postgres
+			// as an invalid LIMIT and turns a bad query string into a 500.
+			const requested = Math.trunc(Number(request.query.limit))
+			const limit = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 100) : 20
 			const versions = await app.db
 				.select({
 					version: contentVersions.version,

@@ -54,6 +54,13 @@ export const content = pgTable(
 		// over MCP" — the question a field that looks unexpectedly reformatted
 		// always raises. Nullable: rows written before these columns existed have
 		// no attribution to backfill, and a null reads as "unknown", not "admin".
+		//
+		// Set by writes that change what the record SAYS — an edit, a status
+		// transition, a cover being attached — including the unattended ones, which
+		// record `system`. Deliberately NOT set by mechanical rewrites that only
+		// re-point asset URLs (the Cloudflare media migration, external media-path
+		// sync): those touch every row at once and would erase the human-or-agent
+		// signal across a whole library without an authoring event behind it.
 		updatedBy: uuid().references(() => users.id),
 		updatedSource: text({ enum: CONTENT_SOURCES }),
 	},

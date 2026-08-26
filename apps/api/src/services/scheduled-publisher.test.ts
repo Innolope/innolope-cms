@@ -88,7 +88,10 @@ describe('publishDueContent', () => {
 		const { app } = fakeApp([row], (r) => [{ ...r, status: 'published' }])
 		await publishDueContent(app)
 		const update = calls.find((c) => c.startsWith('update:'))
-		expect(update).toBe('update:["status","updatedAt"]')
+		// The scheduled date belongs to whoever set it: rewriting publishedAt would
+		// move the record's publication time to whenever the job happened to run.
+		expect(update).not.toContain('publishedAt')
+		expect(update).toBe('update:["status","updatedAt","updatedBy","updatedSource"]')
 	})
 
 	it('emits content:published with the scheduled marker', async () => {

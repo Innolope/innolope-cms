@@ -1,6 +1,8 @@
+import type { ContentSource } from '@innolope/config'
 import { collections, content, media, projects } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { requestSource } from '../../lib/request-source.js'
 import { getUser } from '../../plugins/auth.js'
 import { resolveMediaAdapter } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
@@ -274,7 +276,10 @@ async function renderAndStore(app: FastifyInstance, req: FastifyRequest, body: R
 
 	let written: { contentId: string; field: string } | null = null
 	if (body.contentId && body.field) {
-		await writeCoverToContent(app, projectId, body.contentId, body.field, upload.url)
+		await writeCoverToContent(app, projectId, body.contentId, body.field, upload.url, {
+			userId: getUser(req).id,
+			source: requestSource(req),
+		})
 		written = { contentId: body.contentId, field: body.field }
 	}
 
@@ -295,6 +300,7 @@ async function writeCoverToContent(
 	contentId: string,
 	field: string,
 	url: string,
+	actor: { userId: string; source: ContentSource },
 ) {
 	const [row] = await app.db
 		.select()
@@ -307,7 +313,12 @@ async function writeCoverToContent(
 
 	await app.db
 		.update(content)
-		.set({ metadata, updatedAt: new Date() })
+		.set({
+			metadata,
+			updatedAt: new Date(),
+			updatedBy: actor.userId,
+			updatedSource: actor.source,
+		})
 		.where(eq(content.id, contentId))
 
 	const [col] = await app.db

@@ -4,6 +4,8 @@ import { and, asc, eq, gt, isNotNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { checkCollectionAccess } from '../lib/collection-access.js'
+import { requestSource } from '../lib/request-source.js'
+import { getUser } from '../plugins/auth.js'
 import { getProject } from '../plugins/project.js'
 import { syncExternalStatus } from '../services/external-content.js'
 
@@ -65,7 +67,13 @@ export async function schedulingRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'scheduled', publishedAt, updatedAt: new Date() })
+				.set({
+					status: 'scheduled',
+					publishedAt,
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 
@@ -120,7 +128,12 @@ export async function schedulingRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'draft', updatedAt: new Date() })
+				.set({
+					status: 'draft',
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 			return updated
