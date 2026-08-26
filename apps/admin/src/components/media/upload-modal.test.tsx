@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MediaSource } from '../../lib/media-sources'
 import { UploadModal } from './upload-modal'
@@ -16,6 +17,7 @@ vi.mock('../../lib/media-sources', () => ({ uploadToSource: uploadMock }))
 const target = { id: 'library', label: 'Library' } as MediaSource
 
 const file = (name: string) => new File(['data'], name, { type: 'text/plain' })
+const imageFile = (name: string) => new File(['png-bytes'], name, { type: 'image/png' })
 
 /** Drop files onto the modal's full-surface drop target. */
 const dropFiles = (container: HTMLElement, files: File[]) => {
@@ -23,12 +25,25 @@ const dropFiles = (container: HTMLElement, files: File[]) => {
 	fireEvent.drop(surface, { dataTransfer: { files, types: ['Files'] } })
 }
 
+/**
+ * jsdom has no object-URL support. Model it well enough to tell a *live*
+ * preview URL from a revoked one — a revoked src is exactly the bug these
+ * tests guard (the browser then shows its broken-image glyph).
+ */
+const liveObjectUrls = new Set<string>()
+
 describe('UploadModal', () => {
 	beforeAll(() => {
-		// jsdom has no object-URL support; previews only need stable strings.
+		let seq = 0
 		Object.assign(URL, {
-			createObjectURL: vi.fn(() => 'blob:preview'),
-			revokeObjectURL: vi.fn(),
+			createObjectURL: vi.fn(() => {
+				const url = `blob:preview-${++seq}`
+				liveObjectUrls.add(url)
+				return url
+			}),
+			revokeObjectURL: vi.fn((url: string) => {
+				liveObjectUrls.delete(url)
+			}),
 		})
 	})
 
@@ -104,6 +119,57 @@ describe('UploadModal', () => {
 		expect(onClose).not.toHaveBeenCalled()
 		expect(onUploaded).toHaveBeenCalledOnce()
 		expect(toastSpy).toHaveBeenCalledWith('mediaRoute.uploadModal.partialFailed', 'error')
+	})
+
+	it('previews queued images with live object URLs under StrictMode', () => {
+		// StrictMode runs effects mount → cleanup → mount, which is what used to
+		// revoke the previews of page-dropped files and leave dead srcs behind.
+		const { container, unmount } = render(
+			<UploadModal
+				target={target}
+				projectId="p1"
+				initialFiles={[imageFile('page-drop.png')]}
+				onClose={() => {}}
+				onUploaded={() => {}}
+			/>,
+			{ wrapper: StrictMode },
+		)
+		const liveSrcs = () =>
+			[...container.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
+
+		expect(liveSrcs()).toHaveLength(1)
+		expect(liveSrcs().every((src) => liveObjectUrls.has(src))).toBe(true)
+
+		dropFiles(container, [imageFile('picked.png')])
+		expect(liveSrcs()).toHaveLength(2)
+		expect(liveSrcs().every((src) => liveObjectUrls.has(src))).toBe(true)
+
+		// Non-images get the extension badge instead of an <img>.
+		dropFiles(container, [file('notes.txt')])
+		expect(liveSrcs()).toHaveLength(2)
+		expect(screen.getByText('txt')).toBeInTheDocument()
+
+		// Removing a row and closing the modal release what they created.
+		const removed = liveSrcs()
+		fireEvent.click(screen.getAllByRole('button', { name: 'mediaRoute.uploadModal.remove' })[0])
+		unmount()
+		expect(removed.some((src) => liveObjectUrls.has(src))).toBe(false)
+	})
+
+	it('falls back to the extension badge when a preview fails to load', () => {
+		const { container } = render(
+			<UploadModal
+				target={target}
+				projectId="p1"
+				initialFiles={[imageFile('broken.png')]}
+				onClose={() => {}}
+				onUploaded={() => {}}
+			/>,
+		)
+		const img = container.querySelector('img') as HTMLImageElement
+		fireEvent.error(img)
+		expect(container.querySelector('img')).toBeNull()
+		expect(screen.getByText('png')).toBeInTheDocument()
 	})
 
 	it('seeds the queue from files dropped on the page before it opened', () => {

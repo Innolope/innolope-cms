@@ -108,7 +108,10 @@ export async function buildApp() {
 				defaultSrc: ["'self'"],
 				scriptSrc: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
 				styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-				imgSrc: ["'self'", 'data:', 'https:'],
+				// blob: — the media upload modal previews queued files from
+				// URL.createObjectURL() before they are sent; without it the
+				// browser blocks the preview and shows its broken-image glyph.
+				imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
 				connectSrc: [
 					"'self'",
 					'https://www.googletagmanager.com',

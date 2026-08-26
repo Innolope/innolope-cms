@@ -31,6 +31,14 @@ describe.skipIf(!hasTestDb)('API integration (real Postgres)', () => {
 		expect(res.json().error).toBe('Not found')
 	})
 
+	it('allows blob: image sources so upload previews render', async () => {
+		// The admin SPA is served by this app in production, and the media upload
+		// modal previews queued files from URL.createObjectURL() — a CSP without
+		// blob: blocks those previews into the broken-image glyph.
+		const res = await app.inject({ method: 'GET', url: '/api/v1/health' })
+		expect(res.headers['content-security-policy']).toContain("img-src 'self' data: https: blob:")
+	})
+
 	it('gates the audit-log endpoint behind authentication', async () => {
 		const res = await app.inject({ method: 'GET', url: '/api/v1/ee/audit-logs' })
 		expect([401, 403]).toContain(res.statusCode)

@@ -21,8 +21,6 @@ interface QueuedFile {
 	/** Identity for dedupe: same name+size+mtime added twice is one entry. */
 	key: string
 	file: File
-	/** Object URL for image previews; null for non-images. Revoked on removal. */
-	previewUrl: string | null
 	status: 'queued' | 'uploading' | 'done' | 'error'
 	error?: string
 }
@@ -42,9 +40,53 @@ const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`
 const toQueued = (file: File): QueuedFile => ({
 	key: fileKey(file),
 	file,
-	previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
 	status: 'queued',
 })
+
+/**
+ * Thumbnail for one queued file.
+ *
+ * The object URL is owned by the row that renders it, created and revoked by
+ * the same effect. Holding it on the queue entry instead meant a create at
+ * queueing time and a revoke from an unrelated cleanup: React's dev StrictMode
+ * runs effects mount → cleanup → mount while keeping state, so that cleanup
+ * revoked previews nothing ever recreated and files seeded from a page drop
+ * rendered as the browser's broken-image glyph.
+ *
+ * A src that still fails (an unreadable file, a CSP that rejects blob:) falls
+ * back to the same extension badge non-images get, never to that glyph.
+ */
+function QueuedThumb({ file }: { file: File }) {
+	const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+	const [failed, setFailed] = useState(false)
+
+	useEffect(() => {
+		if (!file.type.startsWith('image/')) return
+		const url = URL.createObjectURL(file)
+		setPreviewUrl(url)
+		setFailed(false)
+		return () => {
+			URL.revokeObjectURL(url)
+			setPreviewUrl(null)
+		}
+	}, [file])
+
+	if (previewUrl && !failed) {
+		return (
+			<img
+				src={previewUrl}
+				alt=""
+				className="w-10 h-10 rounded object-cover shrink-0 bg-surface-alt"
+				onError={() => setFailed(true)}
+			/>
+		)
+	}
+	return (
+		<div className="w-10 h-10 rounded bg-surface-alt flex items-center justify-center text-[10px] text-text-muted shrink-0 uppercase">
+			{file.name.split('.').pop()?.slice(0, 4) || 'file'}
+		</div>
+	)
+}
 
 export function formatFileSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`
@@ -68,15 +110,6 @@ export function UploadModal({
 	// Reading state from inside the async upload loop needs the latest queue.
 	const queueRef = useRef(queue)
 	queueRef.current = queue
-
-	// Revoke every preview URL on unmount (removal revokes its own eagerly).
-	useEffect(() => {
-		return () => {
-			for (const q of queueRef.current) {
-				if (q.previewUrl) URL.revokeObjectURL(q.previewUrl)
-			}
-		}
-	}, [])
 
 	const close = useCallback(() => {
 		if (!busy) onClose()
@@ -105,11 +138,7 @@ export function UploadModal({
 	}
 
 	const removeFile = (key: string) => {
-		setQueue((prev) => {
-			const entry = prev.find((q) => q.key === key)
-			if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl)
-			return prev.filter((q) => q.key !== key)
-		})
+		setQueue((prev) => prev.filter((q) => q.key !== key))
 	}
 
 	const setStatus = (key: string, status: QueuedFile['status'], error?: string) => {
@@ -145,12 +174,7 @@ export function UploadModal({
 			onClose()
 		} else {
 			// Keep the modal open on the failures; clear what already made it.
-			setQueue((prev) => {
-				for (const q of prev) {
-					if (q.status === 'done' && q.previewUrl) URL.revokeObjectURL(q.previewUrl)
-				}
-				return prev.filter((q) => q.status !== 'done')
-			})
+			setQueue((prev) => prev.filter((q) => q.status !== 'done'))
 			toast(t('mediaRoute.uploadModal.partialFailed', { failed, total: pending.length }), 'error')
 		}
 	}
@@ -271,17 +295,7 @@ export function UploadModal({
 								key={q.key}
 								className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border bg-surface-alt/50"
 							>
-								{q.previewUrl ? (
-									<img
-										src={q.previewUrl}
-										alt=""
-										className="w-10 h-10 rounded object-cover shrink-0"
-									/>
-								) : (
-									<div className="w-10 h-10 rounded bg-surface-alt flex items-center justify-center text-[10px] text-text-muted shrink-0 uppercase">
-										{q.file.name.split('.').pop()?.slice(0, 4) || 'file'}
-									</div>
-								)}
+								<QueuedThumb file={q.file} />
 								<div className="min-w-0 flex-1">
 									<p className="text-sm text-text truncate">{q.file.name}</p>
 									<p className="text-xs text-text-muted">
