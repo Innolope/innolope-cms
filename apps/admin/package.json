@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"typecheck": "tsr generate && tsc --noEmit -p tsconfig.json",
 		"preview": "vite preview",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -35,6 +35,7 @@
 	},
 	"devDependencies": {
 		"@tailwindcss/vite": "^4.3.0",
+		"@tanstack/router-cli": "1.167.28",
 		"@tanstack/router-plugin": "^1.168.13",
 		"@testing-library/dom": "^10.4.1",
 		"@testing-library/jest-dom": "^6.9.1",
