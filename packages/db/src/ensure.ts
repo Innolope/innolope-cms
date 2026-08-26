@@ -510,6 +510,9 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "lastSyncedCursor" TIMESTAMPTZ`
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "cursorColumn" TEXT`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
+		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "updatedBy" UUID REFERENCES users(id)`
+		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "updatedSource" TEXT`
+		await sql`ALTER TABLE content_versions ADD COLUMN IF NOT EXISTS source TEXT`
 		await sql`ALTER TABLE content ALTER COLUMN slug DROP NOT NULL`
 		await sql`ALTER TABLE media ADD COLUMN IF NOT EXISTS origin TEXT`
 		await sql`ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS "fallbackEnabled" BOOLEAN NOT NULL DEFAULT false`

@@ -21,6 +21,24 @@ export type ContentStatus = (typeof CONTENT_STATUSES)[number]
 export const CREATABLE_CONTENT_STATUSES = ['draft', 'scheduled', 'published'] as const
 
 /**
+ * Which client performed a content write. Recorded on the content row and on each
+ * archived version so a later reader can tell an agent's edit from a human's in
+ * the admin UI — otherwise the only evidence is the audit log, which is not
+ * joined to the record. `system` covers unattended writes (scheduled publisher,
+ * external-sync jobs) that no interactive client initiated.
+ */
+export const CONTENT_SOURCES = ['admin', 'mcp', 'api', 'import', 'system'] as const
+export type ContentSource = (typeof CONTENT_SOURCES)[number]
+
+/**
+ * Header the first-party clients set to identify themselves. Auth alone cannot
+ * separate them: the MCP layer re-mints an ordinary session JWT for its loopback
+ * REST calls, so an MCP write is indistinguishable from an admin-UI write at the
+ * token level. Absent or unrecognized values fall back to the credential type.
+ */
+export const CLIENT_HEADER = 'x-innolope-client'
+
+/**
  * `scheduled` means "publish this at `publishedAt`, not before". The background
  * publisher flips it to `published` once that moment passes, so the date is
  * mandatory — a scheduled record without one would never publish.

@@ -1,3 +1,4 @@
+import { CLIENT_HEADER } from '@innolope/config'
 import { httpRequest } from '@innolope/sdk'
 
 /**
@@ -106,6 +107,14 @@ export class InnolopeClient {
 		// a tool target a project before `setProject` has run (e.g. right after create).
 		return httpRequest<T>(this.baseUrl, path, {
 			...options,
+			// Identify the writer. The MCP layer re-mints an ordinary session JWT for
+			// these loopback calls, so without this header an agent's write is
+			// indistinguishable from a human's in the admin UI — and the CMS records
+			// the wrong source on the content row and its version history.
+			headers: {
+				...(options?.headers as Record<string, string> | undefined),
+				[CLIENT_HEADER]: 'mcp',
+			},
 			apiKey: this.apiKey,
 			projectId: projectIdOverride ?? this.projectId,
 		})
@@ -330,6 +339,11 @@ export class InnolopeClient {
 		return this.request<ContentItem>(`/api/v1/content/${encodeURIComponent(id)}${qs}`)
 	}
 
+	async getContentHistory(id: string, limit?: number) {
+		const qs = limit ? `?limit=${limit}` : ''
+		return this.request<ContentHistory>(`/api/v1/content/${encodeURIComponent(id)}/history${qs}`)
+	}
+
 	async createContent(input: {
 		slug?: string
 		collectionId: string
@@ -517,6 +531,28 @@ interface ContentItem {
 	languageWarning?: string
 	/** Advisory: incoming metadata shape looked wrong (e.g. locale map on a non-translatable field). */
 	fieldWarnings?: string[]
+}
+
+/** Shape of GET /api/v1/content/:id/history. */
+interface ContentHistory {
+	id: string
+	current: {
+		version: number
+		status: string
+		updatedAt: string
+		updatedBy: string | null
+		updatedByEmail: string | null
+		/** null on records written before write attribution existed — unknown, not "admin". */
+		source: string | null
+	}
+	createdAt: string
+	createdByEmail: string | null
+	versions: {
+		version: number
+		supersededAt: string
+		supersededByEmail: string | null
+		supersededVia: string | null
+	}[]
 }
 
 interface ProjectItem {

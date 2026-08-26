@@ -1795,6 +1795,42 @@ export function registerTools(
 		},
 	})
 
+	defineTool({
+		name: 'get_content_history',
+		description:
+			"Edit log for one record: when it was last written, by whom, and from which client (mcp | admin | api | import | system). Use this to tell an agent's write apart from a human's edit in the CMS editor before assuming a field looks wrong because you wrote it that way. Each listed version is the state an edit REPLACED, so its line reports the edit that superseded it — not who authored that version's text. A source of `unknown` means the write predates attribution, not that it came from the UI. Returns metadata only; use get_content for the current body, and the CMS restore UI to roll back.",
+		operationType: 'read',
+		schema: {
+			id: z.string().uuid().describe('Content UUID'),
+			limit: z
+				.number()
+				.int()
+				.min(1)
+				.max(100)
+				.optional()
+				.describe('Past versions to list, newest first (default: 20, max: 100)'),
+		},
+		handler: async ({ id, limit }) => {
+			const history = await client.getContentHistory(id, limit)
+			const via = (source: string | null) => source ?? 'unknown'
+			const by = (email: string | null) => email ?? 'unknown'
+			const lines = [
+				`History for ${id}${projectSuffix()}:`,
+				``,
+				`v${history.current.version} (current, ${history.current.status}) — last written ${history.current.updatedAt} by ${by(history.current.updatedByEmail)} via ${via(history.current.source)}`,
+			]
+			for (const v of history.versions) {
+				lines.push(
+					`v${v.version} — superseded ${v.supersededAt} by ${by(v.supersededByEmail)} via ${via(v.supersededVia)}`,
+				)
+			}
+			if (!history.versions.length)
+				lines.push(`(no earlier versions — never edited since creation)`)
+			lines.push(``, `Created ${history.createdAt} by ${by(history.createdByEmail)}.`)
+			return text(lines.join('\n'))
+		},
+	})
+
 	const EXPORT_MAX_ROWS = 100
 
 	defineTool({

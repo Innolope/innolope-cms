@@ -12,6 +12,12 @@ import { collections } from './collections.js'
 import { projects } from './projects.js'
 import { users } from './users.js'
 
+/**
+ * Mirrors CONTENT_SOURCES in @innolope/config. Kept as a literal (not an import)
+ * so the schema package stays dependency-free.
+ */
+const CONTENT_SOURCES = ['admin', 'mcp', 'api', 'import', 'system'] as const
+
 export const content = pgTable(
 	'content',
 	{
@@ -43,6 +49,13 @@ export const content = pgTable(
 		publishedAt: timestamp({ withTimezone: true }),
 		externalId: text(),
 		createdBy: uuid().references(() => users.id),
+		// Actor and client behind the CURRENT state of the row. `createdBy` cannot
+		// answer "was this last touched by a human in the admin UI or by an agent
+		// over MCP" — the question a field that looks unexpectedly reformatted
+		// always raises. Nullable: rows written before these columns existed have
+		// no attribution to backfill, and a null reads as "unknown", not "admin".
+		updatedBy: uuid().references(() => users.id),
+		updatedSource: text({ enum: CONTENT_SOURCES }),
 	},
 	(table) => [
 		uniqueIndex('content_slug_locale_project_idx').on(table.slug, table.locale, table.projectId),
@@ -73,6 +86,12 @@ export const contentVersions = pgTable(
 		metadata: jsonb().$type<Record<string, unknown>>().notNull().default({}),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		createdBy: uuid().references(() => users.id),
+		// The client that performed the write which ARCHIVED this row. A version row
+		// snapshots the state an edit replaced, so `createdBy`/`source`/`createdAt`
+		// describe that superseding edit — not the authorship of the payload. Read a
+		// row as "superseded by X via mcp at T". The current state's own attribution
+		// lives on content.updatedBy / content.updatedSource.
+		source: text({ enum: CONTENT_SOURCES }),
 	},
 	(table) => [index('versions_content_idx').on(table.contentId, table.version)],
 )

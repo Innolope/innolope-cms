@@ -20,6 +20,7 @@ import {
 	checkCollectionAccess,
 	resolveReadableCollectionScope,
 } from '../../lib/collection-access.js'
+import { requestSource } from '../../lib/request-source.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import { type ContentFilterParams, contentFilterWhere } from '../../services/content-filter.js'
@@ -307,6 +308,7 @@ async function updateMany(
 ): Promise<ItemResult[]> {
 	const pid = getProject(req).id
 	const userId = getUser(req).id
+	const source = requestSource(req)
 	const rows = await app.db
 		.select()
 		.from(content)
@@ -391,6 +393,7 @@ async function updateMany(
 				markdown: row.markdown,
 				metadata: row.metadata,
 				createdBy: userId,
+				source,
 			})
 
 			await app.db
@@ -400,6 +403,8 @@ async function updateMany(
 					metadata: cachedMetadata,
 					version: row.version + 1,
 					updatedAt: new Date(),
+					updatedBy: userId,
+					updatedSource: source,
 					publishedAt,
 					...(externalId && { externalId }),
 				})

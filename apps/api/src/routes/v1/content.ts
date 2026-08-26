@@ -4,7 +4,7 @@ import {
 	contentListSchema,
 	validateSchedule,
 } from '@innolope/config'
-import { collections, content, contentAnalytics, contentVersions, media } from '@innolope/db'
+import { collections, content, contentAnalytics, contentVersions, media, users } from '@innolope/db'
 import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -12,6 +12,7 @@ import {
 	resolveReadableCollectionScope,
 } from '../../lib/collection-access.js'
 import { emitContentStatusEvent } from '../../lib/content-events.js'
+import { requestSource } from '../../lib/request-source.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -493,6 +494,8 @@ export async function contentRoutes(app: FastifyInstance) {
 					locale,
 					status: input.status || 'draft',
 					createdBy: getUser(request).id,
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
 					...(externalId && { externalId }),
 					...(input.createdAt && { createdAt: new Date(input.createdAt) }),
 					...(input.updatedAt && { updatedAt: new Date(input.updatedAt) }),
@@ -1034,6 +1037,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					markdown: current.markdown,
 					metadata: current.metadata,
 					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
 
 				const html = item.markdown ? await renderMarkdown(item.markdown) : undefined
@@ -1047,6 +1051,8 @@ export async function contentRoutes(app: FastifyInstance) {
 						...(item.status && { status: item.status as ContentStatus }),
 						version: current.version + 1,
 						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
 						publishedAt: nextPublishedAt,
 						...(externalId && { externalId }),
 					})
@@ -1305,6 +1311,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				markdown: current.markdown,
 				metadata: current.metadata,
 				createdBy: getUser(request).id,
+				source: requestSource(request),
 			})
 
 			const html = input.markdown ? await renderMarkdown(input.markdown) : undefined
@@ -1318,6 +1325,8 @@ export async function contentRoutes(app: FastifyInstance) {
 					...(html && { html }),
 					version: newVersion,
 					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
 					// Always overrides: `...input` carries these as ISO strings, which the
 					// timestamp columns can't take.
 					publishedAt: nextPublishedAt,
@@ -1572,6 +1581,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				markdown: current.markdown,
 				metadata: current.metadata,
 				createdBy: getUser(request).id,
+				source: requestSource(request),
 			})
 
 			const html = await renderMarkdown(version.markdown)
@@ -1583,6 +1593,8 @@ export async function contentRoutes(app: FastifyInstance) {
 					html,
 					version: current.version + 1,
 					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
 					...(revertExternalId && { externalId: revertExternalId }),
 				})
 				.where(
@@ -1630,6 +1642,79 @@ export async function contentRoutes(app: FastifyInstance) {
 				.from(contentVersions)
 				.where(eq(contentVersions.contentId, request.params.id))
 				.orderBy(desc(contentVersions.version))
+		},
+	)
+
+	// Edit log (viewer+, project-scoped). Distinct from `/versions`, which serves the
+	// admin's restore UI and returns raw version rows: this answers "who and what
+	// last touched this record", resolving actor ids to emails and pairing the
+	// archived versions with the live head. A version row records the write that
+	// SUPERSEDED it, so each row here is an edit event, not an authorship claim.
+	app.get<{ Params: { id: string }; Querystring: { limit?: number } }>(
+		'/:id/history',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+			const [item] = await app.db
+				.select()
+				.from(content)
+				.where(
+					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+				)
+				.limit(1)
+			if (!item) return reply.status(404).send({ error: 'Content not found' })
+
+			const access = await checkCollectionAccess(request, item.collectionId, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+
+			const limit = Math.min(Number(request.query.limit) || 20, 100)
+			const versions = await app.db
+				.select({
+					version: contentVersions.version,
+					createdAt: contentVersions.createdAt,
+					createdBy: contentVersions.createdBy,
+					source: contentVersions.source,
+				})
+				.from(contentVersions)
+				.where(eq(contentVersions.contentId, request.params.id))
+				.orderBy(desc(contentVersions.version))
+				.limit(limit)
+
+			const actorIds = [
+				...new Set(
+					[item.updatedBy, item.createdBy, ...versions.map((v) => v.createdBy)].filter(
+						(id): id is string => Boolean(id),
+					),
+				),
+			]
+			const actors = actorIds.length
+				? await app.db
+						.select({ id: users.id, email: users.email })
+						.from(users)
+						.where(inArray(users.id, actorIds))
+				: []
+			const emailById = new Map(actors.map((a) => [a.id, a.email]))
+
+			return {
+				id: item.id,
+				current: {
+					version: item.version,
+					status: item.status,
+					updatedAt: item.updatedAt,
+					updatedBy: item.updatedBy,
+					updatedByEmail: item.updatedBy ? (emailById.get(item.updatedBy) ?? null) : null,
+					// Null on rows written before attribution existed. Reported as
+					// "unknown" rather than assumed to be the admin UI.
+					source: item.updatedSource,
+				},
+				createdAt: item.createdAt,
+				createdByEmail: item.createdBy ? (emailById.get(item.createdBy) ?? null) : null,
+				versions: versions.map((v) => ({
+					version: v.version,
+					supersededAt: v.createdAt,
+					supersededByEmail: v.createdBy ? (emailById.get(v.createdBy) ?? null) : null,
+					supersededVia: v.source,
+				})),
+			}
 		},
 	)
 
@@ -1731,7 +1816,13 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'published', publishedAt: new Date(), updatedAt: new Date() })
+				.set({
+					status: 'published',
+					publishedAt: new Date(),
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 
@@ -1773,7 +1864,12 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'pending_review', updatedAt: new Date() })
+				.set({
+					status: 'pending_review',
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 
@@ -1820,7 +1916,13 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'published', publishedAt: new Date(), updatedAt: new Date() })
+				.set({
+					status: 'published',
+					publishedAt: new Date(),
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 
@@ -1873,7 +1975,12 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			const [updated] = await app.db
 				.update(content)
-				.set({ status: 'draft', updatedAt: new Date() })
+				.set({
+					status: 'draft',
+					updatedAt: new Date(),
+					updatedBy: getUser(request).id,
+					updatedSource: requestSource(request),
+				})
 				.where(eq(content.id, request.params.id))
 				.returning()
 
