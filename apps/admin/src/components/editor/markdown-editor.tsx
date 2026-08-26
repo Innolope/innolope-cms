@@ -5,21 +5,9 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import TurndownService from 'turndown'
 import { usePrompt } from '../../lib/confirm'
+import { htmlFromMarkdown, markdownFromHtml } from '../../lib/markdown-round-trip'
 import { ImagePickerModal, type ImageSelection } from './image-picker-modal'
-
-const turndown = new TurndownService({
-	headingStyle: 'atx',
-	codeBlockStyle: 'fenced',
-	bulletListMarker: '-',
-})
-
-// Improve turndown rules for cleaner markdown
-turndown.addRule('strikethrough', {
-	filter: ['del', 's'],
-	replacement: (content) => `~~${content}~~`,
-})
 
 interface MarkdownEditorProps {
 	content: string
@@ -52,14 +40,14 @@ export function MarkdownEditor({ content, onChange, placeholder }: MarkdownEdito
 		onUpdate: ({ editor }) => {
 			if (isInternalUpdate.current) return
 			const html = editor.getHTML()
-			const md = turndown.turndown(html)
+			const md = markdownFromHtml(html)
 			onChange(md)
 		},
 	})
 
 	useEffect(() => {
 		if (editor && content) {
-			const currentMd = turndown.turndown(editor.getHTML())
+			const currentMd = markdownFromHtml(editor.getHTML())
 			if (currentMd !== content) {
 				isInternalUpdate.current = true
 				editor.commands.setContent(htmlFromMarkdown(content))
@@ -233,40 +221,4 @@ function ToolbarBtn({
 			{label}
 		</button>
 	)
-}
-
-function htmlFromMarkdown(md: string): string {
-	// Simple markdown → HTML for TipTap initialization
-	// TipTap only needs basic HTML structure, not full rendering
-	let html = md
-		.replace(/^### (.+)$/gm, '<h3>$1</h3>')
-		.replace(/^## (.+)$/gm, '<h2>$1</h2>')
-		.replace(/^# (.+)$/gm, '<h1>$1</h1>')
-		.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-		.replace(/\*(.+?)\*/g, '<em>$1</em>')
-		.replace(/~~(.+?)~~/g, '<s>$1</s>')
-		.replace(/`([^`]+)`/g, '<code>$1</code>')
-		.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
-		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-
-	// Convert paragraphs (lines separated by blank lines)
-	html = html
-		.split('\n\n')
-		.map((block) => {
-			if (
-				block.startsWith('<h') ||
-				block.startsWith('<img') ||
-				block.startsWith('<ul') ||
-				block.startsWith('<ol') ||
-				block.startsWith('<blockquote') ||
-				block.startsWith('<pre')
-			) {
-				return block
-			}
-			if (block.trim()) return `<p>${block.replace(/\n/g, '<br />')}</p>`
-			return ''
-		})
-		.join('')
-
-	return html
 }
