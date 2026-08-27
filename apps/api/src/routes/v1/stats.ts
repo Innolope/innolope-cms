@@ -11,6 +11,16 @@ import type { FastifyInstance } from 'fastify'
 import { resolveReadableCollectionScope } from '../../lib/collection-access.js'
 import { getProject } from '../../plugins/project.js'
 
+/** Canonical uuid form, which is what `content.id` always holds. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Postgres 23503: the row a foreign key points at is not there. */
+function isForeignKeyViolation(err: unknown): boolean {
+	const code =
+		(err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code
+	return code === '23503'
+}
+
 export async function statsRoutes(app: FastifyInstance) {
 	// Dashboard stats (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -216,16 +226,34 @@ export async function statsRoutes(app: FastifyInstance) {
 		if (!validSources.includes(source as (typeof validSources)[number]))
 			return reply.status(400).send({ error: `source must be one of: ${validSources.join(', ')}` })
 
-		const contentId = body.contentId ? String(body.contentId) : null
+		const requestedContentId = body.contentId ? String(body.contentId) : null
 		const query = body.query ? String(body.query) : null
 
-		await app.db.insert(contentAnalytics).values({
+		// content_analytics.contentId is a uuid column. Records living in an external
+		// database are read by their source id — a 24-hex Mongo ObjectId — which
+		// Postgres cannot parse, so the insert threw and the read went untracked
+		// entirely. Store it unattributed instead: the read still counts toward the
+		// event totals and bySource, and the original id reaches PostHog below,
+		// where it is only a property.
+		const contentId =
+			requestedContentId && UUID_RE.test(requestedContentId) ? requestedContentId : null
+
+		const row = {
 			projectId: getProject(request).id,
 			contentId,
 			event: event as (typeof validEvents)[number],
 			query,
 			source: source as (typeof validSources)[number],
-		})
+		}
+		try {
+			await app.db.insert(contentAnalytics).values(row)
+		} catch (err) {
+			// A well-formed id whose content was deleted between the read and this
+			// call trips the foreign key. The read still happened, so keep it rather
+			// than losing the event to a race.
+			if (!isForeignKeyViolation(err)) throw err
+			await app.db.insert(contentAnalytics).values({ ...row, contentId: null })
+		}
 
 		// Forward to PostHog if configured
 		app.posthog?.capture({
@@ -240,7 +268,10 @@ export async function statsRoutes(app: FastifyInstance) {
 							: `cms_${event}`,
 			properties: {
 				projectId: getProject(request).id,
-				contentId,
+				// The id as the caller sent it: PostHog stores it as a plain property,
+				// so an external record's ObjectId is still worth keeping here even
+				// when the local column cannot hold it.
+				contentId: requestedContentId,
 				query,
 				source,
 			},

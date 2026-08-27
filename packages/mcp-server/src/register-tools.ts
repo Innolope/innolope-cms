@@ -1079,7 +1079,11 @@ export function registerTools(
 		},
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
-			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
+			// Track what the CMS resolved, not what the caller typed. An external
+			// record fetched by its source id comes back with the local uuid its
+			// cache row holds, and only that can be attributed in analytics —
+			// tracking the caller's id left every external read uncounted.
+			client.trackAnalytics({ contentId: item.id, event: 'mcp_read', source: 'mcp' })
 			const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 			const body = [
 				`# ${title}`,
@@ -1722,7 +1726,11 @@ export function registerTools(
 		},
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
-			client.trackAnalytics({ contentId: id, event: 'mcp_read', source: 'mcp' })
+			// Track what the CMS resolved, not what the caller typed. An external
+			// record fetched by its source id comes back with the local uuid its
+			// cache row holds, and only that can be attributed in analytics —
+			// tracking the caller's id left every external read uncounted.
+			client.trackAnalytics({ contentId: item.id, event: 'mcp_read', source: 'mcp' })
 
 			const relations: Record<string, unknown> = {}
 			try {
