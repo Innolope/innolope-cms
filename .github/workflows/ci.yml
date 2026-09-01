@@ -12,7 +12,7 @@ jobs:
     steps:
       # v5 runs on Node 24, replacing the v4 Node-20 actions deprecated by
       # GitHub on 2025-09-19 and force-bumped on 2026-06-02.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
@@ -69,7 +69,7 @@ jobs:
       TEST_DATABASE_URL: postgres://innolope:innolope@localhost:5432/innolope_test
       AUTH_SECRET: ci-test-secret-at-least-32-characters-long
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
