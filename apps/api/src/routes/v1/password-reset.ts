@@ -2,7 +2,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { users } from '@innolope/db'
 import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { hashPassword, normalizeEmail, validatePasswordComplexity } from '../../plugins/auth.js'
+import {
+	hashPassword,
+	normalizeEmail,
+	revokeAllUserRefreshTokens,
+	validatePasswordComplexity,
+} from '../../plugins/auth.js'
 import { passwordResetEmail } from '../../services/email.js'
 
 export async function passwordResetRoutes(app: FastifyInstance) {
@@ -85,12 +90,14 @@ export async function passwordResetRoutes(app: FastifyInstance) {
 				return reply.status(400).send({ error: 'Invalid or expired reset token.' })
 			}
 
-			// Update password
+			// Update password, then revoke every refresh token: a reset is exactly
+			// the moment a stolen session must stop working.
 			const passwordHash = await hashPassword(password)
 			await app.db
 				.update(users)
 				.set({ passwordHash, updatedAt: new Date() })
 				.where(eq(users.id, row.userId))
+			await revokeAllUserRefreshTokens(app.db, row.userId)
 
 			return { message: 'Password updated. You can now log in.' }
 		},

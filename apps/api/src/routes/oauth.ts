@@ -3,6 +3,7 @@ import {
 	oauthAuthCodes,
 	oauthClients,
 	oauthRefreshTokens,
+	projectMembers,
 	refreshTokens,
 	users,
 } from '@innolope/db'
@@ -24,6 +25,7 @@ import {
 	protectedResourceMetadata,
 	publicBaseUrl,
 } from '../services/oauth-metadata.js'
+import { projectForRequestHost } from './v1/auth.js'
 
 declare module 'fastify' {
 	interface FastifyRequest {
@@ -443,75 +445,110 @@ export async function oauthRoutes(app: FastifyInstance) {
 	})
 
 	// ── Authorization endpoint: POST handles login submit and consent decision ─
-	app.post('/authorize', async (request, reply) => {
-		const body = (request.body ?? {}) as {
-			ticket?: string
-			action?: string
-			email?: string
-			password?: string
-		}
-		if (!body.ticket) return errorPage(reply, 400, 'Missing request ticket. Restart authorization.')
-		const ticket = await verifyTicket(body.ticket)
-		if (!ticket)
-			return errorPage(reply, 400, 'Authorization request expired. Restart authorization.')
-
-		const [client] = await app.db
-			.select()
-			.from(oauthClients)
-			.where(eq(oauthClients.clientId, ticket.clientId))
-			.limit(1)
-		if (!client?.redirectUris.includes(ticket.redirectUri)) {
-			return errorPage(reply, 400, 'Invalid client for this request.')
-		}
-		// Let the re-rendered consent/login page redirect to this client callback.
-		allowFormActionRedirect(request, ticket.redirectUri)
-		const clientName = client.clientName || client.clientId
-
-		// Login step: email + password submitted.
-		if (body.email && body.password) {
-			const [user] = await app.db
-				.select()
-				.from(users)
-				.where(eq(users.email, normalizeEmail(body.email)))
-				.limit(1)
-			if (!user?.passwordHash || !(await verifyPassword(body.password, user.passwordHash))) {
-				return reply
-					.status(401)
-					.type('text/html')
-					.send(loginPage(body.ticket, clientName, 'Invalid email or password.'))
+	// Same brute-force budget as /api/v1/auth/login: this form is a password
+	// login too.
+	app.post(
+		'/authorize',
+		{ config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+		async (request, reply) => {
+			const body = (request.body ?? {}) as {
+				ticket?: string
+				action?: string
+				email?: string
+				password?: string
 			}
-			await setAuthCookies(reply, app.db, user)
-			return reply
-				.type('text/html')
-				.send(consentPage(body.ticket, clientName, ticket.scope, user.email))
-		}
+			if (!body.ticket)
+				return errorPage(reply, 400, 'Missing request ticket. Restart authorization.')
+			const ticket = await verifyTicket(body.ticket)
+			if (!ticket)
+				return errorPage(reply, 400, 'Authorization request expired. Restart authorization.')
 
-		// Consent decision.
-		const user = await currentUser(app, request)
-		if (!user) {
-			// Session lapsed between GET and POST — ask them to sign in again.
-			return reply.type('text/html').send(loginPage(body.ticket, clientName))
-		}
-		if (body.action !== 'allow') {
-			return reply.redirect(
-				redirectTo(ticket.redirectUri, { error: 'access_denied', state: ticket.state }),
-			)
-		}
+			const [client] = await app.db
+				.select()
+				.from(oauthClients)
+				.where(eq(oauthClients.clientId, ticket.clientId))
+				.limit(1)
+			if (!client?.redirectUris.includes(ticket.redirectUri)) {
+				return errorPage(reply, 400, 'Invalid client for this request.')
+			}
+			// Let the re-rendered consent/login page redirect to this client callback.
+			allowFormActionRedirect(request, ticket.redirectUri)
+			const clientName = client.clientName || client.clientId
 
-		// Issue a single-use authorization code bound to the PKCE challenge.
-		const rawCode = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
-		await app.db.insert(oauthAuthCodes).values({
-			codeHash: hashToken(rawCode),
-			clientId: ticket.clientId,
-			userId: user.id,
-			redirectUri: ticket.redirectUri,
-			codeChallenge: ticket.codeChallenge,
-			codeChallengeMethod: ticket.codeChallengeMethod,
-			scope: ticket.scope,
-			expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
-		})
-		return reply.redirect(redirectTo(ticket.redirectUri, { code: rawCode, state: ticket.state }))
-	})
+			// Login step: email + password submitted.
+			if (body.email && body.password) {
+				const [user] = await app.db
+					.select()
+					.from(users)
+					.where(eq(users.email, normalizeEmail(body.email)))
+					.limit(1)
+				if (!user?.passwordHash || !(await verifyPassword(body.password, user.passwordHash))) {
+					return reply
+						.status(401)
+						.type('text/html')
+						.send(loginPage(body.ticket, clientName, 'Invalid email or password.'))
+				}
+				// On a custom domain, login is scoped to that project — same rule as
+				// /api/v1/auth/login, so this form cannot mint a session the main login
+				// would refuse.
+				const domainProject = await projectForRequestHost(app, request)
+				if (domainProject) {
+					const [membership] = await app.db
+						.select({ id: projectMembers.id })
+						.from(projectMembers)
+						.where(
+							and(
+								eq(projectMembers.projectId, domainProject.id),
+								eq(projectMembers.userId, user.id),
+							),
+						)
+						.limit(1)
+					if (!membership) {
+						return reply
+							.status(403)
+							.type('text/html')
+							.send(
+								loginPage(
+									body.ticket,
+									clientName,
+									`You don't have access to ${domainProject.name}.`,
+								),
+							)
+					}
+				}
+				await setAuthCookies(reply, app.db, user)
+				return reply
+					.type('text/html')
+					.send(consentPage(body.ticket, clientName, ticket.scope, user.email))
+			}
+
+			// Consent decision.
+			const user = await currentUser(app, request)
+			if (!user) {
+				// Session lapsed between GET and POST — ask them to sign in again.
+				return reply.type('text/html').send(loginPage(body.ticket, clientName))
+			}
+			if (body.action !== 'allow') {
+				return reply.redirect(
+					redirectTo(ticket.redirectUri, { error: 'access_denied', state: ticket.state }),
+				)
+			}
+
+			// Issue a single-use authorization code bound to the PKCE challenge.
+			const rawCode = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
+			await app.db.insert(oauthAuthCodes).values({
+				codeHash: hashToken(rawCode),
+				clientId: ticket.clientId,
+				userId: user.id,
+				redirectUri: ticket.redirectUri,
+				codeChallenge: ticket.codeChallenge,
+				codeChallengeMethod: ticket.codeChallengeMethod,
+				scope: ticket.scope,
+				expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
+			})
+			return reply.redirect(redirectTo(ticket.redirectUri, { code: rawCode, state: ticket.state }))
+		},
+	)
 
 	// ── Token endpoint: authorization_code + refresh_token grants ──────────────
 	app.post('/token', async (request, reply) => {

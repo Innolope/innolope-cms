@@ -1,6 +1,19 @@
 import postgres from 'postgres'
 
 /**
+ * Map libpq `sslmode` onto postgres.js options WITHOUT downgrading: `verify-full`
+ * / `verify-ca` keep certificate verification (postgres.js only disables it for
+ * `require`/`prefer`/`allow`), `require` encrypts without verifying, anything
+ * else is plaintext.
+ */
+export function sslModeFor(connectionUrl: string): 'verify-full' | 'require' | false {
+	const mode = /[?&]sslmode=([^&]+)/.exec(connectionUrl)?.[1]?.toLowerCase()
+	if (mode === 'verify-full' || mode === 'verify-ca') return 'verify-full'
+	if (mode === 'require' || mode === 'prefer' || mode === 'allow') return 'require'
+	return false
+}
+
+/**
  * Single source of schema truth at runtime.
  *
  * The Drizzle table definitions in `./schema` are authoritative for the ORM
@@ -12,13 +25,25 @@ import postgres from 'postgres'
  * created by an earlier version. Keep this in sync with the schema when you add a
  * table, column, or index.
  */
+/** Arbitrary, stable key for the boot-time schema advisory lock. */
+const SCHEMA_LOCK_KEY = 724_508_113
+
 export async function ensureTables(connectionUrl: string) {
-	const sql = postgres(connectionUrl, {
-		ssl:
-			connectionUrl.includes('sslmode=verify-full') || connectionUrl.includes('sslmode=require')
-				? 'require'
-				: false,
-	})
+	// One connection: the advisory lock below is session-scoped, so lock and
+	// unlock must run on the same socket. DDL is sequential anyway.
+	const sql = postgres(connectionUrl, { max: 1, ssl: sslModeFor(connectionUrl) })
+
+	// Serialize concurrent boots (parallel test suites, multi-instance deploys):
+	// `CREATE ... IF NOT EXISTS` is not race-safe in Postgres — two sessions can
+	// both pass the existence check and one then fails on pg_type. Best-effort:
+	// CockroachDB has no advisory locks, and its serializable DDL doesn't need them.
+	let locked = false
+	try {
+		await sql`SELECT pg_advisory_lock(${SCHEMA_LOCK_KEY})`
+		locked = true
+	} catch {
+		locked = false
+	}
 
 	try {
 		// ── Tables (FK-dependency order) ────────────────────────────────────────
@@ -620,6 +645,7 @@ export async function ensureTables(connectionUrl: string) {
 			console.warn('[ensure] Could not unlock timestamp fields on existing collections.', err)
 		}
 	} finally {
+		if (locked) await sql`SELECT pg_advisory_unlock(${SCHEMA_LOCK_KEY})`.catch(() => {})
 		await sql.end()
 	}
 }

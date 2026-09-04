@@ -25,6 +25,8 @@ export function getUser(request: FastifyRequest): AuthUser {
 interface ApiKeyAuth {
 	keyId: string
 	userId: string
+	/** The single project this key is scoped to. */
+	projectId: string
 	permissions: string[]
 }
 
@@ -35,6 +37,12 @@ declare module 'fastify' {
 	}
 	interface FastifyInstance {
 		authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>
+		/**
+		 * Like `authenticate`, but refuses API keys: for account-level routes
+		 * (profile, password, licence, global admin) that a project-scoped
+		 * integration credential must never reach.
+		 */
+		requireSession: (request: FastifyRequest, reply: FastifyReply) => Promise<void>
 		requireRole: (
 			...roles: UserRole[]
 		) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>
@@ -107,15 +115,46 @@ export function getJwtSecret(): Uint8Array {
 export function getMcpJwtSecret(): Uint8Array {
 	const secret = process.env.MCP_JWT_SECRET
 	if (secret && secret.length >= 32) return new TextEncoder().encode(secret)
-	return getJwtSecret()
+	// No dedicated secret: derive a key that is cryptographically distinct from
+	// AUTH_SECRET so an MCP access token can never verify as a web-session JWT
+	// (and vice versa) even on a default deployment.
+	return new Uint8Array(createHash('sha256').update(getJwtSecret()).update(':mcp-access').digest())
 }
 
+/**
+ * Mint a web-session access token. `token_use: "session"` marks it as such so
+ * `verifyJwt` can refuse any other token class (MCP access tokens carry
+ * `token_use: "access"` plus an `aud`) even if the signing keys were ever shared.
+ */
 export async function createJwt(user: AuthUser): Promise<string> {
-	return new SignJWT({ sub: user.id, email: user.email, role: user.role, name: user.name })
+	return new SignJWT({
+		sub: user.id,
+		email: user.email,
+		role: user.role,
+		name: user.name,
+		token_use: 'session',
+	})
 		.setProtectedHeader({ alg: 'HS256' })
 		.setIssuedAt()
 		.setExpirationTime('1h')
 		.sign(getJwtSecret())
+}
+
+/**
+ * Permission model for API keys. `*` grants everything. Otherwise a key may only
+ * READ when it holds some `<scope>:read` / `<scope>:write` permission and may
+ * only WRITE when it holds a `<scope>:write` permission. A key with no
+ * permissions at all is inert — never "unrestricted".
+ */
+export function apiKeyPermits(permissions: readonly string[] | undefined, method: string): boolean {
+	const perms = permissions ?? []
+	if (perms.length === 0) return false
+	if (perms.includes('*')) return true
+	const write = !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
+	if (write) return perms.some((p) => p === 'write' || p.endsWith(':write'))
+	return perms.some(
+		(p) => p === 'read' || p === 'write' || p.endsWith(':read') || p.endsWith(':write'),
+	)
 }
 
 /**
@@ -284,6 +323,11 @@ export async function verifyJwt(token: string): Promise<AuthUser | null> {
 	try {
 		const { payload } = await jwtVerify(token, getJwtSecret())
 		if (typeof payload.sub !== 'string') return null
+		// Only web-session tokens are accepted here. Anything audience-bound or
+		// carrying a different token class (an MCP OAuth access token, for one) is
+		// rejected regardless of which key signed it.
+		if (payload.aud !== undefined) return null
+		if (payload.token_use !== undefined && payload.token_use !== 'session') return null
 		return {
 			id: payload.sub,
 			email: payload.email as string,
@@ -333,6 +377,7 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 			request.apiKeyAuth = {
 				keyId: key.id,
 				userId: key.userId,
+				projectId: key.projectId,
 				permissions: (key.permissions as string[]) || [],
 			}
 			return
@@ -363,11 +408,22 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 		return reply.status(401).send({ error: 'Authentication required' })
 	}
 
-	// Role check
+	// Session-only auth: API keys are project credentials and stop here.
+	const requireSession = async (request: FastifyRequest, reply: FastifyReply) => {
+		await authenticate(request, reply)
+		if (reply.sent) return
+		if (request.apiKeyAuth) {
+			return reply
+				.status(403)
+				.send({ error: 'API keys cannot be used for account-level operations' })
+		}
+	}
+
+	// Global role check. API keys never carry a global role.
 	const requireRole =
 		(...roles: UserRole[]) =>
 		async (request: FastifyRequest, reply: FastifyReply) => {
-			await authenticate(request, reply)
+			await requireSession(request, reply)
 			if (reply.sent) return
 
 			if (!request.user) {
@@ -385,10 +441,11 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 			await authenticate(request, reply)
 			if (reply.sent) return
 
-			// If authenticated via API key, check granular permission
+			// If authenticated via API key, check granular permission. A key with an
+			// empty permission list is inert, never unrestricted.
 			if (request.apiKeyAuth) {
 				const perms = request.apiKeyAuth.permissions
-				if (perms.length > 0 && !perms.includes(permission) && !perms.includes('*')) {
+				if (perms.length === 0 || (!perms.includes(permission) && !perms.includes('*'))) {
 					return reply.status(403).send({ error: `Missing permission: ${permission}` })
 				}
 			}
@@ -396,6 +453,7 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
 		}
 
 	app.decorate('authenticate', authenticate)
+	app.decorate('requireSession', requireSession)
 	app.decorate('requireRole', requireRole)
 	app.decorate('requirePermission', requirePermission)
 })

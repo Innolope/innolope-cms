@@ -2,6 +2,7 @@ import { projectMembers, projects } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
+import { apiKeyPermits } from './auth.js'
 
 type ProjectRole = 'owner' | 'admin' | 'editor' | 'viewer'
 
@@ -92,18 +93,15 @@ export const projectPlugin = fp(async (app: FastifyInstance) => {
 			// Resolve project from API key or header
 			let projectId: string | undefined
 
-			// If authenticated via API key, the key is project-scoped
+			// If authenticated via API key, the key is project-scoped and its
+			// permission list decides whether this method is allowed at all.
 			if (request.apiKeyAuth) {
-				// API key already has projectId from the key lookup
-				// We need to get it from the api_keys table
-				const { apiKeys } = await import('@innolope/db')
-				const [key] = await app.db
-					.select({ projectId: apiKeys.projectId })
-					.from(apiKeys)
-					.where(eq(apiKeys.id, request.apiKeyAuth.keyId))
-					.limit(1)
-
-				if (key) projectId = key.projectId
+				projectId = request.apiKeyAuth.projectId
+				if (!apiKeyPermits(request.apiKeyAuth.permissions, request.method)) {
+					return reply.status(403).send({
+						error: `This API key does not permit ${request.method} requests`,
+					})
+				}
 			}
 
 			// Check headers as fallback

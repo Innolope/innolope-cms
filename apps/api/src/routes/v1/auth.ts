@@ -29,7 +29,7 @@ import { normalizeDomain } from '../../services/domain-verification.js'
  * Used to scope login to a single project when the CMS is reached via a
  * project's own branded domain.
  */
-async function projectForRequestHost(
+export async function projectForRequestHost(
 	app: FastifyInstance,
 	request: FastifyRequest,
 ): Promise<{ id: string; name: string; slug: string } | null> {
@@ -58,43 +58,67 @@ export async function authRoutes(app: FastifyInstance) {
 		return { needsSetup: Number(count) === 0 }
 	})
 
-	// Register first admin (only works when no users exist)
-	app.post('/register', async (request, reply) => {
-		const { email, password, name } = request.body as {
-			email: string
-			password: string
-			name: string
-		}
+	// Register first admin (only works when no users exist). The zero-user check
+	// and the insert run in ONE serializable transaction: two concurrent
+	// registrations conflict at commit instead of both becoming admins.
+	app.post(
+		'/register',
+		{ config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+		async (request, reply) => {
+			const { email, password, name } = request.body as {
+				email: string
+				password: string
+				name: string
+			}
 
-		if (!email?.trim()) return reply.status(400).send({ error: 'Email is required.' })
-		if (!name?.trim()) return reply.status(400).send({ error: 'Name is required.' })
-		const pwError = validatePasswordComplexity(password)
-		if (pwError) return reply.status(400).send({ error: pwError })
+			if (!email?.trim()) return reply.status(400).send({ error: 'Email is required.' })
+			if (!name?.trim()) return reply.status(400).send({ error: 'Name is required.' })
+			const pwError = validatePasswordComplexity(password)
+			if (pwError) return reply.status(400).send({ error: pwError })
 
-		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
+			const passwordHash = await hashPassword(password)
+			let user: typeof users.$inferSelect | undefined
+			for (let attempt = 0; attempt < 3; attempt++) {
+				try {
+					user = await app.db.transaction(
+						async (tx) => {
+							const [{ count }] = await tx.select({ count: sql<number>`count(*)` }).from(users)
+							if (Number(count) > 0) return undefined
+							const [created] = await tx
+								.insert(users)
+								.values({ email: normalizeEmail(email), name, passwordHash, role: 'admin' })
+								.returning()
+							return created
+						},
+						{ isolationLevel: 'serializable' },
+					)
+					break
+				} catch (err) {
+					// 40001 = serialization failure: another registration raced us. Re-run;
+					// the retry sees the committed admin row and returns 403 below.
+					const code = (err as { code?: string }).code
+					if (code !== '40001' || attempt === 2) throw err
+				}
+			}
+			if (!user) {
+				return reply
+					.status(403)
+					.send({ error: 'Registration disabled. First admin already exists.' })
+			}
 
-		if (Number(count) > 0) {
-			return reply.status(403).send({ error: 'Registration disabled. First admin already exists.' })
-		}
+			await setAuthCookies(reply, app.db, user)
 
-		const passwordHash = await hashPassword(password)
-		const [user] = await app.db
-			.insert(users)
-			.values({ email: normalizeEmail(email), name, passwordHash, role: 'admin' })
-			.returning()
+			app.events.emit({
+				type: 'auth:registered',
+				data: { userId: user.id, email: user.email },
+				timestamp: new Date().toISOString(),
+			})
 
-		await setAuthCookies(reply, app.db, user)
-
-		app.events.emit({
-			type: 'auth:registered',
-			data: { userId: user.id, email: user.email },
-			timestamp: new Date().toISOString(),
-		})
-
-		return reply.status(201).send({
-			user: { id: user.id, email: user.email, name: user.name, role: user.role },
-		})
-	})
+			return reply.status(201).send({
+				user: { id: user.id, email: user.email, name: user.name, role: user.role },
+			})
+		},
+	)
 
 	// Login
 	app.post(
@@ -145,7 +169,7 @@ export async function authRoutes(app: FastifyInstance) {
 	)
 
 	// Get current user
-	app.get('/me', { preHandler: [app.authenticate] }, async (request) => {
+	app.get('/me', { preHandler: [app.requireSession] }, async (request) => {
 		// JWT carries only id/email/name/role. uiLocale lives in DB and is fetched
 		// here so the admin can render in the user's chosen language without
 		// waiting for a token refresh after a switch.
@@ -163,7 +187,7 @@ export async function authRoutes(app: FastifyInstance) {
 		typeof v === 'string' && (SUPPORTED_UI_LOCALES as readonly string[]).includes(v)
 
 	// Update profile
-	app.put('/profile', { preHandler: [app.authenticate] }, async (request, reply) => {
+	app.put('/profile', { preHandler: [app.requireSession] }, async (request, reply) => {
 		const { name, email, uiLocale } = request.body as {
 			name?: string
 			email?: string
@@ -260,7 +284,7 @@ export async function authRoutes(app: FastifyInstance) {
 	})
 
 	// Change password
-	app.post('/change-password', { preHandler: [app.authenticate] }, async (request, reply) => {
+	app.post('/change-password', { preHandler: [app.requireSession] }, async (request, reply) => {
 		const { currentPassword, newPassword } = request.body as {
 			currentPassword: string
 			newPassword: string

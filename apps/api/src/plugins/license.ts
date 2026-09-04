@@ -2,6 +2,7 @@ import { createPublicKey, createVerify } from 'node:crypto'
 import { licenseSettings } from '@innolope/db'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
+import { verifyJwt } from './auth.js'
 
 export type LicenseFeature =
 	| 'sso'
@@ -171,6 +172,9 @@ export const licensePlugin = fp(async (app: FastifyInstance) => {
 
 	license.hasFeature = (feature: LicenseFeature): boolean => {
 		if (!license.valid || !license.payload) return false
+		// The licence is evaluated at boot and cached; re-check expiry on every
+		// call so a licence that lapses mid-process stops granting features.
+		if (new Date(license.payload.expiresAt) <= new Date()) return false
 		return license.payload.features.includes(feature)
 	}
 
@@ -235,14 +239,31 @@ export const licensePlugin = fp(async (app: FastifyInstance) => {
 
 	app.decorate('requireLicense', requireLicense)
 
-	// License info endpoint (public — so admin UI can check)
-	app.get('/api/v1/license', async () => ({
-		valid: license.valid,
-		plan: license.payload?.plan || 'community',
-		org: license.payload?.org || null,
-		features: license.payload?.features || [],
-		maxProjects: license.maxProjects,
-		expiresAt: license.payload?.expiresAt || null,
-		cloudMode,
-	}))
+	// License info endpoint. Public so the admin UI can gate itself before
+	// login, but the licensee's identity and expiry are only shown to a
+	// signed-in user.
+	app.get('/api/v1/license', async (request) => {
+		const expired = license.payload ? new Date(license.payload.expiresAt) <= new Date() : false
+		const valid = license.valid && !expired
+		const publicInfo = {
+			valid,
+			plan: valid ? license.payload?.plan || 'community' : 'community',
+			features: valid ? license.payload?.features || [] : [],
+			maxProjects: valid ? license.maxProjects : 1,
+			cloudMode,
+		}
+		// Optional auth: a valid web session unlocks the private fields; anything
+		// else (no credential, an API key, a bad token) gets the public view.
+		const authHeader = request.headers.authorization
+		const token = authHeader?.startsWith('Bearer ')
+			? authHeader.slice(7)
+			: request.cookies?.innolope_token
+		const user = token && !token.startsWith('ink_') ? await verifyJwt(token) : null
+		if (!user) return publicInfo
+		return {
+			...publicInfo,
+			org: license.payload?.org || null,
+			expiresAt: license.payload?.expiresAt || null,
+		}
+	})
 })

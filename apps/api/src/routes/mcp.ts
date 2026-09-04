@@ -21,7 +21,15 @@ interface McpSession {
 	client: InnolopeClient
 	/** The OAuth user this session belongs to, for re-minting the internal token. */
 	user: AuthUser
+	/** Last time any request touched the session; idle sessions are swept. */
+	lastSeenAt: number
 }
+
+/** Sessions untouched for this long are closed and forgotten. */
+const SESSION_IDLE_MS = 30 * 60 * 1000
+/** Hard cap on live sessions per process; the least-recently-used is evicted. */
+const MAX_SESSIONS = 500
+const SWEEP_INTERVAL_MS = 60 * 1000
 
 /**
  * Streamable-HTTP MCP transport hosted inside the API. MCP clients (Claude,
@@ -41,12 +49,48 @@ export async function mcpRoutes(app: FastifyInstance) {
 	const internalApiUrl =
 		process.env.INTERNAL_API_URL || `http://127.0.0.1:${Number(process.env.API_PORT) || 3001}`
 
+	const dropSession = async (sid: string) => {
+		const s = sessions.get(sid)
+		sessions.delete(sid)
+		if (s) await s.transport.close().catch(() => {})
+	}
+
+	// Idle sweep + LRU cap: sessions only disappear on their own when the
+	// client closes the stream or sends DELETE, which many never do.
+	const sweep = async () => {
+		const cutoff = Date.now() - SESSION_IDLE_MS
+		for (const [sid, s] of sessions) {
+			if (s.lastSeenAt < cutoff) await dropSession(sid)
+		}
+	}
+	const evictIfFull = async () => {
+		while (sessions.size >= MAX_SESSIONS) {
+			let oldest: [string, McpSession] | undefined
+			for (const entry of sessions) {
+				if (!oldest || entry[1].lastSeenAt < oldest[1].lastSeenAt) oldest = entry
+			}
+			if (!oldest) break
+			await dropSession(oldest[0])
+		}
+	}
+	const sweeper = setInterval(() => {
+		sweep().catch((err) => app.log.warn({ err }, 'MCP session sweep failed'))
+	}, SWEEP_INTERVAL_MS)
+	sweeper.unref()
+
 	app.addHook('onClose', async () => {
+		clearInterval(sweeper)
 		for (const { transport } of sessions.values()) {
 			await transport.close().catch(() => {})
 		}
 		sessions.clear()
 	})
+
+	// A session is private to the OAuth user that opened it. Any other caller —
+	// even one holding a perfectly valid token of their own — must not be able
+	// to attach to it by guessing or leaking the session id.
+	const sessionOwnedBy = (session: McpSession, request: FastifyRequest) =>
+		session.user.id === (request.mcpUser as AuthUser).id
 
 	// Bearer auth for every /mcp method. Only accepts a genuine MCP OAuth access
 	// token: right signing key, audience pinned to this server's `/mcp` resource,
@@ -103,6 +147,7 @@ export async function mcpRoutes(app: FastifyInstance) {
 	app.post('/', { preHandler: [authenticateMcp] }, async (request, reply) => {
 		const sessionId = request.headers['mcp-session-id'] as string | undefined
 		let session = sessionId ? sessions.get(sessionId) : undefined
+		if (session && !sessionOwnedBy(session, request)) return sessionNotFound(reply)
 
 		if (!session) {
 			if (sessionId) return sessionNotFound(reply)
@@ -120,10 +165,11 @@ export async function mcpRoutes(app: FastifyInstance) {
 				{ instructions: SERVER_INSTRUCTIONS },
 			)
 			registerTools(server, client)
+			await evictIfFull()
 			const transport = new StreamableHTTPServerTransport({
 				sessionIdGenerator: () => randomUUID(),
 				onsessioninitialized: (sid) => {
-					sessions.set(sid, { transport, server, client, user })
+					sessions.set(sid, { transport, server, client, user, lastSeenAt: Date.now() })
 				},
 			})
 			transport.onclose = () => {
@@ -131,11 +177,12 @@ export async function mcpRoutes(app: FastifyInstance) {
 				if (sid) sessions.delete(sid)
 			}
 			await server.connect(transport)
-			session = { transport, server, client, user }
+			session = { transport, server, client, user, lastSeenAt: Date.now() }
 		} else {
 			// Re-mint the internal loopback token on every message: it expires after
 			// 1 hour, so a session that lived longer used to 401 on every tool call
 			// with no way for the client to recover (tool errors don't re-initialize).
+			session.lastSeenAt = Date.now()
 			session.client.setApiKey(await createJwt(session.user))
 		}
 
@@ -158,7 +205,9 @@ export async function mcpRoutes(app: FastifyInstance) {
 		if (!sessionId) return badRequest(reply, 'Missing session ID')
 		const session = sessions.get(sessionId)
 		// 404, not 400: tells the client to re-initialize (see sessionNotFound above).
-		if (!session) return sessionNotFound(reply)
+		// A foreign session id gets the same answer — no existence oracle.
+		if (!session || !sessionOwnedBy(session, request)) return sessionNotFound(reply)
+		session.lastSeenAt = Date.now()
 		applyCors(request, reply)
 		reply.hijack()
 		try {

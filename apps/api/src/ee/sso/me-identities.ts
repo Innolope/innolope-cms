@@ -5,7 +5,7 @@ import { getUser } from '../../plugins/auth.js'
 
 /** /api/v1/auth/me/identities — list/unlink SSO identities for the current user. */
 export async function meIdentitiesRoutes(app: FastifyInstance) {
-	app.get('/', { preHandler: [app.authenticate, app.requireLicense('sso')] }, async (request) => {
+	app.get('/', { preHandler: [app.requireSession, app.requireLicense('sso')] }, async (request) => {
 		const rows = await app.db
 			.select({
 				id: userIdentities.id,
@@ -27,7 +27,7 @@ export async function meIdentitiesRoutes(app: FastifyInstance) {
 	// Unlink
 	app.delete<{ Params: { id: string } }>(
 		'/:id',
-		{ preHandler: [app.authenticate, app.requireLicense('sso')] },
+		{ preHandler: [app.requireSession, app.requireLicense('sso')] },
 		async (request, reply) => {
 			const [identity] = await app.db
 				.select({ connectionId: userIdentities.connectionId, userId: userIdentities.userId })

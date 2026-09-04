@@ -27,12 +27,31 @@ describe('publicBaseUrl', () => {
 		process.env.PUBLIC_URL = ''
 	})
 
-	it('honors X-Forwarded-Proto/Host behind a proxy', () => {
+	it('honors X-Forwarded-Proto/Host only when TRUST_PROXY is set', () => {
 		const req = {
-			headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'cms.example.com' },
+			headers: {
+				'x-forwarded-proto': 'https',
+				'x-forwarded-host': 'cms.example.com',
+				host: 'api.internal:3001',
+			},
 			protocol: 'http',
 		} as never
+		process.env.TRUST_PROXY = '1'
 		expect(publicBaseUrl(req)).toBe('https://cms.example.com')
+		// Without an explicit trust boundary a client-controlled header must not
+		// become the OAuth issuer / token audience.
+		delete process.env.TRUST_PROXY
+		expect(publicBaseUrl(req)).toBe('http://api.internal:3001')
+	})
+
+	it('prefers ADMIN_URL over request headers in production', () => {
+		const req = { headers: { host: 'evil.example' }, protocol: 'http' } as never
+		const prevEnv = process.env.NODE_ENV
+		process.env.NODE_ENV = 'production'
+		process.env.ADMIN_URL = 'https://cms.example.com/'
+		expect(publicBaseUrl(req)).toBe('https://cms.example.com')
+		process.env.NODE_ENV = prevEnv
+		delete process.env.ADMIN_URL
 	})
 
 	it('falls back to the request protocol + host', () => {

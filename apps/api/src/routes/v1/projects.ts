@@ -70,6 +70,13 @@ export function sanitizeProject(
 export async function projectRoutes(app: FastifyInstance) {
 	// List user's projects
 	app.get('/', { preHandler: [app.authenticate] }, async (request) => {
+		// A project-scoped API key only ever sees the project it was minted for.
+		const scope = request.apiKeyAuth
+			? and(
+					eq(projectMembers.userId, getUser(request).id),
+					eq(projectMembers.projectId, request.apiKeyAuth.projectId),
+				)
+			: eq(projectMembers.userId, getUser(request).id)
 		const memberships = await app.db
 			.select({
 				project: projects,
@@ -78,7 +85,7 @@ export async function projectRoutes(app: FastifyInstance) {
 			})
 			.from(projectMembers)
 			.innerJoin(projects, eq(projects.id, projectMembers.projectId))
-			.where(eq(projectMembers.userId, getUser(request).id))
+			.where(scope)
 
 		return memberships.map((m) => sanitizeProject(m.project, m.role, m.canPublishDirectly))
 	})
@@ -111,6 +118,11 @@ export async function projectRoutes(app: FastifyInstance) {
 	// Create project
 	app.post('/', { preHandler: [app.authenticate] }, async (request, reply) => {
 		const { name, slug } = request.body as { name: string; slug: string }
+
+		// Creating projects is an account-level action; only a full-access key may.
+		if (request.apiKeyAuth && !request.apiKeyAuth.permissions.includes('*')) {
+			return reply.status(403).send({ error: 'This API key cannot create projects' })
+		}
 
 		// Enforce project limit
 		const maxProjects = app.license.maxProjects
