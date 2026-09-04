@@ -60,6 +60,9 @@ export const ssoConnections = pgTable(
 	},
 	(table) => [
 		uniqueIndex('sso_connections_project_slug_idx').on(table.projectId, table.slug),
+		// Slugs address public SSO/SCIM endpoints, so they must be unique across
+		// projects — otherwise one tenant could shadow another's connection.
+		uniqueIndex('sso_connections_slug_idx').on(table.slug),
 		index('sso_connections_project_idx').on(table.projectId),
 	],
 )

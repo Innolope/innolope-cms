@@ -1,6 +1,6 @@
 import { ssoAuthStates, type ssoConnections, ssoReplayCache } from '@innolope/db'
-import { SAML } from '@node-saml/node-saml'
-import { eq, lt } from 'drizzle-orm'
+import { type CacheProvider, SAML, ValidateInResponseTo } from '@node-saml/node-saml'
+import { and, eq, lt } from 'drizzle-orm'
 import { XMLParser } from 'fast-xml-parser'
 import type { FastifyInstance } from 'fastify'
 import { completeSsoLogin, extractProfile, SsoError } from '../../services/sso-login.js'
@@ -20,13 +20,75 @@ function spEntityId(): string {
 	return process.env.SAML_SP_ENTITY_ID || process.env.SSO_CALLBACK_BASE_URL || 'https://localhost'
 }
 
+const REQUEST_KEY_PREFIX = 'saml-req:'
+
+/**
+ * node-saml keeps outstanding AuthnRequest IDs in a cache provider so it can
+ * validate `InResponseTo`. Its default cache is per-instance memory, which is
+ * useless when every request builds a fresh SAML object — so the IDs live in
+ * `sso_auth_states` instead (keyed `saml-req:<id>`, same TTL as the state).
+ * `onSave` lets the initiator learn the ID node-saml generated.
+ */
+function samlRequestCache(
+	app: FastifyInstance,
+	connectionId: string,
+	onSave?: (requestId: string) => void,
+): CacheProvider {
+	const key = (id: string) => `${REQUEST_KEY_PREFIX}${id}`
+	return {
+		async saveAsync(id, value) {
+			const createdAt = Date.now()
+			await app.db
+				.insert(ssoAuthStates)
+				.values({
+					state: key(id),
+					connectionId,
+					verifier: value,
+					intent: 'login',
+					expiresAt: new Date(createdAt + STATE_TTL_MIN * 60 * 1000),
+				})
+				.onConflictDoNothing()
+			onSave?.(id)
+			return { value, createdAt }
+		},
+		async getAsync(id) {
+			const [row] = await app.db
+				.select({
+					id: ssoAuthStates.id,
+					verifier: ssoAuthStates.verifier,
+					expiresAt: ssoAuthStates.expiresAt,
+				})
+				.from(ssoAuthStates)
+				.where(and(eq(ssoAuthStates.state, key(id)), eq(ssoAuthStates.connectionId, connectionId)))
+				.limit(1)
+			if (!row) return null
+			if (new Date(row.expiresAt) < new Date()) {
+				await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, row.id))
+				return null
+			}
+			return row.verifier
+		},
+		async removeAsync(id) {
+			if (!id) return null
+			await app.db
+				.delete(ssoAuthStates)
+				.where(and(eq(ssoAuthStates.state, key(id)), eq(ssoAuthStates.connectionId, connectionId)))
+			return id
+		},
+	}
+}
+
 /**
  * Build a SAML instance for a given connection. Each cert in samlIdpCertPems is tried
- * during signature verification (node-saml accepts an array via idpCert).
+ * during signature verification (node-saml accepts an array via idpCert). The
+ * assertion's Issuer is pinned to the configured IdP entity id, and
+ * InResponseTo is validated against the request cache — always, unless the
+ * connection explicitly allows unsolicited (IdP-initiated) responses.
  */
 function buildSaml(
+	app: FastifyInstance,
 	connection: typeof ssoConnections.$inferSelect,
-	_opts: { allowUnencryptedAssertions?: boolean } = {},
+	opts: { onRequestId?: (id: string) => void } = {},
 ): SAML {
 	if (!connection.samlSsoUrl || !connection.samlEntityId) {
 		throw new SsoError('saml_config_incomplete', 400, 'SAML connection missing entityId or SSO URL')
@@ -51,6 +113,11 @@ function buildSaml(
 		publicCert: process.env.SAML_SP_CERT_PEM,
 		acceptedClockSkewMs: skew * 1000,
 		disableRequestedAuthnContext: true,
+		idpIssuer: connection.samlEntityId,
+		validateInResponseTo: connection.allowIdpInitiated
+			? ValidateInResponseTo.ifPresent
+			: ValidateInResponseTo.always,
+		cacheProvider: samlRequestCache(app, connection.id, opts.onRequestId),
 	})
 }
 
@@ -59,12 +126,11 @@ export async function initiateSaml(
 	connection: typeof ssoConnections.$inferSelect,
 	opts: { next?: string; intent: 'login' | 'link' | 'test'; linkUserId?: string },
 ): Promise<string> {
-	const saml = buildSaml(connection)
+	let requestId: string | undefined
+	const saml = buildSaml(app, connection, { onRequestId: (id) => (requestId = id) })
 	const state = newNonce()
 	const expiresAt = new Date(Date.now() + STATE_TTL_MIN * 60 * 1000)
 
-	// Generate the AuthnRequest and extract its ID so we can later match InResponseTo.
-	// node-saml v5 returns `getAuthorizeUrlAsync(RelayState, host, options)`.
 	const relayState = await signState({
 		slug: connection.slug,
 		connectionId: connection.id,
@@ -73,21 +139,24 @@ export async function initiateSaml(
 		intent: opts.intent,
 		linkUserId: opts.linkUserId,
 	})
-	// We don't have direct access to the AuthnRequest ID via the public API, so we store
-	// the signed RelayState as the correlator. node-saml will embed its own request ID;
-	// the replay cache + audience/recipient checks provide the tampering defense.
+
+	// Generating the AuthnRequest stores its ID through the cache provider, which
+	// hands it back here so the state row can pin the exact request this
+	// RelayState belongs to. The ACS compares InResponseTo against it.
+	const host = new URL(process.env.SSO_CALLBACK_BASE_URL || 'http://localhost').host
+	const url = await saml.getAuthorizeUrlAsync(relayState, host, {})
+	if (!requestId) throw new SsoError('saml_request_id', 500, 'Could not record the AuthnRequest id')
+
 	await app.db.insert(ssoAuthStates).values({
 		state,
 		connectionId: connection.id,
-		verifier: relayState,
+		verifier: requestId,
 		next: sanitizeNext(opts.next),
 		intent: opts.intent,
 		linkUserId: opts.linkUserId,
 		expiresAt,
 	})
-
-	const host = new URL(process.env.SSO_CALLBACK_BASE_URL || 'http://localhost').host
-	return saml.getAuthorizeUrlAsync(relayState, host, {})
+	return url
 }
 
 function extractResponseIdFromXml(body: { SAMLResponse?: string }): string | null {
@@ -135,7 +204,7 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 				return reply.status(404).send({ error: 'Not found' })
 			}
 			try {
-				const saml = buildSaml(connection)
+				const saml = buildSaml(app, connection)
 				const cert = process.env.SAML_SP_CERT_PEM || ''
 				const xml = saml.generateServiceProviderMetadata(cert, cert)
 				return reply.header('Content-Type', 'application/samlmetadata+xml').send(xml)
@@ -161,8 +230,10 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 				return reply.status(400).send({ error: 'Missing SAMLResponse' })
 			}
 
-			// Correlation: InResponseTo must match an outstanding AuthnRequest state
-			// unless allowIdpInitiated is set AND InResponseTo is absent.
+			// Correlation: the RelayState's stored request id must equal the
+			// response's InResponseTo (checked below, after the state row is
+			// consumed), and node-saml independently validates InResponseTo against
+			// the request cache. Unsolicited responses need allowIdpInitiated.
 			const inResponseTo = extractInResponseTo(body)
 			const relayState = body.RelayState
 			let stateRow: typeof ssoAuthStates.$inferSelect | null = null
@@ -191,6 +262,16 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 					return reply.status(400).send({ error: 'State expired' })
 				}
 				await app.db.delete(ssoAuthStates).where(eq(ssoAuthStates.id, stateRow.id))
+				if (!inResponseTo || inResponseTo !== stateRow.verifier) {
+					app.events.emit({
+						type: 'auth:sso_failed',
+						data: { connectionId: connection.id, reason: 'in_response_to_mismatch' },
+						timestamp: new Date().toISOString(),
+					})
+					return reply
+						.status(400)
+						.send({ error: 'SAML response does not answer this authentication request' })
+				}
 			} else if (!inResponseTo && connection.allowIdpInitiated) {
 				// Unsolicited response — allowed per connection flag. No state correlation.
 				stateRow = null
@@ -232,7 +313,7 @@ export async function ssoSamlRoutes(app: FastifyInstance) {
 			// Validate signature + audience + recipient + timestamps
 			let parsed: Awaited<ReturnType<SAML['validatePostResponseAsync']>>
 			try {
-				const saml = buildSaml(connection)
+				const saml = buildSaml(app, connection)
 				parsed = await saml.validatePostResponseAsync({ SAMLResponse: body.SAMLResponse })
 			} catch (err) {
 				const e = err as Error

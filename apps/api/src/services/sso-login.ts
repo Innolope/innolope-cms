@@ -163,6 +163,28 @@ export async function completeSsoLogin(
 			.limit(1)
 
 		if (existingUser) {
+			// Silently attaching an IdP assertion to an existing local account by
+			// email would let anyone who controls an IdP (any project admin can
+			// register one) take over any account on the instance. Only accounts
+			// that were already invited into this connection's project may be
+			// linked here; everyone else links explicitly from their own settings.
+			const [membership] = await app.db
+				.select({ id: projectMembers.id })
+				.from(projectMembers)
+				.where(
+					and(
+						eq(projectMembers.projectId, connection.projectId),
+						eq(projectMembers.userId, existingUser.id),
+					),
+				)
+				.limit(1)
+			if (!membership) {
+				throw new SsoError(
+					'account_exists',
+					403,
+					'An account with this email already exists. Sign in with your password and link SSO from your account settings.',
+				)
+			}
 			userId = existingUser.id
 			await app.db.insert(userIdentities).values({
 				userId,

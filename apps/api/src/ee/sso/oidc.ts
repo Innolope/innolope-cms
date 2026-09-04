@@ -1,5 +1,5 @@
 import { ssoAuthStates, ssoConnections } from '@innolope/db'
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import * as oidcClient from 'openid-client'
 import { decryptSecret } from '../../lib/crypto.js'
@@ -19,6 +19,7 @@ export async function loadConnectionBySlug(app: FastifyInstance, slug: string) {
 		.select()
 		.from(ssoConnections)
 		.where(and(eq(ssoConnections.slug, slug), eq(ssoConnections.enabled, true)))
+		.orderBy(asc(ssoConnections.createdAt))
 		.limit(1)
 	return connection ?? null
 }

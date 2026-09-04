@@ -1,5 +1,5 @@
 import { ssoConnections } from '@innolope/db'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { encryptSecret } from '../../lib/crypto.js'
 import { getProject } from '../../plugins/project.js'
@@ -58,6 +58,12 @@ export async function ssoAdminRoutes(app: FastifyInstance) {
 		if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(body.slug)) {
 			return reply.status(400).send({ error: 'slug must be lowercase alphanumeric or dash' })
 		}
+		const [taken] = await app.db
+			.select({ id: ssoConnections.id })
+			.from(ssoConnections)
+			.where(eq(ssoConnections.slug, body.slug))
+			.limit(1)
+		if (taken) return reply.status(409).send({ error: 'This slug is already in use' })
 
 		const encSecret = body.oidcClientSecret ? encryptSecret(body.oidcClientSecret) : null
 
@@ -144,6 +150,17 @@ export async function ssoAdminRoutes(app: FastifyInstance) {
 			]
 			for (const k of passthrough) {
 				if (body[k] !== undefined) updates[k] = body[k]
+			}
+			if (typeof body.slug === 'string') {
+				if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(body.slug)) {
+					return reply.status(400).send({ error: 'slug must be lowercase alphanumeric or dash' })
+				}
+				const [taken] = await app.db
+					.select({ id: ssoConnections.id })
+					.from(ssoConnections)
+					.where(and(eq(ssoConnections.slug, body.slug), ne(ssoConnections.id, request.params.id)))
+					.limit(1)
+				if (taken) return reply.status(409).send({ error: 'This slug is already in use' })
 			}
 			if (body.oidcClientSecret !== undefined) {
 				updates.oidcClientSecretEnc = body.oidcClientSecret

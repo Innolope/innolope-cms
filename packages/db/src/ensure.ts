@@ -580,6 +580,17 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS analytics_created_idx ON content_analytics("createdAt")`
 		await sql`CREATE UNIQUE INDEX IF NOT EXISTS member_collection_idx ON project_member_collections("memberId","collectionId")`
 		await sql`CREATE UNIQUE INDEX IF NOT EXISTS sso_connections_project_slug_idx ON sso_connections("projectId", slug)`
+		// Global slug uniqueness (public SSO/SCIM routes resolve by slug alone). A
+		// pre-existing cross-project duplicate must not take the whole boot down:
+		// the API refuses new duplicates and resolves existing ones deterministically.
+		await sql`CREATE UNIQUE INDEX IF NOT EXISTS sso_connections_slug_idx ON sso_connections(slug)`.catch(
+			(err: unknown) => {
+				console.error(
+					'[innolope] sso_connections.slug is not unique across projects — resolve the duplicate slugs; until then the oldest connection wins.',
+					err,
+				)
+			},
+		)
 		await sql`CREATE INDEX IF NOT EXISTS sso_connections_project_idx ON sso_connections("projectId")`
 		await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_identities_conn_subject_idx ON user_identities("connectionId", subject)`
 		await sql`CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities("userId")`

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { projectMembers, scimTokens, ssoConnections, userIdentities, users } from '@innolope/db'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, ne } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getUser, revokeAllUserRefreshTokens } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -36,6 +36,7 @@ export async function scimRoutes(app: FastifyInstance) {
 			.select()
 			.from(ssoConnections)
 			.where(eq(ssoConnections.slug, slug))
+			.orderBy(asc(ssoConnections.createdAt))
 			.limit(1)
 		if (!connection) {
 			return reply.status(404).send({
@@ -209,10 +210,21 @@ export async function scimRoutes(app: FastifyInstance) {
 				})
 			}
 
-			// Look up existing user by email
+			// Look up existing user by email. A SCIM token is a single tenant's
+			// credential: it may adopt an existing account only if that account is
+			// already a member of the connection's project (or already bound to
+			// this connection). Any other existing user belongs to someone else.
 			const [existing] = await app.db.select().from(users).where(eq(users.email, userName)).limit(1)
 			let userId: string
 			if (existing) {
+				if (!(await belongsToTenant(app, connection, existing.id))) {
+					return reply.status(409).send({
+						schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+						detail: 'A user with this userName already exists outside this connection',
+						status: '409',
+						scimType: 'uniqueness',
+					})
+				}
 				userId = existing.id
 			} else {
 				const [created] = await app.db
@@ -270,7 +282,7 @@ export async function scimRoutes(app: FastifyInstance) {
 				if (member) {
 					await app.db.delete(projectMembers).where(eq(projectMembers.id, member.id))
 				}
-				await revokeAllUserRefreshTokens(app.db, userId)
+				await revokeSessionsIfTenantOwned(app, connection, userId)
 			}
 
 			app.events.emit({
@@ -325,6 +337,34 @@ export async function scimRoutes(app: FastifyInstance) {
 		}
 
 		if (Object.keys(userUpdates).length > 0) {
+			// Rewriting the login email is only this tenant's call when the account
+			// exists for this tenant alone; a shared account keeps its email.
+			if (
+				userUpdates.email !== undefined &&
+				!(await tenantOwnsAccount(app, connection, row.userId))
+			) {
+				return reply.status(409).send({
+					schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+					detail: 'userName cannot be changed: the account is also used outside this connection',
+					status: '409',
+					scimType: 'mutability',
+				})
+			}
+			if (typeof userUpdates.email === 'string') {
+				const [clash] = await app.db
+					.select({ id: users.id })
+					.from(users)
+					.where(and(eq(users.email, userUpdates.email), ne(users.id, row.userId)))
+					.limit(1)
+				if (clash) {
+					return reply.status(409).send({
+						schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+						detail: 'userName already in use',
+						status: '409',
+						scimType: 'uniqueness',
+					})
+				}
+			}
 			userUpdates.updatedAt = new Date()
 			await app.db.update(users).set(userUpdates).where(eq(users.id, row.userId))
 		}
@@ -333,7 +373,7 @@ export async function scimRoutes(app: FastifyInstance) {
 			if (row.memberId) {
 				await app.db.delete(projectMembers).where(eq(projectMembers.id, row.memberId))
 			}
-			await revokeAllUserRefreshTokens(app.db, row.userId)
+			await revokeSessionsIfTenantOwned(app, connection, row.userId)
 			app.events.emit({
 				type: 'scim:user_deactivated',
 				data: { userId: row.userId, connectionId: connection.id },
@@ -375,7 +415,7 @@ export async function scimRoutes(app: FastifyInstance) {
 			if (row.memberId) {
 				await app.db.delete(projectMembers).where(eq(projectMembers.id, row.memberId))
 			}
-			await revokeAllUserRefreshTokens(app.db, row.userId)
+			await revokeSessionsIfTenantOwned(app, connection, row.userId)
 			app.events.emit({
 				type: 'scim:user_deactivated',
 				data: { userId: row.userId, connectionId: connection.id },
@@ -384,6 +424,71 @@ export async function scimRoutes(app: FastifyInstance) {
 			return reply.status(204).send()
 		},
 	)
+}
+
+/** True when the user is already a member of the connection's project or bound to the connection. */
+async function belongsToTenant(
+	app: FastifyInstance,
+	connection: typeof ssoConnections.$inferSelect,
+	userId: string,
+): Promise<boolean> {
+	const [member] = await app.db
+		.select({ id: projectMembers.id })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.projectId, connection.projectId), eq(projectMembers.userId, userId)),
+		)
+		.limit(1)
+	if (member) return true
+	const [identity] = await app.db
+		.select({ id: userIdentities.id })
+		.from(userIdentities)
+		.where(and(eq(userIdentities.connectionId, connection.id), eq(userIdentities.userId, userId)))
+		.limit(1)
+	return Boolean(identity)
+}
+
+/**
+ * True when the account exists for this tenant alone: no password, no
+ * identity on another connection, no membership in another project. Only
+ * then may the tenant rewrite its email or end all of its sessions.
+ */
+async function tenantOwnsAccount(
+	app: FastifyInstance,
+	connection: typeof ssoConnections.$inferSelect,
+	userId: string,
+): Promise<boolean> {
+	const [user] = await app.db
+		.select({ passwordHash: users.passwordHash })
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1)
+	if (!user || user.passwordHash) return false
+	const [foreignIdentity] = await app.db
+		.select({ id: userIdentities.id })
+		.from(userIdentities)
+		.where(and(eq(userIdentities.userId, userId), ne(userIdentities.connectionId, connection.id)))
+		.limit(1)
+	if (foreignIdentity) return false
+	const [foreignMembership] = await app.db
+		.select({ id: projectMembers.id })
+		.from(projectMembers)
+		.where(
+			and(eq(projectMembers.userId, userId), ne(projectMembers.projectId, connection.projectId)),
+		)
+		.limit(1)
+	return !foreignMembership
+}
+
+/** Deprovisioning ends every session only for accounts this tenant owns outright. */
+async function revokeSessionsIfTenantOwned(
+	app: FastifyInstance,
+	connection: typeof ssoConnections.$inferSelect,
+	userId: string,
+): Promise<void> {
+	if (await tenantOwnsAccount(app, connection, userId)) {
+		await revokeAllUserRefreshTokens(app.db, userId)
+	}
 }
 
 interface ProvisionedUserRow {
