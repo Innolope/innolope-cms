@@ -1,5 +1,6 @@
 import type { ProjectSettings } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
+import { safeFetch, validatePublicUrl } from '../adapters/connection-guard.js'
 import { revealSecret } from '../lib/secret-at-rest.js'
 
 /**
@@ -105,7 +106,11 @@ export async function fetchCoverTemplate(
 	url.searchParams.set('format', params.format)
 	if (params.section) url.searchParams.set('section', params.section)
 
-	const res = await fetch(url, {
+	// The template URL is a project setting, i.e. tenant-controlled, and the
+	// fetch runs from inside the API's network with a bearer token attached.
+	const blocked = await validatePublicUrl(url.toString())
+	if (blocked) throw new CoverRenderConfigError(`Cover template URL rejected: ${blocked}`)
+	const res = await safeFetch(url, {
 		headers: token ? { Authorization: `Bearer ${token}` } : {},
 		signal: AbortSignal.timeout(15_000),
 	})

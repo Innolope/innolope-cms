@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { collections, content, importJobs, projects } from '@innolope/db'
+import { collections, content, importJobs, projects, sslModeFor } from '@innolope/db'
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
 import {
 	parseFirebaseCredentials,
+	safeFetch,
 	validateConnectionString,
+	validatePublicUrl,
 } from '../../adapters/connection-guard.js'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import {
@@ -129,7 +131,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					case 'neon':
 					case 'cockroachdb': {
 						const client = postgres(connectionString, {
-							ssl: connectionString.includes('sslmode=') ? 'require' : false,
+							ssl: sslModeFor(connectionString),
 							connect_timeout: 10,
 						})
 						await client`SELECT 1`
@@ -271,7 +273,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					case 'neon':
 					case 'cockroachdb': {
 						const client = postgres(effectiveConnectionString, {
-							ssl: effectiveConnectionString.includes('sslmode=') ? 'require' : false,
+							ssl: sslModeFor(effectiveConnectionString),
 							connect_timeout: 10,
 						})
 
@@ -1552,16 +1554,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 					skippedRelative++
 					continue
 				}
-				// SSRF guard: never probe private/internal hosts.
-				if (await validateConnectionString(url)) continue
+				// SSRF guard: never probe private/internal hosts (redirects included).
+				if (await validatePublicUrl(url)) continue
 				sampleUrl = sampleUrl || url
 				try {
 					const ctrl = new AbortController()
 					const timer = setTimeout(() => ctrl.abort(), 8000)
-					const res = await fetch(url, {
+					const res = await safeFetch(url, {
 						method: 'GET',
 						headers: { Range: 'bytes=0-0' },
-						redirect: 'follow',
 						signal: ctrl.signal,
 					})
 					clearTimeout(timer)
@@ -1686,7 +1687,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					problems.push('not-probeable')
 					return { externalId, rawValue: raw, verdict: 'skipped', problems, repairable: false }
 				}
-				if (await validateConnectionString(url)) {
+				if (await validatePublicUrl(url)) {
 					problems.push('unsafe-host')
 					return { externalId, rawValue: raw, verdict: 'skipped', problems, repairable: false }
 				}
@@ -1712,7 +1713,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 						typeof normalized === 'string' &&
 						normalized !== url &&
 						/^https?:\/\//i.test(normalized) &&
-						!(await validateConnectionString(normalized))
+						!(await validatePublicUrl(normalized))
 					) {
 						masked = (await probeMediaUrl(normalized)).ok
 					}
@@ -1721,7 +1722,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 				// Only offer a repair that demonstrably resolves.
 				let suggestedFix: string | undefined
-				if (lint.suggestedFix && !(await validateConnectionString(lint.suggestedFix))) {
+				if (lint.suggestedFix && !(await validatePublicUrl(lint.suggestedFix))) {
 					if ((await probeMediaUrl(lint.suggestedFix)).ok) suggestedFix = lint.suggestedFix
 				}
 
@@ -1801,7 +1802,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 					if (typeof resolved === 'string' && /^https?:\/\//i.test(resolved)) url = resolved
 				}
 				if (!url) return 'The new value cannot be verified against a URL'
-				if (await validateConnectionString(url)) return 'The new value resolves to a blocked host'
+				if (await validatePublicUrl(url)) return 'The new value resolves to a blocked host'
 				if (!(await probeMediaUrl(url)).ok)
 					return 'The new value does not resolve (HTTP check failed)'
 				return null
@@ -1881,10 +1882,9 @@ async function probeMediaUrl(url: string): Promise<{ ok: boolean; status?: numbe
 	try {
 		const ctrl = new AbortController()
 		const timer = setTimeout(() => ctrl.abort(), 8000)
-		const res = await fetch(url, {
+		const res = await safeFetch(url, {
 			method: 'GET',
 			headers: { Range: 'bytes=0-0' },
-			redirect: 'follow',
 			signal: ctrl.signal,
 		})
 		clearTimeout(timer)

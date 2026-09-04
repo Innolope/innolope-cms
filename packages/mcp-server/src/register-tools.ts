@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import {
 	COLLECTION_TEMPLATES,
 	CONTENT_STATUSES,
@@ -246,26 +248,94 @@ function extractImageRefs(
 
 /**
  * Hosts check_media refuses to fetch: content is caller-supplied, so a crafted
- * image URL must not be able to probe loopback or RFC 1918 addresses (SSRF).
+ * image URL must not be able to probe loopback, RFC 1918, link-local or cloud
+ * metadata addresses (SSRF). The name is resolved so a public hostname that
+ * points at a private address — or a decimal/hex IP literal — is caught too.
  */
-function isPrivateHost(hostname: string): boolean {
+async function isPrivateHost(hostname: string): Promise<boolean> {
 	const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-	if (h === 'localhost' || h === '0.0.0.0' || h === '::1') return true
-	if (h.endsWith('.local') || h.endsWith('.internal')) return true
-	if (/^(127|10|192\.168|169\.254)\./.test(h)) return true
-	if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
-	return false
+	if (h === 'localhost' || h === 'metadata' || h === 'metadata.google.internal') return true
+	if (h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.localhost')) return true
+	let addresses: string[]
+	if (isIP(h)) addresses = [h]
+	else {
+		try {
+			addresses = (await lookup(h, { all: true, verbatim: true })).map((e) => e.address)
+		} catch {
+			return true
+		}
+		if (addresses.length === 0) return true
+	}
+	return addresses.some(isPrivateAddress)
 }
 
-/** Bounded probe for check_media — a hung CDN must not hang the tool call. */
+function ipv4IsPrivate(o: number[]): boolean {
+	const [a, b] = o
+	return (
+		a === 0 ||
+		a === 10 ||
+		a === 127 ||
+		(a === 169 && b === 254) ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		(a === 100 && b >= 64 && b <= 127) ||
+		a >= 224
+	)
+}
+
+function isPrivateAddress(address: string): boolean {
+	if (address.includes(':')) {
+		let addr = address.replace(/%.*$/, '')
+		const v4 = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(addr)
+		if (v4) {
+			const o = v4.slice(1, 5).map(Number)
+			addr = `${addr.slice(0, v4.index)}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`
+		}
+		const halves = addr.split('::')
+		const head = halves[0] ? halves[0].split(':') : []
+		const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+		const fill = halves.length === 2 ? 8 - head.length - tail.length : 0
+		const g = [...head, ...Array(Math.max(fill, 0)).fill('0'), ...tail].map((x) =>
+			Number.parseInt(x, 16),
+		)
+		if (g.length !== 8 || g.some((x) => Number.isNaN(x))) return true
+		if (g.slice(0, 7).every((x) => x === 0) && g[7] <= 1) return true
+		if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) {
+			return ipv4IsPrivate([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff])
+		}
+		if (g[0] === 0x64 && g[1] === 0xff9b) {
+			return ipv4IsPrivate([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff])
+		}
+		return (g[0] & 0xfe00) === 0xfc00 || (g[0] & 0xffc0) === 0xfe80 || (g[0] & 0xff00) === 0xff00
+	}
+	const o = address.split('.').map(Number)
+	if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true
+	return ipv4IsPrivate(o)
+}
+
+/**
+ * Bounded probe for check_media — a hung CDN must not hang the tool call.
+ * Redirects are followed by hand so every hop is screened by `isPrivateHost`.
+ */
 async function fetchWithTimeout(url: string, method: 'HEAD' | 'GET'): Promise<Response> {
-	return fetch(url, {
-		method,
-		redirect: 'follow',
-		signal: AbortSignal.timeout(5000),
-		// On the GET fallback ask for a single byte — we only need the status.
-		...(method === 'GET' && { headers: { Range: 'bytes=0-0' } }),
-	})
+	let current = url
+	for (let hop = 0; hop < 5; hop++) {
+		if (await isPrivateHost(new URL(current).hostname)) {
+			throw new Error('redirected to a private address')
+		}
+		const res = await fetch(current, {
+			method,
+			redirect: 'manual',
+			signal: AbortSignal.timeout(5000),
+			// On the GET fallback ask for a single byte — we only need the status.
+			...(method === 'GET' && { headers: { Range: 'bytes=0-0' } }),
+		})
+		const location = res.headers.get('location')
+		if (![301, 302, 303, 307, 308].includes(res.status) || !location) return res
+		await res.body?.cancel().catch(() => {})
+		current = new URL(location, current).toString()
+	}
+	throw new Error('too many redirects')
 }
 
 interface ItemError {
@@ -1463,7 +1533,7 @@ export function registerTools(
 					}
 
 					let status: string
-					if (isPrivateHost(url.hostname)) {
+					if (await isPrivateHost(url.hostname)) {
 						status = 'not checked (private address)'
 					} else {
 						try {

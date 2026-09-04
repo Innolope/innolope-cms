@@ -9,7 +9,12 @@ import {
 } from './webhook-dispatch.js'
 
 const validatePublicUrl = vi.hoisted(() => vi.fn(async () => null as string | null))
-vi.mock('../adapters/connection-guard.js', () => ({ validatePublicUrl }))
+vi.mock('../adapters/connection-guard.js', () => ({
+	validatePublicUrl,
+	// The dispatcher goes through safeFetch; hand it straight to the stubbed
+	// global fetch so the tests keep observing the exact request it sends.
+	safeFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}))
 
 process.env.SSO_ENCRYPTION_KEY = randomBytes(32).toString('base64')
 

@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
 import { and, eq, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { validatePublicUrl } from '../adapters/connection-guard.js'
+import { safeFetch, validatePublicUrl } from '../adapters/connection-guard.js'
 import { decryptSecret } from '../lib/crypto.js'
 
 /** The webhook columns dispatch needs — retry queries must select all of these. */
@@ -188,19 +188,25 @@ export async function dispatchDelivery(
 	const sentBody = body.slice(0, 10_000)
 
 	try {
-		const response = await fetch(webhook.url, {
-			method: 'POST',
-			// Custom headers may override Content-Type (some APIs demand their own
-			// media type) but never the signature/id headers receivers verify.
-			headers: {
-				'Content-Type': 'application/json',
-				...customHeaders,
-				'X-Webhook-Signature': signature,
-				'X-Webhook-Id': webhook.id,
+		// A redirect is answered as-is (and recorded as the failure it is): a
+		// signed payload must never be re-sent to a location the receiver picked.
+		const response = await safeFetch(
+			webhook.url,
+			{
+				method: 'POST',
+				// Custom headers may override Content-Type (some APIs demand their own
+				// media type) but never the signature/id headers receivers verify.
+				headers: {
+					'Content-Type': 'application/json',
+					...customHeaders,
+					'X-Webhook-Signature': signature,
+					'X-Webhook-Id': webhook.id,
+				},
+				body,
+				signal: AbortSignal.timeout(10_000),
 			},
-			body,
-			signal: AbortSignal.timeout(10_000),
-		})
+			{ maxRedirects: 0 },
+		)
 
 		const responseBody = await response.text().catch(() => '')
 

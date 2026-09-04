@@ -1,3 +1,4 @@
+import { sslModeFor } from '@innolope/db'
 import type { Sql } from 'postgres'
 
 export interface ExternalDocument {
@@ -190,7 +191,7 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		const postgresModule = await import('postgres')
 		const postgres = postgresModule.default
 		this.client = postgres(this.connectionString, {
-			ssl: this.connectionString.includes('sslmode=') ? 'require' : false,
+			ssl: sslModeFor(this.connectionString),
 			connect_timeout: 10,
 		})
 		await this.client`SELECT 1`

@@ -6,6 +6,8 @@ import { resolveMediaAdapter } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
 
 const UNSPLASH_API = 'https://api.unsplash.com'
+/** Unsplash photo ids are short URL-safe tokens; anything else could reshape the upstream path. */
+const UNSPLASH_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 interface UnsplashPhoto {
 	id: string
@@ -95,14 +97,20 @@ export async function unsplashRoutes(app: FastifyInstance) {
 			if (!accessKey) {
 				return reply.status(503).send({ error: 'Unsplash not configured' })
 			}
+			if (!UNSPLASH_ID.test(request.params.id)) {
+				return reply.status(400).send({ error: 'Invalid photo id' })
+			}
 
 			// Fetch the photo to get download_location
-			const photoRes = await fetch(`${UNSPLASH_API}/photos/${request.params.id}`, {
-				headers: {
-					Authorization: `Client-ID ${accessKey}`,
-					'Accept-Version': 'v1',
+			const photoRes = await fetch(
+				`${UNSPLASH_API}/photos/${encodeURIComponent(request.params.id)}`,
+				{
+					headers: {
+						Authorization: `Client-ID ${accessKey}`,
+						'Accept-Version': 'v1',
+					},
 				},
-			})
+			)
 
 			if (!photoRes.ok) {
 				return reply.status(photoRes.status).send({ error: 'Photo not found' })
@@ -128,11 +136,17 @@ export async function unsplashRoutes(app: FastifyInstance) {
 			if (!accessKey) {
 				return reply.status(503).send({ error: 'Unsplash not configured' })
 			}
+			if (!UNSPLASH_ID.test(request.params.id)) {
+				return reply.status(400).send({ error: 'Invalid photo id' })
+			}
 
 			// Fetch photo metadata
-			const photoRes = await fetch(`${UNSPLASH_API}/photos/${request.params.id}`, {
-				headers: { Authorization: `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
-			})
+			const photoRes = await fetch(
+				`${UNSPLASH_API}/photos/${encodeURIComponent(request.params.id)}`,
+				{
+					headers: { Authorization: `Client-ID ${accessKey}`, 'Accept-Version': 'v1' },
+				},
+			)
 			if (!photoRes.ok) return reply.status(photoRes.status).send({ error: 'Photo not found' })
 			const photo = (await photoRes.json()) as UnsplashPhoto
 
