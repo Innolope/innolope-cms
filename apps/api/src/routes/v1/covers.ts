@@ -3,6 +3,7 @@ import { collections, content, media, projects } from '@innolope/db'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { requestSource } from '../../lib/request-source.js'
+import { revealSecret } from '../../lib/secret-at-rest.js'
 import { getUser } from '../../plugins/auth.js'
 import { resolveMediaAdapter } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
@@ -143,7 +144,7 @@ export async function coverRoutes(app: FastifyInstance) {
 						format: stage.name,
 						section: (row.metadata?.section as string | undefined) ?? null,
 					},
-					cfg.templateToken,
+					revealSecret(cfg.templateToken),
 				)
 				const result = await renderAndStore(app, request, {
 					html,

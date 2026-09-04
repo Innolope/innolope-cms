@@ -12,6 +12,7 @@ import { CloudflareImagesAdapter } from '../adapters/cloudflare-images.js'
 import { formatMediaPath } from './media-path-format.js'
 import { presignR2Put } from './media-sign.js'
 import type { MediaStorageEntry } from './media-storage.js'
+import { revealMediaCredentials } from './secret-at-rest.js'
 
 function httpError(message: string, statusCode: number) {
 	return Object.assign(new Error(message), { statusCode })
@@ -60,7 +61,7 @@ export async function uploadToImportedStorage(
 	filename: string,
 	mimeType: string,
 ): Promise<ImportedUploadResult> {
-	const c = entry.credentials || {}
+	const c = revealMediaCredentials(entry.credentials) || {}
 
 	if (entry.adapter === 'cloudflare-images') {
 		if (!c.accountId || !c.apiToken) {

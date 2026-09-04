@@ -1,5 +1,6 @@
 import type { ProjectSettings } from '@innolope/db'
 import type { FastifyInstance } from 'fastify'
+import { revealSecret } from '../lib/secret-at-rest.js'
 
 /**
  * Cover rendering via Cloudflare Browser Rendering.
@@ -53,8 +54,9 @@ export async function resolveBrowserRendering(
 		}
 	}
 
-	if (cf.accountId && cf.apiToken) {
-		return { accountId: cf.accountId, apiToken: cf.apiToken, source: 'project-settings' }
+	const projectToken = revealSecret(cf.apiToken)
+	if (cf.accountId && projectToken) {
+		return { accountId: cf.accountId, apiToken: projectToken, source: 'project-settings' }
 	}
 
 	const accountId = process.env.CLOUDFLARE_ACCOUNT_ID

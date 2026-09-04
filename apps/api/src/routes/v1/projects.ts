@@ -1,8 +1,40 @@
 import { projectMemberCollections, projectMembers, projects, users } from '@innolope/db'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { validateConnectionString, validatePublicUrl } from '../../adapters/connection-guard.js'
+import { sealProjectSettings } from '../../lib/secret-at-rest.js'
 import { getUser, normalizeEmail } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
+
+type ProjectRole = 'owner' | 'admin' | 'editor' | 'viewer'
+const PROJECT_ROLES: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer']
+const ROLE_RANK: Record<ProjectRole, number> = { owner: 4, admin: 3, editor: 2, viewer: 1 }
+
+/**
+ * Membership changes may never reach above the caller's own role: an admin
+ * cannot mint owners, and cannot touch an owner's membership at all. Returns
+ * an error message, or null when the change is allowed.
+ */
+export function roleChangeError(
+	callerRole: string | undefined,
+	targetCurrentRole: string | undefined,
+	requestedRole: string | undefined,
+): string | null {
+	const caller = ROLE_RANK[callerRole as ProjectRole] ?? 0
+	if (requestedRole !== undefined) {
+		if (!PROJECT_ROLES.includes(requestedRole as ProjectRole)) return 'Invalid role'
+		if (ROLE_RANK[requestedRole as ProjectRole] > caller) {
+			return 'You cannot grant a role above your own'
+		}
+	}
+	if (
+		targetCurrentRole !== undefined &&
+		(ROLE_RANK[targetCurrentRole as ProjectRole] ?? 0) > caller
+	) {
+		return 'You cannot change a member whose role is above your own'
+	}
+	return null
+}
 
 /**
  * Reject if the URL `:id` doesn't match the project authorized by `requireProject`.
@@ -53,6 +85,11 @@ export function sanitizeProject(
 			hasConnectionString: Boolean(externalDb.connectionString),
 			...(sanitizedMedia ? { mediaStorage: sanitizedMedia } : {}),
 		}
+	}
+	const covers = settings.covers as Record<string, unknown> | undefined
+	if (covers && 'templateToken' in covers) {
+		const { templateToken, ...rest } = covers
+		settings.covers = { ...rest, hasTemplateToken: Boolean(templateToken) }
 	}
 	const cloudflare = settings.cloudflare as Record<string, unknown> | undefined
 	if (cloudflare) {
@@ -194,6 +231,16 @@ export async function projectRoutes(app: FastifyInstance) {
 				const nextSettings = { ...currentSettings, ...settings }
 				const currentExternalDb = currentSettings.externalDb as Record<string, unknown> | undefined
 				const nextExternalDb = nextSettings.externalDb as Record<string, unknown> | undefined
+				// A connection string written here is trusted by every later consumer
+				// (import worker, content reads/writes), so it gets the same SSRF
+				// screen as /database/test.
+				if (
+					typeof nextExternalDb?.connectionString === 'string' &&
+					nextExternalDb.connectionString !== currentExternalDb?.connectionString
+				) {
+					const problem = await validateConnectionString(nextExternalDb.connectionString)
+					if (problem) return reply.status(400).send({ error: problem })
+				}
 				if (nextExternalDb && currentExternalDb) {
 					const merged: Record<string, unknown> = { ...nextExternalDb }
 					// The client only ever sees sanitized settings — restore secrets it can't resend.
@@ -240,7 +287,25 @@ export async function projectRoutes(app: FastifyInstance) {
 					}
 					nextSettings.cloudflare = cf
 				}
-				updates.settings = nextSettings
+				const currentCovers = currentSettings.covers as Record<string, unknown> | undefined
+				const nextCovers = nextSettings.covers as Record<string, unknown> | undefined
+				if (nextCovers) {
+					const { hasTemplateToken: _h, ...covers } = nextCovers
+					if (!covers.templateToken && currentCovers?.templateToken) {
+						covers.templateToken = currentCovers.templateToken
+					}
+					// The cover template is fetched server-side with a bearer token, so
+					// its URL must not point back into the API's own network.
+					if (
+						typeof covers.templateUrl === 'string' &&
+						covers.templateUrl !== currentCovers?.templateUrl
+					) {
+						const problem = await validatePublicUrl(covers.templateUrl)
+						if (problem) return reply.status(400).send({ error: `Cover template URL: ${problem}` })
+					}
+					nextSettings.covers = covers
+				}
+				updates.settings = sealProjectSettings(nextSettings)
 			}
 
 			const [updated] = await app.db
@@ -320,6 +385,8 @@ export async function projectRoutes(app: FastifyInstance) {
 			}
 
 			if (!rawEmail?.trim()) return reply.status(400).send({ error: 'Email is required.' })
+			const roleError = roleChangeError(request.projectRole, undefined, role)
+			if (roleError) return reply.status(403).send({ error: roleError })
 			const email = normalizeEmail(rawEmail)
 			const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
 
@@ -338,6 +405,8 @@ export async function projectRoutes(app: FastifyInstance) {
 
 			let member: typeof projectMembers.$inferSelect | undefined
 			if (existing.length > 0) {
+				const existingError = roleChangeError(request.projectRole, existing[0].role, role)
+				if (existingError) return reply.status(403).send({ error: existingError })
 				;[member] = await app.db
 					.update(projectMembers)
 					.set({ role })
@@ -372,6 +441,31 @@ export async function projectRoutes(app: FastifyInstance) {
 			if (body.canPublishDirectly !== undefined) patch.canPublishDirectly = body.canPublishDirectly
 			if (Object.keys(patch).length === 0) {
 				return reply.status(400).send({ error: 'Provide role and/or canPublishDirectly' })
+			}
+
+			const [target] = await app.db
+				.select({ role: projectMembers.role })
+				.from(projectMembers)
+				.where(
+					and(
+						eq(projectMembers.projectId, request.params.id),
+						eq(projectMembers.userId, request.params.userId),
+					),
+				)
+				.limit(1)
+			if (!target) return reply.status(404).send({ error: 'Member not found' })
+			const roleError = roleChangeError(request.projectRole, target.role, body.role)
+			if (roleError) return reply.status(403).send({ error: roleError })
+			if (target.role === 'owner' && body.role !== undefined && body.role !== 'owner') {
+				const owners = await app.db
+					.select({ id: projectMembers.id })
+					.from(projectMembers)
+					.where(
+						and(eq(projectMembers.projectId, request.params.id), eq(projectMembers.role, 'owner')),
+					)
+				if (owners.length <= 1) {
+					return reply.status(400).send({ error: 'A project must keep at least one owner' })
+				}
 			}
 
 			const [updated] = await app.db
@@ -455,6 +549,8 @@ export async function projectRoutes(app: FastifyInstance) {
 			if (member?.role === 'owner') {
 				return reply.status(400).send({ error: 'Cannot remove the project owner' })
 			}
+			const removeError = roleChangeError(request.projectRole, member?.role, undefined)
+			if (removeError) return reply.status(403).send({ error: removeError })
 
 			await app.db
 				.delete(projectMembers)

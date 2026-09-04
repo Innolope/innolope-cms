@@ -32,6 +32,7 @@ import {
 	isWritableImportedStorage,
 	uploadToImportedStorage,
 } from '../../lib/media-upload.js'
+import { revealMediaCredentials, sealMediaCredentials } from '../../lib/secret-at-rest.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import {
@@ -1104,6 +1105,8 @@ export async function databaseRoutes(app: FastifyInstance) {
 						const prevCreds = prevMap[table]?.credentials
 						if (prevCreds) incoming.credentials = prevCreds
 						else delete incoming.credentials
+					} else {
+						incoming.credentials = sealMediaCredentials(creds)
 					}
 					// A changed format arriving through this endpoint is a human's
 					// decision: record that so sync-time detection never overwrites it,
@@ -1403,7 +1406,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 				}
 
 				// Best-effort provider file deletion with the library's own credentials.
-				const c = entry?.credentials
+				const c = revealMediaCredentials(entry?.credentials)
 				try {
 					if (entry?.adapter === 'cloudflare-images' && c?.accountId && c.apiToken && rawValue) {
 						const { imageId } = parseCloudflareImageValue(rawValue, entry.pathVariant)

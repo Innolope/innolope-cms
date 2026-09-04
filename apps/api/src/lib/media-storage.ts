@@ -8,6 +8,7 @@
  */
 import type { MediaPathFormat } from './media-path-format.js'
 import { cloudflareImageUrl, presignR2, signCloudflareImage } from './media-sign.js'
+import { revealMediaCredentials } from './secret-at-rest.js'
 
 export interface MediaStorageCredentials {
 	// Cloudflare R2
@@ -106,7 +107,7 @@ export async function resolveMediaValue(
 	}
 
 	if (entry.access === 'private' && entry.credentials) {
-		const c = entry.credentials
+		const c = revealMediaCredentials(entry.credentials)
 		try {
 			if (entry.adapter === 'r2' && c.accountId && c.accessKeyId && c.secretAccessKey && c.bucket) {
 				return await presignR2(

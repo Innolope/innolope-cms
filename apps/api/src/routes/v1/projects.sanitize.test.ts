@@ -60,3 +60,18 @@ describe('sanitizeProject cloudflare secrets', () => {
 		expect((out.settings as Record<string, unknown>).cloudflare).toBeUndefined()
 	})
 })
+
+describe('sanitizeProject cover template token', () => {
+	it('replaces templateToken with a boolean flag', () => {
+		const out = sanitizeProject(
+			baseProject({
+				covers: { templateUrl: 'https://x.example/t', templateToken: 'bearer-secret' },
+			}),
+			'viewer',
+		)
+		const covers = (out.settings as Record<string, unknown>).covers as Record<string, unknown>
+		expect(covers.templateToken).toBeUndefined()
+		expect(covers.hasTemplateToken).toBe(true)
+		expect(covers.templateUrl).toBe('https://x.example/t')
+	})
+})

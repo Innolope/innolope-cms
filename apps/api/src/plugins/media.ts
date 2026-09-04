@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import fp from 'fastify-plugin'
 import { LocalFsAdapter } from '../adapters/local-fs.js'
 import { isCloudMode } from '../lib/cloud-mode.js'
+import { revealSecret } from '../lib/secret-at-rest.js'
 
 declare module 'fastify' {
 	interface FastifyInstance {
@@ -134,9 +135,10 @@ export async function resolveMediaAdapter(
 			}
 		}
 
-		const hasOwnCreds = Boolean(cf.accountId && cf.apiToken && cf.imagesAccountHash)
+		const projectToken = revealSecret(cf.apiToken)
+		const hasOwnCreds = Boolean(cf.accountId && projectToken && cf.imagesAccountHash)
 		const accountId = cf.accountId || process.env.CLOUDFLARE_ACCOUNT_ID
-		const apiToken = cf.apiToken || process.env.CLOUDFLARE_API_TOKEN
+		const apiToken = projectToken || process.env.CLOUDFLARE_API_TOKEN
 		const accountHash = cf.imagesAccountHash || process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH
 		if (!accountId || !apiToken || !accountHash) {
 			throw new MediaConfigError(
