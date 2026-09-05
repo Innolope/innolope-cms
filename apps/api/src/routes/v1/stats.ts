@@ -69,7 +69,13 @@ export async function statsRoutes(app: FastifyInstance) {
 	})
 
 	// Recent activity (viewer+, project-scoped)
+	// Both lists are scoped to the collections the member may read, like every
+	// other multi-collection read: a restricted member must not learn titles
+	// or counts from collections outside their allowlist.
 	app.get('/recent', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+		const scope = await resolveReadableCollectionScope(request)
+		if (scope.scoped && scope.allowedIds.length === 0) return []
+		const projectFilter = eq(content.projectId, getProject(request).id)
 		return app.db
 			.select({
 				id: content.id,
@@ -81,17 +87,28 @@ export async function statsRoutes(app: FastifyInstance) {
 				locale: content.locale,
 			})
 			.from(content)
-			.where(eq(content.projectId, getProject(request).id))
+			.where(
+				scope.scoped
+					? and(projectFilter, inArray(content.collectionId, scope.allowedIds))
+					: projectFilter,
+			)
 			.orderBy(desc(content.updatedAt))
 			.limit(20)
 	})
 
 	// Content by locale (viewer+, project-scoped)
 	app.get('/by-locale', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+		const scope = await resolveReadableCollectionScope(request)
+		if (scope.scoped && scope.allowedIds.length === 0) return []
+		const projectFilter = eq(content.projectId, getProject(request).id)
 		return app.db
 			.select({ locale: content.locale, count: sql<number>`count(*)` })
 			.from(content)
-			.where(eq(content.projectId, getProject(request).id))
+			.where(
+				scope.scoped
+					? and(projectFilter, inArray(content.collectionId, scope.allowedIds))
+					: projectFilter,
+			)
 			.groupBy(content.locale)
 	})
 

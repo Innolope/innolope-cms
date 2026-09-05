@@ -65,6 +65,9 @@ export function buildExternalData(
 	const data: Record<string, unknown> = {}
 
 	for (const [key, value] of Object.entries(input.metadata || {})) {
+		// The source primary key is never an author-settable field, even on a
+		// schemaless collection where every other key passes through.
+		if (key === '_id' || key.startsWith('$')) continue
 		if (fieldNames.size === 0 || fieldNames.has(key)) {
 			data[key] = coerceExternalFieldValue(fields.find((field) => field.name === key)?.type, value)
 		}

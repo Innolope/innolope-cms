@@ -126,6 +126,11 @@ export const contentInputSchema = z.object({
 	publishedAt: z.string().datetime().optional(),
 })
 
+const dateBound = z
+	.string()
+	.refine((v) => !Number.isNaN(Date.parse(v)), { message: 'Invalid date' })
+	.optional()
+
 export const contentListSchema = z.object({
 	collectionId: z.string().uuid().optional(),
 	status: z.enum(CONTENT_STATUSES).optional(),
@@ -141,12 +146,14 @@ export const contentListSchema = z.object({
 		.regex(/^(createdAt|updatedAt|publishedAt|slug|status|locale|meta:[a-zA-Z_][a-zA-Z0-9_]*)$/)
 		.catch('createdAt'),
 	sortOrder: z.enum(['asc', 'desc']).catch('desc'),
-	updatedFrom: z.string().optional(),
-	updatedTo: z.string().optional(),
-	createdFrom: z.string().optional(),
-	createdTo: z.string().optional(),
-	publishedFrom: z.string().optional(),
-	publishedTo: z.string().optional(),
+	// Date bounds must parse as dates here, so a malformed value is a 400 and
+	// not a Postgres cast error surfacing as a 500.
+	updatedFrom: dateBound,
+	updatedTo: dateBound,
+	createdFrom: dateBound,
+	createdTo: dateBound,
+	publishedFrom: dateBound,
+	publishedTo: dateBound,
 	// JSON-encoded object of metadata field equality filters: {"author":"x","category":"y"}
 	metadata: z.string().optional(),
 	// Relation hydration depth: 0 = raw ids, >=1 = relation fields resolved to records.

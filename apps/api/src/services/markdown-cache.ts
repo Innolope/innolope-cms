@@ -418,10 +418,14 @@ async function applySyncBatch(
 	// values), so fan them out across the pool in small chunks to stay under
 	// the default connection limit.
 	await runInChunks(toUpdate, 10, async ({ existing, next }) => {
+		// `locale` and `createdBy` are CMS-side facts about the row (a record set to
+		// "ua" in the CMS, the user who first cached it); a source edit must not
+		// reset them to the defaults a fresh insert would get.
+		const { locale: _locale, createdBy: _createdBy, ...sourceValues } = next
 		try {
 			await db
 				.update(contentTable)
-				.set({ ...next, version: (existing.version || 1) + 1 })
+				.set({ ...sourceValues, version: (existing.version || 1) + 1 })
 				.where(eq(contentTable.id, existing.id))
 		} catch (err) {
 			// Slug isn't changed by sync updates so this should be unreachable —

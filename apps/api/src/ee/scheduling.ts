@@ -1,9 +1,9 @@
 import { validateSchedule } from '@innolope/config'
 import { collections, content } from '@innolope/db'
-import { and, asc, eq, gt, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { checkCollectionAccess } from '../lib/collection-access.js'
+import { checkCollectionAccess, resolveReadableCollectionScope } from '../lib/collection-access.js'
 import { requestSource } from '../lib/request-source.js'
 import { getUser } from '../plugins/auth.js'
 import { getProject } from '../plugins/project.js'
@@ -159,6 +159,13 @@ export async function schedulingRoutes(app: FastifyInstance) {
 			const access = await checkCollectionAccess(request, query.data.collectionId, 'read')
 			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 			conditions.push(eq(content.collectionId, query.data.collectionId))
+		} else {
+			// Unfiltered: restrict to the collections this member may read.
+			const scope = await resolveReadableCollectionScope(request)
+			if (scope.scoped) {
+				if (scope.allowedIds.length === 0) return { data: [] }
+				conditions.push(inArray(content.collectionId, scope.allowedIds))
+			}
 		}
 
 		const rows = await app.db
@@ -191,6 +198,8 @@ export async function schedulingRoutes(app: FastifyInstance) {
 
 	// Count of upcoming scheduled items — cheap enough for a dashboard badge.
 	app.get('/upcoming-count', { preHandler: [app.requireProject('viewer')] }, async (request) => {
+		const scope = await resolveReadableCollectionScope(request)
+		if (scope.scoped && scope.allowedIds.length === 0) return { count: 0 }
 		const rows = await app.db
 			.select({ id: content.id })
 			.from(content)
@@ -199,6 +208,7 @@ export async function schedulingRoutes(app: FastifyInstance) {
 					eq(content.projectId, getProject(request).id),
 					eq(content.status, 'scheduled'),
 					gt(content.publishedAt, new Date()),
+					...(scope.scoped ? [inArray(content.collectionId, scope.allowedIds)] : []),
 				),
 			)
 		return { count: rows.length }

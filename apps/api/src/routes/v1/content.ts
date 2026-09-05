@@ -913,7 +913,30 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				continue
 			}
+			// Same frontmatter rule as every other write path: the block is stripped
+			// into metadata (explicit keys win) instead of being stored as body text.
+			if (item.markdown !== undefined) {
+				const { body, meta } = parseFrontmatter(item.markdown)
+				if (Object.keys(meta).length > 0) {
+					item.markdown = body
+					item.metadata = { ...meta, ...(item.metadata ?? {}) }
+				}
+			}
 			const mergedStatus = item.status ?? current.status
+			if (
+				item.status === 'published' &&
+				current.status !== 'published' &&
+				!request.canPublishDirectly
+			) {
+				itemErrors.push({
+					index,
+					id: item.id,
+					errors: [
+						{ field: 'status', message: 'Direct publish not allowed — submit for review instead.' },
+					],
+				})
+				continue
+			}
 			const scheduleIssue = checkSchedulable(
 				app,
 				mergedStatus,
@@ -973,96 +996,173 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 		}
 
-		const updated = await app.db.transaction(async (tx) => {
-			const results = []
-			const accessChecked = new Set<string>()
+		// Access checks first — nothing is written until every item is allowed.
+		const accessChecked = new Set<string>()
+		for (const [index, item] of items.entries()) {
+			const current = currentMap.get(item.id)
+			if (!current) return reply.status(404).send({ error: `item ${index}: Content not found` })
+			if (accessChecked.has(current.collectionId)) continue
+			accessChecked.add(current.collectionId)
+			const access = await checkCollectionAccess(request, current.collectionId, 'write')
+			if (!access.ok)
+				return reply.status(access.status).send({ error: `item ${index}: ${access.error}` })
+		}
 
+		// External writes happen OUTSIDE the Postgres transaction, each remembered
+		// with the row's previous external image. If a later external write or
+		// the CMS transaction fails, the applied ones are rolled back best-effort,
+		// so the source database and the cache do not end up telling different
+		// stories.
+		type Applied = {
+			col: (typeof updateCols)[number]
+			externalId: string
+			previous: Record<string, unknown>
+			inserted: boolean
+		}
+		const applied: Applied[] = []
+		const externalResults = new Map<
+			string,
+			{ externalId: string | null; cachedMetadata: Record<string, unknown> | undefined }
+		>()
+		const compensate = async () => {
+			for (const a of applied.reverse()) {
+				try {
+					if (a.inserted) {
+						await deleteFromExternalDb(app, getProject(request).id, a.col, a.externalId)
+					} else {
+						await updateExternalDb(app, getProject(request).id, a.col, a.externalId, a.previous)
+					}
+				} catch (err) {
+					app.log.error(
+						{ err, externalId: a.externalId, collection: a.col.name },
+						'Failed to roll back an external write after a bulk update failed',
+					)
+				}
+			}
+		}
+
+		try {
 			for (const [index, item] of items.entries()) {
 				const current = currentMap.get(item.id)
-				if (!current) throw httpError(`item ${index}: Content not found: ${item.id}`, 404)
-				if (!accessChecked.has(current.collectionId)) {
-					accessChecked.add(current.collectionId)
-					const access = await checkCollectionAccess(request, current.collectionId, 'write')
-					if (!access.ok) throw httpError(`item ${index}: ${access.error}`, access.status)
-				}
-
+				if (!current) continue
 				const col = updateColMap.get(current.collectionId)
-
-				let externalId = current.externalId
-				// Same rule as the single-item update: an explicit date wins, a first
-				// publish stamps now, otherwise keep what's stored.
+				if (col?.source === 'external' && col.accessMode === 'read-only') {
+					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
+				}
+				if (!(col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable)) {
+					continue
+				}
 				const nextPublishedAt = item.publishedAt
 					? new Date(item.publishedAt)
 					: item.status === 'published' && !current.publishedAt
 						? new Date()
 						: current.publishedAt
-				// Metadata to cache locally — `undefined` leaves the stored blob untouched.
-				let cachedMetadata = item.metadata
-				if (col?.source === 'external' && col.accessMode === 'read-only') {
-					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
+				// item.metadata was already merged with the stored blob in the pre-pass.
+				const nextMetadata = item.metadata ?? (current.metadata as Record<string, unknown>)
+				const now = new Date()
+				const externalData = buildExternalData(col, {
+					slug: item.slug ?? current.slug,
+					status: item.status ?? current.status,
+					metadata: nextMetadata,
+					markdown: item.markdown ?? current.markdown,
+					createdAt: current.createdAt,
+					updatedAt: now,
+					publishedAt: nextPublishedAt,
+				})
+				const previous = buildExternalData(col, {
+					slug: current.slug,
+					status: current.status,
+					metadata: current.metadata as Record<string, unknown>,
+					markdown: current.markdown,
+					createdAt: current.createdAt,
+					updatedAt: current.updatedAt,
+					publishedAt: current.publishedAt,
+				})
+				let externalId = current.externalId
+				if (externalId) {
+					await updateExternalDb(app, getProject(request).id, col, externalId, externalData)
+					applied.push({ col, externalId, previous, inserted: false })
+				} else {
+					const inserted = await insertIntoExternalDb(
+						app,
+						getProject(request).id,
+						col,
+						externalData,
+					)
+					externalId = inserted?._id ?? null
+					if (externalId) applied.push({ col, externalId, previous, inserted: true })
 				}
-				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-					// item.metadata was already merged with the stored blob in the pre-pass.
-					const nextMetadata = item.metadata ?? (current.metadata as Record<string, unknown>)
-					const now = new Date()
-					const externalData = buildExternalData(col, {
-						slug: item.slug ?? current.slug,
-						status: item.status ?? current.status,
-						metadata: nextMetadata,
-						markdown: item.markdown ?? current.markdown,
-						createdAt: current.createdAt,
-						updatedAt: now,
-						publishedAt: nextPublishedAt,
-					})
-
-					if (externalId) {
-						await updateExternalDb(app, getProject(request).id, col, externalId, externalData)
-					} else {
-						const inserted = await insertIntoExternalDb(
-							app,
-							getProject(request).id,
-							col,
-							externalData,
-						)
-						externalId = inserted?._id ?? null
-					}
+				externalResults.set(item.id, {
+					externalId,
 					// Keep the cache in step with what the external row now holds, so the
 					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
-				}
-
-				await tx.insert(contentVersions).values({
-					contentId: current.id,
-					version: current.version,
-					markdown: current.markdown,
-					metadata: current.metadata,
-					createdBy: getUser(request).id,
-					source: requestSource(request),
+					cachedMetadata: mergeExternalTimestamps(nextMetadata, externalData, col.fields),
 				})
-
-				const html = item.markdown ? await renderMarkdown(item.markdown) : undefined
-				const [result] = await tx
-					.update(content)
-					.set({
-						...(item.slug && { slug: item.slug }),
-						...(item.markdown && { markdown: item.markdown }),
-						...(html && { html }),
-						...(cachedMetadata && { metadata: cachedMetadata }),
-						...(item.status && { status: item.status as ContentStatus }),
-						version: current.version + 1,
-						updatedAt: new Date(),
-						updatedBy: getUser(request).id,
-						updatedSource: requestSource(request),
-						publishedAt: nextPublishedAt,
-						...(externalId && { externalId }),
-					})
-					.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
-					.returning()
-
-				if (result) results.push(result)
 			}
-			return results
-		})
+		} catch (err) {
+			await compensate()
+			if ((err as { statusCode?: number }).statusCode) throw err
+			app.log.warn(err, 'Bulk update: external write failed — applied external writes rolled back')
+			return reply.status(502).send({ error: 'Failed to sync to external database' })
+		}
+
+		let updated: (typeof content.$inferSelect)[]
+		try {
+			updated = await app.db.transaction(async (tx) => {
+				const results = []
+
+				for (const [index, item] of items.entries()) {
+					const current = currentMap.get(item.id)
+					if (!current) throw httpError(`item ${index}: Content not found: ${item.id}`, 404)
+
+					// Same rule as the single-item update: an explicit date wins, a first
+					// publish stamps now, otherwise keep what's stored.
+					const nextPublishedAt = item.publishedAt
+						? new Date(item.publishedAt)
+						: item.status === 'published' && !current.publishedAt
+							? new Date()
+							: current.publishedAt
+					const external = externalResults.get(item.id)
+					const externalId = external ? external.externalId : current.externalId
+					// Metadata to cache locally — `undefined` leaves the stored blob untouched.
+					const cachedMetadata = external ? external.cachedMetadata : item.metadata
+
+					await tx.insert(contentVersions).values({
+						contentId: current.id,
+						version: current.version,
+						markdown: current.markdown,
+						metadata: current.metadata,
+						createdBy: getUser(request).id,
+						source: requestSource(request),
+					})
+
+					const html = item.markdown !== undefined ? await renderMarkdown(item.markdown) : undefined
+					const [result] = await tx
+						.update(content)
+						.set({
+							...(item.slug && { slug: item.slug }),
+							...(item.markdown !== undefined && { markdown: item.markdown }),
+							...(html !== undefined && { html }),
+							...(cachedMetadata && { metadata: cachedMetadata }),
+							...(item.status && { status: item.status as ContentStatus }),
+							version: current.version + 1,
+							updatedAt: new Date(),
+							updatedBy: getUser(request).id,
+							updatedSource: requestSource(request),
+							publishedAt: nextPublishedAt,
+							...(externalId && { externalId }),
+						})
+						.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
+						.returning()
+
+					if (result) results.push(result)
+				}
+				return results
+			})
+		} catch (err) {
+			await compensate()
+			throw err
+		}
 
 		for (const result of updated) {
 			emitContentStatusEvent(app, {
@@ -1162,7 +1262,14 @@ export async function contentRoutes(app: FastifyInstance) {
 			// surfaces both, imported posts routinely need backdating to keep a feed in
 			// order, and `publishedAt` *is* the schedule, so moving it is how an existing
 			// record gets scheduled at all.
-			const { updatedAt: _ua, ...input } = contentInputSchema.partial().parse(request.body)
+			// `collectionId` is identity, not content: moving a record would skip the
+			// target's access check and schema, so it is refused rather than spread
+			// into the update.
+			const {
+				updatedAt: _ua,
+				collectionId: requestedCollectionId,
+				...input
+			} = contentInputSchema.partial().parse(request.body)
 			// Frontmatter normalization on update: strip the block and fold its fields
 			// into the incoming metadata (explicit metadata keys win). The merge with
 			// the stored row happens below for all metadata alike.
@@ -1183,6 +1290,31 @@ export async function contentRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!current) return reply.status(404).send({ error: 'Content not found' })
+			if (requestedCollectionId !== undefined && requestedCollectionId !== current.collectionId) {
+				return reply
+					.status(400)
+					.send({ error: 'collectionId cannot be changed on update — create a new record' })
+			}
+			// Same locale rule as create: a locale the project does not configure
+			// makes the row invisible to every locale-filtered view.
+			const { locales: projectLocales } = getProject(request)
+			if (input.locale && !projectLocales.includes(input.locale)) {
+				return reply.status(400).send({
+					error: `Locale "${input.locale}" is not configured for this project`,
+					locales: projectLocales,
+				})
+			}
+			// The review workflow applies to every route that can set `published`,
+			// not only POST /:id/publish.
+			if (
+				input.status === 'published' &&
+				current.status !== 'published' &&
+				!request.canPublishDirectly
+			) {
+				return reply
+					.status(403)
+					.send({ error: 'Direct publish not allowed — submit for review instead.' })
+			}
 
 			// A record can be scheduled by this update, or already be scheduled and have
 			// only its date moved — either way the effective pair has to be valid.
@@ -1254,6 +1386,31 @@ export async function contentRoutes(app: FastifyInstance) {
 				fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
 			}
 
+			// Slug/locale identity must stay unique BEFORE anything is written — the
+			// external row is updated first and a collision on the CMS row afterwards
+			// would leave the two out of step.
+			const nextSlug = input.slug === undefined ? current.slug : input.slug
+			const nextLocale = input.locale ?? current.locale
+			if (nextSlug && (nextSlug !== current.slug || nextLocale !== current.locale)) {
+				const [duplicate] = await app.db
+					.select({ id: content.id })
+					.from(content)
+					.where(
+						and(
+							eq(content.projectId, getProject(request).id),
+							eq(content.slug, nextSlug),
+							eq(content.locale, nextLocale),
+							sql`${content.id} <> ${current.id}`,
+						),
+					)
+					.limit(1)
+				if (duplicate) {
+					return reply
+						.status(409)
+						.send({ error: 'Content with this slug and locale already exists' })
+				}
+			}
+
 			// The publish date after this update: an explicit value wins (that's how a
 			// record gets scheduled or rescheduled), otherwise going live for the first
 			// time stamps now, otherwise it stays as it was.
@@ -1314,27 +1471,39 @@ export async function contentRoutes(app: FastifyInstance) {
 				source: requestSource(request),
 			})
 
-			const html = input.markdown ? await renderMarkdown(input.markdown) : undefined
+			// Re-render whenever markdown was sent — including "" — so the cached
+			// html never outlives the body it was rendered from.
+			const html = input.markdown !== undefined ? await renderMarkdown(input.markdown) : undefined
 			const newVersion = current.version + 1
 
-			const [updated] = await app.db
-				.update(content)
-				.set({
-					...input,
-					...(cachedMetadata && { metadata: cachedMetadata }),
-					...(html && { html }),
-					version: newVersion,
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
-					// Always overrides: `...input` carries these as ISO strings, which the
-					// timestamp columns can't take.
-					publishedAt: nextPublishedAt,
-					createdAt: nextCreatedAt,
-					...(externalId && { externalId }),
-				})
-				.where(eq(content.id, request.params.id))
-				.returning()
+			let updated: typeof content.$inferSelect
+			try {
+				;[updated] = await app.db
+					.update(content)
+					.set({
+						...input,
+						...(cachedMetadata && { metadata: cachedMetadata }),
+						...(html !== undefined && { html }),
+						version: newVersion,
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+						// Always overrides: `...input` carries these as ISO strings, which the
+						// timestamp columns can't take.
+						publishedAt: nextPublishedAt,
+						createdAt: nextCreatedAt,
+						...(externalId && { externalId }),
+					})
+					.where(eq(content.id, request.params.id))
+					.returning()
+			} catch (err) {
+				if ((err as { cause?: { code?: string } })?.cause?.code === '23505') {
+					return reply
+						.status(409)
+						.send({ error: 'Content with this slug and locale already exists' })
+				}
+				throw err
+			}
 
 			const eventType = updated.status === 'published' ? 'content:published' : 'content:updated'
 			app.events.emit({
