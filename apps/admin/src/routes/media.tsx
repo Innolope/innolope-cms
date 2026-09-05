@@ -18,6 +18,7 @@ import {
 	type MediaSource,
 	PROJECT_LIBRARY_ID,
 } from '../lib/media-sources'
+import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/media')({
 	component: MediaLibrary,
@@ -66,6 +67,7 @@ function MediaLibraryContent() {
 	const [uploadOpen, setUploadOpen] = useState(false)
 	const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>(undefined)
 	const confirm = useConfirm()
+	const toast = useToast()
 	const { collections } = useCollections()
 	const { currentProject } = useAuth()
 
@@ -198,8 +200,8 @@ function MediaLibraryContent() {
 			const next = { ...selected, alt: altDraft }
 			setSelected(next)
 			setItems((prev) => prev.map((i) => (i.id === next.id ? next : i)))
-		} catch {
-			// ignore — surfaced by the disabled state staying actionable
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('mediaRoute.details.altSaveFailed'), 'error')
 		} finally {
 			setSavingAlt(false)
 		}

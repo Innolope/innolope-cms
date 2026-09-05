@@ -239,10 +239,10 @@ export async function mediaRoutes(app: FastifyInstance) {
 				// variant URL (`.../<hash>/<id>/w=1024,...`) the picker inserted — the
 				// canonical string is not a substring of those, so match on the
 				// variant-less base as well.
-				const escape = (v: string) => `%${v.replace(/([\\%_])/g, '\\$1')}%`
-				const needles = [escape(item.url)]
+				const likePattern = (v: string) => `%${v.replace(/([\\%_])/g, '\\$1')}%`
+				const needles = [likePattern(item.url)]
 				const base = /^(https:\/\/imagedelivery\.net\/[^/]+\/[^/]+)\//.exec(item.url)?.[1]
-				if (base) needles.push(escape(`${base}/`))
+				if (base) needles.push(likePattern(`${base}/`))
 				const matches = sql.join(
 					needles.map(
 						(n) => sql`(${content.markdown} LIKE ${n} OR ${content.metadata}::text LIKE ${n})`,

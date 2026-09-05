@@ -1678,7 +1678,8 @@
 			"saveAlt": "Save alt text",
 			"savingAlt": "Saving…",
 			"delete": "Delete",
-			"close": "Close"
+			"close": "Close",
+			"altSaveFailed": "Could not save the alt text"
 		},
 		"sources": {
 			"library": "Uploads"

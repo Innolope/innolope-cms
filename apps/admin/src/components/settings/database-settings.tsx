@@ -264,7 +264,12 @@ function updateUrlStep(stepName: string | null) {
 	window.history.replaceState({}, '', url.toString())
 }
 
-function saveWizardState(data: { dbType: string; connectionString: string; selectedDb: string }) {
+/**
+ * Wizard progress survives a reload, but the connection string — a database
+ * password, or a Firebase service-account key — never touches web storage: it
+ * stays in component state and is re-entered after a reload.
+ */
+function saveWizardState(data: { dbType: string; selectedDb: string }) {
 	try {
 		sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data))
 	} catch {}
@@ -272,12 +277,20 @@ function saveWizardState(data: { dbType: string; connectionString: string; selec
 
 function loadWizardState(): {
 	dbType: string
-	connectionString: string
 	selectedDb: string
 } | null {
 	try {
 		const raw = sessionStorage.getItem(STORAGE_KEY)
-		return raw ? JSON.parse(raw) : null
+		if (!raw) return null
+		const parsed = JSON.parse(raw) as Record<string, unknown>
+		// Older builds persisted the secret; scrub it on sight.
+		if ('connectionString' in parsed) {
+			sessionStorage.setItem(
+				STORAGE_KEY,
+				JSON.stringify({ dbType: parsed.dbType, selectedDb: parsed.selectedDb }),
+			)
+		}
+		return { dbType: String(parsed.dbType ?? ''), selectedDb: String(parsed.selectedDb ?? '') }
 	} catch {
 		return null
 	}
@@ -384,10 +397,7 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 		const saved = loadWizardState()
 		return saved?.dbType || 'built-in'
 	})
-	const [connectionString, setConnectionString] = useState(() => {
-		const saved = loadWizardState()
-		return saved?.connectionString || ''
-	})
+	const [connectionString, setConnectionString] = useState('')
 	const [selectedDb, setSelectedDb] = useState(() => {
 		const saved = loadWizardState()
 		return saved?.selectedDb || ''
@@ -445,9 +455,9 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 	// Persist wizard state on changes
 	useEffect(() => {
 		if (step > 0) {
-			saveWizardState({ dbType, connectionString, selectedDb })
+			saveWizardState({ dbType, selectedDb })
 		}
-	}, [dbType, connectionString, selectedDb, step])
+	}, [dbType, selectedDb, step])
 
 	const dirty = dbType !== initialDbType.current
 	const needsDbSelect = needsDbSelectFor(dbType)

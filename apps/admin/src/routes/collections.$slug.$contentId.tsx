@@ -355,7 +355,7 @@ function CollectionContentEditor() {
 	const toast = useToast()
 	const prompt = usePrompt()
 	const confirm = useConfirm()
-	const { getCollectionByName, refreshCollections } = useCollections()
+	const { getCollectionByName, refreshCollections, loading: collectionsLoading } = useCollections()
 	const { currentProject, refreshProjects } = useAuth()
 	const collection = getCollectionByName(slug)
 	const isNew = contentId === 'new'
@@ -367,8 +367,14 @@ function CollectionContentEditor() {
 	// in place would save it as a brand-new edit, which is a confusing way to
 	// discover you were not looking at the current record.
 	const [viewingVersion, setViewingVersion] = useState<number | null>(null)
+	// A viewer cannot write (the API refuses PUT/POST for that role), so the
+	// editor is read-only for them up front instead of after a rejected save.
+	const isViewer = currentProject?.role === 'viewer'
 	const isReadOnly =
-		(isExternal && collection?.accessMode === 'read-only') || isLive || viewingVersion !== null
+		(isExternal && collection?.accessMode === 'read-only') ||
+		isLive ||
+		viewingVersion !== null ||
+		isViewer
 	// Admin/owner can mutate the collection schema (e.g. append a new enum option
 	// inline from the dropdown). PATCH /api/v1/collections requires this anyway.
 	const canEditSchema = currentProject?.role === 'owner' || currentProject?.role === 'admin'
@@ -1196,6 +1202,9 @@ function CollectionContentEditor() {
 				slug: effectiveSlug,
 				markdown,
 				metadata,
+				// Same payload as save(): an edited publish/created date must not be
+				// silently dropped because the user pressed Publish instead of Save.
+				...datesPayload(),
 			})
 			await api.post(`/api/v1/content/${contentId}/publish`, {})
 			setStatus('published')
@@ -1252,6 +1261,16 @@ function CollectionContentEditor() {
 		}
 	}
 
+	// The collection may be unknown (renamed, deleted, or outside this member's
+	// allowlist): `loading` would otherwise never resolve and the pane stays
+	// blank forever. Say so instead, once the collection list has loaded.
+	if (!collection && !collectionsLoading) {
+		return (
+			<div className="p-8 pt-5">
+				<p className="text-text-secondary text-sm">{t('collections.list.notFound')}</p>
+			</div>
+		)
+	}
 	if (loading) return <div className="p-8 pt-5" />
 
 	if (loadError) {

@@ -21,8 +21,8 @@ interface SsoDiscovery {
  * Guards against open-redirect (e.g. `?next=https://evil.com`) and avoids bouncing
  * the user right back into the login flow.
  */
-function safeNextParam(): string {
-	const raw = new URLSearchParams(window.location.search).get('next')
+export function safeNextParam(search: string = window.location.search): string {
+	const raw = new URLSearchParams(search).get('next')
 	if (!raw) return '/'
 	let decoded: string
 	try {
@@ -30,9 +30,13 @@ function safeNextParam(): string {
 	} catch {
 		return '/'
 	}
-	// Must be a path starting with `/`, must not start with `//` (protocol-relative),
-	// and must not be the login flow itself.
+	// Must be a path starting with `/`, must not start with `//` (protocol-relative)
+	// or `/\` (browsers normalise the backslash to `//`), must carry no backslash
+	// or control characters anywhere, and must not be the login flow itself.
+	// Mirrors the API's sanitizeNext.
 	if (!decoded.startsWith('/') || decoded.startsWith('//')) return '/'
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is being rejected
+	if (decoded.includes('\\') || /[\u0000-\u001f]/.test(decoded)) return '/'
 	if (decoded.startsWith('/login')) return '/'
 	return decoded
 }
