@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { cfImageVariants } from '../../lib/cf-images.js'
 import { isCloudMode } from '../../lib/cloud-mode.js'
-import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
+import { getImageDimensions, isRejectedImageMime, uploadRejection } from '../../lib/image.js'
 import { getUser } from '../../plugins/auth.js'
 import {
 	MediaConfigError,
@@ -128,6 +128,11 @@ export async function mediaRoutes(app: FastifyInstance) {
 				.status(400)
 				.send({ error: `File exceeds the maximum size of ${mediaMaxSize()} bytes` })
 		}
+		// Allowlist + content sniff: a declared type outside the allowlist, or an
+		// "image" that does not decode, is refused — it would otherwise be stored
+		// under a client-chosen extension and served inline from this origin.
+		const rejection = uploadRejection(file.mimetype, buffer)
+		if (rejection) return reply.status(400).send({ error: rejection })
 
 		const [project] = await app.db
 			.select()
@@ -230,16 +235,24 @@ export async function mediaRoutes(app: FastifyInstance) {
 			// so the UI can warn with the real usage count first.
 			const force = (request.query as { force?: string }).force === 'true'
 			if (!force && item.url) {
-				const needle = `%${item.url.replace(/([\\%_])/g, '\\$1')}%`
+				// Content may reference the canonical URL or, for Cloudflare Images, a
+				// variant URL (`.../<hash>/<id>/w=1024,...`) the picker inserted — the
+				// canonical string is not a substring of those, so match on the
+				// variant-less base as well.
+				const escape = (v: string) => `%${v.replace(/([\\%_])/g, '\\$1')}%`
+				const needles = [escape(item.url)]
+				const base = /^(https:\/\/imagedelivery\.net\/[^/]+\/[^/]+)\//.exec(item.url)?.[1]
+				if (base) needles.push(escape(`${base}/`))
+				const matches = sql.join(
+					needles.map(
+						(n) => sql`(${content.markdown} LIKE ${n} OR ${content.metadata}::text LIKE ${n})`,
+					),
+					sql` OR `,
+				)
 				const [{ count }] = await app.db
 					.select({ count: sql<number>`count(*)` })
 					.from(content)
-					.where(
-						and(
-							eq(content.projectId, getProject(request).id),
-							sql`(${content.markdown} LIKE ${needle} OR ${content.metadata}::text LIKE ${needle})`,
-						),
-					)
+					.where(and(eq(content.projectId, getProject(request).id), sql`(${matches})`))
 				const referencedBy = Number(count)
 				if (referencedBy > 0) {
 					return reply.status(409).send({

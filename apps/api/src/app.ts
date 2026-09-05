@@ -381,6 +381,12 @@ export async function buildApp() {
 		root: uploadsPath,
 		prefix: '/uploads/',
 		decorateReply: false,
+		// Uploads are user content served from the API origin: never let one run
+		// as a document here, whatever it turns out to contain.
+		setHeaders: (res) => {
+			res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'")
+			res.setHeader('X-Content-Type-Options', 'nosniff')
+		},
 	})
 
 	// Serve admin UI static files in production (cloud deployment)

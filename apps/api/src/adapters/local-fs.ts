@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MediaAdapter, UploadResult } from '@innolope/types'
+import { EXTENSION_FOR_MIME } from '../lib/image.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 
@@ -14,7 +15,9 @@ export class LocalFsAdapter implements MediaAdapter {
 		await mkdir(UPLOAD_DIR, { recursive: true })
 
 		const id = randomUUID()
-		const ext = filename.split('.').pop() || 'bin'
+		// The stored extension follows the validated MIME type, so the static
+		// server never serves a client-chosen `.svg`/`.html` name from this origin.
+		const ext = EXTENSION_FOR_MIME[mimeType] ?? 'bin'
 		const storedName = `${id}.${ext}`
 		const filePath = join(UPLOAD_DIR, storedName)
 
