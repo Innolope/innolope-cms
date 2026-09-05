@@ -133,6 +133,7 @@ const dateBound = z
 
 export const contentListSchema = z.object({
 	collectionId: z.string().uuid().optional(),
+	slug: z.string().min(1).max(200).optional(),
 	status: z.enum(CONTENT_STATUSES).optional(),
 	locale: z.string().optional(),
 	search: z.string().optional(),

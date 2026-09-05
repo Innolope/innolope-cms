@@ -14,6 +14,8 @@ import { and, eq, inArray, type SQL, sql } from 'drizzle-orm'
 /** The filter half of `contentListSchema` — paging and sorting play no part here. */
 export interface ContentFilterParams {
 	collectionId?: string
+	/** Exact slug match. */
+	slug?: string
 	status?: 'draft' | 'pending_review' | 'published' | 'archived' | 'scheduled'
 	locale?: string
 	search?: string
@@ -44,6 +46,7 @@ export function buildContentConditions(
 
 	if (params.status) conditions.push(eq(content.status, params.status) as SQL)
 	if (params.collectionId) conditions.push(eq(content.collectionId, params.collectionId) as SQL)
+	if (params.slug) conditions.push(eq(content.slug, params.slug) as SQL)
 	if (!params.collectionId && opts.scopedCollectionIds) {
 		conditions.push(inArray(content.collectionId, opts.scopedCollectionIds) as SQL)
 	}

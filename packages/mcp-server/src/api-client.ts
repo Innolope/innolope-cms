@@ -12,8 +12,65 @@ import { httpRequest } from '@innolope/sdk'
  * leave it empty, so the caller still gets a clear server-side error rather
  * than a silently blank slug.
  */
+const CYRILLIC: Record<string, string> = {
+	а: 'a',
+	б: 'b',
+	в: 'v',
+	г: 'h',
+	ґ: 'g',
+	д: 'd',
+	е: 'e',
+	є: 'ye',
+	ё: 'yo',
+	ж: 'zh',
+	з: 'z',
+	и: 'y',
+	і: 'i',
+	ї: 'yi',
+	й: 'y',
+	к: 'k',
+	л: 'l',
+	м: 'm',
+	н: 'n',
+	о: 'o',
+	п: 'p',
+	р: 'r',
+	с: 's',
+	т: 't',
+	у: 'u',
+	ф: 'f',
+	х: 'kh',
+	ц: 'ts',
+	ч: 'ch',
+	ш: 'sh',
+	щ: 'shch',
+	ъ: '',
+	ы: 'y',
+	ь: '',
+	э: 'e',
+	ю: 'yu',
+	я: 'ya',
+}
+
+/** Latin rendering of Cyrillic text (Ukrainian national standard; Russian letters covered). */
+function transliterate(text: string): string {
+	return text.replace(/[\u0400-\u04ff]/g, (ch) => CYRILLIC[ch.toLowerCase()] ?? '')
+}
+
+/** A record's title as a plain string — a field-level locale map yields its English or first value. */
+export function titleString(title: unknown): string | undefined {
+	if (typeof title === 'string') return title
+	if (title && typeof title === 'object' && !Array.isArray(title)) {
+		const map = title as Record<string, unknown>
+		const preferred =
+			map.en ?? map['en-US'] ?? Object.values(map).find((v) => typeof v === 'string')
+		return typeof preferred === 'string' ? preferred : undefined
+	}
+	return undefined
+}
+
 export function slugify(slug: string): string {
-	const normalized = slug
+	const normalized = transliterate(slug)
 		.normalize('NFKD') // split accented chars into base + diacritic
 		.replace(/[̀-ͯ]/g, '') // strip the diacritics
 		.toLowerCase()
@@ -21,7 +78,10 @@ export function slugify(slug: string): string {
 		.replace(/[^a-z0-9_]+/g, '-') // any other run of non-alphanumerics → single hyphen
 		.replace(/[-_]*-[-_]*/g, '-') // mixed separator runs collapse to one hyphen
 		.replace(/^[-_]+|[-_]+$/g, '') // trim leading/trailing separators
-	return normalized || slug
+	if (normalized) return normalized
+	// Nothing survived (e.g. CJK text): a generated, valid slug beats a server
+	// rejection the agent cannot fix without hand-authoring Latin text.
+	return `item-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
 /** First ATX heading (`# ...`) in the markdown, else the first non-empty line. */
@@ -48,7 +108,7 @@ export function resolveSlug(input: {
 	markdown?: string
 }): string {
 	if (input.slug?.trim()) return slugify(input.slug)
-	const title = typeof input.metadata?.title === 'string' ? input.metadata.title : undefined
+	const title = titleString(input.metadata?.title)
 	const source = title || (input.markdown ? firstMarkdownHeading(input.markdown) : undefined) || ''
 	const derived = slugify(source)
 	if (!derived) {

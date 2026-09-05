@@ -11,18 +11,23 @@ import type {
 interface InnolopeConfig {
 	baseUrl: string
 	apiKey?: string
+	/**
+	 * Locale added to every content request that does not name one. Leave it
+	 * unset to read every locale — the API does not default to "en", and a
+	 * project configured with other locales would otherwise return nothing.
+	 */
 	locale?: string
 }
 
 export class InnolopeCMS {
 	private baseUrl: string
 	private apiKey?: string
-	private defaultLocale: string
+	private defaultLocale?: string
 
 	constructor(config: InnolopeConfig) {
 		this.baseUrl = config.baseUrl.replace(/\/$/, '')
 		this.apiKey = config.apiKey
-		this.defaultLocale = config.locale || 'en'
+		this.defaultLocale = config.locale
 	}
 
 	private async request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -38,7 +43,7 @@ export class InnolopeCMS {
 				if (value !== undefined) query.set(key, String(value))
 			}
 		}
-		if (!params?.locale) query.set('locale', this.defaultLocale)
+		if (!params?.locale && this.defaultLocale) query.set('locale', this.defaultLocale)
 		const qs = query.toString()
 		return this.request<ContentListResponse>(`/api/v1/content${qs ? `?${qs}` : ''}`)
 	}
@@ -49,11 +54,9 @@ export class InnolopeCMS {
 	}
 
 	async getContentBySlug(slug: string, locale?: string): Promise<Content | null> {
-		const result = await this.getContent({
-			search: slug,
-			locale: locale || this.defaultLocale,
-			limit: 1,
-		})
+		// Exact slug filter — a full-text search could rank a longer slug that
+		// merely contains this one above the record itself.
+		const result = await this.getContent({ slug, locale: locale || this.defaultLocale, limit: 1 })
 		return result.data.find((item) => item.slug === slug) || null
 	}
 

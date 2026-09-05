@@ -313,6 +313,58 @@ function isPrivateAddress(address: string): boolean {
 	return ipv4IsPrivate(o)
 }
 
+const SENSITIVE_KEY = /connection|secret|token|password|passwd|credential|apikey|api_key|private/i
+
+/**
+ * Deep-copy `value` with every secret-bearing field replaced, so tool
+ * arguments can be reported to analytics without exporting credentials.
+ */
+export function redactSensitive<T>(value: T, depth = 0): T {
+	if (depth > 6) return value
+	if (Array.isArray(value)) return value.map((v) => redactSensitive(v, depth + 1)) as T
+	if (value && typeof value === 'object') {
+		const out: Record<string, unknown> = {}
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			out[k] = SENSITIVE_KEY.test(k) ? '[redacted]' : redactSensitive(v, depth + 1)
+		}
+		return out as T
+	}
+	if (
+		typeof value === 'string' &&
+		value.trimStart().startsWith('{') &&
+		/private_key|client_secret/.test(value)
+	) {
+		return '[redacted]' as T
+	}
+	return value
+}
+
+/**
+ * Bound a metadata object to a byte budget for structuredContent: long string
+ * values are cut first, then whole oversized values are replaced with a size
+ * note. Returns the (possibly reduced) object and whether anything was cut.
+ */
+export function capMetadata(
+	metadata: Record<string, unknown>,
+	maxBytes: number,
+): { metadata: Record<string, unknown>; truncated: boolean } {
+	const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v) ?? '', 'utf8')
+	if (size(metadata) <= maxBytes) return { metadata, truncated: false }
+	const out: Record<string, unknown> = {}
+	for (const [k, v] of Object.entries(metadata)) {
+		out[k] = typeof v === 'string' && v.length > 200 ? `${v.slice(0, 200)}… [truncated]` : v
+	}
+	if (size(out) <= maxBytes) return { metadata: out, truncated: true }
+	// Still too big: drop the largest values until it fits.
+	const entries = Object.entries(out).sort((a, b) => size(b[1]) - size(a[1]))
+	for (const [k, v] of entries) {
+		out[k] =
+			`[truncated: ${size(v)} bytes — read this field via get_content with a larger maxBytes]`
+		if (size(out) <= maxBytes) break
+	}
+	return { metadata: out, truncated: true }
+}
+
 /**
  * Bounded probe for check_media — a hung CDN must not hang the tool call.
  * Redirects are followed by hand so every hop is screened by `isPrivateHost`.
@@ -445,8 +497,16 @@ export function registerTools(
 	client: InnolopeClient,
 	options: RegisterToolsOptions = {},
 ): void {
+	// Any conventional truthy spelling enables read-only mode; a misspelling
+	// must not silently register every mutating tool. The effective mode is
+	// logged (stderr — stdout is the MCP channel) so a misconfiguration is visible.
 	const readOnly =
-		options.readOnly ?? ['1', 'true'].includes(process.env.INNOLOPE_MCP_READ_ONLY ?? '')
+		options.readOnly ?? /^(1|true|yes|on)$/i.test((process.env.INNOLOPE_MCP_READ_ONLY ?? '').trim())
+	if (process.env.INNOLOPE_MCP_READ_ONLY !== undefined && options.readOnly === undefined) {
+		console.error(
+			`[innolope-mcp] INNOLOPE_MCP_READ_ONLY=${JSON.stringify(process.env.INNOLOPE_MCP_READ_ONLY)} → read-only mode ${readOnly ? 'ON' : 'OFF'}`,
+		)
+	}
 	const disabled = new Set(
 		options.disabledTools ??
 			(process.env.INNOLOPE_MCP_DISABLED_TOOLS ?? '')
@@ -498,7 +558,9 @@ export function registerTools(
 
 		const handler = async (args: z.objectOutputType<Shape, z.ZodTypeAny>): Promise<ToolResult> => {
 			const start = Date.now()
-			const params = args as Record<string, unknown>
+			// Analytics only ever sees redacted arguments: connection strings,
+			// service-account JSON and tokens must not leave the process.
+			const params = redactSensitive(args as Record<string, unknown>)
 			try {
 				let result: ToolResult
 				try {
@@ -1145,10 +1207,13 @@ export function registerTools(
 			locale: z.string().nullable(),
 			externalId: z.string().nullable(),
 			metadata: z.record(z.unknown()),
+			metadataTruncated: z.boolean().optional(),
 			markdown: z.string(),
 		},
 		handler: async ({ id, collectionId, maxBytes }) => {
 			const item = await client.getContent(id, collectionId)
+			const budget = maxBytes ?? DEFAULT_CONTENT_BYTES
+			const cappedMetadata = capMetadata(item.metadata ?? {}, budget)
 			// Track what the CMS resolved, not what the caller typed. An external
 			// record fetched by its source id comes back with the local uuid its
 			// cache row holds, and only that can be attributed in analytics —
@@ -1181,14 +1246,17 @@ export function registerTools(
 					title,
 					locale: item.locale ?? null,
 					externalId: item.externalId ?? null,
-					metadata: item.metadata ?? {},
+					// The same budget bounds metadata: an imported record can carry
+					// megabytes here, and structured output is what clients parse.
+					metadata: cappedMetadata.metadata,
+					...(cappedMetadata.truncated && { metadataTruncated: true }),
 					// Clients that prefer structured output never render the text
 					// channel, so the body must be here too — capped by the same
 					// budget or a huge article would blow the response size.
 					markdown: capText(
 						item.markdown,
 						'Re-call get_content with a larger maxBytes to see more.',
-						maxBytes ?? DEFAULT_CONTENT_BYTES,
+						budget,
 					),
 				},
 			}
@@ -1806,19 +1874,47 @@ export function registerTools(
 			try {
 				const col = await client.getCollection(item.collectionId)
 				const relationFields = col.fields.filter((f) => f.type === 'relation')
-				for (const field of relationFields) {
-					const relatedId = (item.metadata as Record<string, unknown>)?.[field.name]
-					if (typeof relatedId === 'string') {
+				// The API already hydrates relation fields (depth=1): a linked record
+				// arrives as an object, only a dangling reference stays a string.
+				type RelatedLike = {
+					id: string
+					slug?: string | null
+					metadata?: Record<string, unknown>
+					locale?: string | null
+				}
+				const summarizeRelated = (related: RelatedLike) => ({
+					id: related.id,
+					slug: related.slug ?? null,
+					title:
+						displayTitle(related.metadata ?? {}, related.locale ?? null) ??
+						related.slug ??
+						related.id,
+				})
+				const resolveOne = async (value: unknown) => {
+					if (
+						value &&
+						typeof value === 'object' &&
+						typeof (value as { id?: unknown }).id === 'string'
+					) {
+						return summarizeRelated(value as RelatedLike)
+					}
+					if (typeof value === 'string') {
 						try {
-							const related = await client.getContent(relatedId)
-							relations[field.name] = {
-								id: related.id,
-								slug: related.slug,
-								title: displayTitle(related.metadata, related.locale) ?? related.slug ?? related.id,
-							}
+							return summarizeRelated(await client.getContent(value))
 						} catch {
-							/* relation target may not exist */
+							return null /* relation target may not exist */
 						}
+					}
+					return null
+				}
+				for (const field of relationFields) {
+					const raw = (item.metadata as Record<string, unknown>)?.[field.name]
+					if (Array.isArray(raw)) {
+						const resolved = (await Promise.all(raw.map(resolveOne))).filter(Boolean)
+						if (resolved.length > 0) relations[field.name] = resolved
+					} else {
+						const resolved = await resolveOne(raw)
+						if (resolved) relations[field.name] = resolved
 					}
 				}
 			} catch {
@@ -1835,9 +1931,15 @@ export function registerTools(
 			]
 			if (Object.keys(relations).length > 0) {
 				parts.push(``, `**Relations:**`)
+				type Rel = { id: string; slug: string | null; title: string }
+				const line = (r: Rel) => `${r.title} (${r.slug ?? 'no slug'}, id: ${r.id})`
 				for (const [field, rel] of Object.entries(relations)) {
-					const r = rel as { id: string; slug: string; title: string }
-					parts.push(`  - ${field}: ${r.title} (${r.slug}, id: ${r.id})`)
+					if (Array.isArray(rel)) {
+						parts.push(`  - ${field}:`)
+						for (const r of rel as Rel[]) parts.push(`    - ${line(r)}`)
+					} else {
+						parts.push(`  - ${field}: ${line(rel as Rel)}`)
+					}
 				}
 			}
 			parts.push(...renderMetadataBlock(item.metadata))

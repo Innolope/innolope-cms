@@ -330,14 +330,27 @@ export async function statsRoutes(app: FastifyInstance) {
 }
 
 /** Strip large content fields from MCP tool params before sending to PostHog */
+const SENSITIVE_PARAM = /connection|secret|token|password|passwd|credential|apikey|api_key|private/i
+
+/**
+ * Analytics must never carry credentials or bodies. Secret-bearing keys are
+ * redacted (the MCP server redacts too — this is the last line before PostHog),
+ * bodies are reduced to their size, nested objects get the same treatment.
+ */
 function sanitizeMcpParams(params?: Record<string, unknown>): Record<string, unknown> | undefined {
 	if (!params) return undefined
 	const safe: Record<string, unknown> = {}
 	for (const [key, value] of Object.entries(params)) {
-		if (key === 'markdown' || key === 'content') {
+		if (SENSITIVE_PARAM.test(key)) {
+			safe[key] = '[redacted]'
+		} else if (key === 'markdown' || key === 'content') {
 			safe[key] = typeof value === 'string' ? `[${value.length} chars]` : undefined
 		} else if (key === 'items' && Array.isArray(value)) {
 			safe[key] = `[${value.length} items]`
+		} else if (value && typeof value === 'object' && !Array.isArray(value)) {
+			safe[key] = sanitizeMcpParams(value as Record<string, unknown>)
+		} else if (typeof value === 'string' && value.length > 500) {
+			safe[key] = `[${value.length} chars]`
 		} else {
 			safe[key] = value
 		}

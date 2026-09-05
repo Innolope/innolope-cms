@@ -15,6 +15,8 @@ export interface Content {
 
 export interface ContentListParams {
 	collectionId?: string
+	/** Exact slug match. */
+	slug?: string
 	status?: 'draft' | 'published' | 'archived'
 	locale?: string
 	search?: string
