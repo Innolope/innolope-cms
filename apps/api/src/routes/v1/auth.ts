@@ -43,6 +43,9 @@ export async function projectForRequestHost(
 	return project ?? null
 }
 
+/** Serializable retries for first-admin registration before answering 503. */
+const REGISTER_ATTEMPTS = 8
+
 export async function authRoutes(app: FastifyInstance) {
 	// Resolve the project bound to the request's custom domain (public).
 	// The admin SPA calls this on load to enter project-locked mode.
@@ -78,7 +81,8 @@ export async function authRoutes(app: FastifyInstance) {
 
 			const passwordHash = await hashPassword(password)
 			let user: typeof users.$inferSelect | undefined
-			for (let attempt = 0; attempt < 3; attempt++) {
+			let settled = false
+			for (let attempt = 0; attempt < REGISTER_ATTEMPTS && !settled; attempt++) {
 				try {
 					user = await app.db.transaction(
 						async (tx) => {
@@ -92,12 +96,20 @@ export async function authRoutes(app: FastifyInstance) {
 						},
 						{ isolationLevel: 'serializable' },
 					)
-					break
+					settled = true
 				} catch (err) {
-					// 40001 = serialization failure: another registration raced us. Re-run;
-					// the retry sees the committed admin row and returns 403 below.
-					const code = (err as { code?: string }).code
-					if (code !== '40001' || attempt === 2) throw err
+					// 40001 = serialization failure: another registration (or any other
+					// concurrent write to `users`) raced us. Back off briefly and re-run;
+					// a retry after a committed admin row returns 403 below.
+					const code =
+						(err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code
+					if (code !== '40001') throw err
+					if (attempt === REGISTER_ATTEMPTS - 1) {
+						return reply
+							.status(503)
+							.send({ error: 'Registration is busy — please retry in a moment.' })
+					}
+					await new Promise((r) => setTimeout(r, 25 + Math.random() * 75 * (attempt + 1)))
 				}
 			}
 			if (!user) {

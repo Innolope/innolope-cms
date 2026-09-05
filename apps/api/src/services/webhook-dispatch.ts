@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
-import { and, eq, lte, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { safeFetch, validatePublicUrl } from '../adapters/connection-guard.js'
 import { decryptSecret } from '../lib/crypto.js'
