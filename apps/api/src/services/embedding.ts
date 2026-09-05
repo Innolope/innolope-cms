@@ -108,15 +108,45 @@ export async function embedContent(
 			}
 		})
 	} catch (err) {
-		app.log.warn(err, `Failed to embed content ${contentId}`)
+		// Let the caller's retry wrapper see the failure; it decides whether to
+		// back off or give up. Swallowing here made the retry dead code.
+		throw err instanceof Error ? err : new Error(String(err))
 	}
+}
+
+let embeddingsTableKnown: boolean | null = null
+
+/**
+ * True when the `content_embeddings` table exists. ensureTables creates it
+ * best-effort (pgvector may be absent), so semantic search and auto-embedding
+ * must degrade instead of 500-ing — cached after the first check.
+ */
+export async function embeddingsAvailable(app: FastifyInstance): Promise<boolean> {
+	if (embeddingsTableKnown !== null) return embeddingsTableKnown
+	try {
+		const rows = (await app.db.execute(
+			sql`SELECT to_regclass('public.content_embeddings') AS t`,
+		)) as unknown as { t: string | null }[]
+		embeddingsTableKnown = Boolean(rows[0]?.t)
+	} catch {
+		embeddingsTableKnown = false
+	}
+	return embeddingsTableKnown
 }
 
 export function initAutoEmbedding(app: FastifyInstance) {
 	if (!app.db) return
 
 	const unsubscribe = app.events.subscribe(async (event) => {
-		if (event.type !== 'content:created' && event.type !== 'content:updated') return
+		// A publish-path edit of an already-published record emits only
+		// `content:published`, so it must refresh the vector too.
+		if (
+			event.type !== 'content:created' &&
+			event.type !== 'content:updated' &&
+			event.type !== 'content:published'
+		)
+			return
+		if (!(await embeddingsAvailable(app))) return
 
 		const projectId = event.data.projectId as string
 		const contentId = event.data.id as string

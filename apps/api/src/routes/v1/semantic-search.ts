@@ -8,7 +8,7 @@ import {
 } from '../../lib/collection-access.js'
 import { getProject } from '../../plugins/project.js'
 import type { AiProviderConfig } from '../../services/ai.js'
-import { generateEmbeddings } from '../../services/embedding.js'
+import { embeddingsAvailable, generateEmbeddings } from '../../services/embedding.js'
 
 const semanticSearchSchema = z.object({
 	query: z.string().min(1).max(1000),
@@ -57,6 +57,13 @@ export async function semanticSearchRoutes(app: FastifyInstance) {
 				return reply.status(400).send({
 					error:
 						'OpenAI API key is required for semantic search. Configure it in Settings > AI Models.',
+				})
+			}
+
+			if (!(await embeddingsAvailable(app))) {
+				return reply.status(503).send({
+					error:
+						'Semantic search is unavailable: the pgvector extension is not installed on this database.',
 				})
 			}
 

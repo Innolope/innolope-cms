@@ -32,7 +32,9 @@ export function initWebhookDispatcher(app: FastifyInstance) {
 				const subscribedEvents = webhook.events as string[]
 				if (subscribedEvents.length > 0 && !subscribedEvents.includes(event.type)) continue
 
-				// Create delivery record and dispatch
+				// Create delivery record and dispatch. `nextRetry` doubles as a lease
+				// while the delivery is in flight, so a sibling instance's sweep leaves
+				// it alone until the lease lapses.
 				const [delivery] = await app.db
 					.insert(webhookDeliveries)
 					.values({
@@ -41,6 +43,7 @@ export function initWebhookDispatcher(app: FastifyInstance) {
 						payload: { type: event.type, data: event.data, timestamp: event.timestamp },
 						status: 'pending',
 						attempts: 0,
+						nextRetry: new Date(Date.now() + IN_FLIGHT_LEASE_MS),
 					})
 					.returning()
 
@@ -237,6 +240,10 @@ function decryptCustomHeaders(
 	return headers
 }
 
+/** How long a claimed delivery may stay `pending` before another sweep may re-drive it. */
+const IN_FLIGHT_LEASE_MS = 5 * 60_000
+const MAX_ATTEMPTS = 3
+
 function getNextRetry(attempts: number): Date | null {
 	if (attempts >= 3) return null // Give up after 3 attempts
 	const delays = [60_000, 300_000, 1_800_000] // 1min, 5min, 30min
@@ -244,32 +251,58 @@ function getNextRetry(attempts: number): Date | null {
 	return new Date(Date.now() + delay)
 }
 
+/**
+ * Re-drive deliveries that are due: `failed` rows whose backoff has elapsed,
+ * and `pending` rows whose in-flight lease lapsed (a crash or restart mid
+ * dispatch). Each row is claimed with a conditional UPDATE — a compare-and-set
+ * that exactly one instance wins — so two API replicas never send the same
+ * delivery twice.
+ */
 async function retryFailedDeliveries(app: FastifyInstance) {
 	if (!app.db) return
 
+	const now = new Date()
+	const webhookColumns = {
+		id: webhooks.id,
+		url: webhooks.url,
+		secret: webhooks.secret,
+		headersEnc: webhooks.headersEnc,
+		customPayload: webhooks.customPayload,
+	}
 	const pending = await app.db
-		.select({
-			delivery: webhookDeliveries,
-			webhook: {
-				id: webhooks.id,
-				url: webhooks.url,
-				secret: webhooks.secret,
-				headersEnc: webhooks.headersEnc,
-				customPayload: webhooks.customPayload,
-			},
-		})
+		.select({ delivery: webhookDeliveries, webhook: webhookColumns })
 		.from(webhookDeliveries)
 		.innerJoin(webhooks, eq(webhookDeliveries.webhookId, webhooks.id))
 		.where(
 			and(
-				eq(webhookDeliveries.status, 'failed'),
-				sql`${webhookDeliveries.nextRetry} IS NOT NULL`,
-				lte(webhookDeliveries.nextRetry, new Date()),
+				sql`${webhookDeliveries.attempts} < ${MAX_ATTEMPTS}`,
+				sql`(
+					(${webhookDeliveries.status} = 'failed' AND ${webhookDeliveries.nextRetry} IS NOT NULL AND ${webhookDeliveries.nextRetry} <= ${now})
+					OR
+					(${webhookDeliveries.status} = 'pending' AND (${webhookDeliveries.nextRetry} IS NULL OR ${webhookDeliveries.nextRetry} <= ${now}))
+				)`,
 			),
 		)
 		.limit(50)
 
 	for (const { delivery, webhook } of pending) {
+		// Claim: only the instance whose UPDATE matches the row's current state
+		// proceeds; the lease keeps every other sweep off it while it is sent.
+		const claimed = await app.db
+			.update(webhookDeliveries)
+			.set({ status: 'pending', nextRetry: new Date(Date.now() + IN_FLIGHT_LEASE_MS) })
+			.where(
+				and(
+					eq(webhookDeliveries.id, delivery.id),
+					eq(webhookDeliveries.status, delivery.status),
+					eq(webhookDeliveries.attempts, delivery.attempts),
+					delivery.nextRetry
+						? eq(webhookDeliveries.nextRetry, delivery.nextRetry)
+						: sql`${webhookDeliveries.nextRetry} IS NULL`,
+				),
+			)
+			.returning({ id: webhookDeliveries.id })
+		if (claimed.length === 0) continue
 		await dispatchDelivery(app, webhook, delivery).catch((err) => {
 			app.log.error(err, `Webhook retry delivery failed for ${webhook.id}`)
 		})

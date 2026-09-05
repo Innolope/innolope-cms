@@ -1,5 +1,5 @@
 import { content } from '@innolope/db'
-import { and, asc, eq, isNotNull, lte } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, lte, notInArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { syncExternalStatus } from './external-content.js'
 
@@ -12,6 +12,32 @@ const POLL_INTERVAL_MS = 60_000
 
 /** Cap per tick so one enormous backlog can't hold the event loop. */
 const BATCH_SIZE = 50
+
+/**
+ * Rows whose external sync keeps failing are backed off (1 min doubling to an
+ * hour) and excluded from the next ticks' batch, so a dead connection on one
+ * collection cannot pin the 50-row window and starve every other scheduled
+ * post on the instance. In-memory on purpose: a restart simply retries.
+ */
+const deferredUntil = new Map<string, { until: number; failures: number }>()
+const MAX_DEFER_MS = 60 * 60_000
+const MAX_DEFERRED_EXCLUSIONS = 500
+
+function noteFailure(id: string) {
+	const prev = deferredUntil.get(id)
+	const failures = (prev?.failures ?? 0) + 1
+	const delay = Math.min(60_000 * 2 ** (failures - 1), MAX_DEFER_MS)
+	deferredUntil.set(id, { until: Date.now() + delay, failures })
+}
+
+function currentlyDeferred(): string[] {
+	const now = Date.now()
+	const ids: string[] = []
+	for (const [id, entry] of deferredUntil) {
+		if (entry.until > now) ids.push(id)
+	}
+	return ids
+}
 
 /**
  * Publishes content whose scheduled moment has passed.
@@ -59,6 +85,7 @@ export function initScheduledPublisher(app: FastifyInstance) {
  * Returns the number of records published.
  */
 export async function publishDueContent(app: FastifyInstance): Promise<number> {
+	const deferred = currentlyDeferred()
 	const due = await app.db
 		.select()
 		.from(content)
@@ -67,6 +94,9 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 				eq(content.status, 'scheduled'),
 				isNotNull(content.publishedAt),
 				lte(content.publishedAt, new Date()),
+				...(deferred.length > 0 && deferred.length <= MAX_DEFERRED_EXCLUSIONS
+					? [notInArray(content.id, deferred)]
+					: []),
 			),
 		)
 		.orderBy(asc(content.publishedAt))
@@ -93,11 +123,13 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 				)
 			}
 		} catch (err) {
-			// Leave the row scheduled and try again next tick — an external database
+			// Leave the row scheduled and try again later — an external database
 			// that is briefly unreachable must not silently publish only locally.
+			noteFailure(item.id)
 			app.log.warn({ err, contentId: item.id }, 'Scheduled publish: external sync failed')
 			continue
 		}
+		deferredUntil.delete(item.id)
 
 		const [updated] = await app.db
 			.update(content)
