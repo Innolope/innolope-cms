@@ -1,6 +1,6 @@
 import { type CollectionField, externalStatusSupport } from '@innolope/config'
 import { collections, content, contentVersions, importJobs, projects } from '@innolope/db'
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import {
@@ -184,6 +184,8 @@ export async function collectionRoutes(app: FastifyInstance) {
 						processed: importJobs.processed,
 						total: importJobs.total,
 						error: importJobs.error,
+						createdAt: importJobs.createdAt,
+						startedAt: importJobs.startedAt,
 						updatedAt: importJobs.updatedAt,
 					})
 					.from(importJobs)
@@ -195,7 +197,32 @@ export async function collectionRoutes(app: FastifyInstance) {
 					)
 					.orderBy(desc(importJobs.createdAt))
 					.limit(1)
-				return job ?? null
+				if (!job) return null
+
+				let queueAhead = 0
+				if (job.status === 'pending') {
+					const [ahead] = await app.db
+						.select({ count: sql<number>`cast(count(*) as int)` })
+						.from(importJobs)
+						.where(
+							and(
+								eq(importJobs.projectId, getProject(request).id),
+								inArray(importJobs.status, ['pending', 'running']),
+								lt(importJobs.createdAt, job.createdAt),
+							),
+						)
+					queueAhead = ahead?.count ?? 0
+				}
+
+				return {
+					status: job.status,
+					processed: job.processed,
+					total: job.total,
+					error: job.error,
+					startedAt: job.startedAt,
+					updatedAt: job.updatedAt,
+					queueAhead,
+				}
 			} catch (err) {
 				// `import_jobs` may be missing/unreadable — report "no job" instead of 500.
 				app.log.warn(err, 'import-status query failed')

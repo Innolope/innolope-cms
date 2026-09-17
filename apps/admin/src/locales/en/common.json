@@ -1205,6 +1205,18 @@
 				"overwrite": "Overwrite local cache"
 			},
 			"import": {
+				"queued": "Import queued",
+				"caching": "Caching content from the external database",
+				"progressLabel": "Content import progress",
+				"queueAhead_one": "Waiting for 1 collection ahead of this one.",
+				"queueAhead_other": "Waiting for {{count}} collections ahead of this one.",
+				"queueNext": "Next in line — the import will start automatically.",
+				"counting": "Connected — counting records before caching starts.",
+				"records": "{{processed}} of {{total}} records cached",
+				"finalizing": "All records cached — finishing setup.",
+				"etaUnderMinute": "Less than 1 min remaining",
+				"eta": "About {{minutes}} min remaining",
+				"availableWhileImporting": "You can browse records now. Search, filters, and editing unlock when caching finishes.",
 				"progress": "Importing content from the external database — {{processed}} of {{total}} records cached. The full collection is browsable now; search, filtering, and editing become available once the import finishes.",
 				"progressUnknownTotal": "Importing content from the external database — {{processed}} records cached. The full collection is browsable now; search, filtering, and editing become available once the import finishes.",
 				"failed": "Content import did not finish. Some records may be missing — re-run the import from the database settings, or use Sync.",

@@ -67,6 +67,35 @@ interface ImportStatus {
 	processed: number
 	total: number | null
 	error: string | null
+	queueAhead?: number
+	startedAt: string | null
+	updatedAt: string
+}
+
+function importProgressPercent(status: ImportStatus): number | null {
+	if (status.status !== 'running' || status.total == null) return null
+	if (status.total <= 0) return 100
+	return Math.min(100, Math.max(0, Math.round((status.processed / status.total) * 100)))
+}
+
+/** Estimate from completed rows over this run's elapsed processing time. */
+function importEtaMinutes(status: ImportStatus): number | null {
+	if (
+		status.status !== 'running' ||
+		status.total == null ||
+		status.total <= status.processed ||
+		status.processed <= 0 ||
+		!status.startedAt
+	) {
+		return null
+	}
+	const started = Date.parse(status.startedAt)
+	const updated = Date.parse(status.updatedAt)
+	const elapsedSeconds = (updated - started) / 1000
+	if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0) return null
+	const remainingSeconds = (elapsedSeconds / status.processed) * (status.total - status.processed)
+	if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) return null
+	return remainingSeconds < 60 ? 0 : Math.ceil(remainingSeconds / 60)
 }
 
 interface SyncPreviewItem {
@@ -728,6 +757,8 @@ function CollectionContentList() {
 
 	const showToolbar = total > 0 || search || hasActiveFilters
 	const importActive = importStatus?.status === 'pending' || importStatus?.status === 'running'
+	const importPercent = importStatus ? importProgressPercent(importStatus) : null
+	const importEta = importStatus ? importEtaMinutes(importStatus) : null
 
 	return (
 		<div className="p-8 pt-5 flex flex-col min-h-full">
@@ -822,30 +853,73 @@ function CollectionContentList() {
 			{tab === 'all' ? (
 				<>
 					{importActive && (
-						<div className="flex items-start gap-2 px-4 py-2.5 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
-							<svg
-								width="14"
-								height="14"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								className="mt-0.5 shrink-0 text-text-muted animate-spin"
+						<div className="px-4 py-3 mb-4 rounded-lg bg-surface-alt border border-border text-xs text-text-secondary">
+							<div className="flex items-center justify-between gap-3 mb-2">
+								<div className="flex items-center gap-2 min-w-0">
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="shrink-0 text-text-muted animate-spin"
+									>
+										<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+									</svg>
+									<span className="font-medium text-text truncate">
+										{importStatus?.status === 'pending'
+											? t('collections.list.import.queued')
+											: t('collections.list.import.caching')}
+									</span>
+								</div>
+								{importPercent != null && (
+									<span className="font-medium tabular-nums text-text">{importPercent}%</span>
+								)}
+							</div>
+							<div
+								role="progressbar"
+								aria-label={t('collections.list.import.progressLabel')}
+								aria-valuemin={0}
+								aria-valuemax={100}
+								aria-valuenow={importPercent ?? undefined}
+								className="h-2 overflow-hidden rounded-full bg-border"
 							>
-								<path d="M21 12a9 9 0 1 1-6.219-8.56" />
-							</svg>
-							<span>
-								{importStatus?.total != null
-									? t('collections.list.import.progress', {
-											processed: importStatus.processed,
-											total: importStatus.total,
-										})
-									: t('collections.list.import.progressUnknownTotal', {
-											processed: importStatus?.processed ?? 0,
-										})}
-							</span>
+								<div
+									className={`h-full rounded-full bg-accent transition-[width] duration-500 ${importPercent == null ? 'animate-pulse' : ''}`}
+									style={{ width: importPercent == null ? '30%' : `${importPercent}%` }}
+								/>
+							</div>
+							<div className="flex items-center justify-between gap-3 mt-2 text-text-muted">
+								<span>
+									{importStatus?.status === 'pending'
+										? (importStatus.queueAhead ?? 0) > 0
+											? t('collections.list.import.queueAhead', {
+													count: importStatus.queueAhead ?? 0,
+												})
+											: t('collections.list.import.queueNext')
+										: importStatus?.total == null
+											? t('collections.list.import.counting')
+											: importStatus.processed >= importStatus.total
+												? t('collections.list.import.finalizing')
+												: t('collections.list.import.records', {
+														processed: importStatus.processed,
+														total: importStatus.total,
+													})}
+								</span>
+								{importEta != null && (
+									<span className="shrink-0 tabular-nums">
+										{importEta === 0
+											? t('collections.list.import.etaUnderMinute')
+											: t('collections.list.import.eta', { minutes: importEta })}
+									</span>
+								)}
+							</div>
+							<p className="mt-2 text-text-secondary">
+								{t('collections.list.import.availableWhileImporting')}
+							</p>
 						</div>
 					)}
 					{importStatus?.status === 'failed' && (
