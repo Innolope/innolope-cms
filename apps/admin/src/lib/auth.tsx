@@ -8,6 +8,7 @@ import {
 	useState,
 } from 'react'
 import { getCsrfToken } from './api-client'
+import { signOutFirebaseIfInitialized } from './firebase-auth'
 
 interface User {
 	id: string
@@ -44,7 +45,14 @@ interface AuthState {
 	domainProjectName: string | null
 	login: (email: string, password: string) => Promise<void>
 	register: (email: string, password: string, name: string) => Promise<void>
-	logout: () => void
+	registerWithInvite: (
+		token: string,
+		email: string,
+		password: string,
+		name: string,
+	) => Promise<void>
+	loginWithGoogle: (idToken: string, inviteToken?: string) => Promise<{ needsOnboarding: boolean }>
+	logout: () => Promise<void>
 	switchProject: (projectId: string) => void
 	refreshProjects: () => Promise<void>
 	refreshUser: () => Promise<void>
@@ -85,6 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	} | null>(null)
 	// Holds the custom-domain project id synchronously so refreshProjects can lock to it.
 	const domainProjectIdRef = useRef<string | null>(null)
+	// Invalidates in-flight /me or project requests when the auth boundary changes.
+	// Without this, a slow response can repopulate state after logout.
+	const sessionVersionRef = useRef(0)
 
 	const apiRequest = useCallback(async (path: string, options?: RequestInit) => {
 		const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -126,9 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	const refreshUser = useCallback(async () => {
 		if (!authenticated) return
+		const sessionVersion = sessionVersionRef.current
 		try {
 			const u = (await apiRequest('/api/v1/auth/me')) as User
-			setUser(u)
+			if (sessionVersion === sessionVersionRef.current) setUser(u)
 		} catch {
 			/* ignore */
 		}
@@ -136,8 +148,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	const refreshProjects = useCallback(async () => {
 		if (!authenticated) return
+		const sessionVersion = sessionVersionRef.current
 		try {
 			const data = (await apiRequest('/api/v1/projects')) as Project[]
+			if (sessionVersion !== sessionVersionRef.current) return
 			setProjects(data)
 
 			// On a custom domain, the project is fixed — never auto-select another.
@@ -165,6 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		;(async () => {
+			const sessionVersion = sessionVersionRef.current
 			// Resolve the custom-domain project first so refreshProjects can lock to it.
 			try {
 				const res = await fetch('/api/v1/auth/domain-context')
@@ -185,12 +200,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			// Check if we have a valid session by calling /me
 			try {
 				await Promise.all([
-					apiRequest('/api/v1/auth/me').then((u) => setUser(u as User)),
+					apiRequest('/api/v1/auth/me').then((u) => {
+						if (sessionVersion === sessionVersionRef.current) setUser(u as User)
+					}),
 					refreshProjects(),
 				])
 			} catch {
-				setAuthenticated(false)
-				setUser(null)
+				if (sessionVersion === sessionVersionRef.current) {
+					setAuthenticated(false)
+					setUser(null)
+				}
 			} finally {
 				setLoading(false)
 			}
@@ -202,6 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			method: 'POST',
 			body: JSON.stringify({ email, password }),
 		})) as { user: User }
+		sessionVersionRef.current += 1
 		setAuthenticated(true)
 		setUser(res.user)
 	}
@@ -211,22 +231,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			method: 'POST',
 			body: JSON.stringify({ email, password, name }),
 		})) as { user: User }
+		sessionVersionRef.current += 1
 		setAuthenticated(true)
 		setUser(res.user)
 	}
 
+	const registerWithInvite = async (
+		token: string,
+		email: string,
+		password: string,
+		name: string,
+	) => {
+		const res = (await apiRequest('/api/v1/invites/register', {
+			method: 'POST',
+			body: JSON.stringify({ token, email, password, name }),
+		})) as { user: User; projectId: string }
+		sessionVersionRef.current += 1
+		localStorage.setItem('innolope_project', res.projectId)
+		setAuthenticated(true)
+		setUser(res.user)
+	}
+
+	const loginWithGoogle = async (idToken: string, inviteToken?: string) => {
+		const res = (await apiRequest('/api/v1/auth/google', {
+			method: 'POST',
+			body: JSON.stringify({ idToken, inviteToken }),
+		})) as { user: User; projectId?: string; needsOnboarding?: boolean }
+		sessionVersionRef.current += 1
+		if (res.projectId) localStorage.setItem('innolope_project', res.projectId)
+		setAuthenticated(true)
+		setUser(res.user)
+		return { needsOnboarding: Boolean(res.needsOnboarding) }
+	}
+
 	const logout = async () => {
+		// Mark the auth boundary as busy so AuthGate cannot redirect while the server
+		// is revoking the refresh-token family and clearing HttpOnly cookies.
+		sessionVersionRef.current += 1
+		setLoading(true)
+
 		try {
-			await apiRequest('/api/v1/auth/logout', { method: 'POST' })
-		} catch {
-			/* best effort */
+			// Logout must never use apiRequest's automatic 401 refresh path: refreshing
+			// while signing out can mint a replacement session.
+			await Promise.allSettled([
+				fetch('/api/v1/auth/logout', {
+					method: 'POST',
+					credentials: 'include',
+					keepalive: true,
+				}),
+				signOutFirebaseIfInitialized(),
+			])
+		} finally {
+			if (!domainProjectIdRef.current) localStorage.removeItem('innolope_project')
+			setAuthenticated(false)
+			setUser(null)
+			setProjects([])
+			setCurrentProject(null)
+			setLoading(false)
 		}
-		// On a custom domain keep the project pinned; elsewhere clear the selection.
-		if (!domainProjectIdRef.current) localStorage.removeItem('innolope_project')
-		setAuthenticated(false)
-		setUser(null)
-		setProjects([])
-		setCurrentProject(null)
 	}
 
 	const switchProject = (projectId: string) => {
@@ -256,6 +318,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				domainProjectName: domainProject?.name ?? null,
 				login,
 				register,
+				registerWithInvite,
+				loginWithGoogle,
 				logout,
 				switchProject,
 				refreshProjects,

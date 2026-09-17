@@ -163,6 +163,9 @@ docker-compose up
 | `API_PORT` | No | API port (default: 3001) |
 | `API_HOST` | No | API host (default: 0.0.0.0) |
 | `ADMIN_URL` | No | Admin origin for CORS |
+| `FIREBASE_WEB_CONFIG` | No | Firebase Web App config JSON; enables the Google button when set |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | No | Server-only Firebase service-account JSON used to verify Google ID tokens |
+| `FIREBASE_PROJECT_ID` | No | Firebase project id when the API uses Application Default Credentials |
 | `MEDIA_ADAPTER` | No | `local` (default) or `cloudflare` |
 | `CLOUDFLARE_ACCOUNT_ID` | No | For Cloudflare media |
 | `CLOUDFLARE_API_TOKEN` | No | For Cloudflare media |
@@ -172,6 +175,8 @@ docker-compose up
 | `POSTHOG_HOST` | No | PostHog instance URL (default: `https://us.i.posthog.com`) |
 | `POSTHOG_DISABLED` | No | Set to `true` to force-disable PostHog |
 | `INNOLOPE_LICENSE_KEY` | No | Enterprise license key (enables AI, multi-project, etc.) |
+
+To enable Google sign-in, enable Google under Firebase Authentication, add the CMS hostname to Firebase's authorized domains, create a Firebase Web App, and set `FIREBASE_WEB_CONFIG`. The API also needs either `FIREBASE_SERVICE_ACCOUNT_JSON` or Application Default Credentials. Firebase verifies identity; CMS invitations, roles, and sessions remain authoritative. New Google users still need a valid team invite, except for the first admin on an empty installation.
 
 ## Analytics (PostHog)
 

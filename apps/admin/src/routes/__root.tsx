@@ -281,8 +281,8 @@ function AppLayout() {
 		window.addEventListener('mouseup', onUp)
 	}
 
-	const handleLogout = () => {
-		logout()
+	const handleLogout = async () => {
+		await logout()
 		navigate({ to: '/login' })
 	}
 

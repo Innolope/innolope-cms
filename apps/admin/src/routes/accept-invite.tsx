@@ -26,15 +26,17 @@ function AcceptInvite() {
 		}
 
 		api
-			.post<{ action?: string; email?: string; message: string }>('/api/v1/invites/accept', {
-				token,
-			})
+			.post<{ action?: string; email?: string; message: string; projectId?: string }>(
+				'/api/v1/invites/accept',
+				{ token },
+			)
 			.then((res) => {
 				if (res.action === 'register') {
 					setStatus('register')
 					setRegisterEmail(res.email || '')
 					setMessage(res.message)
 				} else {
+					if (res.projectId) localStorage.setItem('innolope_project', res.projectId)
 					setStatus('success')
 					setMessage(res.message)
 					setTimeout(() => navigate({ to: '/' }), 2000)
@@ -76,12 +78,12 @@ function AcceptInvite() {
 								components={{ strong: <strong /> }}
 							/>
 						</p>
-						<Link
-							to="/login"
+						<a
+							href={`/login?invite=${encodeURIComponent(token || '')}`}
 							className="inline-block px-6 py-2.5 bg-btn-primary text-btn-primary-text rounded-lg text-sm font-medium hover:bg-btn-primary-hover transition-colors"
 						>
 							{t('acceptInvite.createAccount')}
-						</Link>
+						</a>
 					</div>
 				)}
 

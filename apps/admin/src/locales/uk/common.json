@@ -959,6 +959,7 @@
 	"login": {
 		"subtitle": {
 			"setup": "Ласкаво просимо! Налаштуйте свій акаунт Innolope CMS, щоб почати.",
+			"invite": "Створіть акаунт, щоб прийняти запрошення до команди.",
 			"signIn": "Увійдіть у свій акаунт Innolope CMS",
 			"signInToProject": "Увійти в {{name}}"
 		},
@@ -976,11 +977,16 @@
 			"invalidEmail": "Введіть дійсну адресу електронної пошти.",
 			"enterName": "Введіть ваше ім’я.",
 			"passwordTooShort": "Пароль має містити щонайменше 8 символів.",
+			"googleFailed": "Не вдалося увійти через Google. Спробуйте ще раз.",
 			"authFailed": "Аутентифікацію не пройдено"
 		},
+		"continueWithGoogle": "Продовжити з Google",
+		"signUpWithGoogle": "Зареєструватися через Google",
+		"orContinueWithEmail": "або продовжити з електронною поштою",
 		"continueWithSso": "Продовжити з {{name}}",
 		"pleaseWait": "Зачекайте, будь ласка…",
 		"createAdminAccount": "Створити акаунт адміністратора",
+		"createAccount": "Створити акаунт",
 		"signIn": "Увійти",
 		"orUsePassword": "або використайте ваш пароль нижче",
 		"forgotPassword": "Забули пароль?"

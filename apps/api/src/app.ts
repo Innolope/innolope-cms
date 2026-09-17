@@ -46,6 +46,7 @@ import { streamRoutes } from './routes/v1/stream.js'
 import { tlsRoutes } from './routes/v1/tls.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { initAutoEmbedding } from './services/embedding.js'
+import { firebaseWebConfig } from './services/firebase-auth.js'
 import { initImportWorker } from './services/import-worker.js'
 import { initScheduledPublisher } from './services/scheduled-publisher.js'
 import { initWebhookDispatcher } from './services/webhook-dispatch.js'
@@ -102,6 +103,15 @@ export async function buildApp() {
 		}
 	}
 
+	const firebaseAuthDomain = firebaseWebConfig()?.authDomain
+	const firebaseFrameOrigin = firebaseAuthDomain
+		? new URL(
+				firebaseAuthDomain.startsWith('http')
+					? firebaseAuthDomain
+					: `https://${firebaseAuthDomain}`,
+			).origin
+		: null
+
 	await app.register(helmet, {
 		contentSecurityPolicy: {
 			directives: {
@@ -117,8 +127,16 @@ export async function buildApp() {
 					'https://www.googletagmanager.com',
 					'https://www.google-analytics.com',
 					'https://stats.g.doubleclick.net',
+					'https://identitytoolkit.googleapis.com',
+					'https://securetoken.googleapis.com',
+					'https://www.googleapis.com',
 				],
 				fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+				frameSrc: [
+					"'self'",
+					'https://accounts.google.com',
+					...(firebaseFrameOrigin ? [firebaseFrameOrigin] : []),
+				],
 				objectSrc: ["'none'"],
 				frameAncestors: ["'none'"],
 			},
@@ -189,11 +207,14 @@ export async function buildApp() {
 		const csrfExemptPaths = [
 			'/api/v1/auth/login',
 			'/api/v1/auth/register',
+			'/api/v1/auth/google',
 			'/api/v1/auth/logout',
 			'/api/v1/auth/refresh',
 			'/api/v1/auth/forgot-password',
 			'/api/v1/auth/reset-password',
 			'/api/v1/invites/accept',
+			'/api/v1/invites/details',
+			'/api/v1/invites/register',
 			// OAuth endpoints: token/register are machine calls with no cookie; the
 			// server-rendered authorize form is protected by a signed ticket + PKCE.
 			'/oauth/',

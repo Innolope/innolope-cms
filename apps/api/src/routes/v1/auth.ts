@@ -23,6 +23,8 @@ import {
 	setAuthCookies,
 } from '../../services/auth-cookies.js'
 import { normalizeDomain } from '../../services/domain-verification.js'
+import { firebaseWebConfig, verifyFirebaseGoogleToken } from '../../services/firebase-auth.js'
+import { completeTeamInvite } from '../../services/team-invites.js'
 
 /**
  * If the request arrived on a verified custom domain, return that project.
@@ -59,6 +61,16 @@ export async function authRoutes(app: FastifyInstance) {
 	app.get('/setup-status', async () => {
 		const [{ count }] = await app.db.select({ count: sql<number>`count(*)` }).from(users)
 		return { needsSetup: Number(count) === 0 }
+	})
+
+	// Public provider discovery. Firebase's web config is intentionally public;
+	// returning it at runtime keeps Google sign-in configurable without rebuilding
+	// the Vite bundle for each installation.
+	app.get('/providers', async () => {
+		const firebase = firebaseWebConfig()
+		return {
+			google: firebase ? { enabled: true, firebase } : { enabled: false },
+		}
 	})
 
 	// Register first admin (only works when no users exist). The zero-user check
@@ -177,6 +189,132 @@ export async function authRoutes(app: FastifyInstance) {
 			})
 
 			return { user: { id: user.id, email: user.email, name: user.name, role: user.role } }
+		},
+	)
+
+	// Exchange a verified Firebase Google ID token for the CMS's own cookie
+	// session. Google may sign in an existing same-email account. A new account
+	// still requires a valid team invite, except for the instance's first admin.
+	app.post(
+		'/google',
+		{ config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+		async (request, reply) => {
+			const { idToken, inviteToken } = request.body as {
+				idToken: string
+				inviteToken?: string
+			}
+			if (!idToken) return reply.status(400).send({ error: 'Google ID token is required.' })
+			if (!firebaseWebConfig()) {
+				return reply.status(503).send({ error: 'Google sign-in is not configured.' })
+			}
+
+			let identity: { email: string; name: string }
+			try {
+				identity = await verifyFirebaseGoogleToken(idToken)
+			} catch (error) {
+				app.log.warn({ err: error }, 'Firebase Google token verification failed')
+				return reply.status(401).send({ error: 'Google sign-in could not be verified.' })
+			}
+
+			const email = normalizeEmail(identity.email)
+			let user: typeof users.$inferSelect | undefined
+			let projectId: string | undefined
+			let createdUser = false
+
+			if (inviteToken) {
+				const inviteResult = await completeTeamInvite(app.db, inviteToken, {
+					email,
+					name: identity.name,
+				})
+				if (inviteResult.status === 'invalid') {
+					return reply.status(400).send({ error: 'Invalid or expired invite.' })
+				}
+				if (inviteResult.status === 'email-mismatch') {
+					return reply
+						.status(403)
+						.send({ error: 'Choose the Google account that matches the invited email.' })
+				}
+				if (inviteResult.status !== 'accepted') {
+					return reply.status(400).send({ error: 'Unable to accept invite.' })
+				}
+				user = inviteResult.user
+				projectId = inviteResult.projectId
+				createdUser = inviteResult.createdUser
+			} else {
+				;[user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1)
+
+				if (!user) {
+					// Google can create the first admin with the same serializable race
+					// protection as password setup, but never opens general public signup.
+					let settled = false
+					for (let attempt = 0; attempt < REGISTER_ATTEMPTS && !settled; attempt++) {
+						try {
+							user = await app.db.transaction(
+								async (tx) => {
+									const [{ count }] = await tx.select({ count: sql<number>`count(*)` }).from(users)
+									if (Number(count) > 0) return undefined
+									const [created] = await tx
+										.insert(users)
+										.values({ email, name: identity.name, role: 'admin' })
+										.returning()
+									return created
+								},
+								{ isolationLevel: 'serializable' },
+							)
+							settled = true
+						} catch (error) {
+							const code =
+								(error as { code?: string }).code ??
+								(error as { cause?: { code?: string } }).cause?.code
+							if (code !== '40001') throw error
+							if (attempt === REGISTER_ATTEMPTS - 1) {
+								return reply
+									.status(503)
+									.send({ error: 'Registration is busy — please retry in a moment.' })
+							}
+							await new Promise((resolve) =>
+								setTimeout(resolve, 25 + Math.random() * 75 * (attempt + 1)),
+							)
+						}
+					}
+					createdUser = Boolean(user)
+				}
+			}
+
+			if (!user) {
+				return reply.status(403).send({ error: 'An invitation is required to create an account.' })
+			}
+
+			// Custom-domain login remains project-scoped. An invite is completed
+			// above first, so a new member can enter the project's domain immediately.
+			const domainProject = await projectForRequestHost(app, request)
+			if (domainProject) {
+				const [membership] = await app.db
+					.select({ id: projectMembers.id })
+					.from(projectMembers)
+					.where(
+						and(eq(projectMembers.projectId, domainProject.id), eq(projectMembers.userId, user.id)),
+					)
+					.limit(1)
+				if (!membership) {
+					return reply
+						.status(403)
+						.send({ error: `You don't have access to ${domainProject.name}.` })
+				}
+			}
+
+			await setAuthCookies(reply, app.db, user, { authMethod: 'sso' })
+			app.events.emit({
+				type: createdUser ? 'auth:registered' : 'auth:login',
+				data: { userId: user.id, email: user.email, source: 'google' },
+				timestamp: new Date().toISOString(),
+			})
+
+			return {
+				user: { id: user.id, email: user.email, name: user.name, role: user.role },
+				projectId,
+				needsOnboarding: createdUser && !inviteToken,
+			}
 		},
 	)
 

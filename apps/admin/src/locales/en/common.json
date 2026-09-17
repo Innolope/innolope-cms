@@ -933,6 +933,7 @@
 	"login": {
 		"subtitle": {
 			"setup": "Welcome! Set up your Innolope CMS account to get started.",
+			"invite": "Create your account to accept the team invitation.",
 			"signIn": "Sign in to your Innolope CMS account",
 			"signInToProject": "Sign in to {{name}}"
 		},
@@ -950,11 +951,16 @@
 			"invalidEmail": "Enter a valid email address.",
 			"enterName": "Enter your name.",
 			"passwordTooShort": "Password must be at least 8 characters.",
+			"googleFailed": "Google sign-in failed. Please try again.",
 			"authFailed": "Authentication failed"
 		},
+		"continueWithGoogle": "Continue with Google",
+		"signUpWithGoogle": "Sign up with Google",
+		"orContinueWithEmail": "or continue with email",
 		"continueWithSso": "Continue with {{name}}",
 		"pleaseWait": "Please wait…",
 		"createAdminAccount": "Create Admin Account",
+		"createAccount": "Create Account",
 		"signIn": "Sign In",
 		"orUsePassword": "or use your password below",
 		"forgotPassword": "Forgot password?"
