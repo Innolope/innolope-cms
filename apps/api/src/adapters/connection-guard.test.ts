@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	extractHosts,
 	isPrivateAddress,
@@ -42,6 +42,36 @@ describe('connection guard', () => {
 		expect(
 			await validateConnectionString('postgres://u:p@this-host-does-not-exist.invalid/db'),
 		).toMatch(/could not be resolved/)
+	})
+
+	it('resolves and screens MongoDB SRV targets instead of requiring an address on the seed', async () => {
+		const lookup = vi.fn(async () => [{ address: '8.8.8.8' }])
+		const resolveSrv = vi.fn(async () => [
+			{ name: 'shard-00-00.example.mongodb.net.' },
+			{ name: 'shard-00-01.example.mongodb.net.' },
+		])
+
+		expect(
+			await validateConnectionString('mongodb+srv://user:pass@cluster.mongodb.net/app', {
+				lookup,
+				resolveSrv,
+			}),
+		).toBeNull()
+		expect(resolveSrv).toHaveBeenCalledWith('_mongodb._tcp.cluster.mongodb.net')
+		expect(lookup).toHaveBeenCalledTimes(2)
+		expect(lookup).toHaveBeenNthCalledWith(1, 'shard-00-00.example.mongodb.net')
+	})
+
+	it('rejects MongoDB SRV targets that resolve to a private address', async () => {
+		const problem = await validateConnectionString(
+			'mongodb+srv://user:pass@cluster.mongodb.net/app',
+			{
+				lookup: async () => [{ address: '10.0.0.4' }],
+				resolveSrv: async () => [{ name: 'private.mongodb.net' }],
+			},
+		)
+
+		expect(problem).toMatch(/private/)
 	})
 
 	it('no longer trips on credentials or paths that merely contain a pattern', async () => {

@@ -1,10 +1,20 @@
-import { lookup } from 'node:dns/promises'
+import { lookup, resolveSrv } from 'node:dns/promises'
 import { isIP, isIPv6 } from 'node:net'
 
 /** Hostnames that are always internal, whatever they resolve to. */
 const BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal', 'metadata'])
 /** Hostname suffixes that are always internal. */
 const BLOCKED_SUFFIXES = ['.localhost', '.internal', '.local', '.home.arpa']
+
+export interface ConnectionDnsResolver {
+	lookup(hostname: string): Promise<Array<{ address: string }>>
+	resolveSrv(hostname: string): Promise<Array<{ name: string }>>
+}
+
+const systemDnsResolver: ConnectionDnsResolver = {
+	lookup: (hostname) => lookup(hostname, { all: true, verbatim: true }),
+	resolveSrv,
+}
 
 /**
  * Split a URL-ish authority into its hosts. Done by hand rather than through
@@ -59,15 +69,22 @@ function screenHostname(host: string, subject: 'Connection' | 'Request'): string
  * Block connection strings targeting private/internal networks (SSRF
  * protection). Firebase service-account JSON has no host and passes through.
  */
-export async function validateConnectionString(connStr: string): Promise<string | null> {
+export async function validateConnectionString(
+	connStr: string,
+	resolver: ConnectionDnsResolver = systemDnsResolver,
+): Promise<string | null> {
 	const trimmed = connStr.trim()
 	if (trimmed.startsWith('{')) return null
 	const hosts = extractHosts(trimmed)
 	if (!hosts) return 'Invalid connection string: no host could be parsed.'
+	const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed)?.[1].toLowerCase()
 	for (const host of hosts) {
 		const screened = screenHostname(host, 'Connection')
 		if (screened) return screened
-		const resolved = await resolveHostnameGuard(host, 'Connection')
+		const resolved =
+			scheme === 'mongodb+srv'
+				? await resolveMongoSrvGuard(host, resolver)
+				: await resolveHostnameGuard(host, 'Connection', resolver)
 		if (resolved) return resolved
 	}
 	return null
@@ -92,7 +109,30 @@ export async function validatePublicUrl(rawUrl: string): Promise<string | null> 
 	if (!hostname) return 'Invalid URL host.'
 	const screened = screenHostname(hostname, 'Request')
 	if (screened) return screened
-	return resolveHostnameGuard(hostname, 'Request')
+	return resolveHostnameGuard(hostname, 'Request', systemDnsResolver)
+}
+
+/** Resolve and screen every host a mongodb+srv seed delegates to. */
+async function resolveMongoSrvGuard(
+	hostname: string,
+	resolver: ConnectionDnsResolver,
+): Promise<string | null> {
+	let records: Array<{ name: string }>
+	try {
+		records = await resolver.resolveSrv(`_mongodb._tcp.${hostname}`)
+	} catch {
+		return `Connection host "${hostname}" could not be resolved.`
+	}
+	if (records.length === 0) return `Connection host "${hostname}" could not be resolved.`
+
+	for (const record of records) {
+		const target = record.name.replace(/\.$/, '').toLowerCase()
+		const screened = screenHostname(target, 'Connection')
+		if (screened) return screened
+		const resolved = await resolveHostnameGuard(target, 'Connection', resolver)
+		if (resolved) return resolved
+	}
+	return null
 }
 
 /**
@@ -103,13 +143,14 @@ export async function validatePublicUrl(rawUrl: string): Promise<string | null> 
 async function resolveHostnameGuard(
 	hostname: string,
 	subject: 'Connection' | 'Request',
+	resolver: ConnectionDnsResolver,
 ): Promise<string | null> {
 	let addresses: string[]
 	if (isIP(hostname)) {
 		addresses = [hostname]
 	} else {
 		try {
-			const resolved = await lookup(hostname, { all: true, verbatim: true })
+			const resolved = await resolver.lookup(hostname)
 			addresses = resolved.map((entry) => entry.address)
 		} catch {
 			return `${subject} host "${hostname}" could not be resolved.`
