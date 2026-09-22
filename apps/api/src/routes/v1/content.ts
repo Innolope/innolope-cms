@@ -44,6 +44,10 @@ import { cacheMissingDocs } from '../../services/markdown-cache.js'
 import { mergeMetadataUpdate } from '../../services/metadata-merge.js'
 import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
+// Version history belongs to local content rows. External source IDs (for
+// example Mongo ObjectIds) must never reach a PostgreSQL UUID comparison.
+const LOCAL_CONTENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * Gate + validate a write that puts a record into `scheduled`.
  *
@@ -1791,6 +1795,9 @@ export async function contentRoutes(app: FastifyInstance) {
 		'/:id/versions',
 		{ preHandler: [app.requireProject('viewer')] },
 		async (request, reply) => {
+			if (!LOCAL_CONTENT_ID.test(request.params.id)) {
+				return reply.status(404).send({ error: 'Content not found' })
+			}
 			// Verify content belongs to this project before returning versions
 			const [item] = await app.db
 				.select({ id: content.id, collectionId: content.collectionId })
@@ -1823,6 +1830,9 @@ export async function contentRoutes(app: FastifyInstance) {
 		'/:id/history',
 		{ preHandler: [app.requireProject('viewer')] },
 		async (request, reply) => {
+			if (!LOCAL_CONTENT_ID.test(request.params.id)) {
+				return reply.status(404).send({ error: 'Content not found' })
+			}
 			const [item] = await app.db
 				.select()
 				.from(content)

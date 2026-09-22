@@ -82,6 +82,16 @@ describe.skipIf(!hasTestDb)('content write attribution and history (real Postgre
 		expect(body.versions).toEqual([]) // never edited since creation
 	})
 
+	it.each(['versions', 'history'])('returns 404 for an external ID on %s', async (endpoint) => {
+		const res = await app.inject({
+			method: 'GET',
+			url: `/api/v1/content/68ac444ab4787fd0db1c1930/${endpoint}`,
+			headers: asAdmin(),
+		})
+		expect(res.statusCode).toBe(404)
+		expect(res.json()).toEqual({ error: 'Content not found' })
+	})
+
 	it('falls back to admin when no client identifies itself', async () => {
 		const body = await history(
 			await createPost(asAdmin(), `ui-created-${randomUUID().slice(0, 6)}`),
