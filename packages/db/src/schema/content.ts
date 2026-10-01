@@ -48,6 +48,12 @@ export const content = pgTable(
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		publishedAt: timestamp({ withTimezone: true }),
 		externalId: text(),
+		// Last observed external values for three-way sync; null on legacy rows.
+		externalSnapshot: jsonb().$type<{
+			status: string
+			markdown: string
+			metadata: Record<string, unknown>
+		}>(),
 		createdBy: uuid().references(() => users.id),
 		// Actor and client behind the CURRENT state of the row. `createdBy` cannot
 		// answer "was this last touched by a human in the admin UI or by an agent

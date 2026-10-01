@@ -5,11 +5,13 @@ interface CollectionField {
 	localized?: boolean
 }
 
+import { createHash } from 'node:crypto'
 import { CONTENT_STATUSES } from '@innolope/config'
 import type { collections, content, contentVersions, Database } from '@innolope/db'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
+import { mergeSyncState, type SyncState, stableValue, syncState } from './sync-state.js'
 
 /**
  * Source-table column names checked (in order) when auto-detecting an
@@ -40,11 +42,6 @@ export function detectCursorColumn(fields: CollectionField[]): string | undefine
 	return undefined
 }
 
-/** Postgres `unique_violation` — the row already exists under a colliding slug. */
-function isUniqueViolation(err: unknown): boolean {
-	return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
-}
-
 // Derived from the shared list so a new status can't be accepted by the API and
 // silently coerced to `published` when the same value is read back from a source DB.
 const VALID_STATUSES = new Set<string>(CONTENT_STATUSES)
@@ -56,6 +53,7 @@ type SyncOptions = {
 	versionTable?: typeof contentVersions
 	/** Required to persist the sync watermark + auto-detected cursor column. */
 	collectionsTable?: typeof collections
+	resolutions?: Record<string, { token: string; choice: 'local' | 'external' }>
 }
 
 export interface SyncCollectionRef {
@@ -75,6 +73,7 @@ type CachedContentValues = {
 	markdown: string
 	html: string
 	externalId: string
+	externalSnapshot: SyncState
 	status: ContentStatus
 	locale: string
 	createdBy: string | null
@@ -87,6 +86,17 @@ export interface SyncChange {
 	field: string
 	local: unknown
 	external: unknown
+}
+
+export interface SyncConflict {
+	contentId: string
+	externalId: string
+	slug: string | null
+	metadata: Record<string, unknown>
+	token: string
+	local?: SyncState
+	external?: SyncState
+	categories: Array<'content' | 'details' | 'status'>
 }
 
 export interface SyncPreviewItem {
@@ -278,6 +288,7 @@ export interface SyncResult {
 	cursorColumn: string | null
 	/** Highest cursor value seen this run — the next sync should start above this. */
 	newCursor: Date | null
+	conflicts: SyncConflict[]
 }
 
 /** Refresh cached CMS rows from an external collection. External documents are the source of truth. */
@@ -297,6 +308,7 @@ export async function syncMarkdownCache(
 	let offset = 0
 	let created = 0
 	let updated = 0
+	const conflicts: SyncConflict[] = []
 	let newCursor: Date | null = collection.lastSyncedCursor ?? null
 
 	while (true) {
@@ -318,12 +330,13 @@ export async function syncMarkdownCache(
 		const result = await applySyncBatch(db, contentTable, docs, collection, opts)
 		created += result.created
 		updated += result.updated
+		conflicts.push(...result.conflicts)
 
 		offset += batchSize
 		if (docs.length < batchSize) break
 	}
 
-	if (opts.collectionsTable) {
+	if (opts.collectionsTable && conflicts.length === 0) {
 		const updates: Partial<typeof collections.$inferInsert> = {
 			lastSyncedAt: new Date(),
 			updatedAt: new Date(),
@@ -338,7 +351,7 @@ export async function syncMarkdownCache(
 			.where(eq(opts.collectionsTable.id, collection.id))
 	}
 
-	return { created, updated, mode, cursorColumn, newCursor }
+	return { created, updated, mode, cursorColumn, newCursor, conflicts }
 }
 
 /**
@@ -357,8 +370,8 @@ async function applySyncBatch(
 		fields: CollectionField[]
 	},
 	opts: SyncOptions,
-): Promise<{ created: number; updated: number }> {
-	if (docs.length === 0) return { created: 0, updated: 0 }
+): Promise<{ created: number; updated: number; conflicts: SyncConflict[] }> {
+	if (docs.length === 0) return { created: 0, updated: 0, conflicts: [] }
 
 	const externalIds = docs.map((d) => d._id)
 	const existingRows = await db
@@ -402,40 +415,122 @@ async function applySyncBatch(
 		createdCount = inserted.length
 	}
 
-	if (toUpdate.length > 0 && opts.versionTable) {
-		await db.insert(opts.versionTable).values(
-			toUpdate.map(({ existing }) => ({
-				contentId: existing.id,
-				version: existing.version,
-				markdown: existing.markdown,
-				metadata: existing.metadata,
-				createdBy: opts.userId || null,
-			})),
-		)
-	}
-
-	// Updates can't be merged into a single statement (each row gets distinct
-	// values), so fan them out across the pool in small chunks to stay under
-	// the default connection limit.
+	const conflicts: SyncConflict[] = []
+	let updatedCount = 0
+	// Lock each row and compare again: an edit made during the external scan must
+	// not be overwritten, nor may an old dialog approve a newer external version.
 	await runInChunks(toUpdate, 10, async ({ existing, next }) => {
-		// `locale` and `createdBy` are CMS-side facts about the row (a record set to
-		// "ua" in the CMS, the user who first cached it); a source edit must not
-		// reset them to the defaults a fresh insert would get.
-		const { locale: _locale, createdBy: _createdBy, ...sourceValues } = next
-		try {
-			await db
-				.update(contentTable)
-				.set({ ...sourceValues, version: (existing.version || 1) + 1 })
+		await db.transaction(async (tx) => {
+			const [current] = await tx
+				.select()
+				.from(contentTable)
 				.where(eq(contentTable.id, existing.id))
-		} catch (err) {
-			// Slug isn't changed by sync updates so this should be unreachable —
-			// but a metadata-driven slug change would surface as unique_violation
-			// and was tolerated by the previous loop. Preserve that.
-			if (!isUniqueViolation(err)) throw err
-		}
+				.for('update')
+			if (!current) return
+			const incoming = syncState(next)
+			const local = syncState(current)
+			const token = createHash('sha256')
+				.update(
+					stableValue({
+						local,
+						incoming,
+						baseline: current.externalSnapshot,
+						version: current.version,
+					}),
+				)
+				.digest('hex')
+			const resolution = opts.resolutions?.[current.id]
+			const choice = resolution?.token === token ? resolution.choice : undefined
+			const merged = mergeSyncState(current.externalSnapshot, local, incoming, choice)
+			// For legacy authored rows, history tells us which fields the CMS
+			// edited. Incoming changes to other fields still sync without a prompt.
+			if (
+				!current.externalSnapshot &&
+				current.updatedSource &&
+				!['import', 'system'].includes(current.updatedSource)
+			) {
+				const [previous] = opts.versionTable
+					? await tx
+							.select()
+							.from(opts.versionTable)
+							.where(eq(opts.versionTable.contentId, current.id))
+							.orderBy(desc(opts.versionTable.version))
+							.limit(1)
+					: []
+				const baseline = previous ? { ...syncState(previous), status: local.status } : null
+				if (baseline) {
+					const legacyMerge = mergeSyncState(baseline, local, incoming, choice)
+					merged.conflicts = legacyMerge.conflicts
+					merged.state = legacyMerge.state
+				} else {
+					merged.conflicts = diffCachedContent(current, next).map((change) => change.field)
+					if (choice === 'local') merged.state = local
+				}
+			}
+
+			if (merged.conflicts.length && !choice) {
+				conflicts.push({
+					contentId: current.id,
+					externalId: next.externalId,
+					slug: current.slug,
+					metadata: current.metadata,
+					local: { ...local, markdown: local.markdown.slice(0, 240) },
+					external: { ...incoming, markdown: incoming.markdown.slice(0, 240) },
+					token,
+					categories: [
+						...new Set(
+							merged.conflicts.map((field) =>
+								field === 'status' || field === 'metadata.status'
+									? ('status' as const)
+									: field === 'markdown'
+										? ('content' as const)
+										: ('details' as const),
+							),
+						),
+					],
+				})
+				return
+			}
+			const changed = stableValue(local) !== stableValue(merged.state)
+			if (changed && opts.versionTable) {
+				await tx.insert(opts.versionTable).values({
+					contentId: current.id,
+					version: current.version,
+					markdown: current.markdown,
+					metadata: current.metadata,
+					createdBy: opts.userId || null,
+					source: 'system',
+				})
+			}
+			const { locale: _locale, createdBy: _createdBy, ...sourceValues } = next
+			await tx
+				.update(contentTable)
+				.set({
+					...sourceValues,
+					...merged.state,
+					status: merged.state.status as ContentStatus,
+					html: markdownToBasicHtml(merged.state.markdown),
+					externalSnapshot: incoming,
+					version: current.version + (changed ? 1 : 0),
+				})
+				.where(eq(contentTable.id, current.id))
+			if (changed) updatedCount++
+		})
 	})
 
-	return { created: createdCount, updated: toUpdate.length }
+	// Even an unchanged legacy cache needs its first shared-state snapshot.
+	const unchanged = existingRows.filter(
+		(row) =>
+			!toUpdate.some((item) => item.existing.id === row.id) &&
+			stableValue(row.externalSnapshot) !== stableValue(syncState(row)),
+	)
+	for (const row of unchanged) {
+		await db
+			.update(contentTable)
+			.set({ externalSnapshot: syncState(row) })
+			.where(and(eq(contentTable.id, row.id), eq(contentTable.version, row.version)))
+	}
+	return { created: createdCount, updated: updatedCount, conflicts }
 }
 
 async function runInChunks<T>(
@@ -669,6 +764,11 @@ function buildCachedContentValues(
 			markdown,
 			html,
 			externalId: doc._id,
+			externalSnapshot: {
+				metadata,
+				markdown,
+				status: resolveCachedStatus(metadata.status, existing?.status),
+			},
 			status: resolveCachedStatus(metadata.status, existing?.status),
 			locale: 'en',
 			createdBy: opts.userId || null,
@@ -698,13 +798,6 @@ function diffCachedContent(
 
 function pushChange(changes: SyncChange[], field: string, local: unknown, external: unknown) {
 	if (stableValue(local) !== stableValue(external)) changes.push({ field, local, external })
-}
-
-function stableValue(value: unknown): string {
-	if (value instanceof Date) return value.toISOString()
-	if (value && typeof value === 'object')
-		return JSON.stringify(value, Object.keys(value as Record<string, unknown>).sort())
-	return String(value ?? '')
 }
 
 /**

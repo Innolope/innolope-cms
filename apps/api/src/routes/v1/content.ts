@@ -40,8 +40,9 @@ import {
 } from '../../services/external-content.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
-import { cacheMissingDocs } from '../../services/markdown-cache.js'
+import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
 import { mergeMetadataUpdate } from '../../services/metadata-merge.js'
+import { syncState } from '../../services/sync-state.js'
 import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
 // Version history belongs to local content rows. External source IDs (for
@@ -464,6 +465,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		let externalId: string | undefined
+		let externalSnapshot: ReturnType<typeof syncState> | null = null
 		// Metadata as cached locally. Starts as what the client sent and picks up the
 		// timestamps the external write actually stamped, so the editor reads back the
 		// same values the source database holds.
@@ -481,6 +483,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			})
 			const inserted = await insertIntoExternalDb(app, getProject(request).id, col, externalData)
 			externalId = inserted?._id
+			externalSnapshot = inserted ? syncState(externalDocToContentItem(inserted, col)) : null
 			cachedMetadata = mergeExternalTimestamps(cachedMetadata, externalData, col.fields)
 		}
 
@@ -500,6 +503,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					createdBy: getUser(request).id,
 					updatedBy: getUser(request).id,
 					updatedSource: requestSource(request),
+					externalSnapshot,
 					...(externalId && { externalId }),
 					...(input.createdAt && { createdAt: new Date(input.createdAt) }),
 					...(input.updatedAt && { updatedAt: new Date(input.updatedAt) }),
@@ -773,6 +777,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					if (duplicate)
 						throw httpError(`item ${index}: Content with slug already exists: ${item.slug}`, 409)
 
+					let externalSnapshot: ReturnType<typeof syncState> | null = null
 					let externalId: string | undefined
 					if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
 						const now = new Date()
@@ -792,6 +797,7 @@ export async function contentRoutes(app: FastifyInstance) {
 							externalData,
 						)
 						externalId = inserted?._id
+						externalSnapshot = inserted ? syncState(externalDocToContentItem(inserted, col)) : null
 						if (externalId) insertedExternalRows.push({ col, externalId })
 					}
 
@@ -807,6 +813,7 @@ export async function contentRoutes(app: FastifyInstance) {
 							locale: item.locale || defaultLocale,
 							status: (item.status || 'draft') as 'draft' | 'published',
 							createdBy: getUser(request).id,
+							externalSnapshot,
 							...(externalId && { externalId }),
 							...(item.createdAt && { createdAt: new Date(item.createdAt) }),
 							...(item.updatedAt && { updatedAt: new Date(item.updatedAt) }),

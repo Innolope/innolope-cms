@@ -13,6 +13,7 @@
  * say which one didn't.
  */
 
+import { randomUUID } from 'node:crypto'
 import { collections, content, contentVersions } from '@innolope/db'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -33,6 +34,8 @@ import {
 	updateExternalDb,
 } from '../../services/external-content.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
+import { externalDocToContentItem } from '../../services/markdown-cache.js'
+import { syncState } from '../../services/sync-state.js'
 
 /**
  * Ceiling on one bulk action.
@@ -53,7 +56,7 @@ const STATUS_FOR_ACTION = {
 } as const
 
 type StatusAction = keyof typeof STATUS_FOR_ACTION
-type BulkAction = StatusAction | 'delete' | 'set-field'
+type BulkAction = StatusAction | 'delete' | 'set-field' | 'duplicate'
 
 const ALL_ACTIONS: BulkAction[] = [
 	'publish',
@@ -62,6 +65,7 @@ const ALL_ACTIONS: BulkAction[] = [
 	'submit-for-review',
 	'delete',
 	'set-field',
+	'duplicate',
 ]
 
 interface BulkActionBody {
@@ -78,6 +82,7 @@ interface ItemResult {
 	ok: boolean
 	error?: string
 	warning?: string
+	createdId?: string
 }
 
 export async function contentBulkActionRoutes(app: FastifyInstance) {
@@ -117,7 +122,9 @@ export async function contentBulkActionRoutes(app: FastifyInstance) {
 		const results: ItemResult[] =
 			action === 'delete'
 				? await deleteMany(app, req, selection.ids)
-				: await updateMany(app, req, selection.ids, action, body)
+				: action === 'duplicate'
+					? await duplicateMany(app, req, selection.ids)
+					: await updateMany(app, req, selection.ids, action, body)
 
 		const succeeded = results.filter((r) => r.ok).length
 		return reply.send({
@@ -426,5 +433,106 @@ async function updateMany(
 		}
 	}
 
+	return results
+}
+
+/** Copies get new identities and begin as drafts; the original is untouched. */
+async function duplicateMany(
+	app: FastifyInstance,
+	req: FastifyRequest,
+	ids: string[],
+): Promise<ItemResult[]> {
+	const pid = getProject(req).id
+	const userId = getUser(req).id
+	const source = requestSource(req)
+	const rows = await app.db
+		.select()
+		.from(content)
+		.where(and(eq(content.projectId, pid), inArray(content.id, ids)))
+	const collectionIds = [...new Set(rows.map((row) => row.collectionId))]
+	const colMap = await loadCollections(app, pid, collectionIds)
+	const denied = await deniedWriteAccess(req, collectionIds)
+	const results: ItemResult[] = []
+	for (const row of rows) {
+		const col = colMap.get(row.collectionId)
+		const error =
+			denied.get(row.collectionId) ||
+			(!col
+				? 'Collection not found'
+				: col.source === 'external' && col.accessMode === 'read-only'
+					? 'This collection is read-only'
+					: null)
+		if (error || !col) {
+			results.push({ id: row.id, ok: false, error: error || 'Collection not found' })
+			continue
+		}
+		let externalId: string | undefined
+		try {
+			const slug = `${row.slug || 'record'}-copy-${randomUUID()}`
+			const now = new Date()
+			const metadata = { ...row.metadata }
+			// The copy owns new system values. Do not carry source primary keys,
+			// old publication dates, or a scheduled/published status in metadata.
+			for (const key of ['_id', 'id', 'slug', 'status', 'createdAt', 'updatedAt', 'publishedAt'])
+				delete metadata[key]
+			const errors = validateContentMetadata(col.fields, metadata, {
+				enforceRequired: false,
+				locales: getProject(req).locales,
+			})
+			if (errors.length) throw new Error(errors.map((error) => error.message).join(' '))
+			let cachedMetadata = metadata
+			let externalSnapshot: ReturnType<typeof syncState> | null = null
+			if (col.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+				const data = buildExternalData(col, {
+					slug,
+					metadata,
+					markdown: row.markdown,
+					status: 'draft',
+					createdAt: now,
+					updatedAt: now,
+					publishedAt: null,
+				})
+				const inserted = await insertIntoExternalDb(app, pid, col, data)
+				if (!inserted) throw new Error('The external database did not create the copy')
+				externalId = inserted._id
+				cachedMetadata = mergeExternalTimestamps(metadata, data, col.fields)
+				externalSnapshot = syncState(externalDocToContentItem(inserted, col))
+			}
+			const [created] = await app.db
+				.insert(content)
+				.values({
+					projectId: pid,
+					collectionId: row.collectionId,
+					slug,
+					status: 'draft',
+					metadata: cachedMetadata,
+					markdown: row.markdown,
+					html: row.html,
+					locale: row.locale,
+					externalId,
+					externalSnapshot,
+					createdBy: userId,
+					updatedBy: userId,
+					updatedSource: source,
+				})
+				.returning()
+			app.events.emit({
+				type: 'content:created',
+				data: { id: created.id, slug, version: 1, projectId: pid },
+				timestamp: now.toISOString(),
+			})
+			results.push({ id: row.id, ok: true, createdId: created.id })
+		} catch (error) {
+			if (externalId)
+				await deleteFromExternalDb(app, pid, col, externalId).catch((cleanupError) =>
+					app.log.error(cleanupError, 'Failed to clean up external copy'),
+				)
+			results.push({
+				id: row.id,
+				ok: false,
+				error: error instanceof Error ? error.message : String(error),
+			})
+		}
+	}
 	return results
 }

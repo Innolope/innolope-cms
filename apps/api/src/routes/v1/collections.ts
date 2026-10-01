@@ -306,6 +306,22 @@ export async function collectionRoutes(app: FastifyInstance) {
 			const extDb = getExternalDbConfig(project)
 			if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
 
+			const body = (request.body ?? {}) as {
+				resolutions?: Record<string, { token: string; choice: 'local' | 'external' }>
+			}
+			if (
+				body.resolutions &&
+				(typeof body.resolutions !== 'object' ||
+					Array.isArray(body.resolutions) ||
+					Object.values(body.resolutions).some(
+						(value) =>
+							!value ||
+							typeof value.token !== 'string' ||
+							!['local', 'external'].includes(value.choice),
+					))
+			) {
+				return reply.status(400).send({ error: 'Invalid sync choices' })
+			}
 			const adapter = createExternalDbAdapter(extDb)
 			await adapter.connect()
 			try {
@@ -323,6 +339,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 					},
 					{
 						userId: request.user?.id,
+						resolutions: body.resolutions,
 						versionTable: contentVersions,
 						collectionsTable: collections,
 					},

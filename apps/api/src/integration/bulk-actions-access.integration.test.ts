@@ -145,6 +145,33 @@ describe.skipIf(!hasTestDb)('bulk actions collection boundary (real Postgres)', 
 		expect(await statusOf(rowInB)).toBe('draft')
 	})
 
+	it('duplicates only writable rows into drafts with new identities and preserved content', async () => {
+		const res = await app.inject({
+			method: 'POST',
+			url: '/api/v1/content/bulk-action',
+			headers: headers(),
+			cookies: csrfCookies,
+			payload: { action: 'duplicate', ids: [rowInA, rowInB] },
+		})
+		expect(res.statusCode).toBe(200)
+		const result = res.json()
+		expect(result.succeeded).toBe(1)
+		expect(result.failed).toBe(1)
+		const id = result.results.find((item: { ok: boolean }) => item.ok).createdId
+		const [original] = await app.db.select().from(content).where(eq(content.id, rowInA))
+		const [copy] = await app.db.select().from(content).where(eq(content.id, id))
+		expect(copy.id).not.toBe(original.id)
+		expect(copy.slug).not.toBe(original.slug)
+		expect(copy).toMatchObject({
+			status: 'draft',
+			version: 1,
+			publishedAt: null,
+			markdown: original.markdown,
+			locale: original.locale,
+		})
+		expect(await statusOf(rowInB)).toBe('draft')
+	})
+
 	it('denies a filter that names an out-of-scope collection', async () => {
 		const res = await app.inject({
 			method: 'POST',

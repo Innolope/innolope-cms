@@ -16,6 +16,7 @@ export type BulkAction =
 	| 'submit-for-review'
 	| 'delete'
 	| 'set-field'
+	| 'duplicate'
 
 interface ItemResult {
 	id: string
@@ -106,7 +107,12 @@ export function BulkActionsBar({
 	const reportOutcome = (res: BulkResponse) => {
 		const warnings = res.results.filter((r) => r.ok && r.warning)
 		if (res.failed === 0) {
-			toast(t('collections.bulk.done', { count: res.succeeded }), 'success')
+			toast(
+				t(res.action === 'duplicate' ? 'collections.bulk.duplicated' : 'collections.bulk.done', {
+					count: res.succeeded,
+				}),
+				'success',
+			)
 		} else {
 			const firstError = res.results.find((r) => !r.ok)?.error
 			toast(
@@ -158,6 +164,7 @@ export function BulkActionsBar({
 				{!allMatching && selectedIds.length > 0 && total > selectedIds.length && (
 					<button
 						type="button"
+						disabled={busy}
 						onClick={onSelectAllMatching}
 						className="text-sm text-accent underline underline-offset-2 hover:opacity-80"
 					>
@@ -167,6 +174,7 @@ export function BulkActionsBar({
 
 				<button
 					type="button"
+					disabled={busy}
 					onClick={onClear}
 					className="text-sm text-text-muted underline underline-offset-2 hover:text-text"
 				>
@@ -181,11 +189,21 @@ export function BulkActionsBar({
 					</span>
 				) : (
 					<div className="flex flex-wrap items-center gap-2">
-						{actionButton('publish', t('collections.bulk.publish'))}
-						{actionButton('unpublish', t('collections.bulk.unpublish'))}
-						{actionButton('archive', t('collections.bulk.archive'))}
-						{showSubmitForReview &&
-							actionButton('submit-for-review', t('collections.bulk.submitForReview'))}
+						<Dropdown
+							value=""
+							placeholder={t('collections.bulk.changeStatus')}
+							disabled={busy || overLimit}
+							onChange={(action) => run(action as BulkAction)}
+							options={[
+								{ value: 'publish', label: t('collections.bulk.publish') },
+								{ value: 'unpublish', label: t('collections.bulk.unpublish') },
+								{ value: 'archive', label: t('collections.bulk.archive') },
+								...(showSubmitForReview
+									? [{ value: 'submit-for-review', label: t('collections.bulk.submitForReview') }]
+									: []),
+							]}
+						/>
+						{actionButton('duplicate', t('collections.bulk.duplicate'))}
 						{actionButton('set-field', t('collections.bulk.setField'), () =>
 							setFieldEditorOpen(true),
 						)}

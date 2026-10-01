@@ -1201,14 +1201,18 @@
 				"success_other": "Synced {{updated}} updated and {{count}} new items"
 			},
 			"syncDialog": {
-				"title": "External changes found",
-				"intro": "Sync will overwrite the local CMS cache with the external database values. A copy of each overwritten local version will be saved in version history.",
-				"local": "Local",
-				"external": "External",
-				"moreFields": "+{{count}} more changed fields",
-				"showingOf_one": "Showing {{showing}} of {{total}} discrepancy.",
-				"showingOf_other": "Showing {{showing}} of {{total}} discrepancies.",
-				"overwrite": "Overwrite local cache"
+				"title": "Choose which edits to keep",
+				"intro": "Some records have different edits in the CMS and the external database. Choose which version to use for the overlapping changes. Other updates sync automatically, and replaced content is saved in version history.",
+				"recordConflict": "Both versions changed the {{areas}}.",
+				"local": "Keep CMS edits",
+				"external": "Use external edits",
+				"later": "Decide later",
+				"apply": "Apply choices",
+				"areas": {
+					"content": "content",
+					"details": "record details",
+					"status": "status"
+				}
 			},
 			"import": {
 				"queued": "Import queued",
@@ -1599,7 +1603,11 @@
 			"setFieldMessage_other": "Applies to {{count}} selected records. Existing values in that field are replaced.",
 			"setFieldNoFields": "This collection has no fields that can be set in bulk.",
 			"setFieldValuePlaceholder": "Value",
-			"setFieldApply": "Apply"
+			"setFieldApply": "Apply",
+			"changeStatus": "Change status",
+			"duplicate": "Duplicate",
+			"duplicated_one": "{{count}} draft copy created",
+			"duplicated_other": "{{count}} draft copies created"
 		}
 	},
 	"content": {

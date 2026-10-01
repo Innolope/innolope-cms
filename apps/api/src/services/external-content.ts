@@ -3,7 +3,7 @@ import {
 	externalStatusSupport,
 	isSchemalessExternalDb,
 } from '@innolope/config'
-import { collections, importJobs, projects } from '@innolope/db'
+import { collections, content, importJobs, projects } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
@@ -13,6 +13,7 @@ import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
+import { syncState } from './sync-state.js'
 
 export function sanitizeHtml(html: string): string {
 	return DOMPurify.sanitize(html)
@@ -301,7 +302,27 @@ export async function updateExternalDb(
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		return await adapter.update(col.externalTable, externalId, payload)
+		const updated = await adapter.update(col.externalTable, externalId, payload)
+		// Mongo/MySQL updates return only the patch; observe the complete row.
+		const observed = await adapter.findById(col.externalTable, externalId)
+		// The values this write committed remain the baseline even if another
+		// client edits the row between our write and read-back.
+		const doc = { ...observed, ...updated }
+		// A successful write-through becomes the new shared external state. CMS-
+		// only fields remain distinguishable from later incoming source changes.
+		await app.db
+			.update(content)
+			.set({
+				externalSnapshot: syncState(externalDocToContentItem(doc, col)),
+			})
+			.where(
+				and(
+					eq(content.projectId, projectId),
+					eq(content.collectionId, col.id),
+					eq(content.externalId, externalId),
+				),
+			)
+		return doc
 	} finally {
 		await adapter.disconnect()
 	}
