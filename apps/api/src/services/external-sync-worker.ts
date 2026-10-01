@@ -54,7 +54,7 @@ export async function syncExternalCollection(
 ) {
 	await app.db
 		.insert(externalSyncState)
-		.values({ collectionId: collection.id })
+		.values({ collectionId: collection.id, nextAttemptAt: new Date(0) })
 		.onConflictDoNothing()
 	const started = new Date()
 	const token = randomUUID()

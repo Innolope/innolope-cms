@@ -362,7 +362,15 @@ describe.skipIf(!hasTestDb)(
 				status: 'pending',
 				createdBy: ownerId,
 			})
-			await syncExternalCollections(app)
+			// The first scan must be due even when the database clock is ahead of
+			// the worker clock (including sub-millisecond Postgres timestamps).
+			vi.useFakeTimers({ toFake: ['Date'] })
+			vi.setSystemTime(Date.now() - 60_000)
+			try {
+				await syncExternalCollections(app)
+			} finally {
+				vi.useRealTimers()
+			}
 			expect(
 				await app.db.select().from(content).where(eq(content.collectionId, readonlyCol.id)),
 			).toHaveLength(1)
