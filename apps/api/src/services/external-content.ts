@@ -3,7 +3,7 @@ import {
 	externalStatusSupport,
 	isSchemalessExternalDb,
 } from '@innolope/config'
-import { collections, content, importJobs, projects } from '@innolope/db'
+import { collections, content, type Database, importJobs, projects } from '@innolope/db'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
@@ -256,8 +256,13 @@ export async function insertIntoExternalDb(
 	projectId: string,
 	col: typeof collections.$inferSelect,
 	data: Record<string, unknown>,
+	sourceDb: Pick<Database, 'select'> = app.db,
 ) {
-	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const [project] = await sourceDb
+		.select()
+		.from(projects)
+		.where(eq(projects.id, projectId))
+		.limit(1)
 	const extDb = getExternalDbConfig(project)
 	if (!extDb || !col.externalTable) throw new Error('External database is not configured')
 
@@ -283,8 +288,13 @@ export async function updateExternalDb(
 	col: typeof collections.$inferSelect,
 	externalId: string,
 	data: Record<string, unknown>,
+	snapshotDb: Pick<Database, 'select' | 'update'> = app.db,
 ) {
-	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const [project] = await snapshotDb
+		.select()
+		.from(projects)
+		.where(eq(projects.id, projectId))
+		.limit(1)
 	const extDb = getExternalDbConfig(project)
 	if (!extDb || !col.externalTable) throw new Error('External database is not configured')
 
@@ -310,7 +320,7 @@ export async function updateExternalDb(
 		const doc = { ...observed, ...updated }
 		// A successful write-through becomes the new shared external state. CMS-
 		// only fields remain distinguishable from later incoming source changes.
-		await app.db
+		await snapshotDb
 			.update(content)
 			.set({
 				externalSnapshot: syncState(externalDocToContentItem(doc, col)),
@@ -416,8 +426,9 @@ export async function syncExternalStatus(
 	externalId: string | null,
 	status: string,
 	publishedAt: Date | null,
+	snapshotDb: Pick<Database, 'select' | 'update'> = app.db,
 ): Promise<StatusSyncOutcome> {
-	const [col] = await app.db
+	const [col] = await snapshotDb
 		.select()
 		.from(collections)
 		.where(and(eq(collections.id, collectionId), eq(collections.projectId, projectId)))
@@ -427,7 +438,11 @@ export async function syncExternalStatus(
 	}
 	if (!externalId) return { synced: false, reason: 'no-external-id' }
 
-	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const [project] = await snapshotDb
+		.select()
+		.from(projects)
+		.where(eq(projects.id, projectId))
+		.limit(1)
 	const support = externalStatusSupport({
 		source: col.source,
 		accessMode: col.accessMode,
@@ -439,7 +454,7 @@ export async function syncExternalStatus(
 	if (!support.supported) return { synced: false, reason: 'unsupported' }
 
 	const data = buildExternalData(col, { status, publishedAt })
-	await updateExternalDb(app, projectId, col, externalId, data)
+	await updateExternalDb(app, projectId, col, externalId, data, snapshotDb)
 	return { synced: true }
 }
 

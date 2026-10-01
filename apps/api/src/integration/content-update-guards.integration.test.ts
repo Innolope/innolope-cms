@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
 	collections,
 	content,
+	contentVersions,
 	projectMemberCollections,
 	projectMembers,
 	projects,
@@ -119,6 +120,137 @@ describe.skipIf(!hasTestDb)('content update guards (real Postgres)', () => {
 		await app.db.delete(projects).where(eq(projects.id, projectId))
 		for (const id of cleanupUsers) await app.db.delete(users).where(eq(users.id, id))
 		await app?.close()
+	})
+
+	it('only one simultaneous editor can save the same revision', async () => {
+		const id = await create(ownerToken, {
+			collectionId: colA,
+			markdown: 'Original',
+			metadata: { title: 'Original' },
+		})
+		const loaded = await app.inject({
+			method: 'GET',
+			url: `/api/v1/content/${id}`,
+			headers: as(ownerToken),
+		})
+		const { version, updatedAt } = loaded.json()
+		const responses = await Promise.all(
+			['First editor', 'Second editor'].map((markdown) =>
+				app.inject({
+					method: 'PUT',
+					url: `/api/v1/content/${id}`,
+					headers: as(ownerToken),
+					payload: { markdown, expectedVersion: version, expectedUpdatedAt: updatedAt },
+				}),
+			),
+		)
+		expect(responses.map((r) => r.statusCode).sort()).toEqual([200, 409])
+		const winner = responses.find((r) => r.statusCode === 200)?.json()
+		const loser = responses.find((r) => r.statusCode === 409)?.json()
+		expect(loser.code).toBe('CONTENT_CONFLICT')
+		const [row] = await app.db.select().from(content).where(eq(content.id, id))
+		expect(row.markdown).toBe(winner.markdown)
+		expect(row.version).toBe(version + 1)
+		const history = await app.db
+			.select()
+			.from(contentVersions)
+			.where(eq(contentVersions.contentId, id))
+		expect(history).toHaveLength(1)
+		expect(history[0].markdown).toBe('Original')
+		// The winner can continue editing with its returned revision.
+		const next = await app.inject({
+			method: 'PUT',
+			url: `/api/v1/content/${id}`,
+			headers: as(ownerToken),
+			payload: {
+				markdown: 'Next revision',
+				expectedVersion: winner.version,
+				expectedUpdatedAt: winner.updatedAt,
+			},
+		})
+		expect(next.statusCode).toBe(200)
+	})
+
+	it('a publish racing an edit also checks the reviewed revision', async () => {
+		const id = await create(ownerToken, { collectionId: colA, markdown: 'Original' })
+		const [original] = await app.db.select().from(content).where(eq(content.id, id))
+		const revision = {
+			expectedVersion: original.version,
+			expectedUpdatedAt: original.updatedAt.toISOString(),
+		}
+		const responses = await Promise.all([
+			app.inject({
+				method: 'PUT',
+				url: `/api/v1/content/${id}`,
+				headers: as(ownerToken),
+				payload: { ...revision, markdown: 'Edit' },
+			}),
+			app.inject({
+				method: 'POST',
+				url: `/api/v1/content/${id}/publish`,
+				headers: as(ownerToken),
+				payload: revision,
+			}),
+		])
+		expect(responses.map((r) => r.statusCode).sort()).toEqual([200, 409])
+		expect(responses.find((r) => r.statusCode === 409)?.json().code).toBe('CONTENT_CONFLICT')
+		const [row] = await app.db.select().from(content).where(eq(content.id, id))
+		expect(row.version).toBe(original.version + 1)
+		expect(
+			await app.db.select().from(contentVersions).where(eq(contentVersions.contentId, id)),
+		).toHaveLength(1)
+	})
+
+	it('emits the update after the new revision is committed', async () => {
+		const id = await create(ownerToken, { collectionId: colA, markdown: 'Original' })
+		let resolve!: (value: string) => void
+		const observed = new Promise<string>((r) => {
+			resolve = r
+		})
+		const unsubscribe = app.events.subscribe(async (event) => {
+			if (event.type !== 'content:updated' || event.data.id !== id) return
+			const [row] = await app.db.select().from(content).where(eq(content.id, id))
+			resolve(row.markdown)
+		})
+		try {
+			const response = await app.inject({
+				method: 'PUT',
+				url: `/api/v1/content/${id}`,
+				headers: as(ownerToken),
+				payload: { markdown: 'Committed edit', expectedVersion: 1 },
+			})
+			expect(response.statusCode).toBe(200)
+			expect(await observed).toBe('Committed edit')
+		} finally {
+			unsubscribe()
+		}
+	})
+
+	it('rejects a stale timestamp after a status-only write without altering history', async () => {
+		const id = await create(ownerToken, { collectionId: colA, markdown: 'Original' })
+		const [original] = await app.db.select().from(content).where(eq(content.id, id))
+		await app.db
+			.update(content)
+			.set({ status: 'archived', updatedAt: new Date(original.updatedAt.getTime() + 1000) })
+			.where(eq(content.id, id))
+		const response = await app.inject({
+			method: 'PUT',
+			url: `/api/v1/content/${id}`,
+			headers: as(ownerToken),
+			payload: {
+				markdown: 'Stale edit',
+				expectedVersion: original.version,
+				expectedUpdatedAt: original.updatedAt.toISOString(),
+			},
+		})
+		expect(response.statusCode).toBe(409)
+		expect(response.json().code).toBe('CONTENT_CONFLICT')
+		const [row] = await app.db.select().from(content).where(eq(content.id, id))
+		expect(row.markdown).toBe('Original')
+		expect(row.status).toBe('archived')
+		expect(
+			await app.db.select().from(contentVersions).where(eq(contentVersions.contentId, id)),
+		).toHaveLength(0)
 	})
 
 	it('PUT cannot publish past the review gate', async () => {

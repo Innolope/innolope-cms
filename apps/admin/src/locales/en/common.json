@@ -1507,7 +1507,15 @@
 				"forBody": "Enable for body"
 			},
 			"statusNotSyncedWarning": "This collection's source table has no status column, so publishing state stays inside the CMS. Anything reading the source database directly still sees this record.",
-			"statusReadOnlyWarning": "This collection is read-only, so status changes stay inside the CMS and never reach the source database."
+			"statusReadOnlyWarning": "This collection is read-only, so status changes stay inside the CMS and never reach the source database.",
+			"concurrentEdits": {
+				"title": "This record changed elsewhere",
+				"message": "A newer version has been saved. Your unsaved edits are safe here. Load the latest record before saving again.",
+				"load": "Load latest record",
+				"loadTitle": "Load the latest record?",
+				"loadMessage": "This will replace your unsaved edits with the latest saved version.",
+				"latest": "Latest saved record: {{title}} · {{date}}"
+			}
 		},
 		"edit": {
 			"title": "Edit: {{name}}",

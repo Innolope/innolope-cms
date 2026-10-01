@@ -17,7 +17,7 @@ export interface MemberCollectionAccess {
 }
 
 export async function loadMemberCollectionAccess(
-	db: Database,
+	db: Pick<Database, 'select'>,
 	membershipId: string,
 ): Promise<MemberCollectionAccess> {
 	const rows = await db
@@ -35,7 +35,7 @@ export async function loadMemberCollectionAccess(
  * targets are auto-readable" access fallback.
  */
 export async function loadRelationTargets(
-	db: Database,
+	db: Pick<Database, 'select'>,
 	projectId: string,
 ): Promise<{
 	/** Map keyed by collection name. */
@@ -79,7 +79,7 @@ export async function loadRelationTargets(
  * purpose of relation pickers and resolution, but never write access.
  */
 export async function loadReferencedCollectionIds(
-	db: Database,
+	db: Pick<Database, 'select'>,
 	projectId: string,
 	allowedIds: Set<string>,
 ): Promise<Set<string>> {
@@ -157,6 +157,7 @@ export async function checkCollectionAccess(
 	request: FastifyRequest,
 	collectionId: string,
 	mode: 'read' | 'write',
+	db: Pick<Database, 'select'> = request.server.db,
 ): Promise<{ ok: true } | { ok: false; status: 403 | 404; error: string }> {
 	const role = request.projectRole
 	const membershipId = request.membershipId
@@ -167,8 +168,6 @@ export async function checkCollectionAccess(
 
 	// Owner/admin: always allowed.
 	if (role === 'owner' || role === 'admin') return { ok: true }
-
-	const db = request.server.db
 
 	// Verify the collection exists and belongs to this project.
 	const [coll] = await db

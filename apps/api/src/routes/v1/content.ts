@@ -7,6 +7,7 @@ import {
 import { collections, content, contentAnalytics, contentVersions, media, users } from '@innolope/db'
 import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import {
 	checkCollectionAccess,
 	resolveReadableCollectionScope,
@@ -48,6 +49,35 @@ import { contentBulkActionRoutes } from './content-bulk-actions.js'
 // Version history belongs to local content rows. External source IDs (for
 // example Mongo ObjectIds) must never reach a PostgreSQL UUID comparison.
 const LOCAL_CONTENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const contentRevisionSchema = z.object({
+	expectedVersion: z.number().int().positive().optional(),
+	expectedUpdatedAt: z.string().datetime().nullable().optional(),
+})
+function revisionConflict(body: unknown, record: typeof content.$inferSelect): boolean {
+	const expected = contentRevisionSchema.parse(body ?? {})
+	return (
+		(expected.expectedVersion !== undefined && expected.expectedVersion !== record.version) ||
+		(expected.expectedUpdatedAt !== undefined &&
+			expected.expectedUpdatedAt !== (record.updatedAt?.toISOString() ?? null))
+	)
+}
+const CONTENT_CONFLICT = {
+	code: 'CONTENT_CONFLICT',
+	error:
+		'This record changed since you opened it. Your edits have not been saved. Review the latest record before saving again.',
+}
+
+type ContentTransaction = Parameters<Parameters<FastifyInstance['db']['transaction']>[0]>[0]
+async function withContentTransaction<T>(
+	app: FastifyInstance,
+	write: (tx: ContentTransaction, afterCommit: (effect: () => void) => void) => Promise<T>,
+): Promise<T> {
+	const effects: Array<() => void> = []
+	const result = await app.db.transaction((tx) => write(tx, (effect) => effects.push(effect)))
+	// SSE and webhook listeners must observe the committed revision.
+	for (const effect of effects) effect()
+	return result
+}
 
 /**
  * Gate + validate a write that puts a record into `scheduled`.
@@ -1265,271 +1295,284 @@ export async function contentRoutes(app: FastifyInstance) {
 	app.put<{ Params: { id: string } }>(
 		'/:id',
 		{ preHandler: [app.requireProject('editor')] },
-		async (request, reply) => {
-			// `updatedAt` is edit history and stays server-owned — a client must not be
-			// able to claim a row was last touched at a time of its choosing.
-			//
-			// `createdAt` and `publishedAt` are content dates, not history: the editor
-			// surfaces both, imported posts routinely need backdating to keep a feed in
-			// order, and `publishedAt` *is* the schedule, so moving it is how an existing
-			// record gets scheduled at all.
-			// `collectionId` is identity, not content: moving a record would skip the
-			// target's access check and schema, so it is refused rather than spread
-			// into the update.
-			const {
-				updatedAt: _ua,
-				collectionId: requestedCollectionId,
-				...input
-			} = contentInputSchema.partial().parse(request.body)
-			// Frontmatter normalization on update: strip the block and fold its fields
-			// into the incoming metadata (explicit metadata keys win). The merge with
-			// the stored row happens below for all metadata alike.
-			if (input.markdown !== undefined) {
-				const { body, meta } = parseFrontmatter(input.markdown)
-				if (Object.keys(meta).length > 0) {
-					input.markdown = body
-					input.metadata = { ...meta, ...(input.metadata ?? {}) }
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				// `updatedAt` is edit history and stays server-owned — a client must not be
+				// able to claim a row was last touched at a time of its choosing.
+				//
+				// `createdAt` and `publishedAt` are content dates, not history: the editor
+				// surfaces both, imported posts routinely need backdating to keep a feed in
+				// order, and `publishedAt` *is* the schedule, so moving it is how an existing
+				// record gets scheduled at all.
+				// `collectionId` is identity, not content: moving a record would skip the
+				// target's access check and schema, so it is refused rather than spread
+				// into the update.
+				const {
+					updatedAt: _ua,
+					collectionId: requestedCollectionId,
+					expectedVersion,
+					expectedUpdatedAt,
+					...input
+				} = contentInputSchema.partial().extend(contentRevisionSchema.shape).parse(request.body)
+				// Frontmatter normalization on update: strip the block and fold its fields
+				// into the incoming metadata (explicit metadata keys win). The merge with
+				// the stored row happens below for all metadata alike.
+				if (input.markdown !== undefined) {
+					const { body, meta } = parseFrontmatter(input.markdown)
+					if (Object.keys(meta).length > 0) {
+						input.markdown = body
+						input.metadata = { ...meta, ...(input.metadata ?? {}) }
+					}
 				}
-			}
 
-			const [current] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.limit(1)
-
-			if (!current) return reply.status(404).send({ error: 'Content not found' })
-			if (requestedCollectionId !== undefined && requestedCollectionId !== current.collectionId) {
-				return reply
-					.status(400)
-					.send({ error: 'collectionId cannot be changed on update — create a new record' })
-			}
-			// Same locale rule as create: a locale the project does not configure
-			// makes the row invisible to every locale-filtered view.
-			const { locales: projectLocales } = getProject(request)
-			if (input.locale && !projectLocales.includes(input.locale)) {
-				return reply.status(400).send({
-					error: `Locale "${input.locale}" is not configured for this project`,
-					locales: projectLocales,
-				})
-			}
-			// The review workflow applies to every route that can set `published`,
-			// not only POST /:id/publish.
-			if (
-				input.status === 'published' &&
-				current.status !== 'published' &&
-				!request.canPublishDirectly
-			) {
-				return reply
-					.status(403)
-					.send({ error: 'Direct publish not allowed — submit for review instead.' })
-			}
-
-			// A record can be scheduled by this update, or already be scheduled and have
-			// only its date moved — either way the effective pair has to be valid.
-			const nextScheduleStatus = input.status ?? current.status
-			const scheduleError = checkSchedulable(
-				app,
-				nextScheduleStatus,
-				input.publishedAt ?? current.publishedAt,
-			)
-			if (scheduleError) {
-				return reply.status(scheduleError.status).send({ error: scheduleError.error })
-			}
-
-			const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write')
-			if (!writeAccess.ok) {
-				return reply.status(writeAccess.status).send({ error: writeAccess.error })
-			}
-
-			const [col] = await app.db
-				.select()
-				.from(collections)
-				.where(
-					and(
-						eq(collections.id, current.collectionId),
-						eq(collections.projectId, getProject(request).id),
-					),
-				)
-				.limit(1)
-
-			let externalId = current.externalId
-			if (col?.source === 'external' && col.accessMode === 'read-only') {
-				return reply.status(403).send({ error: 'This collection is read-only' })
-			}
-
-			// Fold localized fields against the stored map first — a bare string here
-			// means "this record's language", not "replace every translation".
-			if (col) {
-				input.metadata = applyLocalizedWrite(col.fields, input, {
-					locale: current.locale,
-					existing: current.metadata as Record<string, unknown>,
-				})
-			}
-			// Update metadata is a shallow MERGE into the stored blob (a partial
-			// update never wipes fields the caller didn't send); an explicit null
-			// deletes a key. This merged view is the single source for validation,
-			// the external write, and the cached row — they must not diverge.
-			const updatedKeys = Object.keys(input.metadata ?? {})
-			const mergedMetadata = mergeMetadataUpdate(
-				current.metadata as Record<string, unknown>,
-				input.metadata,
-			)
-			let fieldWarnings: string[] = []
-			if (col) {
-				const nextStatus = input.status ?? current.status
-				const updateErrors = validateContentMetadata(
-					col.fields,
-					mergedMetadata ?? (current.metadata as Record<string, unknown>),
-					// Type-check only the fields this write touches: a legacy value that
-					// predates stricter checks must not block an unrelated update.
-					{
-						enforceRequired: nextStatus === 'published',
-						updatedKeys,
-						locales: getProject(request).locales,
-					},
-				)
-				if (updateErrors.length > 0) {
-					return reply.status(400).send(contentValidationError(col.fields, updateErrors))
-				}
-				fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
-			}
-
-			// Slug/locale identity must stay unique BEFORE anything is written — the
-			// external row is updated first and a collision on the CMS row afterwards
-			// would leave the two out of step.
-			const nextSlug = input.slug === undefined ? current.slug : input.slug
-			const nextLocale = input.locale ?? current.locale
-			if (nextSlug && (nextSlug !== current.slug || nextLocale !== current.locale)) {
-				const [duplicate] = await app.db
-					.select({ id: content.id })
+				const [current] = await tx
+					.select()
 					.from(content)
 					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
+
+				if (!current) return reply.status(404).send({ error: 'Content not found' })
+				if (requestedCollectionId !== undefined && requestedCollectionId !== current.collectionId) {
+					return reply
+						.status(400)
+						.send({ error: 'collectionId cannot be changed on update — create a new record' })
+				}
+				// Same locale rule as create: a locale the project does not configure
+				// makes the row invisible to every locale-filtered view.
+				const { locales: projectLocales } = getProject(request)
+				if (input.locale && !projectLocales.includes(input.locale)) {
+					return reply.status(400).send({
+						error: `Locale "${input.locale}" is not configured for this project`,
+						locales: projectLocales,
+					})
+				}
+				// The review workflow applies to every route that can set `published`,
+				// not only POST /:id/publish.
+				if (
+					input.status === 'published' &&
+					current.status !== 'published' &&
+					!request.canPublishDirectly
+				) {
+					return reply
+						.status(403)
+						.send({ error: 'Direct publish not allowed — submit for review instead.' })
+				}
+
+				// A record can be scheduled by this update, or already be scheduled and have
+				// only its date moved — either way the effective pair has to be valid.
+				const nextScheduleStatus = input.status ?? current.status
+				const scheduleError = checkSchedulable(
+					app,
+					nextScheduleStatus,
+					input.publishedAt ?? current.publishedAt,
+				)
+				if (scheduleError) {
+					return reply.status(scheduleError.status).send({ error: scheduleError.error })
+				}
+
+				const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write', tx)
+				if (!writeAccess.ok) {
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				}
+
+				// Lock the record before comparing the editor's revision. Two editors
+				// saving the same revision must never both pass this check.
+				if (revisionConflict({ expectedVersion, expectedUpdatedAt }, current)) {
+					return reply.status(409).send(CONTENT_CONFLICT)
+				}
+
+				const [col] = await tx
+					.select()
+					.from(collections)
+					.where(
 						and(
-							eq(content.projectId, getProject(request).id),
-							eq(content.slug, nextSlug),
-							eq(content.locale, nextLocale),
-							sql`${content.id} <> ${current.id}`,
+							eq(collections.id, current.collectionId),
+							eq(collections.projectId, getProject(request).id),
 						),
 					)
 					.limit(1)
-				if (duplicate) {
-					return reply
-						.status(409)
-						.send({ error: 'Content with this slug and locale already exists' })
+
+				let externalId = current.externalId
+				if (col?.source === 'external' && col.accessMode === 'read-only') {
+					return reply.status(403).send({ error: 'This collection is read-only' })
 				}
-			}
 
-			// The publish date after this update: an explicit value wins (that's how a
-			// record gets scheduled or rescheduled), otherwise going live for the first
-			// time stamps now, otherwise it stays as it was.
-			const nextPublishedAt = input.publishedAt
-				? new Date(input.publishedAt)
-				: input.status === 'published' && !current.publishedAt
-					? new Date()
-					: current.publishedAt
+				// Fold localized fields against the stored map first — a bare string here
+				// means "this record's language", not "replace every translation".
+				if (col) {
+					input.metadata = applyLocalizedWrite(col.fields, input, {
+						locale: current.locale,
+						existing: current.metadata as Record<string, unknown>,
+					})
+				}
+				// Update metadata is a shallow MERGE into the stored blob (a partial
+				// update never wipes fields the caller didn't send); an explicit null
+				// deletes a key. This merged view is the single source for validation,
+				// the external write, and the cached row — they must not diverge.
+				const updatedKeys = Object.keys(input.metadata ?? {})
+				const mergedMetadata = mergeMetadataUpdate(
+					current.metadata as Record<string, unknown>,
+					input.metadata,
+				)
+				let fieldWarnings: string[] = []
+				if (col) {
+					const nextStatus = input.status ?? current.status
+					const updateErrors = validateContentMetadata(
+						col.fields,
+						mergedMetadata ?? (current.metadata as Record<string, unknown>),
+						// Type-check only the fields this write touches: a legacy value that
+						// predates stricter checks must not block an unrelated update.
+						{
+							enforceRequired: nextStatus === 'published',
+							updatedKeys,
+							locales: getProject(request).locales,
+						},
+					)
+					if (updateErrors.length > 0) {
+						return reply.status(400).send(contentValidationError(col.fields, updateErrors))
+					}
+					fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
+				}
 
-			// Creation date: an explicit value wins so an imported post can be backdated
-			// to its original date, otherwise it stays as it was.
-			const nextCreatedAt = input.createdAt ? new Date(input.createdAt) : current.createdAt
+				// Slug/locale identity must stay unique BEFORE anything is written — the
+				// external row is updated first and a collision on the CMS row afterwards
+				// would leave the two out of step.
+				const nextSlug = input.slug === undefined ? current.slug : input.slug
+				const nextLocale = input.locale ?? current.locale
+				if (nextSlug && (nextSlug !== current.slug || nextLocale !== current.locale)) {
+					const [duplicate] = await tx
+						.select({ id: content.id })
+						.from(content)
+						.where(
+							and(
+								eq(content.projectId, getProject(request).id),
+								eq(content.slug, nextSlug),
+								eq(content.locale, nextLocale),
+								sql`${content.id} <> ${current.id}`,
+							),
+						)
+						.limit(1)
+					if (duplicate) {
+						return reply
+							.status(409)
+							.send({ error: 'Content with this slug and locale already exists' })
+					}
+				}
 
-			// Metadata to cache locally — `undefined` leaves the stored blob untouched.
-			let cachedMetadata = mergedMetadata
-			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-				const nextMetadata = mergedMetadata ?? (current.metadata as Record<string, unknown>)
-				const now = new Date()
-				const externalData = buildExternalData(col, {
-					slug: input.slug ?? current.slug,
-					status: input.status ?? current.status,
-					metadata: nextMetadata,
-					markdown: input.markdown ?? current.markdown,
-					createdAt: nextCreatedAt,
-					updatedAt: now,
-					publishedAt: nextPublishedAt,
+				// The publish date after this update: an explicit value wins (that's how a
+				// record gets scheduled or rescheduled), otherwise going live for the first
+				// time stamps now, otherwise it stays as it was.
+				const nextPublishedAt = input.publishedAt
+					? new Date(input.publishedAt)
+					: input.status === 'published' && !current.publishedAt
+						? new Date()
+						: current.publishedAt
+
+				// Creation date: an explicit value wins so an imported post can be backdated
+				// to its original date, otherwise it stays as it was.
+				const nextCreatedAt = input.createdAt ? new Date(input.createdAt) : current.createdAt
+
+				// Metadata to cache locally — `undefined` leaves the stored blob untouched.
+				let cachedMetadata = mergedMetadata
+				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+					const nextMetadata = mergedMetadata ?? (current.metadata as Record<string, unknown>)
+					const now = new Date()
+					const externalData = buildExternalData(col, {
+						slug: input.slug ?? current.slug,
+						status: input.status ?? current.status,
+						metadata: nextMetadata,
+						markdown: input.markdown ?? current.markdown,
+						createdAt: nextCreatedAt,
+						updatedAt: now,
+						publishedAt: nextPublishedAt,
+					})
+
+					try {
+						if (externalId) {
+							await updateExternalDb(app, getProject(request).id, col, externalId, externalData, tx)
+						} else {
+							const inserted = await insertIntoExternalDb(
+								app,
+								getProject(request).id,
+								col,
+								externalData,
+								tx,
+							)
+							externalId = inserted?._id ?? null
+						}
+					} catch (err) {
+						app.log.warn(err, 'Failed to sync to external DB')
+						return reply.status(502).send({ error: 'Failed to sync to external database' })
+					}
+					// Keep the cache in step with what the external row now holds, so the editor
+					// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
+					// merged view that was just written — the cache and the source database
+					// must hold the same fields.
+					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
+				}
+
+				await tx.insert(contentVersions).values({
+					contentId: current.id,
+					version: current.version,
+					markdown: current.markdown,
+					metadata: current.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
 
+				// Re-render whenever markdown was sent — including "" — so the cached
+				// html never outlives the body it was rendered from.
+				const html = input.markdown !== undefined ? await renderMarkdown(input.markdown) : undefined
+				const newVersion = current.version + 1
+
+				let updated: typeof content.$inferSelect
 				try {
-					if (externalId) {
-						await updateExternalDb(app, getProject(request).id, col, externalId, externalData)
-					} else {
-						const inserted = await insertIntoExternalDb(
-							app,
-							getProject(request).id,
-							col,
-							externalData,
-						)
-						externalId = inserted?._id ?? null
-					}
+					;[updated] = await tx
+						.update(content)
+						.set({
+							...input,
+							...(cachedMetadata && { metadata: cachedMetadata }),
+							...(html !== undefined && { html }),
+							version: newVersion,
+							updatedAt: new Date(),
+							updatedBy: getUser(request).id,
+							updatedSource: requestSource(request),
+							// Always overrides: `...input` carries these as ISO strings, which the
+							// timestamp columns can't take.
+							publishedAt: nextPublishedAt,
+							createdAt: nextCreatedAt,
+							...(externalId && { externalId }),
+						})
+						.where(eq(content.id, request.params.id))
+						.returning()
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					if ((err as { cause?: { code?: string } })?.cause?.code === '23505') {
+						return reply
+							.status(409)
+							.send({ error: 'Content with this slug and locale already exists' })
+					}
+					throw err
 				}
-				// Keep the cache in step with what the external row now holds, so the editor
-				// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
-				// merged view that was just written — the cache and the source database
-				// must hold the same fields.
-				cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
-			}
 
-			await app.db.insert(contentVersions).values({
-				contentId: current.id,
-				version: current.version,
-				markdown: current.markdown,
-				metadata: current.metadata,
-				createdBy: getUser(request).id,
-				source: requestSource(request),
-			})
+				const eventType = updated.status === 'published' ? 'content:published' : 'content:updated'
+				afterCommit(() =>
+					app.events.emit({
+						type: eventType,
+						data: {
+							id: updated.id,
+							slug: updated.slug,
+							version: updated.version,
+							projectId: getProject(request).id,
+						},
+						timestamp: new Date().toISOString(),
+					}),
+				)
 
-			// Re-render whenever markdown was sent — including "" — so the cached
-			// html never outlives the body it was rendered from.
-			const html = input.markdown !== undefined ? await renderMarkdown(input.markdown) : undefined
-			const newVersion = current.version + 1
-
-			let updated: typeof content.$inferSelect
-			try {
-				;[updated] = await app.db
-					.update(content)
-					.set({
-						...input,
-						...(cachedMetadata && { metadata: cachedMetadata }),
-						...(html !== undefined && { html }),
-						version: newVersion,
-						updatedAt: new Date(),
-						updatedBy: getUser(request).id,
-						updatedSource: requestSource(request),
-						// Always overrides: `...input` carries these as ISO strings, which the
-						// timestamp columns can't take.
-						publishedAt: nextPublishedAt,
-						createdAt: nextCreatedAt,
-						...(externalId && { externalId }),
-					})
-					.where(eq(content.id, request.params.id))
-					.returning()
-			} catch (err) {
-				if ((err as { cause?: { code?: string } })?.cause?.code === '23505') {
-					return reply
-						.status(409)
-						.send({ error: 'Content with this slug and locale already exists' })
-				}
-				throw err
-			}
-
-			const eventType = updated.status === 'published' ? 'content:published' : 'content:updated'
-			app.events.emit({
-				type: eventType,
-				data: {
-					id: updated.id,
-					slug: updated.slug,
-					version: updated.version,
-					projectId: getProject(request).id,
-				},
-				timestamp: new Date().toISOString(),
-			})
-
-			return fieldWarnings.length > 0 ? { ...updated, fieldWarnings } : updated
-		},
+				return fieldWarnings.length > 0 ? { ...updated, fieldWarnings } : updated
+			}),
 	)
 
 	// Delete content (admin+, project-scoped)
@@ -1665,136 +1708,146 @@ export async function contentRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string; version: string } }>(
 		'/:id/revert/:version',
 		{ preHandler: [app.requireProject('editor')] },
-		async (request, reply) => {
-			const [current] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.limit(1)
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				const [current] = await tx
+					.select()
+					.from(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
 
-			if (!current) return reply.status(404).send({ error: 'Content not found' })
+				if (!current) return reply.status(404).send({ error: 'Content not found' })
+				const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write', tx)
+				if (!writeAccess.ok)
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				if (revisionConflict(request.body, current)) return reply.status(409).send(CONTENT_CONFLICT)
 
-			const targetVersion = Number(request.params.version)
-			const [version] = await app.db
-				.select()
-				.from(contentVersions)
-				.where(
-					and(
-						eq(contentVersions.contentId, request.params.id),
-						eq(contentVersions.version, targetVersion),
-					),
-				)
-				.limit(1)
+				const targetVersion = Number(request.params.version)
+				const [version] = await tx
+					.select()
+					.from(contentVersions)
+					.where(
+						and(
+							eq(contentVersions.contentId, request.params.id),
+							eq(contentVersions.version, targetVersion),
+						),
+					)
+					.limit(1)
 
-			if (!version) return reply.status(404).send({ error: `Version ${targetVersion} not found` })
+				if (!version) return reply.status(404).send({ error: `Version ${targetVersion} not found` })
 
-			// A revert is an edit like any other, so it has to reach the source
-			// database too. Without this the CMS rolled back alone and the customer's
-			// site kept serving the newer content — the reason the editor used to hide
-			// version history for external collections entirely.
-			const [revertCol] = await app.db
-				.select()
-				.from(collections)
-				.where(
-					and(
-						eq(collections.id, current.collectionId),
-						eq(collections.projectId, getProject(request).id),
-					),
-				)
-				.limit(1)
-			if (revertCol?.source === 'external' && revertCol.accessMode === 'read-only') {
-				return reply.status(403).send({ error: 'This collection is read-only' })
-			}
-
-			let revertExternalId = current.externalId
-			let revertMetadata = version.metadata
-			if (
-				revertCol?.source === 'external' &&
-				revertCol.accessMode === 'read-write' &&
-				revertCol.externalTable
-			) {
-				const externalData = buildExternalData(revertCol, {
-					slug: current.slug,
-					status: current.status,
-					metadata: version.metadata,
-					markdown: version.markdown,
-					createdAt: current.createdAt,
-					updatedAt: new Date(),
-					publishedAt: current.publishedAt,
-				})
-				try {
-					if (revertExternalId) {
-						await updateExternalDb(
-							app,
-							getProject(request).id,
-							revertCol,
-							revertExternalId,
-							externalData,
-						)
-					} else {
-						const inserted = await insertIntoExternalDb(
-							app,
-							getProject(request).id,
-							revertCol,
-							externalData,
-						)
-						revertExternalId = inserted?._id ?? null
-					}
-				} catch (err) {
-					app.log.warn(err, 'Failed to sync revert to external DB')
-					// Nothing has been written locally yet, so the record is untouched on
-					// both sides — a retry is safe.
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+				// A revert is an edit like any other, so it has to reach the source
+				// database too. Without this the CMS rolled back alone and the customer's
+				// site kept serving the newer content — the reason the editor used to hide
+				// version history for external collections entirely.
+				const [revertCol] = await tx
+					.select()
+					.from(collections)
+					.where(
+						and(
+							eq(collections.id, current.collectionId),
+							eq(collections.projectId, getProject(request).id),
+						),
+					)
+					.limit(1)
+				if (revertCol?.source === 'external' && revertCol.accessMode === 'read-only') {
+					return reply.status(403).send({ error: 'This collection is read-only' })
 				}
-				revertMetadata = mergeExternalTimestamps(
-					version.metadata,
-					externalData,
-					revertCol.fields,
-				) as typeof version.metadata
-			}
 
-			await app.db.insert(contentVersions).values({
-				contentId: current.id,
-				version: current.version,
-				markdown: current.markdown,
-				metadata: current.metadata,
-				createdBy: getUser(request).id,
-				source: requestSource(request),
-			})
+				let revertExternalId = current.externalId
+				let revertMetadata = version.metadata
+				if (
+					revertCol?.source === 'external' &&
+					revertCol.accessMode === 'read-write' &&
+					revertCol.externalTable
+				) {
+					const externalData = buildExternalData(revertCol, {
+						slug: current.slug,
+						status: current.status,
+						metadata: version.metadata,
+						markdown: version.markdown,
+						createdAt: current.createdAt,
+						updatedAt: new Date(),
+						publishedAt: current.publishedAt,
+					})
+					try {
+						if (revertExternalId) {
+							await updateExternalDb(
+								app,
+								getProject(request).id,
+								revertCol,
+								revertExternalId,
+								externalData,
+								tx,
+							)
+						} else {
+							const inserted = await insertIntoExternalDb(
+								app,
+								getProject(request).id,
+								revertCol,
+								externalData,
+								tx,
+							)
+							revertExternalId = inserted?._id ?? null
+						}
+					} catch (err) {
+						app.log.warn(err, 'Failed to sync revert to external DB')
+						// Nothing has been written locally yet, so the record is untouched on
+						// both sides — a retry is safe.
+						return reply.status(502).send({ error: 'Failed to sync to external database' })
+					}
+					revertMetadata = mergeExternalTimestamps(
+						version.metadata,
+						externalData,
+						revertCol.fields,
+					) as typeof version.metadata
+				}
 
-			const html = await renderMarkdown(version.markdown)
-			const [reverted] = await app.db
-				.update(content)
-				.set({
-					markdown: version.markdown,
-					metadata: revertMetadata,
-					html,
-					version: current.version + 1,
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
-					...(revertExternalId && { externalId: revertExternalId }),
+				await tx.insert(contentVersions).values({
+					contentId: current.id,
+					version: current.version,
+					markdown: current.markdown,
+					metadata: current.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+
+				const html = await renderMarkdown(version.markdown)
+				const [reverted] = await tx
+					.update(content)
+					.set({
+						markdown: version.markdown,
+						metadata: revertMetadata,
+						html,
+						version: current.version + 1,
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+						...(revertExternalId && { externalId: revertExternalId }),
+					})
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.returning()
+
+				afterCommit(() =>
+					app.events.emit({
+						type: 'content:updated',
+						data: {
+							id: reverted.id,
+							slug: reverted.slug,
+							revertedTo: targetVersion,
+							projectId: getProject(request).id,
+						},
+						timestamp: new Date().toISOString(),
+					}),
 				)
-				.returning()
 
-			app.events.emit({
-				type: 'content:updated',
-				data: {
-					id: reverted.id,
-					slug: reverted.slug,
-					revertedTo: targetVersion,
-					projectId: getProject(request).id,
-				},
-				timestamp: new Date().toISOString(),
-			})
-
-			return reverted
-		},
+				return reverted
+			}),
 	)
 
 	// Get content versions (viewer+, project-scoped)
@@ -1949,238 +2002,313 @@ export async function contentRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string } }>(
 		'/:id/publish',
 		{ preHandler: [app.requireProject('editor')] },
-		async (request, reply) => {
-			if (!request.canPublishDirectly) {
-				return reply
-					.status(403)
-					.send({ error: 'Direct publish not allowed — submit for review instead.' })
-			}
-
-			const [item] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.limit(1)
-
-			if (!item) return reply.status(404).send({ error: 'Content not found' })
-			if (item.status === 'published') return item
-
-			// Publishing is the point where required fields must all be present.
-			const [pubCol] = await app.db
-				.select()
-				.from(collections)
-				.where(
-					and(
-						eq(collections.id, item.collectionId),
-						eq(collections.projectId, getProject(request).id),
-					),
-				)
-				.limit(1)
-			if (pubCol) {
-				const pubErrors = validateContentMetadata(
-					pubCol.fields,
-					item.metadata as Record<string, unknown>,
-					{ enforceRequired: true },
-				)
-				if (pubErrors.length > 0) {
-					return reply.status(400).send(contentValidationError(pubCol.fields, pubErrors))
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				if (!request.canPublishDirectly) {
+					return reply
+						.status(403)
+						.send({ error: 'Direct publish not allowed — submit for review instead.' })
 				}
-			}
 
-			try {
-				await syncExternalStatus(
-					app,
-					getProject(request).id,
-					item.collectionId,
-					item.externalId,
-					'published',
-					new Date(),
-				)
-			} catch (err) {
-				app.log.warn(err, 'Failed to sync direct publish to external DB')
-				return reply.status(502).send({ error: 'Failed to sync to external database' })
-			}
+				const [item] = await tx
+					.select()
+					.from(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
 
-			const [updated] = await app.db
-				.update(content)
-				.set({
-					status: 'published',
-					publishedAt: new Date(),
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
+				if (!item) return reply.status(404).send({ error: 'Content not found' })
+				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
+				if (!writeAccess.ok)
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				if (item.status === 'published') return item
+
+				// Publishing is the point where required fields must all be present.
+				const [pubCol] = await tx
+					.select()
+					.from(collections)
+					.where(
+						and(
+							eq(collections.id, item.collectionId),
+							eq(collections.projectId, getProject(request).id),
+						),
+					)
+					.limit(1)
+				if (pubCol) {
+					const pubErrors = validateContentMetadata(
+						pubCol.fields,
+						item.metadata as Record<string, unknown>,
+						{ enforceRequired: true },
+					)
+					if (pubErrors.length > 0) {
+						return reply.status(400).send(contentValidationError(pubCol.fields, pubErrors))
+					}
+				}
+
+				try {
+					await syncExternalStatus(
+						app,
+						getProject(request).id,
+						item.collectionId,
+						item.externalId,
+						'published',
+						new Date(),
+						tx,
+					)
+				} catch (err) {
+					app.log.warn(err, 'Failed to sync direct publish to external DB')
+					return reply.status(502).send({ error: 'Failed to sync to external database' })
+				}
+
+				await tx.insert(contentVersions).values({
+					contentId: item.id,
+					version: item.version,
+					markdown: item.markdown,
+					metadata: item.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
-				.where(eq(content.id, request.params.id))
-				.returning()
 
-			app.events.emit({
-				type: 'content:published',
-				data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
-				timestamp: new Date().toISOString(),
-			})
+				const [updated] = await tx
+					.update(content)
+					.set({
+						version: item.version + 1,
+						status: 'published',
+						publishedAt: new Date(),
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+					})
+					.where(eq(content.id, request.params.id))
+					.returning()
 
-			return updated
-		},
+				afterCommit(() =>
+					app.events.emit({
+						type: 'content:published',
+						data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
+						timestamp: new Date().toISOString(),
+					}),
+				)
+
+				return updated
+			}),
 	)
 
 	// Submit for review (editor+, project-scoped, license-gated)
 	app.post<{ Params: { id: string } }>(
 		'/:id/submit-for-review',
 		{ preHandler: [app.requireProject('editor'), app.requireLicense('review-workflows')] },
-		async (request, reply) => {
-			// If the caller can publish directly there's no point routing
-			// through review — return a hint so the client can switch endpoints
-			// rather than silently no-op'ing the user's intent.
-			if (request.canPublishDirectly && !request.requireReview) {
-				return reply.status(409).send({
-					error: 'Review is disabled for this project — use POST /:id/publish instead.',
-				})
-			}
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				// If the caller can publish directly there's no point routing
+				// through review — return a hint so the client can switch endpoints
+				// rather than silently no-op'ing the user's intent.
+				if (request.canPublishDirectly && !request.requireReview) {
+					return reply.status(409).send({
+						error: 'Review is disabled for this project — use POST /:id/publish instead.',
+					})
+				}
 
-			const [item] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+				const [item] = await tx
+					.select()
+					.from(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
+
+				if (!item) return reply.status(404).send({ error: 'Content not found' })
+				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
+				if (!writeAccess.ok)
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				if (item.status !== 'draft')
+					return reply.status(400).send({ error: 'Only drafts can be submitted for review' })
+
+				await tx.insert(contentVersions).values({
+					contentId: item.id,
+					version: item.version,
+					markdown: item.markdown,
+					metadata: item.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
+				})
+
+				const [updated] = await tx
+					.update(content)
+					.set({
+						version: item.version + 1,
+						status: 'pending_review',
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+					})
+					.where(eq(content.id, request.params.id))
+					.returning()
+
+				afterCommit(() =>
+					app.events.emit({
+						type: 'content:submitted',
+						data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
+						timestamp: new Date().toISOString(),
+					}),
 				)
-				.limit(1)
 
-			if (!item) return reply.status(404).send({ error: 'Content not found' })
-			if (item.status !== 'draft')
-				return reply.status(400).send({ error: 'Only drafts can be submitted for review' })
-
-			const [updated] = await app.db
-				.update(content)
-				.set({
-					status: 'pending_review',
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
-				})
-				.where(eq(content.id, request.params.id))
-				.returning()
-
-			app.events.emit({
-				type: 'content:submitted',
-				data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
-				timestamp: new Date().toISOString(),
-			})
-
-			return updated
-		},
+				return updated
+			}),
 	)
 
 	// Approve content (admin+, project-scoped, license-gated)
 	app.post<{ Params: { id: string } }>(
 		'/:id/approve',
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('review-workflows')] },
-		async (request, reply) => {
-			const [item] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.limit(1)
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				const [item] = await tx
+					.select()
+					.from(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
 
-			if (!item) return reply.status(404).send({ error: 'Content not found' })
-			if (item.status !== 'pending_review')
-				return reply.status(400).send({ error: 'Only pending review items can be approved' })
+				if (!item) return reply.status(404).send({ error: 'Content not found' })
+				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
+				if (!writeAccess.ok)
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				if (item.status !== 'pending_review')
+					return reply.status(400).send({ error: 'Only pending review items can be approved' })
 
-			try {
-				await syncExternalStatus(
-					app,
-					getProject(request).id,
-					item.collectionId,
-					item.externalId,
-					'published',
-					new Date(),
-				)
-			} catch (err) {
-				app.log.warn(err, 'Failed to sync approval to external DB')
-				return reply.status(502).send({ error: 'Failed to sync to external database' })
-			}
+				try {
+					await syncExternalStatus(
+						app,
+						getProject(request).id,
+						item.collectionId,
+						item.externalId,
+						'published',
+						new Date(),
+						tx,
+					)
+				} catch (err) {
+					app.log.warn(err, 'Failed to sync approval to external DB')
+					return reply.status(502).send({ error: 'Failed to sync to external database' })
+				}
 
-			const [updated] = await app.db
-				.update(content)
-				.set({
-					status: 'published',
-					publishedAt: new Date(),
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
+				await tx.insert(contentVersions).values({
+					contentId: item.id,
+					version: item.version,
+					markdown: item.markdown,
+					metadata: item.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
-				.where(eq(content.id, request.params.id))
-				.returning()
 
-			emitContentStatusEvent(app, {
-				base: 'content:approved',
-				previousStatus: item.status,
-				updated,
-				projectId: getProject(request).id,
-			})
+				const [updated] = await tx
+					.update(content)
+					.set({
+						version: item.version + 1,
+						status: 'published',
+						publishedAt: new Date(),
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+					})
+					.where(eq(content.id, request.params.id))
+					.returning()
 
-			return updated
-		},
+				afterCommit(() =>
+					emitContentStatusEvent(app, {
+						base: 'content:approved',
+						previousStatus: item.status,
+						updated,
+						projectId: getProject(request).id,
+					}),
+				)
+
+				return updated
+			}),
 	)
 
 	// Reject content (admin+, project-scoped, license-gated)
 	app.post<{ Params: { id: string } }>(
 		'/:id/reject',
 		{ preHandler: [app.requireProject('admin'), app.requireLicense('review-workflows')] },
-		async (request, reply) => {
-			const { reason } = (request.body as { reason?: string }) || {}
+		async (request, reply) =>
+			withContentTransaction(app, async (tx, afterCommit) => {
+				const { reason } = (request.body as { reason?: string }) || {}
 
-			const [item] = await app.db
-				.select()
-				.from(content)
-				.where(
-					and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
-				)
-				.limit(1)
+				const [item] = await tx
+					.select()
+					.from(content)
+					.where(
+						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
+					)
+					.limit(1)
+					.for('update')
 
-			if (!item) return reply.status(404).send({ error: 'Content not found' })
-			if (item.status !== 'pending_review')
-				return reply.status(400).send({ error: 'Only pending review items can be rejected' })
+				if (!item) return reply.status(404).send({ error: 'Content not found' })
+				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
+				if (!writeAccess.ok)
+					return reply.status(writeAccess.status).send({ error: writeAccess.error })
+				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				if (item.status !== 'pending_review')
+					return reply.status(400).send({ error: 'Only pending review items can be rejected' })
 
-			try {
-				await syncExternalStatus(
-					app,
-					getProject(request).id,
-					item.collectionId,
-					item.externalId,
-					'draft',
-					// The local row keeps its publishedAt, so the source row must too.
-					// Rejection returns a record to draft; it does not erase the date the
-					// record was once published or scheduled for.
-					item.publishedAt,
-				)
-			} catch (err) {
-				app.log.warn(err, 'Failed to sync rejection to external DB')
-				return reply.status(502).send({ error: 'Failed to sync to external database' })
-			}
+				try {
+					await syncExternalStatus(
+						app,
+						getProject(request).id,
+						item.collectionId,
+						item.externalId,
+						'draft',
+						// The local row keeps its publishedAt, so the source row must too.
+						// Rejection returns a record to draft; it does not erase the date the
+						// record was once published or scheduled for.
+						item.publishedAt,
+						tx,
+					)
+				} catch (err) {
+					app.log.warn(err, 'Failed to sync rejection to external DB')
+					return reply.status(502).send({ error: 'Failed to sync to external database' })
+				}
 
-			const [updated] = await app.db
-				.update(content)
-				.set({
-					status: 'draft',
-					updatedAt: new Date(),
-					updatedBy: getUser(request).id,
-					updatedSource: requestSource(request),
+				await tx.insert(contentVersions).values({
+					contentId: item.id,
+					version: item.version,
+					markdown: item.markdown,
+					metadata: item.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
 				})
-				.where(eq(content.id, request.params.id))
-				.returning()
 
-			app.events.emit({
-				type: 'content:rejected',
-				data: { id: updated.id, slug: updated.slug, reason, projectId: getProject(request).id },
-				timestamp: new Date().toISOString(),
-			})
+				const [updated] = await tx
+					.update(content)
+					.set({
+						version: item.version + 1,
+						status: 'draft',
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+					})
+					.where(eq(content.id, request.params.id))
+					.returning()
 
-			return updated
-		},
+				afterCommit(() =>
+					app.events.emit({
+						type: 'content:rejected',
+						data: { id: updated.id, slug: updated.slug, reason, projectId: getProject(request).id },
+						timestamp: new Date().toISOString(),
+					}),
+				)
+
+				return updated
+			}),
 	)
 
 	// Create a record in a related external collection (e.g. uploading an image for a relation field)

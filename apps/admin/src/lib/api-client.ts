@@ -14,6 +14,7 @@ export interface ApiErrorIssue {
 export interface ApiErrorPayload {
 	error?: string
 	statusCode?: number
+	code?: string
 	issues?: ApiErrorIssue[]
 }
 
@@ -24,6 +25,7 @@ export interface ApiErrorPayload {
  */
 export class ApiError extends Error {
 	readonly status: number
+	readonly code?: string
 	readonly issues: ApiErrorIssue[]
 
 	constructor(status: number, payload: ApiErrorPayload) {
@@ -37,6 +39,7 @@ export class ApiError extends Error {
 		super(message)
 		this.name = 'ApiError'
 		this.status = status
+		this.code = payload.code
 		this.issues = issues
 	}
 }

@@ -25,6 +25,7 @@ import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
 import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
+import { useRecordRefresh } from '../lib/use-record-refresh'
 
 /** Normalize a stored value (array or comma string) to a string array. */
 function toStringArray(v: unknown): string[] {
@@ -142,6 +143,8 @@ interface DraftSnapshot {
 	tags: string[]
 	extraFields: Record<string, unknown>
 	savedAt: number
+	version?: number
+	updatedAt?: string | null
 }
 
 /** Parse YAML frontmatter from markdown, return body + metadata */
@@ -664,6 +667,8 @@ function CollectionContentEditor() {
 	const loadedDates = useRef({ publishedAt: '', createdAt: '' })
 	const [tags, setTags] = useState<string[]>([])
 	const [version, setVersion] = useState(1)
+	const [recordConflict, setRecordConflict] = useState<ContentItem | null>(null)
+	const [conflictDetected, setConflictDetected] = useState(false)
 	const [dirty, setDirty] = useState(false)
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(!isNew)
@@ -737,11 +742,75 @@ function CollectionContentEditor() {
 		[projectLocales],
 	)
 
+	const applyCurrentRecord = (item: ContentItem) => {
+		applyRecordContent(item)
+		setContentSlug(item.slug)
+		setStatus(item.status)
+		const dates = {
+			publishedAt: toDateTimeInputValue(item.publishedAt),
+			createdAt: toDateTimeInputValue(item.createdAt),
+		}
+		setPublishedAt(dates.publishedAt)
+		setCreatedAt(dates.createdAt)
+		loadedDates.current = dates
+		setUpdatedAt(item.updatedAt ?? null)
+		setVersion(item.version)
+		setExternalId(item.externalId || null)
+		setRecordConflict(null)
+		setConflictDetected(false)
+	}
+
+	const loadCurrentRecord = () =>
+		api.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection?.id}&depth=0`)
+	useRecordRefresh({
+		recordKey: `${currentProject?.id}:${collection?.id}:${contentId}`,
+		enabled: !isNew && !isLive && !loading && !loadError && viewingVersion === null,
+		revision: { version, updatedAt },
+		dirty: dirty || showDraftRestore,
+		busy: saving,
+		load: loadCurrentRecord,
+		onRefresh: applyCurrentRecord,
+		onConflict: (item) => {
+			setRecordConflict(item)
+			setConflictDetected(true)
+		},
+	})
+
+	const handleSaveConflict = (err: unknown) => {
+		if (!(err instanceof ApiError) || err.code !== 'CONTENT_CONFLICT') return false
+		setConflictDetected(true)
+		loadCurrentRecord()
+			.then(setRecordConflict)
+			.catch(() => {})
+		toast(t('collections.detail.concurrentEdits.message'), 'error')
+		return true
+	}
+	const loadLatestRecord = async () => {
+		const ok = await confirm({
+			title: t('collections.detail.concurrentEdits.loadTitle'),
+			message: t('collections.detail.concurrentEdits.loadMessage'),
+			confirmLabel: t('collections.detail.concurrentEdits.load'),
+			danger: true,
+		})
+		if (!ok) return
+		try {
+			const latest = await loadCurrentRecord()
+			applyCurrentRecord(latest)
+			setDirty(false)
+			setShowDraftRestore(false)
+			localStorage.removeItem(draftKey)
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('collections.detail.errors.loadFailed'), 'error')
+		}
+	}
+
 	// Load content
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `t` is only read in the error fallback; re-running this loader when the i18n function identity changes would re-fetch and clobber unsaved edits — it should key only on the record identity.
 	useEffect(() => {
 		if (!isNew && contentId && collection) {
 			setLoadError(null)
+			setConflictDetected(false)
+			setRecordConflict(null)
 			api
 				.get<ContentItem>(`/api/v1/content/${contentId}?collectionId=${collection.id}&depth=0`)
 				.then((item) => {
@@ -836,7 +905,7 @@ function CollectionContentEditor() {
 			const item = await api.get<ContentItem>(
 				`/api/v1/content/${contentId}?collectionId=${collection?.id}&depth=0`,
 			)
-			applyRecordContent(item)
+			applyCurrentRecord(item)
 			setViewingVersion(null)
 			setDirty(false)
 			return
@@ -859,16 +928,19 @@ function CollectionContentEditor() {
 		if (!ok) return
 		setRestoring(true)
 		try {
-			await api.post(`/api/v1/content/${contentId}/revert/${viewingVersion}`, {})
+			await api.post(`/api/v1/content/${contentId}/revert/${viewingVersion}`, {
+				expectedVersion: version,
+				expectedUpdatedAt: updatedAt,
+			})
 			const item = await api.get<ContentItem>(
 				`/api/v1/content/${contentId}?collectionId=${collection?.id}&depth=0`,
 			)
-			applyRecordContent(item)
-			setVersion(item.version)
+			applyCurrentRecord(item)
 			setViewingVersion(null)
 			setDirty(false)
 			toast(t('versions.restored', { version: viewingVersion }), 'success')
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			toast(err instanceof Error ? err.message : t('versions.revertFailed'), 'error')
 		} finally {
 			setRestoring(false)
@@ -931,6 +1003,8 @@ function CollectionContentEditor() {
 			tags,
 			extraFields,
 			savedAt: Date.now(),
+			version,
+			updatedAt,
 		}
 		const persist = () => {
 			try {
@@ -943,7 +1017,7 @@ function CollectionContentEditor() {
 			clearTimeout(timer)
 			window.removeEventListener('beforeunload', persist)
 		}
-	}, [dirty, markdown, title, contentSlug, status, tags, extraFields, draftKey])
+	}, [dirty, markdown, title, contentSlug, status, tags, extraFields, draftKey, version, updatedAt])
 
 	const restoreDraft = () => {
 		try {
@@ -957,6 +1031,16 @@ function CollectionContentEditor() {
 				if (Array.isArray(draft.tags)) setTags(draft.tags)
 				if (draft.extraFields && typeof draft.extraFields === 'object') {
 					setExtraFields(draft.extraFields)
+				}
+				if (!isNew && typeof draft.version === 'number') {
+					if (draft.version !== version || (draft.updatedAt ?? null) !== updatedAt) {
+						setConflictDetected(true)
+						loadCurrentRecord()
+							.then(setRecordConflict)
+							.catch(() => {})
+					}
+					setVersion(draft.version)
+					setUpdatedAt(draft.updatedAt ?? null)
 				}
 				setDirty(true)
 			}
@@ -1083,19 +1167,26 @@ function CollectionContentEditor() {
 				refreshCollections()
 				navigate({ to: `/collections/${slug}/${created.id}` })
 			} else {
-				await api.put(`/api/v1/content/${contentId}`, {
+				const updated = await api.put<ContentItem>(`/api/v1/content/${contentId}`, {
 					slug: effectiveSlug,
 					markdown,
 					metadata,
 					status,
+					expectedVersion: version,
+					expectedUpdatedAt: updatedAt,
 					...datesPayload(),
 				})
+				setVersion(updated.version)
+				setUpdatedAt(updated.updatedAt ?? null)
+				setRecordConflict(null)
+				setConflictDetected(false)
 			}
 			setDirty(false)
 			try {
 				localStorage.removeItem(draftKey)
 			} catch {}
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			if (err instanceof ApiError && err.issues.length) {
 				// Map issues into a field→message dict. Strip the `metadata.` prefix
 				// the API uses for schema-field paths so the renderer can match
@@ -1116,9 +1207,15 @@ function CollectionContentEditor() {
 	const submitForReview = async () => {
 		setSaving(true)
 		try {
-			await api.post(`/api/v1/content/${contentId}/submit-for-review`, {})
+			const updated = await api.post<ContentItem>(
+				`/api/v1/content/${contentId}/submit-for-review`,
+				{ expectedVersion: version, expectedUpdatedAt: updatedAt },
+			)
+			setVersion(updated.version)
+			setUpdatedAt(updated.updatedAt ?? null)
 			setStatus('pending_review')
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			toast(
 				err instanceof Error ? err.message : t('collections.detail.errors.submitFailed'),
 				'error',
@@ -1198,21 +1295,33 @@ function CollectionContentEditor() {
 				navigate({ to: `/collections/${slug}/${created.id}` })
 				return
 			}
-			await api.put(`/api/v1/content/${contentId}`, {
+			const saved = await api.put<ContentItem>(`/api/v1/content/${contentId}`, {
 				slug: effectiveSlug,
 				markdown,
 				metadata,
+				expectedVersion: version,
+				expectedUpdatedAt: updatedAt,
 				// Same payload as save(): an edited publish/created date must not be
 				// silently dropped because the user pressed Publish instead of Save.
 				...datesPayload(),
 			})
-			await api.post(`/api/v1/content/${contentId}/publish`, {})
+			setVersion(saved.version)
+			setUpdatedAt(saved.updatedAt ?? null)
+			const published = await api.post<ContentItem>(`/api/v1/content/${contentId}/publish`, {
+				expectedVersion: saved.version,
+				expectedUpdatedAt: saved.updatedAt ?? null,
+			})
+			setVersion(published.version)
+			setUpdatedAt(published.updatedAt ?? null)
+			setRecordConflict(null)
+			setConflictDetected(false)
 			setStatus('published')
 			setDirty(false)
 			try {
 				localStorage.removeItem(draftKey)
 			} catch {}
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			toast(
 				err instanceof Error ? err.message : t('collections.detail.errors.publishFailed'),
 				'error',
@@ -1225,9 +1334,15 @@ function CollectionContentEditor() {
 	const approveContent = async () => {
 		setSaving(true)
 		try {
-			await api.post(`/api/v1/content/${contentId}/approve`, {})
+			const updated = await api.post<ContentItem>(`/api/v1/content/${contentId}/approve`, {
+				expectedVersion: version,
+				expectedUpdatedAt: updatedAt,
+			})
+			setVersion(updated.version)
+			setUpdatedAt(updated.updatedAt ?? null)
 			setStatus('published')
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			toast(
 				err instanceof Error ? err.message : t('collections.detail.errors.approveFailed'),
 				'error',
@@ -1249,9 +1364,16 @@ function CollectionContentEditor() {
 		if (reason === null) return
 		setSaving(true)
 		try {
-			await api.post(`/api/v1/content/${contentId}/reject`, { reason: reason || undefined })
+			const updated = await api.post<ContentItem>(`/api/v1/content/${contentId}/reject`, {
+				reason: reason || undefined,
+				expectedVersion: version,
+				expectedUpdatedAt: updatedAt,
+			})
+			setVersion(updated.version)
+			setUpdatedAt(updated.updatedAt ?? null)
 			setStatus('draft')
 		} catch (err) {
+			if (handleSaveConflict(err)) return
 			toast(
 				err instanceof Error ? err.message : t('collections.detail.errors.rejectFailed'),
 				'error',
@@ -1706,6 +1828,36 @@ function CollectionContentEditor() {
 
 	return (
 		<div className="flex h-full flex-col">
+			{conflictDetected && (
+				<div role="alert" className="px-8 py-4 bg-surface-alt border-b border-border-strong">
+					<div className="flex flex-wrap items-center gap-3">
+						<div className="flex-1">
+							<p className="text-sm font-semibold">
+								{t('collections.detail.concurrentEdits.title')}
+							</p>
+							<p className="text-sm text-text-secondary mt-1">
+								{t('collections.detail.concurrentEdits.message')}
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={loadLatestRecord}
+							disabled={saving}
+							className="px-4 py-2 rounded text-sm bg-btn-secondary hover:bg-btn-secondary-hover disabled:opacity-40"
+						>
+							{t('collections.detail.concurrentEdits.load')}
+						</button>
+					</div>
+					{recordConflict && collection && (
+						<p className="text-xs text-text-secondary mt-2">
+							{t('collections.detail.concurrentEdits.latest', {
+								title: resolveDisplayTitle(recordConflict, collection, { defaultLocale }),
+								date: recordConflict.updatedAt ? relativeTime(recordConflict.updatedAt) : '',
+							})}
+						</p>
+					)}
+				</div>
+			)}
 			{/* Historical-version banner. Spans the full editor width, above both
 			    columns, because every surface below it is showing old content — a
 			    badge tucked into one column would be too easy to scroll past and
