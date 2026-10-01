@@ -46,6 +46,7 @@ import { streamRoutes } from './routes/v1/stream.js'
 import { tlsRoutes } from './routes/v1/tls.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { initAutoEmbedding } from './services/embedding.js'
+import { initExternalSyncWorker } from './services/external-sync-worker.js'
 import { firebaseWebConfig } from './services/firebase-auth.js'
 import { initImportWorker } from './services/import-worker.js'
 import { initScheduledPublisher } from './services/scheduled-publisher.js'
@@ -246,6 +247,7 @@ export async function buildApp() {
 	initWebhookDispatcher(app)
 	initAutoEmbedding(app)
 	initImportWorker(app)
+	initExternalSyncWorker(app)
 	initScheduledPublisher(app)
 	await app.register(emailPlugin)
 	await app.register(mediaPlugin)

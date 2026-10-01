@@ -1,9 +1,10 @@
 import { type CollectionField, externalStatusSupport } from '@innolope/config'
-import { collections, content, contentVersions, importJobs, projects } from '@innolope/db'
+import { collections, content, externalSyncState, importJobs, projects } from '@innolope/db'
 import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import {
+	checkCollectionAccess,
 	loadMemberCollectionAccess,
 	loadReferencedCollectionIds,
 	loadRelationTargets,
@@ -11,7 +12,11 @@ import {
 import { getMediaStorageMap } from '../../lib/media-storage.js'
 import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
-import { previewMarkdownCacheSync, syncMarkdownCache } from '../../services/markdown-cache.js'
+import {
+	externalSyncIntervalMs,
+	syncExternalCollection,
+} from '../../services/external-sync-worker.js'
+import { previewMarkdownCacheSync } from '../../services/markdown-cache.js'
 
 function getExternalDbConfig(project: { settings?: unknown } | undefined) {
 	const extDb = (project?.settings as Record<string, unknown> | undefined)?.externalDb as
@@ -277,6 +282,43 @@ export async function collectionRoutes(app: FastifyInstance) {
 		},
 	)
 
+	// Durable background conflict state, with the same project/collection read scope as content.
+	app.get<{ Params: { id: string }; Querystring: { contentId?: string } }>(
+		'/:id/sync-status',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+			const [collection] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			const access = await checkCollectionAccess(request, collection.id, 'read')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			const [state] = await app.db
+				.select()
+				.from(externalSyncState)
+				.where(eq(externalSyncState.collectionId, collection.id))
+				.limit(1)
+			const intervalMs = externalSyncIntervalMs()
+			return {
+				enabled: collection.source === 'external' && intervalMs > 0,
+				intervalMs,
+				lastSyncedAt: collection.lastSyncedAt,
+				lastAttemptAt: state?.lastAttemptAt ?? null,
+				error: state?.lastError ?? null,
+				conflicts: (state?.conflicts ?? []).filter(
+					(item) => !request.query.contentId || item.contentId === request.query.contentId,
+				),
+			}
+		},
+	)
+
 	// Refresh local content cache from the external source of truth (editor+, project-scoped)
 	app.post<{ Params: { id: string } }>(
 		'/:id/sync',
@@ -294,6 +336,8 @@ export async function collectionRoutes(app: FastifyInstance) {
 				.limit(1)
 
 			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			const access = await checkCollectionAccess(request, collection.id, 'write')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 			if (collection.source !== 'external' || !collection.externalTable) {
 				return reply.status(400).send({ error: 'Collection is not backed by an external database' })
 			}
@@ -322,31 +366,20 @@ export async function collectionRoutes(app: FastifyInstance) {
 			) {
 				return reply.status(400).send({ error: 'Invalid sync choices' })
 			}
-			const adapter = createExternalDbAdapter(extDb)
-			await adapter.connect()
 			try {
-				const result = await syncMarkdownCache(
-					app.db,
-					content,
-					adapter,
-					{
-						id: collection.id,
-						projectId: collection.projectId,
-						externalTable: collection.externalTable,
-						fields: collection.fields,
-						cursorColumn: collection.cursorColumn,
-						lastSyncedCursor: collection.lastSyncedCursor,
-					},
-					{
-						userId: request.user?.id,
-						resolutions: body.resolutions,
-						versionTable: contentVersions,
-						collectionsTable: collections,
-					},
-				)
+				const result = await syncExternalCollection(app, collection, extDb, {
+					userId: request.user?.id,
+					resolutions: body.resolutions,
+				})
+				if (!result)
+					return reply.status(409).send({
+						code: 'SYNC_BUSY',
+						error: 'Sync is already running. Please try again shortly.',
+					})
 				return result
-			} finally {
-				await adapter.disconnect()
+			} catch (err) {
+				app.log.warn({ err, collectionId: collection.id }, 'Manual external sync failed')
+				return reply.status(502).send({ error: 'Sync could not finish. Please try again shortly.' })
 			}
 		},
 	)

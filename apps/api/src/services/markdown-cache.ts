@@ -48,6 +48,9 @@ const VALID_STATUSES = new Set<string>(CONTENT_STATUSES)
 type ContentStatus = (typeof CONTENT_STATUSES)[number]
 type ContentTable = typeof content
 type SyncOptions = {
+	signal?: AbortSignal
+	/** Source-read start, used to defer CMS saves that commit during the read. */
+	readStartedAt?: Date
 	batchSize?: number
 	userId?: string
 	versionTable?: typeof contentVersions
@@ -280,6 +283,8 @@ export async function populateMarkdownCache(
 }
 
 export interface SyncResult {
+	/** Records saved in the CMS during a source read; rechecked next pass. */
+	deferred: number
 	created: number
 	updated: number
 	/** `incremental` when a prior watermark filtered the scan; `full` otherwise. */
@@ -308,10 +313,13 @@ export async function syncMarkdownCache(
 	let offset = 0
 	let created = 0
 	let updated = 0
+	let deferred = 0
 	const conflicts: SyncConflict[] = []
 	let newCursor: Date | null = collection.lastSyncedCursor ?? null
 
 	while (true) {
+		opts.signal?.throwIfAborted()
+		const readStartedAt = new Date()
 		const docs = await adapter.findAll(collection.externalTable, {
 			limit: batchSize,
 			offset,
@@ -327,16 +335,22 @@ export async function syncMarkdownCache(
 			}
 		}
 
-		const result = await applySyncBatch(db, contentTable, docs, collection, opts)
+		opts.signal?.throwIfAborted()
+		const result = await applySyncBatch(db, contentTable, docs, collection, {
+			...opts,
+			readStartedAt,
+		})
 		created += result.created
 		updated += result.updated
+		deferred += result.deferred
 		conflicts.push(...result.conflicts)
 
 		offset += batchSize
 		if (docs.length < batchSize) break
 	}
 
-	if (opts.collectionsTable && conflicts.length === 0) {
+	opts.signal?.throwIfAborted()
+	if (opts.collectionsTable && conflicts.length === 0 && deferred === 0) {
 		const updates: Partial<typeof collections.$inferInsert> = {
 			lastSyncedAt: new Date(),
 			updatedAt: new Date(),
@@ -351,7 +365,7 @@ export async function syncMarkdownCache(
 			.where(eq(opts.collectionsTable.id, collection.id))
 	}
 
-	return { created, updated, mode, cursorColumn, newCursor, conflicts }
+	return { created, updated, deferred, mode, cursorColumn, newCursor, conflicts }
 }
 
 /**
@@ -370,8 +384,8 @@ async function applySyncBatch(
 		fields: CollectionField[]
 	},
 	opts: SyncOptions,
-): Promise<{ created: number; updated: number; conflicts: SyncConflict[] }> {
-	if (docs.length === 0) return { created: 0, updated: 0, conflicts: [] }
+): Promise<{ created: number; updated: number; deferred: number; conflicts: SyncConflict[] }> {
+	if (docs.length === 0) return { created: 0, updated: 0, deferred: 0, conflicts: [] }
 
 	const externalIds = docs.map((d) => d._id)
 	const existingRows = await db
@@ -405,6 +419,7 @@ async function applySyncBatch(
 
 	let createdCount = 0
 	if (toInsert.length > 0) {
+		opts.signal?.throwIfAborted()
 		// onConflictDoNothing absorbs the rare slug race (two docs hash to the
 		// same slug); .returning gives us the accurate post-conflict count.
 		const inserted = await db
@@ -417,6 +432,7 @@ async function applySyncBatch(
 
 	const conflicts: SyncConflict[] = []
 	let updatedCount = 0
+	let deferredCount = 0
 	// Lock each row and compare again: an edit made during the external scan must
 	// not be overwritten, nor may an old dialog approve a newer external version.
 	await runInChunks(toUpdate, 10, async ({ existing, next }) => {
@@ -427,6 +443,17 @@ async function applySyncBatch(
 				.where(eq(contentTable.id, existing.id))
 				.for('update')
 			if (!current) return
+			opts.signal?.throwIfAborted()
+			if (
+				opts.readStartedAt &&
+				(current.updatedBy || current.updatedSource === 'system') &&
+				current.updatedAt >= opts.readStartedAt
+			) {
+				// The source read may predate this write-through save's commit. Its
+				// fresh external baseline must not be rolled back by an old source doc.
+				deferredCount++
+				return
+			}
 			const incoming = syncState(next)
 			const local = syncState(current)
 			const token = createHash('sha256')
@@ -492,7 +519,19 @@ async function applySyncBatch(
 				return
 			}
 			const changed = stableValue(local) !== stableValue(merged.state)
-			if (changed && opts.versionTable) {
+
+			if (!changed) {
+				// A retained CMS value can differ from the source on every scan.
+				// Advancing its edit timestamp would produce false editor conflicts.
+				if (stableValue(current.externalSnapshot) !== stableValue(incoming)) {
+					await tx
+						.update(contentTable)
+						.set({ externalSnapshot: incoming })
+						.where(eq(contentTable.id, current.id))
+				}
+				return
+			}
+			if (opts.versionTable) {
 				await tx.insert(opts.versionTable).values({
 					contentId: current.id,
 					version: current.version,
@@ -511,7 +550,10 @@ async function applySyncBatch(
 					status: merged.state.status as ContentStatus,
 					html: markdownToBasicHtml(merged.state.markdown),
 					externalSnapshot: incoming,
-					version: current.version + (changed ? 1 : 0),
+					version: current.version + 1,
+					updatedBy: null,
+					updatedSource: 'system',
+					updatedAt: new Date(),
 				})
 				.where(eq(contentTable.id, current.id))
 			if (changed) updatedCount++
@@ -530,7 +572,7 @@ async function applySyncBatch(
 			.set({ externalSnapshot: syncState(row) })
 			.where(and(eq(contentTable.id, row.id), eq(contentTable.version, row.version)))
 	}
-	return { created: createdCount, updated: updatedCount, conflicts }
+	return { created: createdCount, updated: updatedCount, deferred: deferredCount, conflicts }
 }
 
 async function runInChunks<T>(

@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { BulkActionsBar } from '../components/content/bulk-actions-bar'
+import { ExternalSyncNotice } from '../components/content/external-sync-notice'
 import {
 	type SyncConflict,
 	SyncConflictsDialog,
@@ -32,6 +33,7 @@ import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
 import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useColumnConfig } from '../lib/use-column-config'
+import { useExternalSyncStatus } from '../lib/use-external-sync-status'
 import { type FilterMap, useUrlFilters } from '../lib/use-url-filters'
 import { useUrlSort } from '../lib/use-url-sort'
 
@@ -583,6 +585,11 @@ function CollectionContentList() {
 			.get<ContentResponse>(`/api/v1/content?${params}`)
 			.then((res) => {
 				setItems(res.data)
+				const visibleIds = new Set(res.data.map((item) => item.id))
+				setSelected((previous) => {
+					const next = new Set([...previous].filter((id) => visibleIds.has(id)))
+					return next.size === previous.size ? previous : next
+				})
 				setTotal(res.pagination.total)
 				setIsLive(Boolean(res.live))
 			})
@@ -593,6 +600,13 @@ function CollectionContentList() {
 	useEffect(() => {
 		fetchContent()
 	}, [fetchContent])
+	const automaticSync = useExternalSyncStatus(
+		collection?.source === 'external' ? collection.id : undefined,
+		undefined,
+		() => {
+			fetchContent()
+		},
+	)
 
 	// Poll the background-import status while a job is in progress.
 	useEffect(() => {
@@ -741,6 +755,10 @@ function CollectionContentList() {
 
 	return (
 		<div className="p-8 pt-5 flex flex-col min-h-full">
+			<ExternalSyncNotice
+				status={automaticSync}
+				onReview={() => setSyncConflicts(automaticSync?.conflicts ?? [])}
+			/>
 			<div className="flex items-center justify-between mb-6">
 				<div className="flex items-center gap-4">
 					<h2 className="text-2xl font-bold">{collection.label}</h2>

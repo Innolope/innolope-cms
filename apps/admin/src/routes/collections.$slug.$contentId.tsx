@@ -3,6 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
+import { ExternalSyncNotice } from '../components/content/external-sync-notice'
+import {
+	type SyncConflict,
+	SyncConflictsDialog,
+	type SyncResolutions,
+} from '../components/content/sync-conflicts-dialog'
 import { Dropdown } from '../components/dropdown'
 import { FieldRenderer, toDateTimeInputValue } from '../components/editor/field-renderer'
 import { GenerateCoverButton } from '../components/editor/generate-cover-button'
@@ -25,6 +31,7 @@ import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
 import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
+import { useExternalSyncStatus } from '../lib/use-external-sync-status'
 import { useRecordRefresh } from '../lib/use-record-refresh'
 
 /** Normalize a stored value (array or comma string) to a string array. */
@@ -758,6 +765,27 @@ function CollectionContentEditor() {
 		setExternalId(item.externalId || null)
 		setRecordConflict(null)
 		setConflictDetected(false)
+	}
+
+	const [externalConflicts, setExternalConflicts] = useState<SyncConflict[]>([])
+	const [resolvingExternal, setResolvingExternal] = useState(false)
+	const automaticSync = useExternalSyncStatus(
+		!isNew && isExternal ? collection?.id : undefined,
+		contentId,
+	)
+	const resolveExternalConflicts = async (resolutions: SyncResolutions) => {
+		setResolvingExternal(true)
+		try {
+			const result = await api.post<{ conflicts: SyncConflict[] }>(
+				`/api/v1/collections/${collection?.id}/sync`,
+				{ resolutions },
+			)
+			setExternalConflicts(result.conflicts.filter((item) => item.contentId === contentId))
+		} catch (err) {
+			toast(err instanceof Error ? err.message : t('collections.list.sync.failed'), 'error')
+		} finally {
+			setResolvingExternal(false)
+		}
 	}
 
 	const loadCurrentRecord = () =>
@@ -1828,6 +1856,20 @@ function CollectionContentEditor() {
 
 	return (
 		<div className="flex h-full flex-col">
+			<ExternalSyncNotice
+				status={automaticSync}
+				onReview={() => setExternalConflicts(automaticSync?.conflicts ?? [])}
+			/>
+			{externalConflicts.length > 0 && collection && (
+				<SyncConflictsDialog
+					conflicts={externalConflicts}
+					collection={collection}
+					defaultLocale={defaultLocale}
+					syncing={resolvingExternal}
+					onCancel={() => setExternalConflicts([])}
+					onConfirm={resolveExternalConflicts}
+				/>
+			)}
 			{conflictDetected && (
 				<div role="alert" className="px-8 py-4 bg-surface-alt border-b border-border-strong">
 					<div className="flex flex-wrap items-center gap-3">

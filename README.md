@@ -37,6 +37,15 @@ Innolope CMS uses a built-in PostgreSQL database by default. You can also connec
 
 External databases support full CRUD or read-only mode. Content is cached as markdown for AI agent retrieval. Edits are synced to the external database on save, with local auto-save drafts for recovery.
 
+
+### Regular external sync
+
+The API server refreshes configured external collections every **10 seconds**, even when no admin is open. No cron setup is needed. Set `EXTERNAL_SYNC_INTERVAL_MS` to change the interval in milliseconds, or `0` to disable it, then restart the API. Empty or invalid values use the default. Slow scans finish before the next pass starts.
+
+New records and incoming changes sync silently unless they conflict with saved CMS edits. Conflicts preserve the CMS record and appear as a **Review changes** notice in collection pages and open editors. Users choose which version to keep; other records continue to update. Unsaved browser drafts are protected by the editor's revision checks.
+
+Scans read source collections in batches, including changes whose writers don't maintain a modification timestamp. Initial imports finish first. A renewable database lease prevents overlapping automatic and manual scans across API instances; failed collections retry with backoff up to five minutes. Source deletions retain cached records, as with manual sync.
+
 ## Quick Start
 
 ```bash

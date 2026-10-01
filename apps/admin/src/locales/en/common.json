@@ -1231,6 +1231,13 @@
 				"progressUnknownTotal": "Importing content from the external database — {{processed}} records cached. The full collection is browsable now; search, filtering, and editing become available once the import finishes.",
 				"failed": "Content import did not finish. Some records may be missing — re-run the import from the database settings, or use Sync.",
 				"failedWithError": "Content import did not finish: {{error}}. Some records may be missing — re-run the import from the database settings, or use Sync."
+			},
+			"autoSync": {
+				"conflicts_one": "One record needs your review",
+				"conflicts_other": "{{count}} records need your review",
+				"message": "Your saved CMS edits have been kept. Review the external changes to decide which version to use.",
+				"retry": "Automatic sync could not finish. Your edits are safe, and sync will retry.",
+				"review": "Review changes"
 			}
 		},
 		"new": {
