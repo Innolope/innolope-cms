@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { externalSyncIntervalMs, initExternalSyncWorker } from './external-sync-worker.js'
+import {
+	externalSyncIntervalMs,
+	initExternalSyncWorker,
+	markExternalSyncActive,
+	syncExternalCollections,
+} from './external-sync-worker.js'
 
 beforeEach(() => {
 	vi.useFakeTimers()
@@ -32,8 +37,61 @@ function fakeApp(result: Promise<unknown[]> = Promise.resolve([])) {
 }
 
 describe('regular external sync scheduling', () => {
+	it('makes no database queries without viewers, including after a restart', async () => {
+		const { app, select, close } = fakeApp()
+		initExternalSyncWorker(app)
+		await vi.advanceTimersByTimeAsync(60_000)
+		expect(select).not.toHaveBeenCalled()
+		await close[0]()
+	})
+	it('expires idle viewers, renews active ones and resumes after a new visit', async () => {
+		const { app, select } = fakeApp()
+		markExternalSyncActive(app, 'active')
+		await vi.advanceTimersByTimeAsync(40_000)
+		markExternalSyncActive(app, 'active')
+		await vi.advanceTimersByTimeAsync(40_000)
+		await syncExternalCollections(app)
+		expect(select).toHaveBeenCalledTimes(2)
+		await vi.advanceTimersByTimeAsync(5_000)
+		await syncExternalCollections(app)
+		expect(select).toHaveBeenCalledTimes(2)
+		markExternalSyncActive(app, 'active')
+		await syncExternalCollections(app)
+		expect(select).toHaveBeenCalledTimes(4)
+	})
+	it('skips a queued collection when its viewer expires during the selection query', async () => {
+		let resolve!: (rows: unknown[]) => void
+		const pending = new Promise<unknown[]>((r) => {
+			resolve = r
+		})
+		const { app, select } = fakeApp(pending)
+		markExternalSyncActive(app, 'active')
+		const scan = syncExternalCollections(app)
+		await vi.advanceTimersByTimeAsync(45_000)
+		resolve([
+			{
+				collection: { id: 'active', externalTable: 'posts' },
+				settings: {
+					externalDb: { type: 'mongodb', connectionString: 'mongodb://synthetic.example.test' },
+				},
+			},
+		])
+		await scan
+		expect(select).toHaveBeenCalledTimes(2)
+		expect(app.log.warn).not.toHaveBeenCalled()
+	})
+	it('keeps viewer activity scoped to each API instance', async () => {
+		const active = fakeApp()
+		const idle = fakeApp()
+		markExternalSyncActive(active.app, 'active')
+		await syncExternalCollections(idle.app)
+		expect(idle.select).not.toHaveBeenCalled()
+		await syncExternalCollections(active.app)
+		expect(active.select).toHaveBeenCalledTimes(2)
+	})
 	it('runs every 10 seconds and stops on shutdown', async () => {
 		const { app, select, close } = fakeApp()
+		markExternalSyncActive(app, 'active')
 		initExternalSyncWorker(app)
 		await vi.advanceTimersByTimeAsync(9999)
 		expect(select).not.toHaveBeenCalled()
@@ -51,6 +109,7 @@ describe('regular external sync scheduling', () => {
 			resolve = r
 		})
 		const { app, select, close } = fakeApp(pending)
+		markExternalSyncActive(app, 'active')
 		initExternalSyncWorker(app)
 		await vi.advanceTimersByTimeAsync(40_000)
 		expect(select).toHaveBeenCalledTimes(2)
@@ -69,6 +128,7 @@ describe('regular external sync scheduling', () => {
 	it('supports a configurable interval and explicit disable', async () => {
 		vi.stubEnv('EXTERNAL_SYNC_INTERVAL_MS', '25000')
 		const configured = fakeApp()
+		markExternalSyncActive(configured.app, 'active')
 		initExternalSyncWorker(configured.app)
 		await vi.advanceTimersByTimeAsync(10_000)
 		expect(configured.select).not.toHaveBeenCalled()

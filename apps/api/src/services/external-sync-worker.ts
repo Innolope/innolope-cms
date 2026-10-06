@@ -16,6 +16,31 @@ const DEFAULT_INTERVAL_MS = 10_000
 const LEASE_MS = 90_000
 const RENEW_MS = 30_000
 const CONCURRENCY = 3
+const VIEWER_TTL_MS = 45_000
+
+// Per API connection pool, shared by the root worker and Fastify's encapsulated
+// route contexts. Database leases still coordinate scans across API instances.
+// No presence writes or idle database queries are needed.
+const viewers = new WeakMap<FastifyInstance['db'], Map<string, number>>()
+
+export function markExternalSyncActive(app: FastifyInstance, collectionId: string) {
+	let active = viewers.get(app.db)
+	if (!active) {
+		active = new Map()
+		viewers.set(app.db, active)
+	}
+	active.set(collectionId, Date.now() + VIEWER_TTL_MS)
+}
+
+function activeCollectionIds(app: FastifyInstance): string[] {
+	const active = viewers.get(app.db)
+	if (!active) return []
+	const now = Date.now()
+	for (const [id, expiresAt] of active) {
+		if (expiresAt <= now) active.delete(id)
+	}
+	return [...active.keys()]
+}
 
 export function externalSyncIntervalMs(): number {
 	const configured = Number(process.env.EXTERNAL_SYNC_INTERVAL_MS?.trim() || DEFAULT_INTERVAL_MS)
@@ -167,8 +192,10 @@ export async function syncExternalCollection(
 	}
 }
 
-/** Scan each configured external collection, skipping initial imports and active/due leases. */
+/** Scan only recently viewed collections, skipping imports and active/not-due leases. */
 export async function syncExternalCollections(app: FastifyInstance, signal?: AbortSignal) {
+	const activeIds = activeCollectionIds(app)
+	if (!activeIds.length || signal?.aborted) return
 	const rows = await app.db
 		.select({ collection: collections, settings: projects.settings })
 		.from(collections)
@@ -177,6 +204,7 @@ export async function syncExternalCollections(app: FastifyInstance, signal?: Abo
 		.where(
 			and(
 				eq(collections.source, 'external'),
+				inArray(collections.id, activeIds),
 				or(
 					isNull(externalSyncState.nextAttemptAt),
 					lte(externalSyncState.nextAttemptAt, new Date()),
@@ -201,6 +229,8 @@ export async function syncExternalCollections(app: FastifyInstance, signal?: Abo
 		while (!signal?.aborted) {
 			const row = rows[offset++]
 			if (!row) return
+			// Queued scans may outlive their last viewer; recheck before claiming.
+			if (!activeCollectionIds(app).includes(row.collection.id)) continue
 			const config = externalSyncConfig(row.settings)
 			if (!row.collection.externalTable || !config) continue
 			try {
@@ -214,7 +244,7 @@ export async function syncExternalCollections(app: FastifyInstance, signal?: Abo
 	await Promise.all(Array.from({ length: CONCURRENCY }, run))
 }
 
-/** Always-on server scheduler: no browser or cron configuration required. */
+/** Scheduler sleeps without database work until an authorized viewer polls status. */
 export function initExternalSyncWorker(app: FastifyInstance) {
 	const intervalMs = externalSyncIntervalMs()
 	if (!app.db || !intervalMs || process.env.NODE_ENV === 'test') return
@@ -229,9 +259,10 @@ export function initExternalSyncWorker(app: FastifyInstance) {
 			})
 	}, intervalMs)
 	timer.unref()
-	app.log.info({ intervalMs }, 'Automatic external sync enabled')
+	app.log.info({ intervalMs }, 'Automatic external sync enabled for active viewers')
 	app.addHook('onClose', async () => {
 		clearInterval(timer)
+		viewers.delete(app.db)
 		controller.abort()
 		await running
 	})
