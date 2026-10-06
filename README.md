@@ -40,7 +40,7 @@ External databases support full CRUD or read-only mode. Content is cached as mar
 
 ### Regular external sync
 
-The API server refreshes configured external collections every **10 seconds**, even when no admin is open. No cron setup is needed. Set `EXTERNAL_SYNC_INTERVAL_MS` to change the interval in milliseconds, or `0` to disable it, then restart the API. Empty or invalid values use the default. Slow scans finish before the next pass starts.
+The API server refreshes external collections every **10 seconds** only while an authorized user is actively viewing their collection page or an existing record. Other collections and projects are not scanned. Status polling pauses in hidden tabs and after **2 minutes without interaction**, and resumes when the user returns or interacts. A collection stops qualifying for new scans **45 seconds after its last status poll**; an in-flight scan can finish. With no active viewers, the sync worker makes no database queries. No cron setup is needed. Set `EXTERNAL_SYNC_INTERVAL_MS` to change the interval in milliseconds, or `0` to disable it, then restart the API. Empty or invalid values use the default. Slow scans finish before the next pass starts.
 
 New records and incoming changes sync silently unless they conflict with saved CMS edits. Conflicts preserve the CMS record and appear as a **Review changes** notice in collection pages and open editors. Users choose which version to keep; other records continue to update. Unsaved browser drafts are protected by the editor's revision checks.
 

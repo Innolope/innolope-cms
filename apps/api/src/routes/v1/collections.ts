@@ -14,6 +14,7 @@ import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
 import {
 	externalSyncIntervalMs,
+	markExternalSyncActive,
 	syncExternalCollection,
 } from '../../services/external-sync-worker.js'
 import { previewMarkdownCacheSync } from '../../services/markdown-cache.js'
@@ -306,6 +307,9 @@ export async function collectionRoutes(app: FastifyInstance) {
 				.where(eq(externalSyncState.collectionId, collection.id))
 				.limit(1)
 			const intervalMs = externalSyncIntervalMs()
+			if (collection.source === 'external' && intervalMs > 0) {
+				markExternalSyncActive(app, collection.id)
+			}
 			return {
 				enabled: collection.source === 'external' && intervalMs > 0,
 				intervalMs,

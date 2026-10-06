@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createJwt } from '../plugins/auth.js'
 import {
+	markExternalSyncActive,
 	syncExternalCollection,
 	syncExternalCollections,
 } from '../services/external-sync-worker.js'
@@ -58,6 +59,7 @@ describe.skipIf(!hasTestDb)(
 		let readonlyCol: typeof collections.$inferSelect
 		let importingCol: typeof collections.$inferSelect
 		let internalCol: typeof collections.$inferSelect
+		let inactiveCol: typeof collections.$inferSelect
 		let foreignCol: typeof collections.$inferSelect
 		let foreignProjectId: string
 		const as = (jwt = token) => ({ authorization: `Bearer ${jwt}`, 'x-project-id': projectId })
@@ -116,12 +118,18 @@ describe.skipIf(!hasTestDb)(
 			readonlyCol = await makeCol('readonly', 'read-only')
 			importingCol = await makeCol('importing')
 			internalCol = await makeCol('internal', 'read-write', 'internal')
+			inactiveCol = await makeCol('inactive')
 			await app.db
 				.insert(projectMemberCollections)
 				.values({ memberId: viewerMember.id, collectionId: internalCol.id })
 			const [foreign] = await app.db
 				.insert(projects)
-				.values({ ownerId, name: 'Foreign worker test', slug: `foreign-worker-${short}` })
+				.values({
+					ownerId,
+					name: 'Foreign worker test',
+					slug: `foreign-worker-${short}`,
+					settings: { externalDb: config },
+				})
 				.returning()
 			foreignProjectId = foreign.id
 			foreignCol = await makeCol('foreign', 'read-write', 'external', foreign.id)
@@ -352,6 +360,8 @@ describe.skipIf(!hasTestDb)(
 			source.docs.set(readonlyCol.externalTable ?? '', [
 				{ _id: 'readonly', title: 'Read-only incoming' },
 			])
+			source.docs.set(inactiveCol.externalTable ?? '', [{ _id: 'inactive', title: 'Unviewed' }])
+			source.docs.set(foreignCol.externalTable ?? '', [{ _id: 'foreign', title: 'Other project' }])
 			source.docs.set(importingCol.externalTable ?? '', [
 				{ _id: 'importing', title: 'Waiting for initial import' },
 			])
@@ -367,6 +377,9 @@ describe.skipIf(!hasTestDb)(
 			vi.useFakeTimers({ toFake: ['Date'] })
 			vi.setSystemTime(Date.now() - 60_000)
 			try {
+				markExternalSyncActive(app, readonlyCol.id)
+				markExternalSyncActive(app, importingCol.id)
+				markExternalSyncActive(app, internalCol.id)
 				await syncExternalCollections(app)
 			} finally {
 				vi.useRealTimers()
@@ -386,7 +399,59 @@ describe.skipIf(!hasTestDb)(
 					.from(externalSyncState)
 					.where(eq(externalSyncState.collectionId, internalCol.id)),
 			).toHaveLength(0)
+			for (const inactive of [inactiveCol, foreignCol]) {
+				expect(
+					await app.db.select().from(content).where(eq(content.collectionId, inactive.id)),
+				).toHaveLength(0)
+				expect(
+					await app.db
+						.select()
+						.from(externalSyncState)
+						.where(eq(externalSyncState.collectionId, inactive.id)),
+				).toHaveLength(0)
+			}
 			await app.db.delete(importJobs).where(eq(importJobs.collectionId, importingCol.id))
+		})
+
+		it('does not scan unviewed collections and activates only authorized status reads', async () => {
+			await app.db
+				.update(externalSyncState)
+				.set({ nextAttemptAt: new Date(0) })
+				.where(eq(externalSyncState.collectionId, col.id))
+			vi.useFakeTimers({ toFake: ['Date'] })
+			vi.setSystemTime(Date.now() + 60_000)
+			try {
+				const connects = source.connect.mock.calls.length
+				await syncExternalCollections(app)
+				expect(source.connect).toHaveBeenCalledTimes(connects)
+				const denied = await app.inject({
+					method: 'GET',
+					url: `/api/v1/collections/${col.id}/sync-status`,
+					headers: as(viewerToken),
+				})
+				expect(denied.statusCode).toBe(403)
+				const foreign = await app.inject({
+					method: 'GET',
+					url: `/api/v1/collections/${foreignCol.id}/sync-status`,
+					headers: as(),
+				})
+				expect(foreign.statusCode).toBe(404)
+				await syncExternalCollections(app)
+				expect(source.connect).toHaveBeenCalledTimes(connects)
+				const allowed = await app.inject({
+					method: 'GET',
+					url: `/api/v1/collections/${col.id}/sync-status`,
+					headers: as(),
+				})
+				expect(allowed.statusCode).toBe(200)
+				await syncExternalCollections(app)
+				expect(source.connect).toHaveBeenCalledTimes(connects + 1)
+				vi.setSystemTime(Date.now() + 45_000)
+				await syncExternalCollections(app)
+				expect(source.connect).toHaveBeenCalledTimes(connects + 1)
+			} finally {
+				vi.useRealTimers()
+			}
 		})
 
 		it('keeps sync conflicts within project and collection access boundaries', async () => {
