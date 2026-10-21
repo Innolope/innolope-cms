@@ -654,8 +654,11 @@ export class MySqlAdapter implements ExternalDbAdapter {
 
 	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
 		const { columns: pk } = await this.getKey(table)
-		const limit = opts?.limit ?? 100
-		const offset = opts?.offset ?? 0
+		// Inlined, not bound: MySQL 8.0.22+ rejects a prepared LIMIT/OFFSET bound as
+		// the DOUBLE the driver sends for a JS number ("Incorrect arguments to
+		// mysqld_stmt_execute"). Both are integers this method computes itself.
+		const limit = Math.max(0, Math.trunc(Number(opts?.limit ?? 100)))
+		const offset = Math.max(0, Math.trunc(Number(opts?.offset ?? 0)))
 		const order = (opts?.cursorColumn ? [opts.cursorColumn, ...pk] : pk)
 			.map(quoteMysqlIdentifier)
 			.join(', ')
@@ -664,11 +667,9 @@ export class MySqlAdapter implements ExternalDbAdapter {
 				? { col: opts.cursorColumn, after: opts.cursorAfter }
 				: null
 		const where = filterArgs ? `WHERE ${quoteMysqlIdentifier(filterArgs.col)} > ?` : ''
-		const params: (string | number | Date)[] = filterArgs
-			? [filterArgs.after, limit, offset]
-			: [limit, offset]
+		const params: (string | number | Date)[] = filterArgs ? [filterArgs.after] : []
 		const [rows] = await this.db().execute(
-			`SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
+			`SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`,
 			params,
 		)
 		return (rows as Array<Record<string, unknown>>).map((r) => this.toExternal(r, pk))
