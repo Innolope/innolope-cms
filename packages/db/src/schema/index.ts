@@ -5,7 +5,12 @@ export {
 	cloudflareConnections,
 	cloudflareOauthStates,
 } from './cloudflare-connections.js'
-export { collections } from './collections.js'
+export {
+	collections,
+	type SourceColumn,
+	type SourcePath,
+	type SourceSchema,
+} from './collections.js'
 export { content, contentVersions } from './content.js'
 export { contentAnalytics } from './content-analytics.js'
 export { contentEmbeddings } from './content-embeddings.js'

@@ -1,5 +1,6 @@
-import { sslModeFor } from '@innolope/db'
+import { type SourceColumn, type SourceSchema, sslModeFor } from '@innolope/db'
 import type { Sql } from 'postgres'
+import { histogramPaths, parseMysqlEnumValues, sealSourceSchema } from './source-schema.js'
 
 export interface ExternalDocument {
 	_id: string
@@ -61,7 +62,15 @@ export interface ExternalDbAdapter {
 	delete(table: string, id: string): Promise<void>
 	count(table: string): Promise<number>
 	testWritePermission(table: string): Promise<boolean>
+	/**
+	 * The table's real shape: SQL columns with their constraints, or a MongoDB
+	 * type histogram over a document sample. See `SourceSchema`.
+	 */
+	describeTable(table: string): Promise<SourceSchema>
 }
+
+/** Documents sampled to describe a MongoDB collection. */
+const DESCRIBE_SAMPLE_SIZE = 50
 
 function quoteMysqlIdentifier(identifier: string): string {
 	return `\`${identifier.replace(/`/g, '``')}\``
@@ -193,6 +202,23 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		return this.db().collection(table).estimatedDocumentCount()
 	}
 
+	async describeTable(table: string): Promise<SourceSchema> {
+		// Newest documents first: drift shows up in what is being written now.
+		const docs = await this.db()
+			.collection(table)
+			.find({})
+			.sort({ _id: -1 })
+			.limit(DESCRIBE_SAMPLE_SIZE)
+			.toArray()
+		return sealSourceSchema({
+			dialect: 'mongodb',
+			table,
+			primaryKey: ['_id'],
+			paths: histogramPaths(docs as Array<Record<string, unknown>>),
+			sampled: docs.length,
+		})
+	}
+
 	async testWritePermission(_table: string): Promise<boolean> {
 		try {
 			const testCol = this.db().collection(`__innolope_permission_test_${Date.now()}`)
@@ -314,6 +340,74 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 	async count(table: string): Promise<number> {
 		const [row] = await this.sql()`SELECT count(*)::int as count FROM ${this.sql()(table)}`
 		return Number(row.count)
+	}
+
+	async describeTable(table: string): Promise<SourceSchema> {
+		const sql = this.sql()
+		const rows = await sql`
+			SELECT column_name, data_type, udt_name, is_nullable, column_default,
+				is_identity, is_generated, character_maximum_length
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = ${table}
+			ORDER BY ordinal_position
+		`
+		const keyRows = await sql`
+			SELECT kcu.column_name FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+				ON tc.constraint_name = kcu.constraint_name
+				AND tc.table_schema = kcu.table_schema
+				AND tc.table_name = kcu.table_name
+			WHERE tc.table_schema = 'public' AND tc.table_name = ${table}
+				AND tc.constraint_type = 'PRIMARY KEY'
+			ORDER BY kcu.ordinal_position
+		`
+		const primaryKey = keyRows.map((row) => String(row.column_name))
+		// User-defined enum types list their labels in pg_enum. Hosts without it
+		// (or without permission to read it) just get no enumValues.
+		const enumTypes = [
+			...new Set(
+				rows.filter((row) => row.data_type === 'USER-DEFINED').map((row) => String(row.udt_name)),
+			),
+		]
+		const enumValues = new Map<string, string[]>()
+		if (enumTypes.length > 0) {
+			try {
+				const labels = await sql`
+					SELECT t.typname, e.enumlabel FROM pg_type t
+					JOIN pg_enum e ON e.enumtypid = t.oid
+					WHERE t.typname IN ${sql(enumTypes)}
+					ORDER BY t.typname, e.enumsortorder
+				`
+				for (const label of labels) {
+					const list = enumValues.get(String(label.typname)) ?? []
+					list.push(String(label.enumlabel))
+					enumValues.set(String(label.typname), list)
+				}
+			} catch {
+				// Not fatal: the column stays a free-text column to the editor.
+			}
+		}
+		const columns: SourceColumn[] = rows.map((row) => {
+			const name = String(row.column_name)
+			const udtName = String(row.udt_name)
+			const values = enumValues.get(udtName)
+			return {
+				name,
+				nativeType: String(row.data_type),
+				udtName,
+				nullable: row.is_nullable === 'YES',
+				hasDefault: row.column_default !== null || row.is_identity === 'YES',
+				isIdentity:
+					row.is_identity === 'YES' || /^nextval\(/i.test(String(row.column_default ?? '')),
+				isGenerated: row.is_generated === 'ALWAYS',
+				...(row.character_maximum_length != null && {
+					maxLength: Number(row.character_maximum_length),
+				}),
+				...(values && { enumValues: values }),
+				isPrimaryKey: primaryKey.includes(name),
+			}
+		})
+		return sealSourceSchema({ dialect: 'postgresql', table, schema: 'public', primaryKey, columns })
 	}
 
 	async testWritePermission(table: string): Promise<boolean> {
@@ -472,6 +566,53 @@ export class MySqlAdapter implements ExternalDbAdapter {
 			`SELECT COUNT(*) as count FROM ${quoteMysqlIdentifier(table)}`,
 		)
 		return Number((rows as Array<{ count: number }>)[0].count)
+	}
+
+	async describeTable(table: string): Promise<SourceSchema> {
+		const [rows] = await this.db().execute(
+			`SELECT COLUMN_NAME AS name, DATA_TYPE AS dataType, COLUMN_TYPE AS columnType,
+				IS_NULLABLE AS isNullable, COLUMN_DEFAULT AS columnDefault, EXTRA AS extra,
+				CHARACTER_MAXIMUM_LENGTH AS maxLength
+			FROM information_schema.columns
+			WHERE table_schema = DATABASE() AND table_name = ?
+			ORDER BY ORDINAL_POSITION`,
+			[table],
+		)
+		const [keyRows] = await this.db().execute(
+			`SELECT COLUMN_NAME AS name FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY'
+			ORDER BY ORDINAL_POSITION`,
+			[table],
+		)
+		const primaryKey = (keyRows as Array<{ name: string }>).map((row) => row.name)
+		const columns: SourceColumn[] = (
+			rows as Array<{
+				name: string
+				dataType: string
+				columnType: string
+				isNullable: string
+				columnDefault: unknown
+				extra: string | null
+				maxLength: number | null
+			}>
+		).map((row) => {
+			const extra = (row.extra ?? '').toLowerCase()
+			const enumValues = parseMysqlEnumValues(row.columnType)
+			const isIdentity = extra.includes('auto_increment')
+			return {
+				name: row.name,
+				nativeType: row.dataType,
+				udtName: row.columnType,
+				nullable: row.isNullable === 'YES',
+				hasDefault: row.columnDefault !== null || isIdentity || extra.includes('default_generated'),
+				isIdentity,
+				isGenerated: extra.includes('virtual generated') || extra.includes('stored generated'),
+				...(row.maxLength != null && { maxLength: Number(row.maxLength) }),
+				...(enumValues && { enumValues }),
+				isPrimaryKey: primaryKey.includes(row.name),
+			}
+		})
+		return sealSourceSchema({ dialect: 'mysql', table, primaryKey, columns })
 	}
 
 	async testWritePermission(_table: string): Promise<boolean> {

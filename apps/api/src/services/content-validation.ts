@@ -272,6 +272,9 @@ export function contentValidationError(fields: CollectionField[], errors: FieldV
 	return {
 		error: 'Content does not match the collection schema',
 		fields: errors,
+		// The same errors keyed by request path, which is what the admin editor reads
+		// to put each message next to its input.
+		issues: errors.map((e) => ({ path: `metadata.${e.field}`, message: e.message })),
 		schema: fields.map((f) => ({
 			name: f.name,
 			type: f.type,

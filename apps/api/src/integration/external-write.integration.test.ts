@@ -185,6 +185,34 @@ describe.skipIf(!hasTestDb)(
 			expect((await sourceRow(sourceId)).title).toBe('Changed elsewhere')
 		})
 
+		it('names the column when the source refuses a NULL', async () => {
+			const sourceId = await seed({ title: 'Required' })
+			const cached = await cachedRow(sourceId)
+			const res = await put(cached.id, { metadata: { title: null } })
+			expect(res.statusCode).toBe(400)
+			const body = res.json()
+			expect(body.code).toBe('EXTERNAL_REQUIRED')
+			expect(body.issues).toEqual([
+				{ path: 'metadata.title', message: 'title is required by the source database.' },
+			])
+			expect((await sourceRow(sourceId)).title).toBe('Required')
+		})
+
+		it('re-learns the table when a column was dropped after the scan, then saves', async () => {
+			const sourceId = await seed({ title: 'Drifting', price: 7 })
+			const cached = await cachedRow(sourceId)
+			await source`ALTER TABLE ${source(table)} DROP COLUMN price`
+			const res = await put(cached.id, { metadata: { title: 'Saved anyway', price: 8 } })
+			expect(res.statusCode).toBe(200)
+			expect((await sourceRow(sourceId)).title).toBe('Saved anyway')
+			const [refreshed] = await app.db
+				.select()
+				.from(collections)
+				.where(eq(collections.id, collection.id))
+			expect(refreshed.fields.map((field) => field.name)).not.toContain('price')
+			collection = refreshed
+		})
+
 		it('omits an emptied number on insert so the column default applies', async () => {
 			const res = await app.inject({
 				method: 'POST',

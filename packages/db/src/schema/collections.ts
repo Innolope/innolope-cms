@@ -79,4 +79,73 @@ export interface CollectionFieldUi {
 	hidden?: boolean
 	/** Structured sub-fields, used when `widget === 'subform'` on an object/array. */
 	subFields?: CollectionField[]
+	/**
+	 * Shape preset this field renders as (`image`, `link`, `seo`, `money`, …, or
+	 * `custom:<id>` for a project preset). Detected at scan time; see
+	 * `apps/admin/src/lib/field-presets.ts` for the catalogue.
+	 */
+	preset?: string
+	/** A human confirmed `preset` in the field designer; detection never sets this. */
+	presetConfirmed?: boolean
+	/** Sub-key whose value titles a collapsed row or card. */
+	summaryKey?: string
+	/** Whether editors may add keys the preset or sub-fields do not list. */
+	allowExtraKeys?: boolean
+	/**
+	 * A value the CMS cannot model (mixed types, unknown structure). It round-trips
+	 * untouched, renders read-only under Technical fields, and is written only when
+	 * an admin edits it as JSON.
+	 */
+	opaque?: boolean
+	/** Where the editor renders the field. `technical` collapses it at the bottom. */
+	section?: 'main' | 'technical'
+}
+
+/**
+ * What a connected source table actually is, as opposed to what the editor shows
+ * (`fields`). Filled by a scan and refreshed when the source changes; the write
+ * path uses it to restore native types and to refuse writes that cannot succeed.
+ */
+export interface SourceSchema {
+	dialect: 'postgresql' | 'mysql' | 'mongodb'
+	table: string
+	/** SQL schema the table lives in (`public` on Postgres). */
+	schema?: string
+	/** Primary-key columns in key order. Empty when the table has none. */
+	primaryKey: string[]
+	/** SQL targets: one entry per column. */
+	columns?: SourceColumn[]
+	/** MongoDB: a type histogram per path, nested paths included (`items[].productId`). */
+	paths?: SourcePath[]
+	/** Documents sampled for `paths`. */
+	sampled?: number
+	/** Hash of the shape (not the sample counts), for cheap drift checks. */
+	hash: string
+	scannedAt: string
+}
+
+export interface SourceColumn {
+	name: string
+	/** `information_schema.columns.data_type`, e.g. `integer`, `USER-DEFINED`, `tinyint`. */
+	nativeType: string
+	/** Postgres `udt_name` (`int4`, `_text`, an enum's type name) or MySQL `column_type` (`tinyint(1)`). */
+	udtName?: string
+	nullable: boolean
+	hasDefault: boolean
+	isIdentity: boolean
+	isGenerated: boolean
+	maxLength?: number
+	enumValues?: string[]
+	isPrimaryKey: boolean
+}
+
+export interface SourcePath {
+	/** Dotted path; `[]` marks array elements (`items[].productId`). */
+	path: string
+	/** BSON type name → number of sampled documents holding it at this path. */
+	types: Record<string, number>
+	/** Seen as null, or missing from some sampled documents. */
+	nullable?: boolean
+	/** More than one non-null type was seen. */
+	mixed?: boolean
 }

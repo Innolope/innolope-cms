@@ -8,9 +8,14 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
-import { createExternalDbAdapter, type ExternalDocument } from '../adapters/external-db.js'
+import {
+	createExternalDbAdapter,
+	type ExternalDbAdapter,
+	type ExternalDocument,
+} from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
+import { describeExternalDbError, ExternalWriteError } from './external-errors.js'
 import {
 	applyExternalPatch,
 	diffExternalPayload,
@@ -20,6 +25,7 @@ import {
 	isEmptyPatch,
 	writtenValues,
 } from './external-patch.js'
+import { rescanExternalCollection } from './external-schema.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
 import { syncState } from './sync-state.js'
@@ -320,12 +326,67 @@ export async function insertIntoExternalDb(
 	)
 	if (Object.keys(payload).length === 0) return null
 
+	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		return await adapter.insert(col.externalTable, payload)
+		const { result } = await writeWithRescan(app, col, adapter, payload, (target, retry) => {
+			const values = retry ? keepSourceColumns(target, payload) : payload
+			return Object.keys(values).length > 0 ? adapter.insert(table, values) : null
+		})
+		return result
 	} finally {
 		await adapter.disconnect()
+	}
+}
+
+type Collection = typeof collections.$inferSelect
+
+/** Only the keys a refreshed SQL schema still declares. */
+function keepSourceColumns(col: Collection, values: Record<string, unknown>) {
+	const declared = new Set((col.fields || []).map((field) => field.name))
+	return Object.fromEntries(Object.entries(values).filter(([key]) => declared.has(key)))
+}
+
+/**
+ * Run an external write and turn a driver error into an `ExternalWriteError` the
+ * routes can answer with a field-level message.
+ *
+ * An unknown column means the source table changed after the scan. The table is
+ * re-learned (keeping the schema editor's customizations) and the write retried
+ * once with the keys the source still has; a second failure is reported as is.
+ */
+async function writeWithRescan<T>(
+	app: FastifyInstance,
+	col: Collection,
+	adapter: ExternalDbAdapter,
+	payload: Record<string, unknown>,
+	attempt: (target: Collection, retry: boolean) => Promise<T> | T,
+): Promise<{ result: T; col: Collection }> {
+	try {
+		return { result: await attempt(col, false), col }
+	} catch (err) {
+		const failure = describeExternalDbError(err, { fields: col.fields, payload })
+		if (!failure.unknownColumn) throw new ExternalWriteError(failure)
+		let refreshed: Collection
+		try {
+			const rescan = await rescanExternalCollection(app.db, col, adapter)
+			refreshed = rescan.col
+			app.log.info(
+				{ collection: col.name, column: failure.unknownColumn, unpreserved: rescan.unpreserved },
+				'External source schema changed; re-learned the table and retrying the write',
+			)
+		} catch (rescanErr) {
+			app.log.warn(rescanErr, 'Re-scan after an unknown-column error failed')
+			throw new ExternalWriteError(failure)
+		}
+		try {
+			return { result: await attempt(refreshed, true), col: refreshed }
+		} catch (retryErr) {
+			throw new ExternalWriteError(
+				describeExternalDbError(retryErr, { fields: refreshed.fields, payload }),
+			)
+		}
 	}
 }
 
@@ -412,21 +473,42 @@ export async function updateExternalDb(
 	// 502 — which is how a status sync to a collection with no status column failed.
 	if (isEmptyPatch(patch)) return null
 
+	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		await adapter.update(col.externalTable, externalId, patch.set, { unset: patch.unset })
+		const { result: sent, col: target } = await writeWithRescan(
+			app,
+			col,
+			adapter,
+			patch.set,
+			async (current, retry) => {
+				const attemptPatch = retry
+					? {
+							set: keepSourceColumns(current, patch.set),
+							unset: patch.unset.filter((key) =>
+								(current.fields || []).some((field) => field.name === key),
+							),
+						}
+					: patch
+				if (isEmptyPatch(attemptPatch)) return null
+				await adapter.update(table, externalId, attemptPatch.set, { unset: attemptPatch.unset })
+				return attemptPatch
+			},
+		)
+		// Everything this edit changed was in a column the source no longer has.
+		if (!sent) return null
 		// Mongo/MySQL updates return only the patch; observe the complete row.
-		const observed = await adapter.findById(col.externalTable, externalId)
+		const observed = await adapter.findById(table, externalId)
 		// The values this write committed remain the baseline even if another
 		// client edits the row between our write and read-back.
-		const doc = applyExternalPatch(observed ?? { _id: externalId }, patch, nested)
+		const doc = applyExternalPatch(observed ?? { _id: externalId }, sent, nested)
 		// A successful write-through becomes the new shared external state. CMS-
 		// only fields remain distinguishable from later incoming source changes.
 		await snapshotDb
 			.update(content)
 			.set({
-				externalSnapshot: syncState(externalDocToContentItem(doc, col)),
+				externalSnapshot: syncState(externalDocToContentItem(doc, target)),
 			})
 			.where(
 				and(
@@ -435,7 +517,7 @@ export async function updateExternalDb(
 					eq(content.externalId, externalId),
 				),
 			)
-		return { doc, written: writtenValues(patch) }
+		return { doc, written: writtenValues(sent) }
 	} finally {
 		await adapter.disconnect()
 	}

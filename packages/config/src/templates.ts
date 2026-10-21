@@ -13,6 +13,26 @@ export interface CollectionFieldUi {
 	hidden?: boolean
 	/** Structured sub-fields, used when `widget === 'subform'`. */
 	subFields?: CollectionField[]
+	/**
+	 * Shape preset this field renders as (`image`, `link`, `seo`, `money`, …, or
+	 * `custom:<id>` for a project preset). Detected at scan time; see
+	 * `apps/admin/src/lib/field-presets.ts` for the catalogue.
+	 */
+	preset?: string
+	/** A human confirmed `preset` in the field designer; detection never sets this. */
+	presetConfirmed?: boolean
+	/** Sub-key whose value titles a collapsed row or card. */
+	summaryKey?: string
+	/** Whether editors may add keys the preset or sub-fields do not list. */
+	allowExtraKeys?: boolean
+	/**
+	 * A value the CMS cannot model (mixed types, unknown structure). It round-trips
+	 * untouched, renders read-only under Technical fields, and is written only when
+	 * an admin edits it as JSON.
+	 */
+	opaque?: boolean
+	/** Where the editor renders the field. `technical` collapses it at the bottom. */
+	section?: 'main' | 'technical'
 }
 
 /**
@@ -23,10 +43,12 @@ export interface CollectionFieldUi {
  * admin (which warns before any of them are lost), so the two cannot drift apart
  * on what counts as someone's work.
  *
- * `options` and `ui.subFields` are excluded: enum detection and array-shape
- * detection produce those automatically and re-derive them on every sync, so
- * counting them would report edits nobody made. `ui.readOnly` counts only off
- * `__v`, the one field the import wizard marks read-only itself.
+ * `options`, `ui.subFields`, `ui.preset` and `ui.opaque` are excluded: enum,
+ * array-shape, preset and mixed-type detection produce those automatically and
+ * re-derive them on every sync, so counting them would report edits nobody made.
+ * A preset counts once a human confirms it (`ui.presetConfirmed`).
+ * `ui.readOnly` counts only off `__v`, the one field the import wizard marks
+ * read-only itself.
  */
 export function hasFieldCustomizations(field: CollectionField): boolean {
 	const ui = field.ui
@@ -40,6 +62,10 @@ export function hasFieldCustomizations(field: CollectionField): boolean {
 			ui?.helpText ||
 			ui?.rows !== undefined ||
 			ui?.separator ||
+			ui?.presetConfirmed ||
+			ui?.summaryKey ||
+			ui?.allowExtraKeys !== undefined ||
+			ui?.section ||
 			(ui?.readOnly && field.name !== '__v'),
 	)
 }

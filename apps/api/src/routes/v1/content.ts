@@ -39,6 +39,7 @@ import {
 	syncExternalStatus,
 	updateExternalDb,
 } from '../../services/external-content.js'
+import { ExternalWriteError, sendExternalWriteFailure } from '../../services/external-errors.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
@@ -1156,9 +1157,13 @@ export async function contentRoutes(app: FastifyInstance) {
 			}
 		} catch (err) {
 			await compensate()
-			if ((err as { statusCode?: number }).statusCode) throw err
-			app.log.warn(err, 'Bulk update: external write failed — applied external writes rolled back')
-			return reply.status(502).send({ error: 'Failed to sync to external database' })
+			if ((err as { statusCode?: number }).statusCode && !(err instanceof ExternalWriteError)) {
+				throw err
+			}
+			return sendExternalWriteFailure(reply, err, {
+				log: app.log,
+				message: 'Bulk update: external write failed — applied external writes rolled back',
+			})
 		}
 
 		let updated: (typeof content.$inferSelect)[]
@@ -1530,8 +1535,11 @@ export async function contentRoutes(app: FastifyInstance) {
 							externalId = inserted?._id ?? null
 						}
 					} catch (err) {
-						app.log.warn(err, 'Failed to sync to external DB')
-						return reply.status(502).send({ error: 'Failed to sync to external database' })
+						return sendExternalWriteFailure(reply, err, {
+							log: app.log,
+							message: 'Failed to sync to external DB',
+							fields: col.fields,
+						})
 					}
 					// Keep the cache in step with what the external row now holds, so the editor
 					// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
@@ -1822,10 +1830,13 @@ export async function contentRoutes(app: FastifyInstance) {
 							revertExternalId = inserted?._id ?? null
 						}
 					} catch (err) {
-						app.log.warn(err, 'Failed to sync revert to external DB')
 						// Nothing has been written locally yet, so the record is untouched on
 						// both sides — a retry is safe.
-						return reply.status(502).send({ error: 'Failed to sync to external database' })
+						return sendExternalWriteFailure(reply, err, {
+							log: app.log,
+							message: 'Failed to sync revert to external DB',
+							fields: revertCol.fields,
+						})
 					}
 					revertMetadata = mergeExternalTimestamps(
 						version.metadata,
@@ -2087,8 +2098,11 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync direct publish to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync direct publish to external DB',
+						fields: pubCol?.fields,
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2224,8 +2238,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync approval to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync approval to external DB',
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2302,8 +2318,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync rejection to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync rejection to external DB',
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2404,8 +2422,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 				return reply.status(201).send({ _id: inserted._id })
 			} catch (err) {
-				app.log.warn(err, 'Failed to insert relation record')
-				return reply.status(502).send({ error: 'Failed to write to external database' })
+				return sendExternalWriteFailure(reply, err, {
+					log: app.log,
+					message: 'Failed to insert relation record',
+					fields: targetCol.fields,
+				})
 			}
 		},
 	)

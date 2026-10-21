@@ -46,6 +46,7 @@ import { streamRoutes } from './routes/v1/stream.js'
 import { tlsRoutes } from './routes/v1/tls.js'
 import { unsplashRoutes } from './routes/v1/unsplash.js'
 import { initAutoEmbedding } from './services/embedding.js'
+import { ExternalWriteError, externalFailureBody } from './services/external-errors.js'
 import { initExternalSyncWorker } from './services/external-sync-worker.js'
 import { firebaseWebConfig } from './services/firebase-auth.js'
 import { initImportWorker } from './services/import-worker.js'
@@ -292,6 +293,14 @@ export async function buildApp() {
 			(error.name === 'ZodError' && Array.isArray((error as unknown as ZodError).issues))
 				? (error as unknown as ZodError)
 				: null
+		// A failed write to a connected database already knows which field caused it.
+		if (error instanceof ExternalWriteError) {
+			app.log.warn(
+				{ code: error.failure.code, detail: error.failure.detail, url: request.url },
+				'External write failed',
+			)
+			return reply.status(error.statusCode).send(externalFailureBody(error.failure))
+		}
 		if (zodError) {
 			app.log.info(
 				{ issues: zodError.issues, url: request.url, method: request.method },
