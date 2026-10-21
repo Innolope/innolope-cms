@@ -385,13 +385,15 @@ async function updateMany(
 					updatedAt: new Date(),
 					publishedAt,
 				})
+				let written: Record<string, unknown> = externalData
 				if (externalId) {
-					await updateExternalDb(app, pid, col, externalId, externalData)
+					const result = await updateExternalDb(app, pid, col, externalId, externalData)
+					written = result?.written ?? {}
 				} else {
 					const inserted = await insertIntoExternalDb(app, pid, col, externalData)
 					externalId = inserted?._id ?? null
 				}
-				cachedMetadata = mergeExternalTimestamps(metadata, externalData, col.fields)
+				cachedMetadata = mergeExternalTimestamps(metadata, written, col.fields)
 			}
 
 			await app.db.insert(contentVersions).values({

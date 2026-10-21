@@ -17,13 +17,16 @@
 
 import type { CollectionField } from '@innolope/config'
 import { useTranslation } from 'react-i18next'
+import { toNumberValue } from '../../lib/number-value'
 import { useAutoSizeTextarea } from '../../lib/use-autosize-textarea'
 import { Dropdown } from '../dropdown'
 import { JsonField } from './json-field'
 import { LocalizedTextField } from './localized-text-field'
 import { ObjectArrayField } from './object-array-field'
 import { PillInput } from './pill-input'
+import { PresetField, presetHandles } from './presets/preset-field'
 import { RelationField } from './relation-field'
+import { RichTextField } from './rich-text-field'
 import { SubformField } from './subform-field'
 
 /** Normalize a stored value (array or comma string) to a string array. */
@@ -194,6 +197,41 @@ export function FieldRenderer({
 	const textareaRef = useAutoSizeTextarea(String(value ?? ''))
 	const inputCls =
 		'w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60'
+	const subFieldHints = f.ui?.subFields?.map((sf) => ({
+		name: sf.name,
+		label: sf.label,
+		type: sf.type,
+		options: sf.options,
+		helpText: sf.ui?.helpText,
+		hidden: sf.ui?.hidden,
+		readOnly: sf.ui?.readOnly,
+	}))
+
+	// A value the CMS cannot model is shown, never edited inline: it round-trips
+	// untouched unless an admin rewrites it as JSON under Technical fields.
+	if (f.ui?.opaque) {
+		return <JsonField value={value} onChange={(v) => onChange(v)} disabled />
+	}
+
+	// Rich-text editor state (Lexical, Editor.js, …): edited as markdown when it
+	// converts losslessly, a read-only preview otherwise.
+	if (!localized && f.ui?.preset === 'rich-text') {
+		return <RichTextField value={value} onChange={onChange} disabled={ro} />
+	}
+
+	// A recognised shape (image, link, money, …) renders as one control in the
+	// document's own key names, instead of a generic subform.
+	if (!localized && presetHandles(f, value)) {
+		return (
+			<PresetField
+				field={f}
+				value={value}
+				onChange={onChange}
+				disabled={ro}
+				locale={locale?.activeLocale}
+			/>
+		)
+	}
 
 	// `boolean` ────────────────────────────────────────────────────────────────
 	if (f.type === 'boolean') {
@@ -219,7 +257,7 @@ export function FieldRenderer({
 			<input
 				type="number"
 				value={String(value ?? '')}
-				onChange={(e) => onChange(e.target.value ? Number(e.target.value) : '')}
+				onChange={(e) => onChange(e.target.value ? toNumberValue(e.target.value) : '')}
 				disabled={ro}
 				placeholder={placeholder}
 				className={inputCls}
@@ -296,11 +334,9 @@ export function FieldRenderer({
 				value={value}
 				onChange={(v) => onChange(v)}
 				disabled={ro}
-				subFields={f.ui?.subFields?.map((sf) => ({
-					name: sf.name,
-					label: sf.label,
-					type: sf.type,
-				}))}
+				subFields={subFieldHints}
+				allowExtraKeys={f.ui?.allowExtraKeys}
+				locale={locale?.activeLocale}
 			/>
 		)
 	}
@@ -317,12 +353,10 @@ export function FieldRenderer({
 					value={value}
 					onChange={(v) => onChange(v)}
 					disabled={ro}
-					subFields={declaredSubFields?.map((sf) => ({
-						name: sf.name,
-						type: sf.type,
-						label: sf.label,
-						options: sf.options,
-					}))}
+					subFields={subFieldHints}
+					summaryKey={f.ui?.summaryKey}
+					allowExtraKeys={f.ui?.allowExtraKeys}
+					locale={locale?.activeLocale}
 				/>
 			)
 		}

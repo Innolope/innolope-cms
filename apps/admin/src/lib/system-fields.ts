@@ -26,3 +26,33 @@ export const SYSTEM_COLUMN_TWINS = new Set([
 export function isSystemColumnTwin(name: string): boolean {
 	return SYSTEM_COLUMN_TWINS.has(name)
 }
+
+/**
+ * Database-owned counters and tags. Narrow on purpose: `version` or `revision`
+ * can be real content (a changelog's release number), so only the spellings
+ * that are unambiguously machinery are listed.
+ */
+const VERSION_COUNTER_NAMES = new Set(['__v', '_v', '_rev', '_version', '_etag', 'etag'])
+
+/** Twins worth showing read-only. `slug` already has its own input. */
+const TECHNICAL_TWINS = new Set(['createdAt', 'updatedAt', 'publishedAt', 'status'])
+
+/**
+ * True when a field belongs in the collapsed "Technical fields" section instead
+ * of the main form: placed there in the schema editor, a value the CMS cannot
+ * model (`ui.opaque`), a version counter, or the source's copy of a lifecycle
+ * column. An explicit `ui.section: 'main'` always wins.
+ */
+export function isTechnicalField(field: {
+	name: string
+	ui?: { section?: 'main' | 'technical'; opaque?: boolean; hidden?: boolean }
+}): boolean {
+	if (field.ui?.hidden) return false
+	if (field.ui?.section === 'main') return false
+	return (
+		field.ui?.section === 'technical' ||
+		field.ui?.opaque === true ||
+		VERSION_COUNTER_NAMES.has(field.name) ||
+		TECHNICAL_TWINS.has(field.name)
+	)
+}

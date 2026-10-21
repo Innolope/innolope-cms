@@ -1,5 +1,13 @@
 import type { CollectionField, ExternalStatusSupport } from '@innolope/config'
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+} from 'react'
 import { api } from './api-client'
 import { useAuth } from './auth'
 
@@ -58,9 +66,13 @@ const CollectionsContext = createContext<CollectionsContextValue>({
 })
 
 export function CollectionsProvider({ children }: { children: ReactNode }) {
-	const { currentProject } = useAuth()
+	const { currentProject, loading: authLoading } = useAuth()
 	const [collections, setCollections] = useState<CollectionWithCount[]>([])
 	const [loading, setLoading] = useState(true)
+	// The project whose collections are in state. Until the first fetch for a new
+	// project lands, `loading` stays true — otherwise a page keyed on a collection
+	// (the schema editor) flashed "Collection not found" while the list was empty.
+	const loadedFor = useRef<string | null>(null)
 
 	const fetchCollections = useCallback(async () => {
 		// No project yet — leave whatever's already in state alone. Previously this
@@ -70,12 +82,15 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 		// next fetch ran while the user was already on a route that did its own
 		// data loading. Net result: empty COLLECTIONS section on /settings.
 		if (!currentProject) {
-			setLoading(false)
+			// Still resolving the session: the project (and its list) is on its way.
+			if (!authLoading) setLoading(false)
 			return
 		}
+		if (loadedFor.current !== currentProject.id) setLoading(true)
 		try {
 			const data = await api.get<CollectionWithCount[]>('/api/v1/collections/with-counts')
 			setCollections(data)
+			loadedFor.current = currentProject.id
 		} catch {
 			// Don't blow away a populated list on a transient fetch failure —
 			// the next visibilitychange tick will retry. Just stop showing the
@@ -83,7 +98,7 @@ export function CollectionsProvider({ children }: { children: ReactNode }) {
 		} finally {
 			setLoading(false)
 		}
-	}, [currentProject])
+	}, [currentProject, authLoading])
 
 	useEffect(() => {
 		fetchCollections()

@@ -12,6 +12,8 @@ import {
 import { getMediaStorageMap } from '../../lib/media-storage.js'
 import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
+import { sendExternalWriteFailure } from '../../services/external-errors.js'
+import { rescanExternalCollection } from '../../services/external-schema.js'
 import {
 	externalSyncIntervalMs,
 	markExternalSyncActive,
@@ -316,9 +318,101 @@ export async function collectionRoutes(app: FastifyInstance) {
 				lastSyncedAt: collection.lastSyncedAt,
 				lastAttemptAt: state?.lastAttemptAt ?? null,
 				error: state?.lastError ?? null,
+				// The source table's shape changed since the collection last learned it.
+				schemaDrift: state?.schemaDrift ?? null,
 				conflicts: (state?.conflicts ?? []).filter(
 					(item) => !request.query.contentId || item.contentId === request.query.contentId,
 				),
+			}
+		},
+	)
+
+	// A few real values of one field, for the schema editor's field designer: the
+	// shape an admin is configuring should be in front of them, not guessed.
+	app.get<{ Params: { id: string }; Querystring: { field?: string; limit?: string } }>(
+		'/:id/field-samples',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const field = request.query.field?.trim()
+			if (!field) return reply.status(400).send({ error: 'field is required' })
+			const limit = Math.min(Math.max(Number(request.query.limit) || 5, 1), 20)
+			const [collection] = await app.db
+				.select({ id: collections.id })
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			const rows = await app.db
+				.select({ value: sql<unknown>`${content.metadata} -> ${field}` })
+				.from(content)
+				.where(
+					and(
+						eq(content.collectionId, collection.id),
+						eq(content.projectId, getProject(request).id),
+						sql`${content.metadata} ? ${field}`,
+						sql`jsonb_typeof(${content.metadata} -> ${field}) <> 'null'`,
+					),
+				)
+				.orderBy(desc(content.updatedAt))
+				.limit(limit)
+			return { values: rows.map((row) => row.value) }
+		},
+	)
+
+	// Re-learn the fields of an external collection from its source table (admin+).
+	// Answers detected schema drift: added columns appear, dropped ones go, and the
+	// schema editor's labels, widgets and required ticks are kept.
+	app.post<{ Params: { id: string } }>(
+		'/:id/rescan',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const [collection] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			if (collection.source !== 'external' || !collection.externalTable) {
+				return reply.status(400).send({ error: 'Collection is not backed by an external database' })
+			}
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			const extDb = getExternalDbConfig(project)
+			if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
+			const adapter = createExternalDbAdapter(extDb)
+			try {
+				await adapter.connect()
+				const { col, unpreserved, schema } = await rescanExternalCollection(
+					app.db,
+					collection,
+					adapter,
+				)
+				return {
+					fields: col.fields,
+					sourceSchemaHash: schema.hash,
+					unpreserved,
+				}
+			} catch (err) {
+				return sendExternalWriteFailure(reply, err, {
+					log: app.log,
+					message: 'Re-scanning the source table failed',
+					fields: collection.fields,
+				})
+			} finally {
+				await adapter.disconnect().catch(() => undefined)
 			}
 		},
 	)

@@ -1,8 +1,10 @@
+import type { CollectionField as SharedCollectionField } from '@innolope/config'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dropdown } from '../components/dropdown'
 import { KebabMenu } from '../components/kebab-menu'
+import { FieldDesigner, type ProjectFieldPreset } from '../components/schema/field-designer'
 import { api } from '../lib/api-client'
 import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
@@ -21,6 +23,14 @@ interface CollectionFieldUi {
 	separator?: 'enter' | 'comma' | 'both'
 	readOnly?: boolean
 	hidden?: boolean
+	subFields?: CollectionField[]
+	preset?: string
+	presetConfirmed?: boolean
+	presetKeys?: Record<string, string>
+	summaryKey?: string
+	allowExtraKeys?: boolean
+	opaque?: boolean
+	section?: 'main' | 'technical'
 }
 
 interface CollectionField {
@@ -72,7 +82,7 @@ function CollectionSchemaEditor() {
 	const toast = useToast()
 	const confirm = useConfirm()
 	const { currentProject } = useAuth()
-	const { getCollectionByName, refreshCollections } = useCollections()
+	const { getCollectionByName, refreshCollections, loading: collectionsLoading } = useCollections()
 	const collection = getCollectionByName(slug)
 
 	const [label, setLabel] = useState('')
@@ -88,6 +98,15 @@ function CollectionSchemaEditor() {
 	const [saving, setSaving] = useState(false)
 	const [loading, setLoading] = useState(true)
 	const [scanning, setScanning] = useState(false)
+	// The field whose shape is open in the field designer, by index.
+	const [designing, setDesigning] = useState<number | null>(null)
+	// Fields as last loaded from the server, to tell whether the form has edits.
+	const [loadedFields, setLoadedFields] = useState<CollectionField[]>([])
+	const { refreshProjects } = useAuth()
+	const projectPresets =
+		((currentProject?.settings as unknown as Record<string, unknown> | undefined)?.fieldPresets as
+			| Record<string, ProjectFieldPreset>
+			| undefined) ?? {}
 
 	useEffect(() => {
 		if (collection) {
@@ -105,6 +124,7 @@ function CollectionSchemaEditor() {
 					setCollectionName(col.name)
 					setDescription(col.description || '')
 					setFields(col.fields)
+					setLoadedFields(col.fields)
 					setTitleField(col.titleField ?? null)
 					setSidebarMode(col.sidebarMode ?? 'auto')
 				})
@@ -203,7 +223,7 @@ function CollectionSchemaEditor() {
 		}
 	}
 
-	if (loading) return <div className="p-8 pt-5" />
+	if (loading || (!collection && collectionsLoading)) return <div className="p-8 pt-5" />
 	if (!collection)
 		return (
 			<div className="p-8 pt-5 text-text-secondary text-sm">{t('collections.edit.notFound')}</div>
@@ -288,49 +308,35 @@ function CollectionSchemaEditor() {
 									type="button"
 									disabled={scanning}
 									onClick={async () => {
-										if (!currentProject || !collection) return
+										if (!collection) return
+										// Re-learning persists the source's fields right away; edits not yet
+										// saved in this form would be replaced, so ask first.
+										if (JSON.stringify(fields) !== JSON.stringify(loadedFields)) {
+											const ok = await confirm({
+												title: t('collections.edit.scan.unsavedTitle'),
+												message: t('collections.edit.scan.unsavedMessage'),
+												confirmLabel: t('collections.edit.scan.rescan'),
+											})
+											if (!ok) return
+										}
 										setScanning(true)
 										try {
-											const settings = currentProject.settings as unknown as Record<string, unknown>
-											const extDb = settings?.externalDb as Record<string, unknown> | undefined
-											if (!extDb?.type) throw new Error(t('collections.edit.errors.noExternalDb'))
 											const result = await api.post<{
-												tables: Array<{ name: string; columns: { name: string; type: string }[] }>
-											}>(`/api/v1/projects/${currentProject.id}/database/scan`, {
-												type: extDb.type,
-												database: extDb.database || undefined,
-											})
-											const match = result.tables.find((t) => t.name === collection.name)
-											if (match) {
-												const existingNames = new Set(fields.map((f) => f.name))
-												const newFields = match.columns
-													.filter(
-														(c) =>
-															c.name !== '_id' && c.name !== 'id' && !existingNames.has(c.name),
-													)
-													.map((c) => ({
-														name: c.name,
-														type:
-															c.type === 'string'
-																? 'text'
-																: c.type === 'number'
-																	? 'number'
-																	: c.type === 'boolean'
-																		? 'boolean'
-																		: 'text',
-														required: false,
-														localized: false,
-													}))
-												if (newFields.length > 0) {
-													setFields([...fields, ...newFields])
-													toast(
-														t('collections.edit.scan.found', { count: newFields.length }),
-														'success',
-													)
-												} else {
-													toast(t('collections.edit.scan.nothing'), 'success')
-												}
-											}
+												fields: CollectionField[]
+												unpreserved: Array<{ field: string }>
+											}>(`/api/v1/collections/${collection.id}/rescan`, {})
+											const added = result.fields.filter(
+												(f) => !loadedFields.some((prev) => prev.name === f.name),
+											).length
+											setFields(result.fields)
+											setLoadedFields(result.fields)
+											await refreshCollections()
+											toast(
+												added > 0
+													? t('collections.edit.scan.found', { count: added })
+													: t('collections.edit.scan.nothing'),
+												'success',
+											)
 										} catch (err) {
 											toast(
 												err instanceof Error ? err.message : t('collections.edit.scan.failed'),
@@ -445,6 +451,27 @@ function CollectionSchemaEditor() {
 										/>{' '}
 										{t('collections.edit.i18n')}
 									</label>
+									{(field.type === 'object' || field.type === 'array') && field.name.trim() && (
+										<button
+											type="button"
+											onClick={() => setDesigning(i)}
+											className="px-2 py-1 bg-btn-secondary rounded text-xs hover:bg-btn-secondary-hover"
+										>
+											{t('schema.designer.open')}
+										</button>
+									)}
+									{field.ui?.preset && (
+										<span
+											className={`px-2 py-0.5 rounded-full text-[10px] ${
+												field.ui.presetConfirmed
+													? 'bg-accent-soft text-accent'
+													: 'bg-surface-alt text-text-muted'
+											}`}
+										>
+											{presetChipLabel(field.ui.preset, projectPresets, t)}
+											{!field.ui.presetConfirmed && ` · ${t('schema.designer.detectedChip')}`}
+										</span>
+									)}
 									<KebabMenu
 										items={[
 											{
@@ -570,6 +597,18 @@ function CollectionSchemaEditor() {
 													/>{' '}
 													{t('collections.edit.advanced.hidden')}
 												</label>
+												<label className="flex items-center gap-1 text-xs text-text-secondary">
+													<input
+														type="checkbox"
+														checked={field.ui?.section === 'technical'}
+														onChange={(e) =>
+															updateFieldUi(i, {
+																section: e.target.checked ? 'technical' : undefined,
+															})
+														}
+													/>{' '}
+													{t('collections.edit.advanced.technical')}
+												</label>
 											</div>
 										</div>
 									)}
@@ -578,6 +617,30 @@ function CollectionSchemaEditor() {
 						</div>
 					)}
 				</div>
+
+				{designing !== null && fields[designing] && collection && (
+					<FieldDesigner
+						collectionId={collection.id}
+						field={fields[designing] as unknown as SharedCollectionField}
+						projectPresets={projectPresets}
+						onClose={() => setDesigning(null)}
+						onApply={(designed) => {
+							setFields(
+								fields.map((f, idx) =>
+									idx === designing ? (designed as unknown as CollectionField) : f,
+								),
+							)
+							setDesigning(null)
+						}}
+						onSaveProjectPreset={async (id, preset) => {
+							if (!currentProject) return
+							await api.put(`/api/v1/projects/${currentProject.id}`, {
+								settings: { fieldPresets: { ...projectPresets, [id]: preset } },
+							})
+							await refreshProjects()
+						}}
+					/>
+				)}
 
 				<div className="flex items-center justify-between pt-4">
 					<button
@@ -609,4 +672,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 			{children}
 		</label>
 	)
+}
+
+/** The label of a field's preset chip: a catalogue name or a project preset's own. */
+function presetChipLabel(
+	preset: string,
+	projectPresets: Record<string, ProjectFieldPreset>,
+	t: (key: string) => string,
+): string {
+	if (preset.startsWith('custom:')) {
+		return projectPresets[preset.slice('custom:'.length)]?.label ?? preset
+	}
+	return t(`editor.presets.names.${preset}`)
 }

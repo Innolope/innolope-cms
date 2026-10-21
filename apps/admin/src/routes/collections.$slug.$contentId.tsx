@@ -19,6 +19,8 @@ import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
 import { RelationField } from '../components/editor/relation-field'
+import { RichTextPreview, useRichTextConversion } from '../components/editor/rich-text-field'
+import { TechnicalFields } from '../components/editor/technical-fields'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ScheduledBadge } from '../components/scheduled-badge'
 import { ApiError, api } from '../lib/api-client'
@@ -28,7 +30,7 @@ import { useConfirm, usePrompt } from '../lib/confirm'
 import { resolveDisplayTitle } from '../lib/display-title'
 import { fieldLabel } from '../lib/field-label'
 import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
-import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
+import { isTechnicalField, SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
 import { useExternalSyncStatus } from '../lib/use-external-sync-status'
@@ -1121,10 +1123,20 @@ function CollectionContentEditor() {
 		const readOnlyNames = new Set(
 			(collection?.fields ?? []).filter((f) => f.ui?.readOnly).map((f) => f.name),
 		)
+		// A locked list (its shape confirmed in the field designer) drops the rows an
+		// editor added and never filled, instead of saving empty records.
+		const lockedLists = new Set(
+			(collection?.fields ?? [])
+				.filter(
+					(f) => f.type === 'array' && (f.ui?.allowExtraKeys === false || f.ui?.presetConfirmed),
+				)
+				.map((f) => f.name),
+		)
 		const cleanExtras: Record<string, unknown> = {}
 		for (const [k, v] of Object.entries(extraFields)) {
 			if (readOnlyNames.has(k) || k === 'slug') continue
-			cleanExtras[k] = v
+			cleanExtras[k] =
+				lockedLists.has(k) && Array.isArray(v) ? v.filter((row) => !isBlankRow(row)) : v
 		}
 		return {
 			...cleanExtras,
@@ -1414,6 +1426,14 @@ function CollectionContentEditor() {
 	// The collection may be unknown (renamed, deleted, or outside this member's
 	// allowlist): `loading` would otherwise never resolve and the pane stays
 	// blank forever. Say so instead, once the collection list has loaded.
+	// A body the source keeps as rich-text editor state: editable as markdown when
+	// it converts losslessly; otherwise shown read-only, since a save would drop
+	// the blocks markdown cannot hold (the API refuses it). A hook, so it runs
+	// before the early returns below.
+	const richBodyName =
+		BODY_FIELD_NAMES.find((name) => collection?.fields?.some((f) => f.name === name)) ?? null
+	const bodyRichText = useRichTextConversion(richBodyName ? extraFields[richBodyName] : undefined)
+
 	if (!collection && !collectionsLoading) {
 		return (
 			<div className="p-8 pt-5">
@@ -1476,7 +1496,14 @@ function CollectionContentEditor() {
 				!HIDDEN_FIELDS.has(f.name) &&
 				!f.ui?.hidden &&
 				f.name !== 'slug' &&
-				!SYSTEM_COLUMN_TWINS.has(f.name),
+				!SYSTEM_COLUMN_TWINS.has(f.name) &&
+				!isTechnicalField(f),
+		) ?? []
+	// Counters, the source's lifecycle twins and values the CMS cannot model sit in
+	// a collapsed, read-only section at the end of the form instead.
+	const technicalSchemaFields =
+		collection?.fields?.filter(
+			(f) => isTechnicalField(f) && !['title', 'content', 'body', 'tags'].includes(f.name),
 		) ?? []
 
 	// Why a status change won't reach the source row, if it won't. `supported` covers
@@ -1853,11 +1880,28 @@ function CollectionContentEditor() {
 		}
 		schemaFieldsBlock.push(renderSchemaField(f))
 	}
+	if (technicalSchemaFields.length > 0 && !isNew) {
+		schemaFieldsBlock.push(
+			<TechnicalFields
+				key="technical-fields"
+				fields={technicalSchemaFields}
+				values={extraFields}
+				labelFor={fieldLabel}
+				canEditJson={canEditSchema}
+				disabled={isReadOnly}
+				onChange={(name, v) => {
+					setExtraFields((prev) => ({ ...prev, [name]: v }))
+					setDirty(true)
+				}}
+			/>,
+		)
+	}
 
 	return (
 		<div className="flex h-full flex-col">
 			<ExternalSyncNotice
 				status={automaticSync}
+				collectionId={collection?.id}
 				onReview={() => setExternalConflicts(automaticSync?.conflicts ?? [])}
 			/>
 			{externalConflicts.length > 0 && collection && (
@@ -2213,7 +2257,9 @@ function CollectionContentEditor() {
 													/>
 												)}
 
-												{bodyEditable ? (
+												{bodyRichText && 'unsupported' in bodyRichText ? (
+													<RichTextPreview conversion={bodyRichText} />
+												) : bodyEditable ? (
 													<MarkdownEditor
 														content={bodyMap ? (bodyMap[paneLocale] ?? '') : markdown}
 														onChange={(v) => {
@@ -2879,6 +2925,13 @@ function TranslationOptIn({
 			)}
 		</div>
 	)
+}
+
+/** A list row with nothing filled in: an empty object or one of empty strings. */
+function isBlankRow(row: unknown): boolean {
+	if (row === null || row === undefined || row === '') return true
+	if (typeof row !== 'object' || Array.isArray(row)) return false
+	return Object.values(row).every((value) => value === null || value === undefined || value === '')
 }
 
 function Field({

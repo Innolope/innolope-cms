@@ -1218,7 +1218,11 @@ export function DatabaseSettings({ onChangeDatabase }: DatabaseSettingsProps = {
 					borderless={!!onChangeDatabase}
 				>
 					<div className="grid grid-cols-3 gap-3">
-						{DB_OPTIONS.map((opt) => (
+						{DB_OPTIONS.filter(
+							// Firestore can be scanned but nothing can read or write it after
+							// setup, so it is not offered; a project already on it still sees it.
+							(opt) => opt.value !== 'firebase' || initialDbType.current === 'firebase',
+						).map((opt) => (
 							<button
 								key={opt.value}
 								type="button"

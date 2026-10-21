@@ -1,4 +1,4 @@
-import type { CollectionField } from '@innolope/config'
+import { type CollectionField, getPreset } from '@innolope/config'
 import {
 	isLocaleKeyedObject,
 	isLocaleMap,
@@ -48,8 +48,12 @@ export function validateContentMetadata(
 			continue
 		}
 		if (touched && !touched.has(field.name)) continue
+		// An opaque value holds whatever shape the source stores; an admin edits it
+		// as JSON and it is written exactly as entered.
+		if (field.ui?.opaque) continue
 		const typeError = checkFieldType(field, value)
 		if (typeError) errors.push({ field: field.name, message: typeError })
+		else errors.push(...checkLockedShape(field, value))
 	}
 	if (opts.locales && opts.locales.length > 0) {
 		errors.push(...checkLocaleShapes(fields, data, touched, opts.locales))
@@ -272,6 +276,9 @@ export function contentValidationError(fields: CollectionField[], errors: FieldV
 	return {
 		error: 'Content does not match the collection schema',
 		fields: errors,
+		// The same errors keyed by request path, which is what the admin editor reads
+		// to put each message next to its input.
+		issues: errors.map((e) => ({ path: `metadata.${e.field}`, message: e.message })),
 		schema: fields.map((f) => ({
 			name: f.name,
 			type: f.type,
@@ -279,4 +286,52 @@ export function contentValidationError(fields: CollectionField[], errors: FieldV
 			...(f.options ? { options: f.options } : {}),
 		})),
 	}
+}
+
+function isBlank(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === null ||
+		(typeof value === 'string' && value.trim() === '') ||
+		(Array.isArray(value) && value.length === 0)
+	)
+}
+
+/**
+ * Once an admin locks a field's shape in the field designer (a confirmed preset,
+ * or `allowExtraKeys: false`), the sub-keys it marks required — and a confirmed
+ * preset's required roles — must be filled in every item. Without this a
+ * simplified form could save documents the site cannot render.
+ */
+function checkLockedShape(field: CollectionField, value: unknown): FieldValidationError[] {
+	const ui = field.ui
+	if (!ui || (ui.allowExtraKeys !== false && !ui.presetConfirmed)) return []
+	const required: Array<{ key: string; label: string }> = (ui.subFields ?? [])
+		.filter((sub) => sub.required)
+		.map((sub) => ({ key: sub.name, label: sub.label || sub.name }))
+	const preset = ui.presetConfirmed ? getPreset(ui.preset) : undefined
+	for (const role of preset?.roles ?? []) {
+		if (!role.required) continue
+		const key = ui.presetKeys?.[role.role] ?? role.aliases[0]
+		if (!required.some((entry) => entry.key === key)) required.push({ key, label: key })
+	}
+	if (required.length === 0) return []
+	// A text field holding an image URL has no sub-keys to check.
+	const items = Array.isArray(value) ? value : [value]
+	const errors: FieldValidationError[] = []
+	items.forEach((item, index) => {
+		if (!item || typeof item !== 'object' || Array.isArray(item)) return
+		const missing = required.filter((entry) =>
+			isBlank((item as Record<string, unknown>)[entry.key]),
+		)
+		if (missing.length === 0) return
+		const where = Array.isArray(value) ? ` (item ${index + 1})` : ''
+		errors.push({
+			field: field.name,
+			message: `"${field.label || field.name}"${where} needs ${missing
+				.map((entry) => `"${entry.label}"`)
+				.join(', ')}.`,
+		})
+	})
+	return errors
 }

@@ -1,4 +1,5 @@
 import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import type { CollectionField } from './collections.js'
 import { users } from './users.js'
 
 export const projects = pgTable('projects', {
@@ -49,7 +50,22 @@ export const projectMembers = pgTable(
 	(table) => [uniqueIndex('member_project_user_idx').on(table.projectId, table.userId)],
 )
 
+/** A field shape a project designed once and reuses: `ui.preset = 'custom:<id>'`. */
+export interface ProjectFieldPreset {
+	label: string
+	/** Object or array-of-objects: which kind of field it applies to. */
+	appliesTo: 'object' | 'array'
+	subFields: CollectionField[]
+	summaryKey?: string
+	allowExtraKeys?: boolean
+}
+
 export interface ProjectSettings {
+	/**
+	 * Field shapes mapped once in the field designer and offered for other fields
+	 * of the project, keyed by id (the field stores `custom:<id>`).
+	 */
+	fieldPresets?: Record<string, ProjectFieldPreset>
 	locales: string[]
 	defaultLocale: string
 	mediaAdapter: 'local' | 'cloudflare' | 's3'

@@ -8,9 +8,26 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
-import { createExternalDbAdapter, type ExternalDocument } from '../adapters/external-db.js'
+import { type PreflightIssue, preflightMongo, preflightSql } from '../adapters/codec.js'
+import {
+	createExternalDbAdapter,
+	type ExternalDbAdapter,
+	type ExternalDocument,
+	type WriteOpts,
+} from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
+import { describeExternalDbError, ExternalWriteError } from './external-errors.js'
+import {
+	applyExternalPatch,
+	diffExternalPayload,
+	type ExternalPatch,
+	externalBaseline,
+	fullPatch,
+	isEmptyPatch,
+	writtenValues,
+} from './external-patch.js'
+import { rescanExternalCollection } from './external-schema.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
 import { syncState } from './sync-state.js'
@@ -181,8 +198,26 @@ export function mergeExternalTimestamps(
 	return merged
 }
 
+/**
+ * Field types whose source columns cannot hold an empty string. The editor
+ * clears a number, date or select input to `''`, and Postgres and strict MySQL
+ * reject that for an integer or timestamp column (`22P02`) while MongoDB takes
+ * it and silently changes the field's type. For these an empty string means
+ * "no value".
+ */
+const EMPTY_STRING_IS_NULL = new Set([
+	'number',
+	'date',
+	'boolean',
+	'enum',
+	'relation',
+	'object',
+	'array',
+])
+
 function coerceExternalFieldValue(fieldType: string | undefined, value: unknown): unknown {
 	if (value === null || value === undefined) return value
+	if (value === '' && fieldType && EMPTY_STRING_IS_NULL.has(fieldType)) return null
 	// A column the source stores as an ISO string (very common for Mongo documents
 	// written by an ORM) must keep receiving strings. Writing a Date into it instead
 	// leaves the column holding both BSON types, and BSON sorts every String before
@@ -251,6 +286,26 @@ async function coerceExternalRelations(
 	return out
 }
 
+/**
+ * Leave empty non-text values out of a new row instead of writing NULL. A column
+ * with a default then gets its default, and a nullable one ends up NULL either
+ * way; only an explicit NULL could fail a NOT NULL column that has a default.
+ */
+export function omitEmptyOnInsert(
+	col: Pick<typeof collections.$inferSelect, 'fields'>,
+	data: Record<string, unknown>,
+): Record<string, unknown> {
+	const types = new Map((col.fields || []).map((field) => [field.name, field.type]))
+	const out: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(data)) {
+		const type = types.get(key)
+		if (value === undefined) continue
+		if (value === null && type && type !== 'text') continue
+		out[key] = value
+	}
+	return out
+}
+
 export async function insertIntoExternalDb(
 	app: FastifyInstance,
 	projectId: string,
@@ -269,17 +324,169 @@ export async function insertIntoExternalDb(
 	const payload = await coerceExternalRelations(
 		extDb.type,
 		col,
-		stripUnmappedSystemColumns(extDb.type, col, data),
+		omitEmptyOnInsert(col, stripUnmappedSystemColumns(extDb.type, col, data)),
 	)
-	if (Object.keys(payload).length === 0) return null
+	// Nothing to write — unless the source requires something. Checked before the
+	// early return, or a table with a NOT NULL column would get a CMS-only record
+	// that never reaches it instead of a message naming the missing field.
+	if (Object.keys(payload).length === 0) {
+		prepareExternalWrite(col, payload, { mode: 'insert' })
+		return null
+	}
 
+	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		return await adapter.insert(col.externalTable, payload)
+		const { result } = await writeWithRescan(app, col, adapter, payload, (target, retry) => {
+			const values = retry ? keepSourceColumns(target, payload) : payload
+			const prepared = prepareExternalWrite(target, values, { mode: 'insert' })
+			return Object.keys(prepared.values).length > 0
+				? adapter.insert(table, prepared.values, prepared.opts)
+				: null
+		})
+		return result
 	} finally {
 		await adapter.disconnect()
 	}
+}
+
+type Collection = typeof collections.$inferSelect
+
+const PREFLIGHT_CODES = {
+	required: 'EXTERNAL_REQUIRED',
+	enum: 'EXTERNAL_INVALID_VALUE',
+	tooLong: 'EXTERNAL_TOO_LONG',
+	generated: 'EXTERNAL_REFUSED',
+	mixed: 'EXTERNAL_REFUSED',
+} as const
+
+/** Fields the CMS cannot model: written exactly as an admin entered them. */
+function opaqueFieldNames(col: Collection): Set<string> {
+	return new Set((col.fields || []).filter((field) => field.ui?.opaque).map((field) => field.name))
+}
+
+/**
+ * Check a write against the recorded source schema before the source is touched,
+ * and hand the adapter what it needs to write native types.
+ *
+ * SQL: keys that are not columns (and generated columns) are dropped, a NOT NULL
+ * column without a default must be filled on insert and cannot be cleared on
+ * update, enum values and lengths are checked. MongoDB: a path whose sampled
+ * documents disagree on its type is refused unless the field is opaque.
+ * A refusal is a 400 naming each field, in the shape the editor shows inline.
+ */
+function prepareExternalWrite(
+	col: Collection,
+	values: Record<string, unknown>,
+	opts: { mode: 'insert' | 'update'; unset?: string[] },
+): { values: Record<string, unknown>; opts: WriteOpts } {
+	const schema = col.sourceSchema ?? null
+	const raw = opaqueFieldNames(col)
+	const writeOpts: WriteOpts = { schema, raw: [...raw] }
+	if (!schema) return { values, opts: writeOpts }
+	const label = (column: string) => {
+		const field = (col.fields || []).find((f) => f.name === column)
+		return field?.label || column
+	}
+	let checked = values
+	let issues: PreflightIssue[]
+	if (schema.dialect === 'mongodb') {
+		const touched = { ...values, ...Object.fromEntries((opts.unset ?? []).map((k) => [k, null])) }
+		issues = preflightMongo(touched, schema, { opaque: raw, label })
+	} else {
+		const touched = { ...values, ...Object.fromEntries((opts.unset ?? []).map((k) => [k, null])) }
+		const result = preflightSql(touched, schema, { mode: opts.mode, label })
+		issues = result.issues
+		checked = Object.fromEntries(
+			Object.entries(result.values).filter(([key]) => !(opts.unset ?? []).includes(key)),
+		)
+	}
+	if (issues.length > 0) {
+		const first = issues[0]
+		throw new ExternalWriteError({
+			statusCode: 400,
+			code: PREFLIGHT_CODES[first.reason],
+			error: first.message,
+			fields: issues.map((issue) => ({ field: issue.field, message: issue.message })),
+		})
+	}
+	return { values: checked, opts: writeOpts }
+}
+
+/** Only the keys a refreshed SQL schema still declares. */
+function keepSourceColumns(col: Collection, values: Record<string, unknown>) {
+	const declared = new Set((col.fields || []).map((field) => field.name))
+	return Object.fromEntries(Object.entries(values).filter(([key]) => declared.has(key)))
+}
+
+/**
+ * Run an external write and turn a driver error into an `ExternalWriteError` the
+ * routes can answer with a field-level message.
+ *
+ * An unknown column means the source table changed after the scan. The table is
+ * re-learned (keeping the schema editor's customizations) and the write retried
+ * once with the keys the source still has; a second failure is reported as is.
+ */
+async function writeWithRescan<T>(
+	app: FastifyInstance,
+	col: Collection,
+	adapter: ExternalDbAdapter,
+	payload: Record<string, unknown>,
+	attempt: (target: Collection, retry: boolean) => Promise<T> | T,
+): Promise<{ result: T; col: Collection }> {
+	try {
+		return { result: await attempt(col, false), col }
+	} catch (err) {
+		const failure = describeExternalDbError(err, { fields: col.fields, payload })
+		if (!failure.unknownColumn) throw new ExternalWriteError(failure)
+		let refreshed: Collection
+		try {
+			const rescan = await rescanExternalCollection(app.db, col, adapter)
+			refreshed = rescan.col
+			app.log.info(
+				{ collection: col.name, column: failure.unknownColumn, unpreserved: rescan.unpreserved },
+				'External source schema changed; re-learned the table and retrying the write',
+			)
+		} catch (rescanErr) {
+			app.log.warn(rescanErr, 'Re-scan after an unknown-column error failed')
+			throw new ExternalWriteError(failure)
+		}
+		try {
+			return { result: await attempt(refreshed, true), col: refreshed }
+		} catch (retryErr) {
+			throw new ExternalWriteError(
+				describeExternalDbError(retryErr, { fields: refreshed.fields, payload }),
+			)
+		}
+	}
+}
+
+/**
+ * Stamp the edit time onto a non-empty patch when the collection maps an
+ * `updatedAt` column. The cached metadata still carries the value the row was
+ * imported with, so without this an edit would leave the source's edit time
+ * where it was — and an incremental sync keyed on it would never see the edit.
+ */
+function stampEditTime(col: typeof collections.$inferSelect, patch: ExternalPatch, now: Date) {
+	if (isEmptyPatch(patch) || 'updatedAt' in patch.set) return
+	const declared = (col.fields || []).find((field) => field.name === 'updatedAt')
+	if (!declared) return
+	patch.set.updatedAt = coerceExternalFieldValue(declared.type, now)
+}
+
+/** Top-level keys a target can remove: any key on MongoDB, declared columns on SQL. */
+function removableKeys(dbType: string, col: typeof collections.$inferSelect, keys: string[]) {
+	if (isSchemalessExternalDb(dbType)) return keys.filter((key) => key !== '_id')
+	const declared = new Set((col.fields || []).map((field) => field.name))
+	return keys.filter((key) => declared.has(key))
+}
+
+export interface ExternalWriteResult {
+	/** The source row after the write. */
+	doc: ExternalDocument
+	/** Top-level values the write sent; a removed column reads as null. */
+	written: Record<string, unknown>
 }
 
 export async function updateExternalDb(
@@ -289,7 +496,11 @@ export async function updateExternalDb(
 	externalId: string,
 	data: Record<string, unknown>,
 	snapshotDb: Pick<Database, 'select' | 'update'> = app.db,
-) {
+	opts: {
+		/** Top-level keys the caller explicitly removed (sent as `null`). */
+		unset?: string[]
+	} = {},
+): Promise<ExternalWriteResult | null> {
 	const [project] = await snapshotDb
 		.select()
 		.from(projects)
@@ -303,27 +514,81 @@ export async function updateExternalDb(
 		col,
 		stripUnmappedSystemColumns(extDb.type, col, data),
 	)
-	// Nothing this target can accept. Mongo rejects `{ $set: {} }` outright and a
-	// SQL UPDATE with no SET clause is a syntax error, so an unguarded empty payload
-	// turns a no-op into a 502 — which is how a status sync to a collection with no
-	// status column used to fail.
-	if (Object.keys(payload).length === 0) return null
+	const nested = isSchemalessExternalDb(extDb.type)
+	const unset = removableKeys(extDb.type, col, opts.unset ?? [])
 
+	// Diff against the source row as last observed. A legacy row cached before
+	// snapshots existed has nothing to diff against and is written whole, once;
+	// the read-back below records its first snapshot.
+	const [cached] = await snapshotDb
+		.select({ externalSnapshot: content.externalSnapshot })
+		.from(content)
+		.where(
+			and(
+				eq(content.projectId, projectId),
+				eq(content.collectionId, col.id),
+				eq(content.externalId, externalId),
+			),
+		)
+		.limit(1)
+	const patch = cached?.externalSnapshot
+		? diffExternalPayload(payload, externalBaseline(col.fields, cached.externalSnapshot), {
+				nested,
+				unset,
+			})
+		: fullPatch(payload, unset)
+	if (cached?.externalSnapshot) stampEditTime(col, patch, new Date())
+
+	// Nothing to change. This is also the guard for a target that can accept none
+	// of the payload: Mongo rejects `{ $set: {} }` outright and a SQL UPDATE with no
+	// SET clause is a syntax error, so an unguarded empty patch turns a no-op into a
+	// 502 — which is how a status sync to a collection with no status column failed.
+	if (isEmptyPatch(patch)) return null
+
+	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		const updated = await adapter.update(col.externalTable, externalId, payload)
+		const { result: sent, col: target } = await writeWithRescan(
+			app,
+			col,
+			adapter,
+			patch.set,
+			async (current, retry) => {
+				const attemptPatch = retry
+					? {
+							set: keepSourceColumns(current, patch.set),
+							unset: patch.unset.filter((key) =>
+								(current.fields || []).some((field) => field.name === key),
+							),
+						}
+					: patch
+				const prepared = prepareExternalWrite(current, attemptPatch.set, {
+					mode: 'update',
+					unset: attemptPatch.unset,
+				})
+				const checkedPatch = { set: prepared.values, unset: attemptPatch.unset }
+				if (isEmptyPatch(checkedPatch)) return null
+				await adapter.update(table, externalId, checkedPatch.set, {
+					...prepared.opts,
+					unset: checkedPatch.unset,
+				})
+				return checkedPatch
+			},
+		)
+		// Everything this edit changed was in a column the source no longer has.
+		if (!sent) return null
 		// Mongo/MySQL updates return only the patch; observe the complete row.
-		const observed = await adapter.findById(col.externalTable, externalId)
+		const observed = await adapter.findById(table, externalId)
 		// The values this write committed remain the baseline even if another
 		// client edits the row between our write and read-back.
-		const doc = { ...observed, ...updated }
+		const doc = applyExternalPatch(observed ?? { _id: externalId }, sent, nested)
 		// A successful write-through becomes the new shared external state. CMS-
 		// only fields remain distinguishable from later incoming source changes.
 		await snapshotDb
 			.update(content)
 			.set({
-				externalSnapshot: syncState(externalDocToContentItem(doc, col)),
+				externalSnapshot: syncState(externalDocToContentItem(doc, target)),
 			})
 			.where(
 				and(
@@ -332,7 +597,7 @@ export async function updateExternalDb(
 					eq(content.externalId, externalId),
 				),
 			)
-		return doc
+		return { doc, written: writtenValues(sent) }
 	} finally {
 		await adapter.disconnect()
 	}

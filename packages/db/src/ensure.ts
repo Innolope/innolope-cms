@@ -547,6 +547,10 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "lastSyncedAt" TIMESTAMPTZ`
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "lastSyncedCursor" TIMESTAMPTZ`
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "cursorColumn" TEXT`
+		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "sourceSchema" JSONB`
+		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "sourceSchemaHash" TEXT`
+		await sql`ALTER TABLE external_sync_state ADD COLUMN IF NOT EXISTS "schemaDrift" JSONB`
+		await sql`ALTER TABLE external_sync_state ADD COLUMN IF NOT EXISTS "schemaCheckedAt" TIMESTAMPTZ`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalSnapshot" JSONB`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "updatedBy" UUID REFERENCES users(id)`

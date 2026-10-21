@@ -125,3 +125,20 @@ describe('documentToMarkdown', () => {
 		expect('description' in metadata).toBe(false)
 	})
 })
+
+describe('rich-text bodies', () => {
+	it('keeps editor state in metadata and caches its markdown, not "[object Object]"', () => {
+		const content = {
+			root: {
+				type: 'root',
+				children: [{ type: 'paragraph', children: [{ type: 'text', text: 'Hello', format: 1 }] }],
+			},
+		}
+		const { markdown, metadata } = documentToMarkdown({ _id: '1', title: 'T', content }, [
+			{ name: 'title', type: 'text' },
+			{ name: 'content', type: 'object' },
+		])
+		expect(markdown).toBe('**Hello**')
+		expect(metadata.content).toEqual(content)
+	})
+})

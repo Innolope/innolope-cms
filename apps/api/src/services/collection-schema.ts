@@ -10,8 +10,15 @@
  * genuinely cannot carry.
  */
 
-import { type CollectionField, hasFieldCustomizations } from '@innolope/config'
+import {
+	type CollectionField,
+	detectFieldPreset,
+	detectRichTextFormat,
+	hasFieldCustomizations,
+} from '@innolope/config'
+import type { SourceColumn, SourceSchema } from '@innolope/db'
 import { buildSubField, type ObjectArrayShape } from '../adapters/mongo-introspect.js'
+import { opaqueFieldNames, soleType } from '../adapters/source-schema.js'
 import { mapColumnType } from '../adapters/type-mapper.js'
 
 /** A column as it arrives from a scan. */
@@ -71,8 +78,18 @@ export function buildCollectionFields(
 		arrayShapes?: Map<string, ObjectArrayShape>
 		/** Columns this table stores as `{ <locale>: string }` maps. */
 		localizedFields?: Set<string>
+		/**
+		 * The table's recorded shape. SQL columns refine the type (a native enum
+		 * becomes a dropdown, `tinyint(1)` a checkbox, a generated column read-only);
+		 * a value the CMS cannot model becomes an opaque field (see `opaqueFieldNames`).
+		 */
+		sourceSchema?: SourceSchema | null
 	} = {},
 ): CollectionField[] {
+	const sourceColumns = new Map<string, SourceColumn>(
+		(opts.sourceSchema?.columns ?? []).map((column) => [column.name, column]),
+	)
+	const opaqueNames = opaqueFieldNames(opts.sourceSchema)
 	return columns
 		.filter((c) => !EXCLUDED_COLUMNS.has(c.name))
 		.map((c) => {
@@ -82,14 +99,28 @@ export function buildCollectionFields(
 			// is what makes the editor render per-locale inputs and what tells a write
 			// to target one language instead of the whole map.
 			const isLocalized = opts.localizedFields?.has(c.name) === true
-			const resolvedType = (
+			const source = sourceColumns.get(c.name)
+			let resolvedType = (
 				isLocalized ? 'text' : FIELD_TYPES.has(c.type) ? c.type : mapColumnType(c.type)
 			) as CollectionField['type']
+			let options: string[] | undefined
+			if (source && !isLocalized) {
+				if (source.enumValues?.length) {
+					resolvedType = 'enum'
+					options = source.enumValues
+				} else if (/^tinyint\(1\)/i.test(source.udtName ?? '')) {
+					resolvedType = 'boolean'
+				}
+			}
+			const opaque = opaqueNames.has(c.name)
 
 			// Read-only (system fields) and subFields (array-of-object shape) coexist
 			// when both apply; the spread keeps the field shape compact when neither does.
 			let ui: CollectionField['ui'] | undefined
-			if (isSystem) ui = { ...(ui ?? {}), readOnly: true }
+			if (isSystem || source?.isGenerated) ui = { ...(ui ?? {}), readOnly: true }
+			// A value the CMS cannot model (mixed types across documents, binary, a
+			// geometry…): it round-trips untouched and is written only as admin JSON.
+			if (opaque) ui = { ...(ui ?? {}), opaque: true }
 			const shape = resolvedType === 'array' ? opts.arrayShapes?.get(c.name) : undefined
 			if (shape && shape.keys.length > 0) {
 				ui = { ...(ui ?? {}), subFields: shape.keys.map((key) => buildSubField(key, shape)) }
@@ -106,6 +137,7 @@ export function buildCollectionFields(
 				type: resolvedType,
 				required: false,
 				localized: isLocalized,
+				...(options && { options }),
 				...(c.relationTo && { relationTo: c.relationTo }),
 				...(c.relationIsArray && { relationIsArray: true }),
 				...(ui && { ui }),
@@ -167,6 +199,13 @@ export function mergeFieldCustomizations(
 		// nothing (no sampled rows), the previously recorded shape is better than
 		// dropping to a generic widget.
 		if (!field.ui?.subFields && prior.ui?.subFields) ui.subFields = prior.ui.subFields
+		// A preset an admin confirmed in the field designer outranks detection, and
+		// so does any earlier preset when this sample found none.
+		if (prior.ui?.presetConfirmed || (!field.ui?.preset && prior.ui?.preset)) {
+			ui.preset = prior.ui?.preset
+			ui.presetKeys = prior.ui?.presetKeys
+			if (!ui.presetKeys) delete ui.presetKeys
+		}
 
 		return {
 			...field,
@@ -187,4 +226,142 @@ export function mergeFieldCustomizations(
 	}
 
 	return { fields, unpreserved }
+}
+
+/**
+ * Scan columns for a MongoDB descriptor: one per top-level path, typed from the
+ * BSON types the sample holds there. Relation targets are not re-resolved here
+ * (that needs a probe of every collection); `carryRelationTargets` restores the
+ * ones the previous schema already knew.
+ */
+export function detectedColumnsFromMongoSchema(schema: SourceSchema): DetectedColumn[] {
+	const paths = new Map((schema.paths ?? []).map((path) => [path.path, path]))
+	const columns: DetectedColumn[] = []
+	for (const path of schema.paths ?? []) {
+		if (path.path.includes('.') || path.path.includes('[')) continue
+		const type = path.mixed ? 'object' : soleType(path)
+		if (!type || type === 'null') continue
+		const element = soleType(paths.get(`${path.path}[]`))
+		columns.push({
+			name: path.path,
+			type:
+				type === 'objectId'
+					? 'relation'
+					: type === 'array' && element === 'objectId'
+						? 'relation'
+						: (MONGO_TYPE_TO_FIELD[type] ?? 'text'),
+			...(type === 'array' && element === 'objectId' && { relationIsArray: true }),
+		})
+	}
+	return columns
+}
+
+const MONGO_TYPE_TO_FIELD: Record<string, string> = {
+	string: 'text',
+	number: 'number',
+	long: 'number',
+	decimal128: 'number',
+	bool: 'boolean',
+	date: 'date',
+	object: 'object',
+	array: 'array',
+	binary: 'text',
+	timestamp: 'date',
+}
+
+/** Locale-map fields and array-of-object shapes, read off a MongoDB histogram. */
+export function mongoShapesFromSchema(schema: SourceSchema): {
+	localizedFields: Set<string>
+	arrayShapes: Map<string, ObjectArrayShape>
+} {
+	const localizedFields = new Set<string>()
+	const arrayShapes = new Map<string, ObjectArrayShape>()
+	const children = new Map<string, Array<{ key: string; types: string[] }>>()
+	for (const path of schema.paths ?? []) {
+		const match = /^(.+?)(\[\])?\.([^.[\]]+)$/.exec(path.path)
+		if (!match || match[1].includes('.') || match[1].includes('[')) continue
+		const parent = `${match[1]}${match[2] ?? ''}`
+		const list = children.get(parent) ?? []
+		list.push({ key: match[3], types: Object.keys(path.types).filter((t) => t !== 'null') })
+		children.set(parent, list)
+	}
+	for (const [parent, keys] of children) {
+		if (parent.endsWith('[]')) {
+			arrayShapes.set(parent.slice(0, -2), {
+				keys: keys.map((k) => k.key),
+				stringValues: new Map(),
+			})
+		} else if (
+			keys.length > 0 &&
+			keys.every(
+				(k) => /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(k.key) && k.types.every((t) => t === 'string'),
+			)
+		) {
+			localizedFields.add(parent)
+		}
+	}
+	return { localizedFields, arrayShapes }
+}
+
+/**
+ * Keep what a MongoDB re-scan cannot re-derive from a sample: relation targets
+ * (resolved by probing other collections) and recorded row shapes, which carry
+ * enum options the histogram has no values for.
+ */
+export function carryMongoDetections(
+	previous: CollectionField[] | undefined,
+	fields: CollectionField[],
+): CollectionField[] {
+	const prior = new Map((previous ?? []).map((field) => [field.name, field]))
+	return fields.map((field) => {
+		const before = prior.get(field.name)
+		if (!before) return field
+		const next = { ...field }
+		if (field.type === 'relation' && before.relationTo && !field.relationTo) {
+			next.relationTo = before.relationTo
+		}
+		if (before.ui?.subFields?.length) next.ui = { ...next.ui, subFields: before.ui.subFields }
+		return next
+	})
+}
+
+/**
+ * Refine detected fields with a sample of real rows.
+ *
+ *  - A JSON column whose values are arrays is an `array`, not an `object` — the
+ *    type mapper only sees `json`/`jsonb`, and an `object` type made validation
+ *    refuse every edit to it.
+ *  - A field whose sampled values agree on a shape preset gets `ui.preset` and the
+ *    document's own key names in `ui.presetKeys`. A text field only ever becomes
+ *    an image (a URL pointing at one). A preset an admin confirmed is left alone.
+ */
+export function refineFieldsFromSamples(
+	fields: CollectionField[],
+	docs: Array<Record<string, unknown>>,
+): CollectionField[] {
+	if (docs.length === 0) return fields
+	return fields.map((field) => {
+		const values = docs.map((doc) => doc[field.name])
+		const filled = values.filter((value) => value !== null && value !== undefined && value !== '')
+		let next = field
+		if (field.type === 'object' && filled.length > 0 && filled.every(Array.isArray)) {
+			next = { ...next, type: 'array' }
+		}
+		if (next.localized || next.ui?.presetConfirmed || next.ui?.opaque) return next
+		if (!['object', 'array', 'text'].includes(next.type)) return next
+		const match = detectFieldPreset(values, next.type)
+		if (!match) return next
+		if (next.type === 'text' && match.preset !== 'image') return next
+		const richTextFormat =
+			match.preset === 'rich-text' ? (detectRichTextFormat(filled[0]) ?? undefined) : undefined
+		return {
+			...next,
+			ui: {
+				...next.ui,
+				preset: match.preset,
+				...(Object.keys(match.keys).length > 0 && { presetKeys: match.keys }),
+				...(richTextFormat && { richTextFormat }),
+			},
+		}
+	})
 }

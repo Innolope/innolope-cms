@@ -283,7 +283,12 @@
 			"nested": "(nested)",
 			"addEmptyRow": "+ Add empty row",
 			"addRow": "+ Add row",
-			"removeRow": "Remove row {{index}}"
+			"removeRow": "Remove row {{index}}",
+			"emptyRow": "Empty row",
+			"collapseAll": "Collapse all",
+			"expandAll": "Expand all",
+			"moveUp": "Move row {{index}} up",
+			"moveDown": "Move row {{index}} down"
 		},
 		"pillInput": {
 			"placeholder": "Type and press Enter",
@@ -308,6 +313,93 @@
 			"newDialogTitle": "New {{label}}",
 			"namePlaceholder": "Name",
 			"creating": "Creating…"
+		},
+		"subformField": {
+			"top": "Top",
+			"empty": "Empty",
+			"remove": "remove",
+			"removeField": "Remove this field",
+			"otherKeys": "Other keys ({{count}})",
+			"newKeyPlaceholder": "Field name (e.g. shortDescription)",
+			"add": "Add",
+			"addField": "+ Add field"
+		},
+		"technicalFields": {
+			"title": "Technical fields ({{count}})",
+			"hint": "Values the site or the database manages. They are kept exactly as stored.",
+			"editAsJson": "Edit as JSON",
+			"doneEditing": "Done",
+			"opaque": "Mixed or unknown structure, kept exactly as stored",
+			"empty": "—"
+		},
+		"presets": {
+			"image": {
+				"none": "No image",
+				"url": "Image URL",
+				"choose": "Choose…",
+				"alt": "Alt text (describes the image)",
+				"width": "Width",
+				"height": "Height"
+			},
+			"link": {
+				"label": "Text",
+				"url": "URL"
+			},
+			"social": {
+				"platform": "Platform"
+			},
+			"seo": {
+				"empty": "No search title yet",
+				"title": "Search title",
+				"description": "Search description",
+				"keywords": "Keywords",
+				"ogImage": "Share image URL",
+				"canonical": "Canonical URL",
+				"noindex": "Hide from search engines"
+			},
+			"money": {
+				"amount": "Amount",
+				"currency": "Currency"
+			},
+			"geo": {
+				"lat": "Latitude",
+				"lng": "Longitude",
+				"viewMap": "View on map"
+			},
+			"address": {
+				"street": "Street",
+				"line2": "Apartment, suite, etc.",
+				"city": "City",
+				"region": "State or region",
+				"postalCode": "Postal code",
+				"country": "Country"
+			},
+			"dateRange": {
+				"start": "Start",
+				"end": "End",
+				"invalid": "The end date is before the start date."
+			},
+			"keyValue": {
+				"key": "Key",
+				"value": "Value"
+			},
+			"names": {
+				"image": "Image",
+				"link": "Link",
+				"social-link": "Social link",
+				"seo": "SEO",
+				"money": "Money",
+				"geo-point": "Map point",
+				"address": "Address",
+				"date-range": "Date range",
+				"key-value": "Key-value table",
+				"rich-text": "Rich text"
+			}
+		},
+		"richText": {
+			"unsupported": "This text uses {{what}}, which can’t be edited here without losing it. Edit it where it was created; the preview below is read-only.",
+			"empty": "No text yet.",
+			"loading": "Loading text…"
 		}
 	},
 	"settings": {
@@ -1238,6 +1330,18 @@
 				"message": "Your saved CMS edits have been kept. Review the external changes to decide which version to use.",
 				"retry": "Automatic sync could not finish. Your edits are safe, and sync will retry.",
 				"review": "Review changes"
+			},
+			"schemaDrift": {
+				"title": "The source table changed since this collection was imported",
+				"added": "{{count}} new: {{names}}",
+				"removed": "{{count}} gone: {{names}}",
+				"changed": "{{count}} changed: {{names}}",
+				"review": "Update fields",
+				"updating": "Updating…",
+				"updated": "Fields updated from the source. Labels and settings were kept.",
+				"updatedWithLosses": "Fields updated from the source. Settings could not be kept for: {{names}}.",
+				"updateFailed": "Could not update the fields from the source",
+				"askAdmin": "An admin can update the fields to match."
 			}
 		},
 		"new": {
@@ -1568,7 +1672,8 @@
 				"enterOnly": "Enter only (default)",
 				"enterOrComma": "Enter or comma",
 				"readOnly": "Read-only (system-managed)",
-				"hidden": "Hidden from form"
+				"hidden": "Hidden from form",
+				"technical": "Show under Technical fields"
 			},
 			"delete": {
 				"title": "Delete collection",
@@ -1581,7 +1686,9 @@
 				"found_one": "Found {{count}} new field",
 				"found_other": "Found {{count}} new fields",
 				"nothing": "No new fields found",
-				"failed": "Scan failed"
+				"failed": "Scan failed",
+				"unsavedTitle": "Replace unsaved changes?",
+				"unsavedMessage": "Re-learning the fields from the source saves them right away and replaces the edits you have not saved in this form."
 			},
 			"errors": {
 				"labelRequired": "Label is required",
@@ -1871,5 +1978,45 @@
 	"appUpdate": {
 		"available": "A new version of the admin is available.",
 		"reload": "Reload"
+	},
+	"schema": {
+		"designer": {
+			"open": "Design…",
+			"title": "Design “{{name}}”",
+			"subtitle": "Decide once how editors see this field. Real values from the collection are on the left.",
+			"propose": "Suggest with AI",
+			"proposing": "Thinking…",
+			"proposed": "Suggestions filled in. Review them before applying.",
+			"proposeFailed": "Could not get suggestions",
+			"samples": "Values in this collection",
+			"loadingSamples": "Loading values…",
+			"noSamples": "No records hold a value for this field yet.",
+			"label": "Label",
+			"helpText": "Help text for editors",
+			"shape": "Shape",
+			"genericShape": "Plain sub-fields",
+			"projectPreset": "Project preset: {{name}}",
+			"detected": "Detected as {{name}}. Applying confirms it.",
+			"detectedChip": "detected",
+			"mapping": "Which key holds what",
+			"unmapped": "— not mapped —",
+			"subFields": "Sub-fields",
+			"subHelp": "Help text",
+			"required": "Required",
+			"readOnly": "Read-only",
+			"hidden": "Hidden",
+			"options": "Options, comma-separated",
+			"moveUp": "Move {{name}} up",
+			"moveDown": "Move {{name}} down",
+			"summaryKey": "Title collapsed rows with",
+			"summaryAuto": "Automatic",
+			"allowExtraKeys": "Editors may add their own keys",
+			"lockNote": "Applying locks the shape: editors see these keys in this order, required ones must be filled, and keys not listed stay in the record untouched.",
+			"saveAsPreset": "Save as project preset",
+			"presetNamePrompt": "Preset name",
+			"savePreset": "Save preset",
+			"presetSaved": "Saved “{{name}}” as a project preset.",
+			"apply": "Apply"
+		}
 	}
 }

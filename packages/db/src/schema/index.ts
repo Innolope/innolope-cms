@@ -5,11 +5,20 @@ export {
 	cloudflareConnections,
 	cloudflareOauthStates,
 } from './cloudflare-connections.js'
-export { collections } from './collections.js'
+export {
+	collections,
+	type SourceColumn,
+	type SourcePath,
+	type SourceSchema,
+} from './collections.js'
 export { content, contentVersions } from './content.js'
 export { contentAnalytics } from './content-analytics.js'
 export { contentEmbeddings } from './content-embeddings.js'
-export { type ExternalSyncConflict, externalSyncState } from './external-sync.js'
+export {
+	type ExternalSchemaDrift,
+	type ExternalSyncConflict,
+	externalSyncState,
+} from './external-sync.js'
 export { importJobs } from './imports.js'
 export { licenseSettings } from './license.js'
 export { mcpFeedback } from './mcp-feedback.js'
@@ -18,7 +27,7 @@ export { oauthAuthCodes } from './oauth-auth-codes.js'
 export { oauthClients } from './oauth-clients.js'
 export { oauthRefreshTokens } from './oauth-refresh-tokens.js'
 export { projectMemberCollections } from './project-member-collections.js'
-export type { ProjectSettings } from './projects.js'
+export type { ProjectFieldPreset, ProjectSettings } from './projects.js'
 export { projectMembers, projects } from './projects.js'
 export { refreshTokens } from './refresh-tokens.js'
 export { scimTokens } from './scim-tokens.js'

@@ -39,10 +39,13 @@ import {
 	syncExternalStatus,
 	updateExternalDb,
 } from '../../services/external-content.js'
+import { ExternalWriteError, sendExternalWriteFailure } from '../../services/external-errors.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
-import { mergeMetadataUpdate } from '../../services/metadata-merge.js'
+import { mergeMetadataUpdate, removedMetadataKeys } from '../../services/metadata-merge.js'
+import { richTextToMarkdown } from '../../services/rich-text.js'
+import { applyRichTextWrites } from '../../services/rich-text-writes.js'
 import { syncState } from '../../services/sync-state.js'
 import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
@@ -104,6 +107,21 @@ export async function contentRoutes(app: FastifyInstance) {
 	// Multi-select actions for the list view. Registered here rather than in
 	// app.ts so they share this prefix and its project scoping.
 	await contentBulkActionRoutes(app)
+
+	// Rich-text editor state as markdown for the editor (viewer+): the markdown when
+	// every block converts losslessly, otherwise what does not and a preview. The
+	// editor shows the preview read-only instead of offering an edit that the write
+	// path would refuse.
+	app.post(
+		'/rich-text/markdown',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+			const { value } = (request.body ?? {}) as { value?: unknown }
+			const result = richTextToMarkdown(value)
+			if (!result) return reply.status(400).send({ error: 'Not rich-text editor state' })
+			return result
+		},
+	)
 
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
@@ -463,6 +481,13 @@ export async function contentRoutes(app: FastifyInstance) {
 		// On a collection whose fields hold one value per language, a plain string
 		// belongs in this record's locale slot — not in place of the whole map.
 		input.metadata = applyLocalizedWrite(col.fields, input, { locale })
+		// Markdown written to a field the source keeps as rich-text editor state is
+		// converted into that format here, before validation and the external write.
+		const richCreate = applyRichTextWrites(col.fields, input)
+		if (richCreate.issues.length > 0) {
+			return reply.status(400).send(contentValidationError(col.fields, richCreate.issues))
+		}
+		input.metadata = richCreate.metadata
 
 		// Validate metadata against the collection's field schema. Required fields
 		// are enforced only when publishing; drafts may be incomplete. Extra keys
@@ -689,6 +714,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			item.metadata = applyLocalizedWrite(col.fields, item, {
 				locale: item.locale || defaultLocale,
 			})
+			const richItem = applyRichTextWrites(col.fields, item)
+			if (richItem.issues.length > 0) {
+				itemErrors.push({ index, slug: item.slug, errors: richItem.issues })
+				continue
+			}
+			item.metadata = richItem.metadata
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
 				locales,
@@ -935,6 +966,9 @@ export async function contentRoutes(app: FastifyInstance) {
 			id: string
 			errors: Array<{ field: string; message: string }>
 		}> = []
+		// Keys each item explicitly removed, captured before the merge below folds
+		// them away — the external write turns them into real removals.
+		const removedKeysByItem = new Map<string, string[]>()
 		for (const [index, item] of items.entries()) {
 			const current = currentMap.get(item.id)
 			if (!current) {
@@ -999,10 +1033,22 @@ export async function contentRoutes(app: FastifyInstance) {
 					locale: current.locale,
 					existing: current.metadata as Record<string, unknown>,
 				})
+				const richItem = applyRichTextWrites(col.fields, item, {
+					current: {
+						metadata: current.metadata as Record<string, unknown>,
+						markdown: current.markdown,
+					},
+				})
+				if (richItem.issues.length > 0) {
+					itemErrors.push({ index, id: item.id, errors: richItem.issues })
+					continue
+				}
+				item.metadata = richItem.metadata
 				// Same MERGE semantics as the single-item update: item.metadata becomes
 				// the full post-update blob (null deletes a key), so the transaction
 				// below writes the same fields everywhere — external row and cache alike.
 				const updatedKeys = Object.keys(item.metadata ?? {})
+				removedKeysByItem.set(item.id, removedMetadataKeys(item.metadata))
 				item.metadata = mergeMetadataUpdate(
 					current.metadata as Record<string, unknown>,
 					item.metadata,
@@ -1120,8 +1166,18 @@ export async function contentRoutes(app: FastifyInstance) {
 					publishedAt: current.publishedAt,
 				})
 				let externalId = current.externalId
+				let written: Record<string, unknown> = externalData
 				if (externalId) {
-					await updateExternalDb(app, getProject(request).id, col, externalId, externalData)
+					const result = await updateExternalDb(
+						app,
+						getProject(request).id,
+						col,
+						externalId,
+						externalData,
+						app.db,
+						{ unset: removedKeysByItem.get(item.id) },
+					)
+					written = result?.written ?? {}
 					applied.push({ col, externalId, previous, inserted: false })
 				} else {
 					const inserted = await insertIntoExternalDb(
@@ -1137,14 +1193,18 @@ export async function contentRoutes(app: FastifyInstance) {
 					externalId,
 					// Keep the cache in step with what the external row now holds, so the
 					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata: mergeExternalTimestamps(nextMetadata, externalData, col.fields),
+					cachedMetadata: mergeExternalTimestamps(nextMetadata, written, col.fields),
 				})
 			}
 		} catch (err) {
 			await compensate()
-			if ((err as { statusCode?: number }).statusCode) throw err
-			app.log.warn(err, 'Bulk update: external write failed — applied external writes rolled back')
-			return reply.status(502).send({ error: 'Failed to sync to external database' })
+			if ((err as { statusCode?: number }).statusCode && !(err instanceof ExternalWriteError)) {
+				throw err
+			}
+			return sendExternalWriteFailure(reply, err, {
+				log: app.log,
+				message: 'Bulk update: external write failed — applied external writes rolled back',
+			})
 		}
 
 		let updated: (typeof content.$inferSelect)[]
@@ -1407,6 +1467,16 @@ export async function contentRoutes(app: FastifyInstance) {
 						locale: current.locale,
 						existing: current.metadata as Record<string, unknown>,
 					})
+					const richUpdate = applyRichTextWrites(col.fields, input, {
+						current: {
+							metadata: current.metadata as Record<string, unknown>,
+							markdown: current.markdown,
+						},
+					})
+					if (richUpdate.issues.length > 0) {
+						return reply.status(400).send(contentValidationError(col.fields, richUpdate.issues))
+					}
+					input.metadata = richUpdate.metadata
 				}
 				// Update metadata is a shallow MERGE into the stored blob (a partial
 				// update never wipes fields the caller didn't send); an explicit null
@@ -1490,9 +1560,21 @@ export async function contentRoutes(app: FastifyInstance) {
 						publishedAt: nextPublishedAt,
 					})
 
+					// What actually reached the source row: the whole payload for an insert,
+					// only the changed keys for an update.
+					let written: Record<string, unknown> = externalData
 					try {
 						if (externalId) {
-							await updateExternalDb(app, getProject(request).id, col, externalId, externalData, tx)
+							const result = await updateExternalDb(
+								app,
+								getProject(request).id,
+								col,
+								externalId,
+								externalData,
+								tx,
+								{ unset: removedMetadataKeys(input.metadata) },
+							)
+							written = result?.written ?? {}
 						} else {
 							const inserted = await insertIntoExternalDb(
 								app,
@@ -1504,14 +1586,17 @@ export async function contentRoutes(app: FastifyInstance) {
 							externalId = inserted?._id ?? null
 						}
 					} catch (err) {
-						app.log.warn(err, 'Failed to sync to external DB')
-						return reply.status(502).send({ error: 'Failed to sync to external database' })
+						return sendExternalWriteFailure(reply, err, {
+							log: app.log,
+							message: 'Failed to sync to external DB',
+							fields: col.fields,
+						})
 					}
 					// Keep the cache in step with what the external row now holds, so the editor
 					// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
 					// merged view that was just written — the cache and the source database
 					// must hold the same fields.
-					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
+					cachedMetadata = mergeExternalTimestamps(nextMetadata, written, col.fields)
 				}
 
 				await tx.insert(contentVersions).values({
@@ -1773,9 +1858,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						updatedAt: new Date(),
 						publishedAt: current.publishedAt,
 					})
+					let written: Record<string, unknown> = externalData
 					try {
 						if (revertExternalId) {
-							await updateExternalDb(
+							const result = await updateExternalDb(
 								app,
 								getProject(request).id,
 								revertCol,
@@ -1783,6 +1869,7 @@ export async function contentRoutes(app: FastifyInstance) {
 								externalData,
 								tx,
 							)
+							written = result?.written ?? {}
 						} else {
 							const inserted = await insertIntoExternalDb(
 								app,
@@ -1794,14 +1881,17 @@ export async function contentRoutes(app: FastifyInstance) {
 							revertExternalId = inserted?._id ?? null
 						}
 					} catch (err) {
-						app.log.warn(err, 'Failed to sync revert to external DB')
 						// Nothing has been written locally yet, so the record is untouched on
 						// both sides — a retry is safe.
-						return reply.status(502).send({ error: 'Failed to sync to external database' })
+						return sendExternalWriteFailure(reply, err, {
+							log: app.log,
+							message: 'Failed to sync revert to external DB',
+							fields: revertCol.fields,
+						})
 					}
 					revertMetadata = mergeExternalTimestamps(
 						version.metadata,
-						externalData,
+						written,
 						revertCol.fields,
 					) as typeof version.metadata
 				}
@@ -2059,8 +2149,11 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync direct publish to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync direct publish to external DB',
+						fields: pubCol?.fields,
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2196,8 +2289,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync approval to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync approval to external DB',
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2274,8 +2369,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						tx,
 					)
 				} catch (err) {
-					app.log.warn(err, 'Failed to sync rejection to external DB')
-					return reply.status(502).send({ error: 'Failed to sync to external database' })
+					return sendExternalWriteFailure(reply, err, {
+						log: app.log,
+						message: 'Failed to sync rejection to external DB',
+					})
 				}
 
 				await tx.insert(contentVersions).values({
@@ -2376,8 +2473,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				}
 				return reply.status(201).send({ _id: inserted._id })
 			} catch (err) {
-				app.log.warn(err, 'Failed to insert relation record')
-				return reply.status(502).send({ error: 'Failed to write to external database' })
+				return sendExternalWriteFailure(reply, err, {
+					log: app.log,
+					message: 'Failed to insert relation record',
+					fields: targetCol.fields,
+				})
 			}
 		},
 	)

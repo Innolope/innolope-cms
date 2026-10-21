@@ -1,5 +1,8 @@
-import { sslModeFor } from '@innolope/db'
+import { randomUUID } from 'node:crypto'
+import { type SourceColumn, type SourceSchema, sslModeFor } from '@innolope/db'
 import type { Sql } from 'postgres'
+import { decodeMongoValue, encodeMongoPatch, encodeSqlValues } from './codec.js'
+import { histogramPaths, parseMysqlEnumValues, sealSourceSchema } from './source-schema.js'
 
 export interface ExternalDocument {
 	_id: string
@@ -22,6 +25,71 @@ export interface StreamAllOpts {
 	startAfterId?: string
 }
 
+export interface WriteOpts {
+	/**
+	 * The table's recorded shape. With it, values are written in their native
+	 * types (see `codec.ts`); without it they are written as given.
+	 */
+	schema?: SourceSchema | null
+	/** Top-level keys written exactly as given — opaque values edited as JSON. */
+	raw?: string[]
+}
+
+export interface UpdateOpts extends WriteOpts {
+	unset?: string[]
+}
+
+/** SQL has no "remove a column from one row": a removed value is a NULL. */
+function withUnsetAsNull(data: Record<string, unknown>, opts?: UpdateOpts) {
+	const out = { ...data }
+	for (const key of opts?.unset ?? []) out[key] = null
+	return out
+}
+
+/** Encode SQL values when the recorded schema is for this dialect. */
+function encodeForSql(
+	data: Record<string, unknown>,
+	opts: WriteOpts | undefined,
+	dialect: 'postgresql' | 'mysql',
+): Record<string, unknown> {
+	const schema = opts?.schema
+	if (!schema || schema.dialect !== dialect) return data
+	const raw = new Set(opts?.raw ?? [])
+	const encoded = encodeSqlValues(data, schema)
+	for (const key of raw) if (key in data) encoded[key] = data[key]
+	return encoded
+}
+
+/**
+ * A row's external id. A single-column key is its value as a string; a
+ * composite key is the JSON array of its values in key order, so it survives
+ * the round trip through `content.externalId` and back into a WHERE clause.
+ */
+export function externalIdFromRow(row: Record<string, unknown>, primaryKey: string[]): string {
+	if (primaryKey.length === 1) return String(row[primaryKey[0]])
+	return JSON.stringify(
+		primaryKey.map((column) => {
+			const value = row[column]
+			return value instanceof Date ? value.toISOString() : value
+		}),
+	)
+}
+
+/** The key values an external id stands for, in key order. */
+export function keyValuesFromId(id: string, primaryKey: string[]): unknown[] {
+	if (primaryKey.length === 1) return [id]
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(id)
+	} catch {
+		throw new Error(`Not a composite key: ${id}`)
+	}
+	if (!Array.isArray(parsed) || parsed.length !== primaryKey.length) {
+		throw new Error(`Composite key needs ${primaryKey.length} values: ${id}`)
+	}
+	return parsed
+}
+
 export interface ExternalDbAdapter {
 	connect(): Promise<void>
 	disconnect(): Promise<void>
@@ -35,12 +103,30 @@ export interface ExternalDbAdapter {
 	 */
 	streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]>
 	findById(table: string, id: string): Promise<ExternalDocument | null>
-	insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument>
-	update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument>
+	insert(table: string, data: Record<string, unknown>, opts?: WriteOpts): Promise<ExternalDocument>
+	/**
+	 * Write `data` to one row. On MongoDB a key may be a dotted path into a
+	 * sub-document. `opts.unset` names keys to remove: `$unset` on MongoDB, NULL
+	 * on SQL targets.
+	 */
+	update(
+		table: string,
+		id: string,
+		data: Record<string, unknown>,
+		opts?: UpdateOpts,
+	): Promise<ExternalDocument>
 	delete(table: string, id: string): Promise<void>
 	count(table: string): Promise<number>
 	testWritePermission(table: string): Promise<boolean>
+	/**
+	 * The table's real shape: SQL columns with their constraints, or a MongoDB
+	 * type histogram over a document sample. See `SourceSchema`.
+	 */
+	describeTable(table: string): Promise<SourceSchema>
 }
+
+/** Documents sampled to describe a MongoDB collection. */
+const DESCRIBE_SAMPLE_SIZE = 50
 
 function quoteMysqlIdentifier(identifier: string): string {
 	return `\`${identifier.replace(/`/g, '``')}\``
@@ -76,6 +162,19 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 	}
 
 	/**
+	 * Read options shared by every query that feeds the cache: Longs come back as
+	 * Long objects so one beyond 2^53 is not silently rounded to a float, and the
+	 * decoder turns them into exact JSON values.
+	 */
+	private readonly readOptions = { promoteLongs: false } as const
+
+	/** A driver document in the cache's JSON-exact form, `_id` as a string. */
+	private toExternal(doc: Record<string, unknown>): ExternalDocument {
+		const decoded = decodeMongoValue(doc) as Record<string, unknown>
+		return { ...decoded, _id: String(doc._id) }
+	}
+
+	/**
 	 * Match a document by `_id` regardless of how it is stored. Imported collections
 	 * vary: some keep `_id` as an ObjectId, others (migrated/seeded data) as a plain
 	 * string. When `id` is ObjectId-shaped we query both forms so a hex string never
@@ -100,11 +199,11 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 			opts?.cursorColumn && opts.cursorAfter !== undefined
 				? { [opts.cursorColumn]: { $gt: opts.cursorAfter } }
 				: {}
-		let cursor = this.db().collection(table).find(filter)
+		let cursor = this.db().collection(table).find(filter, this.readOptions)
 		if (opts?.cursorColumn) cursor = cursor.sort({ [opts.cursorColumn]: 1 })
 		cursor = cursor.skip(opts?.offset ?? 0).limit(opts?.limit ?? 100)
 		const docs = await cursor.toArray()
-		return docs.map((d) => ({ ...d, _id: String(d._id) }))
+		return docs.map((d) => this.toExternal(d))
 	}
 
 	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
@@ -121,10 +220,14 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 			}
 			filter._id = { $gt: gt }
 		}
-		const cursor = this.db().collection(table).find(filter).sort({ _id: 1 }).batchSize(batchSize)
+		const cursor = this.db()
+			.collection(table)
+			.find(filter, this.readOptions)
+			.sort({ _id: 1 })
+			.batchSize(batchSize)
 		let buffer: ExternalDocument[] = []
 		for await (const doc of cursor) {
-			buffer.push({ ...doc, _id: String(doc._id) })
+			buffer.push(this.toExternal(doc))
 			if (buffer.length >= batchSize) {
 				yield buffer
 				buffer = []
@@ -136,13 +239,21 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
 		const doc = await this.db()
 			.collection(table)
-			.findOne(await this.buildIdFilter(id))
+			.findOne(await this.buildIdFilter(id), this.readOptions)
 		if (!doc) return null
-		return { ...doc, _id: String(doc._id) }
+		return this.toExternal(doc)
 	}
 
-	async insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument> {
-		const result = await this.db().collection(table).insertOne(data)
+	async insert(
+		table: string,
+		data: Record<string, unknown>,
+		opts?: WriteOpts,
+	): Promise<ExternalDocument> {
+		const bson = await import('mongodb')
+		const document = opts?.schema
+			? encodeMongoPatch(bson, data, { schema: opts.schema, raw: new Set(opts.raw ?? []) })
+			: data
+		const result = await this.db().collection(table).insertOne(document)
 		return { ...data, _id: String(result.insertedId) }
 	}
 
@@ -150,10 +261,27 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
-		const result = await this.db()
-			.collection(table)
-			.updateOne(await this.buildIdFilter(id), { $set: data })
+		const bson = await import('mongodb')
+		const filter = await this.buildIdFilter(id)
+		const collection = this.db().collection(table)
+		let set = data
+		if (Object.keys(data).length > 0) {
+			// The row's own document is the type template: a path keeps the BSON type
+			// it already holds (a nested ObjectId, a Date, a Decimal128) even when the
+			// cache only had its string copy.
+			const existing = await collection.findOne(filter, this.readOptions)
+			set = encodeMongoPatch(bson, data, {
+				existing,
+				schema: opts?.schema,
+				raw: new Set(opts?.raw ?? []),
+			})
+		}
+		const update: Record<string, Record<string, unknown>> = {}
+		if (Object.keys(set).length > 0) update.$set = set
+		if (opts?.unset?.length) update.$unset = Object.fromEntries(opts.unset.map((key) => [key, '']))
+		const result = await collection.updateOne(filter, update)
 		if (result.matchedCount === 0) throw new Error(`External row not found: ${id}`)
 		return { ...data, _id: id }
 	}
@@ -166,6 +294,23 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 
 	async count(table: string): Promise<number> {
 		return this.db().collection(table).estimatedDocumentCount()
+	}
+
+	async describeTable(table: string): Promise<SourceSchema> {
+		// Newest documents first: drift shows up in what is being written now.
+		const docs = await this.db()
+			.collection(table)
+			.find({}, this.readOptions)
+			.sort({ _id: -1 })
+			.limit(DESCRIBE_SAMPLE_SIZE)
+			.toArray()
+		return sealSourceSchema({
+			dialect: 'mongodb',
+			table,
+			primaryKey: ['_id'],
+			paths: histogramPaths(docs as Array<Record<string, unknown>>),
+			sampled: docs.length,
+		})
 	}
 
 	async testWritePermission(_table: string): Promise<boolean> {
@@ -184,6 +329,8 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 
 export class PostgreSqlAdapter implements ExternalDbAdapter {
 	private client: Sql | null = null
+	/** Primary keys per table, read once per connection. */
+	private keys = new Map<string, string[]>()
 
 	constructor(private connectionString: string) {}
 
@@ -200,6 +347,7 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 	async disconnect() {
 		await this.client?.end()
 		this.client = null
+		this.keys.clear()
 	}
 
 	private sql(): Sql {
@@ -212,81 +360,188 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		return Number(row?.size) || 0
 	}
 
-	private async getPrimaryKey(table: string): Promise<string> {
-		const [row] = await this.sql()`
+	/**
+	 * Every primary-key column, in key order. A table with none falls back to a
+	 * column named `id`, which is what the adapter has always assumed.
+	 */
+	private async getPrimaryKey(table: string): Promise<string[]> {
+		const cached = this.keys.get(table)
+		if (cached) return cached
+		const rows = await this.sql()`
 			SELECT kcu.column_name FROM information_schema.table_constraints tc
-			JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-			WHERE tc.table_schema = 'public' AND tc.table_name = ${table} AND tc.constraint_type = 'PRIMARY KEY'
-			LIMIT 1
+			JOIN information_schema.key_column_usage kcu
+				ON tc.constraint_name = kcu.constraint_name
+				AND tc.table_schema = kcu.table_schema
+				AND tc.table_name = kcu.table_name
+			WHERE tc.table_schema = 'public' AND tc.table_name = ${table}
+				AND tc.constraint_type = 'PRIMARY KEY'
+			ORDER BY kcu.ordinal_position
 		`
-		return row?.column_name || 'id'
+		const key = rows.length > 0 ? rows.map((row) => String(row.column_name)) : ['id']
+		this.keys.set(table, key)
+		return key
+	}
+
+	/** `a = $1 AND b = $2` for an external id. */
+	private matchId(pk: string[], id: string) {
+		const sql = this.sql()
+		const values = keyValuesFromId(id, pk)
+		return pk
+			.map((column, index) => sql`${sql(column)} = ${values[index] as string}`)
+			.reduce((acc, part) => sql`${acc} AND ${part}`)
+	}
+
+	private toExternal(row: Record<string, unknown>, pk: string[]): ExternalDocument {
+		return { ...row, _id: externalIdFromRow(row, pk) }
 	}
 
 	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
 		const sql = this.sql()
-		const orderCol = opts?.cursorColumn ?? pk
+		const order = opts?.cursorColumn ? [opts.cursorColumn, ...pk] : pk
 		const whereClause =
 			opts?.cursorColumn && opts.cursorAfter !== undefined
 				? sql`WHERE ${sql(opts.cursorColumn)} > ${opts.cursorAfter as Date | string | number}`
 				: sql``
 		const rows = await sql`
 			SELECT * FROM ${sql(table)} ${whereClause}
-			ORDER BY ${sql(orderCol)} LIMIT ${opts?.limit ?? 100} OFFSET ${opts?.offset ?? 0}
+			ORDER BY ${sql(order)} LIMIT ${opts?.limit ?? 100} OFFSET ${opts?.offset ?? 0}
 		`
-		return rows.map((r: Record<string, unknown>) => ({ ...r, _id: String(r[pk]) }))
+		return rows.map((r: Record<string, unknown>) => this.toExternal(r, pk))
 	}
 
 	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
 		const pk = await this.getPrimaryKey(table)
 		const batchSize = opts?.batchSize ?? 1000
 		const sql = this.sql()
-		const whereClause =
-			opts?.startAfterId !== undefined ? sql`WHERE ${sql(pk)} > ${opts.startAfterId}` : sql``
+		let whereClause = sql``
+		if (opts?.startAfterId !== undefined) {
+			const values = keyValuesFromId(opts.startAfterId, pk)
+			const list = values
+				.map((value) => sql`${value as string}`)
+				.reduce((acc, part) => sql`${acc}, ${part}`)
+			whereClause = sql`WHERE (${sql(pk)}) > (${list})`
+		}
 		// postgres-js `.cursor(n)` opens a server-side cursor in its own
 		// transaction and yields rows in chunks of n — no full materialization.
 		const stream = sql`SELECT * FROM ${sql(table)} ${whereClause} ORDER BY ${sql(pk)}`.cursor(
 			batchSize,
 		)
 		for await (const rows of stream) {
-			yield (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, _id: String(r[pk]) }))
+			yield (rows as Array<Record<string, unknown>>).map((r) => this.toExternal(r, pk))
 		}
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
 		const pk = await this.getPrimaryKey(table)
 		const [row] =
-			await this.sql()`SELECT * FROM ${this.sql()(table)} WHERE ${this.sql()(pk)} = ${id} LIMIT 1`
+			await this.sql()`SELECT * FROM ${this.sql()(table)} WHERE ${this.matchId(pk, id)} LIMIT 1`
 		if (!row) return null
-		return { ...row, _id: String(row[pk]) }
+		return this.toExternal(row, pk)
 	}
 
-	async insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument> {
+	async insert(
+		table: string,
+		data: Record<string, unknown>,
+		opts?: WriteOpts,
+	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
-		const [row] = await this.sql()`INSERT INTO ${this.sql()(table)} ${this.sql()(data)} RETURNING *`
-		return { ...row, _id: String(row[pk]) }
+		const values = encodeForSql(data, opts, 'postgresql')
+		const [row] =
+			await this.sql()`INSERT INTO ${this.sql()(table)} ${this.sql()(values)} RETURNING *`
+		return this.toExternal(row, pk)
 	}
 
 	async update(
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
+		const values = encodeForSql(withUnsetAsNull(data, opts), opts, 'postgresql')
 		const [row] =
-			await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(data)} WHERE ${this.sql()(pk)} = ${id} RETURNING *`
+			await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(values)} WHERE ${this.matchId(pk, id)} RETURNING *`
 		if (!row) throw new Error(`External row not found: ${id}`)
-		return { ...row, _id: String(row[pk]) }
+		return this.toExternal(row, pk)
 	}
 
 	async delete(table: string, id: string): Promise<void> {
 		const pk = await this.getPrimaryKey(table)
-		await this.sql()`DELETE FROM ${this.sql()(table)} WHERE ${this.sql()(pk)} = ${id}`
+		await this.sql()`DELETE FROM ${this.sql()(table)} WHERE ${this.matchId(pk, id)}`
 	}
 
 	async count(table: string): Promise<number> {
 		const [row] = await this.sql()`SELECT count(*)::int as count FROM ${this.sql()(table)}`
 		return Number(row.count)
+	}
+
+	async describeTable(table: string): Promise<SourceSchema> {
+		const sql = this.sql()
+		const rows = await sql`
+			SELECT column_name, data_type, udt_name, is_nullable, column_default,
+				is_identity, is_generated, character_maximum_length
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = ${table}
+			ORDER BY ordinal_position
+		`
+		const keyRows = await sql`
+			SELECT kcu.column_name FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+				ON tc.constraint_name = kcu.constraint_name
+				AND tc.table_schema = kcu.table_schema
+				AND tc.table_name = kcu.table_name
+			WHERE tc.table_schema = 'public' AND tc.table_name = ${table}
+				AND tc.constraint_type = 'PRIMARY KEY'
+			ORDER BY kcu.ordinal_position
+		`
+		const primaryKey = keyRows.map((row) => String(row.column_name))
+		// User-defined enum types list their labels in pg_enum. Hosts without it
+		// (or without permission to read it) just get no enumValues.
+		const enumTypes = [
+			...new Set(
+				rows.filter((row) => row.data_type === 'USER-DEFINED').map((row) => String(row.udt_name)),
+			),
+		]
+		const enumValues = new Map<string, string[]>()
+		if (enumTypes.length > 0) {
+			try {
+				const labels = await sql`
+					SELECT t.typname, e.enumlabel FROM pg_type t
+					JOIN pg_enum e ON e.enumtypid = t.oid
+					WHERE t.typname IN ${sql(enumTypes)}
+					ORDER BY t.typname, e.enumsortorder
+				`
+				for (const label of labels) {
+					const list = enumValues.get(String(label.typname)) ?? []
+					list.push(String(label.enumlabel))
+					enumValues.set(String(label.typname), list)
+				}
+			} catch {
+				// Not fatal: the column stays a free-text column to the editor.
+			}
+		}
+		const columns: SourceColumn[] = rows.map((row) => {
+			const name = String(row.column_name)
+			const udtName = String(row.udt_name)
+			const values = enumValues.get(udtName)
+			return {
+				name,
+				nativeType: String(row.data_type),
+				udtName,
+				nullable: row.is_nullable === 'YES',
+				hasDefault: row.column_default !== null || row.is_identity === 'YES',
+				isIdentity:
+					row.is_identity === 'YES' || /^nextval\(/i.test(String(row.column_default ?? '')),
+				isGenerated: row.is_generated === 'ALWAYS',
+				...(row.character_maximum_length != null && {
+					maxLength: Number(row.character_maximum_length),
+				}),
+				...(values && { enumValues: values }),
+				isPrimaryKey: primaryKey.includes(name),
+			}
+		})
+		return sealSourceSchema({ dialect: 'postgresql', table, schema: 'public', primaryKey, columns })
 	}
 
 	async testWritePermission(table: string): Promise<boolean> {
@@ -302,19 +557,38 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 
 // ─── MySQL Adapter ───────────────────────────────────────────────────────────
 
+/** A MySQL table's key: its columns in order, and whether the server numbers it. */
+interface MysqlKey {
+	columns: string[]
+	autoIncrement: boolean
+	/** Key columns that hold a UUID-length string the CMS can generate. */
+	uuidColumns: string[]
+}
+
 export class MySqlAdapter implements ExternalDbAdapter {
 	private conn: import('mysql2/promise').Connection | null = null
+	private keys = new Map<string, MysqlKey>()
 
 	constructor(private connectionString: string) {}
 
 	async connect() {
 		const mysql = await import('mysql2/promise')
-		this.conn = await mysql.createConnection(this.connectionString)
+		this.conn = await mysql.createConnection({
+			uri: this.connectionString,
+			// BIGINT beyond 2^53 arrives as its exact digit string instead of a
+			// rounded float; smaller values stay numbers. DECIMAL is a string already.
+			supportBigNumbers: true,
+			bigNumberStrings: false,
+			// A DATE is a calendar day. As a JS Date it becomes local midnight, and on
+			// any server not running in UTC its ISO copy in the cache is the day before.
+			dateStrings: ['DATE'],
+		})
 	}
 
 	async disconnect() {
 		await this.conn?.end()
 		this.conn = null
+		this.keys.clear()
 	}
 
 	private db() {
@@ -330,56 +604,107 @@ export class MySqlAdapter implements ExternalDbAdapter {
 		return Number((rows as Array<{ size: number }>)[0]?.size || 0)
 	}
 
-	private async getPrimaryKey(table: string): Promise<string> {
+	private async getKey(table: string): Promise<MysqlKey> {
+		const cached = this.keys.get(table)
+		if (cached) return cached
 		const [rows] = await this.db().execute(
-			`SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' LIMIT 1`,
+			`SELECT k.COLUMN_NAME AS name, c.EXTRA AS extra, c.DATA_TYPE AS dataType,
+				c.CHARACTER_MAXIMUM_LENGTH AS maxLength
+			FROM information_schema.KEY_COLUMN_USAGE k
+			JOIN information_schema.COLUMNS c
+				ON c.TABLE_SCHEMA = k.TABLE_SCHEMA AND c.TABLE_NAME = k.TABLE_NAME
+				AND c.COLUMN_NAME = k.COLUMN_NAME
+			WHERE k.TABLE_SCHEMA = DATABASE() AND k.TABLE_NAME = ? AND k.CONSTRAINT_NAME = 'PRIMARY'
+			ORDER BY k.ORDINAL_POSITION`,
 			[table],
 		)
-		return (rows as Array<{ COLUMN_NAME: string }>)[0]?.COLUMN_NAME || 'id'
+		const list = rows as Array<{
+			name: string
+			extra: string | null
+			dataType: string
+			maxLength: number | null
+		}>
+		const key: MysqlKey =
+			list.length > 0
+				? {
+						columns: list.map((row) => row.name),
+						autoIncrement: list.some((row) =>
+							(row.extra ?? '').toLowerCase().includes('auto_increment'),
+						),
+						uuidColumns: list
+							.filter((row) => /char/i.test(row.dataType) && Number(row.maxLength) >= 36)
+							.map((row) => row.name),
+					}
+				: { columns: ['id'], autoIncrement: true, uuidColumns: [] }
+		this.keys.set(table, key)
+		return key
+	}
+
+	private matchId(pk: string[], id: string): { where: string; params: unknown[] } {
+		const values = keyValuesFromId(id, pk)
+		return {
+			where: pk.map((column) => `${quoteMysqlIdentifier(column)} = ?`).join(' AND '),
+			params: values,
+		}
+	}
+
+	private toExternal(row: Record<string, unknown>, pk: string[]): ExternalDocument {
+		return { ...row, _id: externalIdFromRow(row, pk) }
 	}
 
 	async findAll(table: string, opts?: FindAllOpts): Promise<ExternalDocument[]> {
-		const pk = await this.getPrimaryKey(table)
-		const limit = opts?.limit ?? 100
-		const offset = opts?.offset ?? 0
-		const orderCol = opts?.cursorColumn ?? pk
+		const { columns: pk } = await this.getKey(table)
+		// Inlined, not bound: MySQL 8.0.22+ rejects a prepared LIMIT/OFFSET bound as
+		// the DOUBLE the driver sends for a JS number ("Incorrect arguments to
+		// mysqld_stmt_execute"). Both are integers this method computes itself.
+		const limit = Math.max(0, Math.trunc(Number(opts?.limit ?? 100)))
+		const offset = Math.max(0, Math.trunc(Number(opts?.offset ?? 0)))
+		const order = (opts?.cursorColumn ? [opts.cursorColumn, ...pk] : pk)
+			.map(quoteMysqlIdentifier)
+			.join(', ')
 		const filterArgs: { col: string; after: Date | string | number } | null =
 			opts?.cursorColumn && opts.cursorAfter !== undefined
 				? { col: opts.cursorColumn, after: opts.cursorAfter }
 				: null
 		const where = filterArgs ? `WHERE ${quoteMysqlIdentifier(filterArgs.col)} > ?` : ''
-		const params: (string | number | Date)[] = filterArgs
-			? [filterArgs.after, limit, offset]
-			: [limit, offset]
+		const params: (string | number | Date)[] = filterArgs ? [filterArgs.after] : []
 		const [rows] = await this.db().execute(
-			`SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${quoteMysqlIdentifier(orderCol)} LIMIT ? OFFSET ?`,
+			`SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`,
 			params,
 		)
-		return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, _id: String(r[pk]) }))
+		return (rows as Array<Record<string, unknown>>).map((r) => this.toExternal(r, pk))
 	}
 
 	async *streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]> {
-		const pk = await this.getPrimaryKey(table)
+		const { columns: pk } = await this.getKey(table)
 		const batchSize = opts?.batchSize ?? 1000
-		const where = opts?.startAfterId !== undefined ? `WHERE ${quoteMysqlIdentifier(pk)} > ?` : ''
-		const params = opts?.startAfterId !== undefined ? [opts.startAfterId] : []
-		// mysql2's connection.query({...}).stream() returns a Node Readable that
-		// emits one row per tick — bounded memory regardless of row count.
+		const keyList = pk.map(quoteMysqlIdentifier).join(', ')
+		const where =
+			opts?.startAfterId !== undefined
+				? `WHERE (${keyList}) > (${pk.map(() => '?').join(', ')})`
+				: ''
+		const params = opts?.startAfterId !== undefined ? keyValuesFromId(opts.startAfterId, pk) : []
+		// Row streaming lives on the underlying callback connection: the promise
+		// API's query() resolves the whole result set and has no .stream(). Its
+		// Query streams a Node Readable that emits one row per tick — bounded
+		// memory regardless of row count.
 		const stream = (
 			this.db() as unknown as {
-				query: (config: { sql: string; values?: unknown[] }) => {
-					stream: (opts?: { highWaterMark?: number }) => AsyncIterable<Record<string, unknown>>
+				connection: {
+					query: (config: { sql: string; values?: unknown[] }) => {
+						stream: (opts?: { highWaterMark?: number }) => AsyncIterable<Record<string, unknown>>
+					}
 				}
 			}
-		)
+		).connection
 			.query({
-				sql: `SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${quoteMysqlIdentifier(pk)}`,
+				sql: `SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${keyList}`,
 				values: params,
 			})
 			.stream({ highWaterMark: batchSize })
 		let buffer: ExternalDocument[] = []
 		for await (const row of stream) {
-			buffer.push({ ...row, _id: String(row[pk]) })
+			buffer.push(this.toExternal(row, pk))
 			if (buffer.length >= batchSize) {
 				yield buffer
 				buffer = []
@@ -389,41 +714,72 @@ export class MySqlAdapter implements ExternalDbAdapter {
 	}
 
 	async findById(table: string, id: string): Promise<ExternalDocument | null> {
-		const pk = await this.getPrimaryKey(table)
+		const { columns: pk } = await this.getKey(table)
+		const { where, params } = this.matchId(pk, id)
 		const [rows] = await this.db().execute(
-			`SELECT * FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ? LIMIT 1`,
-			[id],
+			`SELECT * FROM ${quoteMysqlIdentifier(table)} WHERE ${where} LIMIT 1`,
+			params as (string | number)[],
 		)
 		const arr = rows as Array<Record<string, unknown>>
 		if (arr.length === 0) return null
-		return { ...arr[0], _id: String(arr[0][pk]) }
+		return this.toExternal(arr[0], pk)
 	}
 
-	async insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument> {
-		const cols = Object.keys(data).map(quoteMysqlIdentifier).join(', ')
-		const placeholders = Object.keys(data)
+	/**
+	 * Insert a row and return its key. MySQL has no RETURNING, so the key comes
+	 * from `LAST_INSERT_ID()` only when the server numbers it; a natural or UUID
+	 * key comes from the values written, and a missing UUID key is generated
+	 * here rather than left for a default the CMS could never read back.
+	 */
+	async insert(
+		table: string,
+		data: Record<string, unknown>,
+		opts?: WriteOpts,
+	): Promise<ExternalDocument> {
+		const key = await this.getKey(table)
+		const row = { ...data }
+		for (const column of key.uuidColumns) {
+			if (row[column] === undefined || row[column] === null || row[column] === '') {
+				row[column] = randomUUID()
+			}
+		}
+		const values = encodeForSql(row, opts, 'mysql')
+		const cols = Object.keys(values).map(quoteMysqlIdentifier).join(', ')
+		const placeholders = Object.keys(values)
 			.map(() => '?')
 			.join(', ')
 		const [result] = await this.db().execute(
 			`INSERT INTO ${quoteMysqlIdentifier(table)} (${cols}) VALUES (${placeholders})`,
-			Object.values(data) as (string | number | boolean | Date | null)[],
+			Object.values(values) as (string | number | boolean | Date | null)[],
 		)
-		const insertId = (result as { insertId: number }).insertId
-		return { ...data, _id: String(insertId) }
+		const insertId = (result as { insertId: number | string }).insertId
+		const keyed = { ...row }
+		if (key.autoIncrement && key.columns.length === 1 && insertId) {
+			keyed[key.columns[0]] = insertId
+		}
+		if (key.columns.some((column) => keyed[column] === undefined || keyed[column] === null)) {
+			throw new Error(
+				`The source table needs a value for its key (${key.columns.join(', ')}) that the CMS cannot read back`,
+			)
+		}
+		return { ...data, ...keyed, _id: externalIdFromRow(keyed, key.columns) }
 	}
 
 	async update(
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
-		const pk = await this.getPrimaryKey(table)
-		const sets = Object.keys(data)
+		const { columns: pk } = await this.getKey(table)
+		const values = encodeForSql(withUnsetAsNull(data, opts), opts, 'mysql')
+		const sets = Object.keys(values)
 			.map((c) => `${quoteMysqlIdentifier(c)} = ?`)
 			.join(', ')
+		const match = this.matchId(pk, id)
 		const [result] = await this.db().execute(
-			`UPDATE ${quoteMysqlIdentifier(table)} SET ${sets} WHERE ${quoteMysqlIdentifier(pk)} = ?`,
-			[...Object.values(data), id] as (string | number | boolean | Date | null)[],
+			`UPDATE ${quoteMysqlIdentifier(table)} SET ${sets} WHERE ${match.where}`,
+			[...Object.values(values), ...match.params] as (string | number | boolean | Date | null)[],
 		)
 		if ((result as { affectedRows?: number }).affectedRows === 0)
 			throw new Error(`External row not found: ${id}`)
@@ -431,10 +787,11 @@ export class MySqlAdapter implements ExternalDbAdapter {
 	}
 
 	async delete(table: string, id: string): Promise<void> {
-		const pk = await this.getPrimaryKey(table)
+		const { columns: pk } = await this.getKey(table)
+		const { where, params } = this.matchId(pk, id)
 		await this.db().execute(
-			`DELETE FROM ${quoteMysqlIdentifier(table)} WHERE ${quoteMysqlIdentifier(pk)} = ?`,
-			[id],
+			`DELETE FROM ${quoteMysqlIdentifier(table)} WHERE ${where}`,
+			params as (string | number)[],
 		)
 	}
 
@@ -443,6 +800,53 @@ export class MySqlAdapter implements ExternalDbAdapter {
 			`SELECT COUNT(*) as count FROM ${quoteMysqlIdentifier(table)}`,
 		)
 		return Number((rows as Array<{ count: number }>)[0].count)
+	}
+
+	async describeTable(table: string): Promise<SourceSchema> {
+		const [rows] = await this.db().execute(
+			`SELECT COLUMN_NAME AS name, DATA_TYPE AS dataType, COLUMN_TYPE AS columnType,
+				IS_NULLABLE AS isNullable, COLUMN_DEFAULT AS columnDefault, EXTRA AS extra,
+				CHARACTER_MAXIMUM_LENGTH AS maxLength
+			FROM information_schema.columns
+			WHERE table_schema = DATABASE() AND table_name = ?
+			ORDER BY ORDINAL_POSITION`,
+			[table],
+		)
+		const [keyRows] = await this.db().execute(
+			`SELECT COLUMN_NAME AS name FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY'
+			ORDER BY ORDINAL_POSITION`,
+			[table],
+		)
+		const primaryKey = (keyRows as Array<{ name: string }>).map((row) => row.name)
+		const columns: SourceColumn[] = (
+			rows as Array<{
+				name: string
+				dataType: string
+				columnType: string
+				isNullable: string
+				columnDefault: unknown
+				extra: string | null
+				maxLength: number | null
+			}>
+		).map((row) => {
+			const extra = (row.extra ?? '').toLowerCase()
+			const enumValues = parseMysqlEnumValues(row.columnType)
+			const isIdentity = extra.includes('auto_increment')
+			return {
+				name: row.name,
+				nativeType: row.dataType,
+				udtName: row.columnType,
+				nullable: row.isNullable === 'YES',
+				hasDefault: row.columnDefault !== null || isIdentity || extra.includes('default_generated'),
+				isIdentity,
+				isGenerated: extra.includes('virtual generated') || extra.includes('stored generated'),
+				...(row.maxLength != null && { maxLength: Number(row.maxLength) }),
+				...(enumValues && { enumValues }),
+				isPrimaryKey: primaryKey.includes(row.name),
+			}
+		})
+		return sealSourceSchema({ dialect: 'mysql', table, primaryKey, columns })
 	}
 
 	async testWritePermission(_table: string): Promise<boolean> {
@@ -459,6 +863,25 @@ export class MySqlAdapter implements ExternalDbAdapter {
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
+
+/**
+ * Database types the write path can talk to. The wizard can *scan* Firestore,
+ * but nothing below can read or write it, so it is refused at setup instead of
+ * failing every import and write afterwards.
+ */
+export const WRITABLE_EXTERNAL_DB_TYPES = [
+	'mongodb',
+	'postgresql',
+	'supabase',
+	'neon',
+	'vercel-postgres',
+	'cockroachdb',
+	'mysql',
+] as const
+
+export function isWritableExternalDbType(type: string): boolean {
+	return (WRITABLE_EXTERNAL_DB_TYPES as readonly string[]).includes(type)
+}
 
 export function createExternalDbAdapter(config: {
 	type: string

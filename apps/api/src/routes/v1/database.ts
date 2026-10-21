@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { collections, content, importJobs, projects, sslModeFor } from '@innolope/db'
+import {
+	collections,
+	content,
+	importJobs,
+	projects,
+	type SourceSchema,
+	sslModeFor,
+} from '@innolope/db'
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import postgres from 'postgres'
@@ -9,7 +16,7 @@ import {
 	validateConnectionString,
 	validatePublicUrl,
 } from '../../adapters/connection-guard.js'
-import { createExternalDbAdapter } from '../../adapters/external-db.js'
+import { createExternalDbAdapter, isWritableExternalDbType } from '../../adapters/external-db.js'
 import {
 	classifyMongoValue,
 	detectMongoArrayShapes,
@@ -40,7 +47,9 @@ import { getProject } from '../../plugins/project.js'
 import {
 	buildCollectionFields,
 	mergeFieldCustomizations,
+	refineFieldsFromSamples,
 } from '../../services/collection-schema.js'
+import { PRESET_SAMPLE_SIZE } from '../../services/external-schema.js'
 
 /** Best-guess the media host (`r2` | `cloudflare-images` | `s3` | `cloudinary`) from a sample URL. */
 function detectProvider(url: string | undefined): string | undefined {
@@ -613,6 +622,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 			// When the client sends the explicit selection, the wizard becomes the source of
 			// truth for sidebar visibility.
+			// The wizard can scan Firestore, but no adapter can import from or write
+			// to it, so connecting one used to succeed and then fail every import and
+			// every save. Refuse it up front instead.
+			if (type && type !== 'built-in' && !isWritableExternalDbType(type)) {
+				return reply.status(400).send({
+					error:
+						type === 'firebase'
+							? 'Firestore can be scanned but not imported or edited yet. Connect MongoDB, PostgreSQL or MySQL instead.'
+							: `Unsupported database type: ${type}`,
+				})
+			}
+
 			const hasVisibilitySignal = Array.isArray(visibleTables)
 			const visibleTableSet = new Set(visibleTables ?? [])
 
@@ -884,6 +905,39 @@ export async function databaseRoutes(app: FastifyInstance) {
 					}
 				}
 
+				// Record each table's real shape — columns with their constraints, or a
+				// MongoDB type histogram — so writes restore native types and refuse what
+				// the source would reject. One connection for all of them; a table that
+				// cannot be described still imports, it just writes without the codec.
+				const sourceSchemas = new Map<string, SourceSchema>()
+				const sampleRows = new Map<string, Array<Record<string, unknown>>>()
+				try {
+					const describer = createExternalDbAdapter({
+						type,
+						connectionString: effectiveConnectionString,
+						database: effectiveDatabase || undefined,
+					})
+					await describer.connect()
+					try {
+						for (const table of tables) {
+							try {
+								sourceSchemas.set(table.name, await describer.describeTable(table.name))
+								// A few real rows let preset detection see what the shapes are.
+								sampleRows.set(
+									table.name,
+									await describer.findAll(table.name, { limit: PRESET_SAMPLE_SIZE }),
+								)
+							} catch (err) {
+								app.log.warn({ err, table: table.name }, 'Could not describe source table')
+							}
+						}
+					} finally {
+						await describer.disconnect()
+					}
+				} catch (err) {
+					app.log.warn({ err }, 'Could not connect to describe source tables')
+				}
+
 				for (const table of tables) {
 					const [existing] = await app.db
 						.select({ id: collections.id, fields: collections.fields })
@@ -896,10 +950,15 @@ export async function databaseRoutes(app: FastifyInstance) {
 						)
 						.limit(1)
 
-					const detectedFields = buildCollectionFields(table.columns, {
-						arrayShapes: arrayShapes.get(table.name),
-						localizedFields: localizedFields.get(table.name),
-					})
+					const sourceSchema = sourceSchemas.get(table.name) ?? null
+					const detectedFields = refineFieldsFromSamples(
+						buildCollectionFields(table.columns, {
+							arrayShapes: arrayShapes.get(table.name),
+							localizedFields: localizedFields.get(table.name),
+							sourceSchema,
+						}),
+						sampleRows.get(table.name) ?? [],
+					)
 					// Re-applying the collection's own schema-editor work on top of the
 					// fresh detection is what lets a re-sync upgrade types and localization
 					// flags without resetting labels, widgets and required ticks.
@@ -919,6 +978,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 							.update(collections)
 							.set({
 								fields,
+								...(sourceSchema && { sourceSchema, sourceSchemaHash: sourceSchema.hash }),
 								updatedAt: new Date(),
 								// Re-selecting a table in the wizard re-asserts its visibility: an explicit
 								// pick ⇒ show, an auto-pulled relation target ⇒ auto (hidden). No signal ⇒
@@ -945,6 +1005,7 @@ export async function databaseRoutes(app: FastifyInstance) {
 							label: tableNameToLabel(table.name),
 							description: `Imported from ${type}`,
 							fields,
+							...(sourceSchema && { sourceSchema, sourceSchemaHash: sourceSchema.hash }),
 							source: 'external',
 							externalTable: table.name,
 							accessMode: effectiveMode,
