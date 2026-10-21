@@ -194,6 +194,21 @@ export function FieldRenderer({
 	const textareaRef = useAutoSizeTextarea(String(value ?? ''))
 	const inputCls =
 		'w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60'
+	const subFieldHints = f.ui?.subFields?.map((sf) => ({
+		name: sf.name,
+		label: sf.label,
+		type: sf.type,
+		options: sf.options,
+		helpText: sf.ui?.helpText,
+		hidden: sf.ui?.hidden,
+		readOnly: sf.ui?.readOnly,
+	}))
+
+	// A value the CMS cannot model is shown, never edited inline: it round-trips
+	// untouched unless an admin rewrites it as JSON under Technical fields.
+	if (f.ui?.opaque) {
+		return <JsonField value={value} onChange={(v) => onChange(v)} disabled />
+	}
 
 	// `boolean` ────────────────────────────────────────────────────────────────
 	if (f.type === 'boolean') {
@@ -296,11 +311,9 @@ export function FieldRenderer({
 				value={value}
 				onChange={(v) => onChange(v)}
 				disabled={ro}
-				subFields={f.ui?.subFields?.map((sf) => ({
-					name: sf.name,
-					label: sf.label,
-					type: sf.type,
-				}))}
+				subFields={subFieldHints}
+				allowExtraKeys={f.ui?.allowExtraKeys}
+				locale={locale?.activeLocale}
 			/>
 		)
 	}
@@ -317,12 +330,10 @@ export function FieldRenderer({
 					value={value}
 					onChange={(v) => onChange(v)}
 					disabled={ro}
-					subFields={declaredSubFields?.map((sf) => ({
-						name: sf.name,
-						type: sf.type,
-						label: sf.label,
-						options: sf.options,
-					}))}
+					subFields={subFieldHints}
+					summaryKey={f.ui?.summaryKey}
+					allowExtraKeys={f.ui?.allowExtraKeys}
+					locale={locale?.activeLocale}
 				/>
 			)
 		}

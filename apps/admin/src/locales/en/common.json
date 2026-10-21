@@ -283,7 +283,12 @@
 			"nested": "(nested)",
 			"addEmptyRow": "+ Add empty row",
 			"addRow": "+ Add row",
-			"removeRow": "Remove row {{index}}"
+			"removeRow": "Remove row {{index}}",
+			"emptyRow": "Empty row",
+			"collapseAll": "Collapse all",
+			"expandAll": "Expand all",
+			"moveUp": "Move row {{index}} up",
+			"moveDown": "Move row {{index}} down"
 		},
 		"pillInput": {
 			"placeholder": "Type and press Enter",
@@ -308,6 +313,24 @@
 			"newDialogTitle": "New {{label}}",
 			"namePlaceholder": "Name",
 			"creating": "Creating…"
+		},
+		"subformField": {
+			"top": "Top",
+			"empty": "Empty",
+			"remove": "remove",
+			"removeField": "Remove this field",
+			"otherKeys": "Other keys ({{count}})",
+			"newKeyPlaceholder": "Field name (e.g. shortDescription)",
+			"add": "Add",
+			"addField": "+ Add field"
+		},
+		"technicalFields": {
+			"title": "Technical fields ({{count}})",
+			"hint": "Values the site or the database manages. They are kept exactly as stored.",
+			"editAsJson": "Edit as JSON",
+			"doneEditing": "Done",
+			"opaque": "Mixed or unknown structure, kept exactly as stored",
+			"empty": "—"
 		}
 	},
 	"settings": {

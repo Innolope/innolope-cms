@@ -283,7 +283,12 @@
 			"nested": "(вкладене)",
 			"addEmptyRow": "+ Додати порожній рядок",
 			"addRow": "+ Додати рядок",
-			"removeRow": "Видалити рядок {{index}}"
+			"removeRow": "Видалити рядок {{index}}",
+			"emptyRow": "Порожній рядок",
+			"collapseAll": "Згорнути все",
+			"expandAll": "Розгорнути все",
+			"moveUp": "Перемістити рядок {{index}} вгору",
+			"moveDown": "Перемістити рядок {{index}} вниз"
 		},
 		"pillInput": {
 			"placeholder": "Введіть і натисніть Enter",
@@ -308,6 +313,24 @@
 			"newDialogTitle": "Новий {{label}}",
 			"namePlaceholder": "Назва",
 			"creating": "Створення…"
+		},
+		"subformField": {
+			"top": "Верхній рівень",
+			"empty": "Порожньо",
+			"remove": "видалити",
+			"removeField": "Видалити це поле",
+			"otherKeys": "Інші ключі ({{count}})",
+			"newKeyPlaceholder": "Назва поля (напр. shortDescription)",
+			"add": "Додати",
+			"addField": "+ Додати поле"
+		},
+		"technicalFields": {
+			"title": "Технічні поля ({{count}})",
+			"hint": "Значення, якими керує сайт або база даних. Вони зберігаються точно як є.",
+			"editAsJson": "Редагувати як JSON",
+			"doneEditing": "Готово",
+			"opaque": "Змішана або невідома структура, зберігається точно як є",
+			"empty": "—"
 		}
 	},
 	"settings": {

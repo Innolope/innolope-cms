@@ -19,6 +19,7 @@ import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
 import { RelationField } from '../components/editor/relation-field'
+import { TechnicalFields } from '../components/editor/technical-fields'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ScheduledBadge } from '../components/scheduled-badge'
 import { ApiError, api } from '../lib/api-client'
@@ -28,7 +29,7 @@ import { useConfirm, usePrompt } from '../lib/confirm'
 import { resolveDisplayTitle } from '../lib/display-title'
 import { fieldLabel } from '../lib/field-label'
 import { absoluteDate, isFuture, relativeTime } from '../lib/relative-time'
-import { SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
+import { isTechnicalField, SYSTEM_COLUMN_TWINS } from '../lib/system-fields'
 import { useToast } from '../lib/toast'
 import { useAutoSizeTextarea } from '../lib/use-autosize-textarea'
 import { useExternalSyncStatus } from '../lib/use-external-sync-status'
@@ -1476,7 +1477,14 @@ function CollectionContentEditor() {
 				!HIDDEN_FIELDS.has(f.name) &&
 				!f.ui?.hidden &&
 				f.name !== 'slug' &&
-				!SYSTEM_COLUMN_TWINS.has(f.name),
+				!SYSTEM_COLUMN_TWINS.has(f.name) &&
+				!isTechnicalField(f),
+		) ?? []
+	// Counters, the source's lifecycle twins and values the CMS cannot model sit in
+	// a collapsed, read-only section at the end of the form instead.
+	const technicalSchemaFields =
+		collection?.fields?.filter(
+			(f) => isTechnicalField(f) && !['title', 'content', 'body', 'tags'].includes(f.name),
 		) ?? []
 
 	// Why a status change won't reach the source row, if it won't. `supported` covers
@@ -1852,6 +1860,22 @@ function CollectionContentEditor() {
 			continue
 		}
 		schemaFieldsBlock.push(renderSchemaField(f))
+	}
+	if (technicalSchemaFields.length > 0 && !isNew) {
+		schemaFieldsBlock.push(
+			<TechnicalFields
+				key="technical-fields"
+				fields={technicalSchemaFields}
+				values={extraFields}
+				labelFor={fieldLabel}
+				canEditJson={canEditSchema}
+				disabled={isReadOnly}
+				onChange={(name, v) => {
+					setExtraFields((prev) => ({ ...prev, [name]: v }))
+					setDirty(true)
+				}}
+			/>,
+		)
 	}
 
 	return (
