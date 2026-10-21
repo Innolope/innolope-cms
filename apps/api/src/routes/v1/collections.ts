@@ -327,6 +327,43 @@ export async function collectionRoutes(app: FastifyInstance) {
 		},
 	)
 
+	// A few real values of one field, for the schema editor's field designer: the
+	// shape an admin is configuring should be in front of them, not guessed.
+	app.get<{ Params: { id: string }; Querystring: { field?: string; limit?: string } }>(
+		'/:id/field-samples',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const field = request.query.field?.trim()
+			if (!field) return reply.status(400).send({ error: 'field is required' })
+			const limit = Math.min(Math.max(Number(request.query.limit) || 5, 1), 20)
+			const [collection] = await app.db
+				.select({ id: collections.id })
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			const rows = await app.db
+				.select({ value: sql<unknown>`${content.metadata} -> ${field}` })
+				.from(content)
+				.where(
+					and(
+						eq(content.collectionId, collection.id),
+						eq(content.projectId, getProject(request).id),
+						sql`${content.metadata} ? ${field}`,
+						sql`jsonb_typeof(${content.metadata} -> ${field}) <> 'null'`,
+					),
+				)
+				.orderBy(desc(content.updatedAt))
+				.limit(limit)
+			return { values: rows.map((row) => row.value) }
+		},
+	)
+
 	// Re-learn the fields of an external collection from its source table (admin+).
 	// Answers detected schema drift: added columns appear, dropped ones go, and the
 	// schema editor's labels, widgets and required ticks are kept.

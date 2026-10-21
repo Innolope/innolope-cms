@@ -222,3 +222,55 @@ describe('collectFieldWarnings — per-language arrays', () => {
 		expect(collectFieldWarnings(fields, { tags: ['a', 'b'] })).toEqual([])
 	})
 })
+
+describe('locked shapes from the field designer', () => {
+	const links = {
+		name: 'links',
+		type: 'array' as const,
+		ui: {
+			allowExtraKeys: false,
+			subFields: [
+				{ name: 'label', type: 'text' as const, label: 'Text', required: true },
+				{ name: 'url', type: 'text' as const, required: true },
+			],
+		},
+	}
+
+	it('requires the required sub-keys in every row', () => {
+		const errors = validateContentMetadata(
+			[links],
+			{
+				links: [
+					{ label: 'Docs', url: '/docs' },
+					{ label: 'Blog', url: '' },
+				],
+			},
+			{ enforceRequired: false },
+		)
+		expect(errors).toEqual([{ field: 'links', message: '"links" (item 2) needs "url".' }])
+	})
+
+	it('requires a confirmed preset’s required roles under the document’s own keys', () => {
+		const price = {
+			name: 'price',
+			type: 'object' as const,
+			ui: {
+				preset: 'money',
+				presetConfirmed: true,
+				presetKeys: { amount: 'value', currency: 'code' },
+			},
+		}
+		expect(
+			validateContentMetadata([price], { price: { value: 5 } }, { enforceRequired: false }).map(
+				(e) => e.message,
+			),
+		).toEqual(['"price" needs "code".'])
+	})
+
+	it('leaves unlocked shapes alone', () => {
+		const open = { ...links, ui: { ...links.ui, allowExtraKeys: undefined } }
+		expect(
+			validateContentMetadata([open], { links: [{ label: 'x' }] }, { enforceRequired: false }),
+		).toEqual([])
+	})
+})

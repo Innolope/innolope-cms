@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { FIELD_PRESETS, getPreset } from '@innolope/config'
 import { aiSettings } from '@innolope/db'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -343,6 +344,75 @@ Rules:
 		},
 	)
 
+	// Propose labels, help text and a shape preset for one field from real samples
+	// (admin+). The answer is only a proposal: the field designer shows it and an
+	// admin decides; nothing in the editor depends on AI being available.
+	app.post(
+		'/design-field',
+		{ preHandler: [app.requireProject('admin'), app.requireLicense('ai-assistant')] },
+		async (request, reply) => {
+			const { fieldName, type, samples } = (request.body ?? {}) as {
+				fieldName?: string
+				type?: string
+				samples?: unknown[]
+			}
+			if (!fieldName?.trim()) return reply.status(400).send({ error: 'fieldName is required' })
+			if (!Array.isArray(samples) || samples.length === 0) {
+				return reply.status(400).send({ error: 'samples are required' })
+			}
+			const [settings] = await app.db
+				.select()
+				.from(aiSettings)
+				.where(eq(aiSettings.projectId, getProject(request).id))
+				.limit(1)
+			const modelKey = settings?.defaultModel || 'gemini-3.1-flash-lite'
+			const providers = (settings?.providers || []) as AiProviderConfig[]
+			const fallbackEnabled = settings?.fallbackEnabled ?? false
+
+			const keys = sampleKeys(samples)
+			const catalogue = FIELD_PRESETS.filter((preset) => preset.id !== 'rich-text')
+				.map(
+					(preset) =>
+						`- ${preset.id}: roles ${preset.roles
+							.map((role) => `${role.role}${role.required ? '*' : ''}`)
+							.join(', ')}`,
+				)
+				.join('\n')
+			const systemPrompt = `You help a non-technical editor understand a structured field in a CMS. Given a field name, its type and sample values, propose how the editor should present it.
+
+Output ONLY a JSON object with:
+- "label": a short human-readable label for the field
+- "helpText": one short sentence telling an editor what the field is for (or "")
+- "preset": one of the preset ids below, or null when none fits
+- "presetKeys": an object mapping each preset role to the sample key that holds it (only when preset is not null)
+- "summaryKey": the sub-key whose value best titles one item, or null
+- "subFields": an array of { "name", "label", "helpText" } for the sample keys, in the order an editor should see them
+
+Presets (roles marked * are required):
+${catalogue}
+
+Only use keys that appear in the samples. No explanation, no markdown fences.`
+			const prompt = `Field: ${fieldName}\nType: ${type ?? 'object'}\nSample keys: ${keys.join(', ') || '(none)'}\nSamples:\n${truncateSamples(samples)}`
+
+			try {
+				const result = await complete(
+					{ model: modelKey, prompt, systemPrompt, maxTokens: 1024 },
+					providers,
+					CLOUD_MODE,
+					fallbackEnabled,
+				)
+				let jsonStr = result.text.trim()
+				const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+				if (fenceMatch) jsonStr = fenceMatch[1].trim()
+				return { proposal: cleanFieldProposal(JSON.parse(jsonStr), keys) }
+			} catch (err) {
+				return reply.status(502).send({
+					error: err instanceof Error ? err.message : 'Could not propose a design for this field',
+				})
+			}
+		},
+	)
+
 	// List available models (curated catalog + dynamic from each connected provider)
 	app.get('/models', { preHandler: [app.requireProject('viewer')] }, async (request) => {
 		const builtIn = Object.entries(AI_MODELS).map(([key, m]) => ({
@@ -369,4 +439,79 @@ Rules:
 
 		return [...builtIn, ...dynamicUnique]
 	})
+}
+
+/** The keys sample objects (or rows of sample arrays) hold, first-appearance order. */
+export function sampleKeys(samples: unknown[]): string[] {
+	const keys: string[] = []
+	const visit = (value: unknown) => {
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item)
+			return
+		}
+		if (value && typeof value === 'object') {
+			for (const key of Object.keys(value)) if (!keys.includes(key)) keys.push(key)
+		}
+	}
+	for (const sample of samples) visit(sample)
+	return keys
+}
+
+/** Samples as JSON for a prompt, capped so a large document cannot blow the budget. */
+function truncateSamples(samples: unknown[]): string {
+	const text = JSON.stringify(samples.slice(0, 5), null, 1)
+	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text
+}
+
+export interface FieldDesignProposal {
+	label?: string
+	helpText?: string
+	preset?: string | null
+	presetKeys?: Record<string, string>
+	summaryKey?: string | null
+	subFields?: Array<{ name: string; label?: string; helpText?: string }>
+}
+
+/**
+ * Keep only what a model proposal may say: a known preset, mappings onto keys
+ * the samples actually hold, and sub-fields for those keys. Anything invented
+ * is dropped rather than reaching the field configuration.
+ */
+export function cleanFieldProposal(raw: unknown, keys: string[]): FieldDesignProposal {
+	const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+	const text = (value: unknown, max: number) =>
+		typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : undefined
+	const known = new Set(keys)
+	const preset = typeof input.preset === 'string' ? getPreset(input.preset) : undefined
+	const presetKeys: Record<string, string> = {}
+	if (preset && input.presetKeys && typeof input.presetKeys === 'object') {
+		for (const role of preset.roles) {
+			const key = (input.presetKeys as Record<string, unknown>)[role.role]
+			if (typeof key === 'string' && known.has(key)) presetKeys[role.role] = key
+		}
+	}
+	const subFields = Array.isArray(input.subFields)
+		? input.subFields
+				.filter(
+					(entry): entry is Record<string, unknown> =>
+						!!entry &&
+						typeof entry === 'object' &&
+						known.has(String((entry as { name?: unknown }).name)),
+				)
+				.map((entry) => ({
+					name: String(entry.name),
+					...(text(entry.label, 80) && { label: text(entry.label, 80) }),
+					...(text(entry.helpText, 200) && { helpText: text(entry.helpText, 200) }),
+				}))
+		: undefined
+	const summaryKey =
+		typeof input.summaryKey === 'string' && known.has(input.summaryKey) ? input.summaryKey : null
+	return {
+		...(text(input.label, 80) && { label: text(input.label, 80) }),
+		...(text(input.helpText, 200) && { helpText: text(input.helpText, 200) }),
+		preset: preset && preset.id !== 'rich-text' ? preset.id : null,
+		...(Object.keys(presetKeys).length > 0 && { presetKeys }),
+		summaryKey,
+		...(subFields && { subFields }),
+	}
 }

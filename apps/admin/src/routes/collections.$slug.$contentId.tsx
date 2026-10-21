@@ -1122,10 +1122,20 @@ function CollectionContentEditor() {
 		const readOnlyNames = new Set(
 			(collection?.fields ?? []).filter((f) => f.ui?.readOnly).map((f) => f.name),
 		)
+		// A locked list (its shape confirmed in the field designer) drops the rows an
+		// editor added and never filled, instead of saving empty records.
+		const lockedLists = new Set(
+			(collection?.fields ?? [])
+				.filter(
+					(f) => f.type === 'array' && (f.ui?.allowExtraKeys === false || f.ui?.presetConfirmed),
+				)
+				.map((f) => f.name),
+		)
 		const cleanExtras: Record<string, unknown> = {}
 		for (const [k, v] of Object.entries(extraFields)) {
 			if (readOnlyNames.has(k) || k === 'slug') continue
-			cleanExtras[k] = v
+			cleanExtras[k] =
+				lockedLists.has(k) && Array.isArray(v) ? v.filter((row) => !isBlankRow(row)) : v
 		}
 		return {
 			...cleanExtras,
@@ -2904,6 +2914,13 @@ function TranslationOptIn({
 			)}
 		</div>
 	)
+}
+
+/** A list row with nothing filled in: an empty object or one of empty strings. */
+function isBlankRow(row: unknown): boolean {
+	if (row === null || row === undefined || row === '') return true
+	if (typeof row !== 'object' || Array.isArray(row)) return false
+	return Object.values(row).every((value) => value === null || value === undefined || value === '')
 }
 
 function Field({

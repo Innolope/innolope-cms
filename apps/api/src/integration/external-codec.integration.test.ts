@@ -210,6 +210,17 @@ describe.skipIf(!hasTestDb)(
 			expect(res.json().issues[0].path).toBe('metadata.title')
 		})
 
+		it('returns real values of one field for the field designer', async () => {
+			const col = collectionsByTable.get(products)
+			const res = await app.inject({
+				method: 'GET',
+				url: `/api/v1/collections/${col?.id}/field-samples?field=tags`,
+				headers: headers(),
+			})
+			expect(res.statusCode).toBe(200)
+			expect(res.json().values).toEqual([['a']])
+		})
+
 		it('refuses to connect Firestore, which nothing can import from or write to', async () => {
 			const res = await app.inject({
 				method: 'PUT',

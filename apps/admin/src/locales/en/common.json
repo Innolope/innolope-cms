@@ -1667,7 +1667,8 @@
 				"enterOnly": "Enter only (default)",
 				"enterOrComma": "Enter or comma",
 				"readOnly": "Read-only (system-managed)",
-				"hidden": "Hidden from form"
+				"hidden": "Hidden from form",
+				"technical": "Show under Technical fields"
 			},
 			"delete": {
 				"title": "Delete collection",
@@ -1680,7 +1681,9 @@
 				"found_one": "Found {{count}} new field",
 				"found_other": "Found {{count}} new fields",
 				"nothing": "No new fields found",
-				"failed": "Scan failed"
+				"failed": "Scan failed",
+				"unsavedTitle": "Replace unsaved changes?",
+				"unsavedMessage": "Re-learning the fields from the source saves them right away and replaces the edits you have not saved in this form."
 			},
 			"errors": {
 				"labelRequired": "Label is required",
@@ -1970,5 +1973,45 @@
 	"appUpdate": {
 		"available": "A new version of the admin is available.",
 		"reload": "Reload"
+	},
+	"schema": {
+		"designer": {
+			"open": "Design…",
+			"title": "Design “{{name}}”",
+			"subtitle": "Decide once how editors see this field. Real values from the collection are on the left.",
+			"propose": "Suggest with AI",
+			"proposing": "Thinking…",
+			"proposed": "Suggestions filled in. Review them before applying.",
+			"proposeFailed": "Could not get suggestions",
+			"samples": "Values in this collection",
+			"loadingSamples": "Loading values…",
+			"noSamples": "No records hold a value for this field yet.",
+			"label": "Label",
+			"helpText": "Help text for editors",
+			"shape": "Shape",
+			"genericShape": "Plain sub-fields",
+			"projectPreset": "Project preset: {{name}}",
+			"detected": "Detected as {{name}}. Applying confirms it.",
+			"detectedChip": "detected",
+			"mapping": "Which key holds what",
+			"unmapped": "— not mapped —",
+			"subFields": "Sub-fields",
+			"subHelp": "Help text",
+			"required": "Required",
+			"readOnly": "Read-only",
+			"hidden": "Hidden",
+			"options": "Options, comma-separated",
+			"moveUp": "Move {{name}} up",
+			"moveDown": "Move {{name}} down",
+			"summaryKey": "Title collapsed rows with",
+			"summaryAuto": "Automatic",
+			"allowExtraKeys": "Editors may add their own keys",
+			"lockNote": "Applying locks the shape: editors see these keys in this order, required ones must be filled, and keys not listed stay in the record untouched.",
+			"saveAsPreset": "Save as project preset",
+			"presetNamePrompt": "Preset name",
+			"savePreset": "Save preset",
+			"presetSaved": "Saved “{{name}}” as a project preset.",
+			"apply": "Apply"
+		}
 	}
 }
