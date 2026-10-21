@@ -19,6 +19,12 @@ export interface CollectionFieldUi {
 	 * `apps/admin/src/lib/field-presets.ts` for the catalogue.
 	 */
 	preset?: string
+	/**
+	 * For `preset: 'rich-text'`: the editor-state format the source stores
+	 * (`lexical`, `editorjs`, `portable-text`, `slate`), so a markdown write is
+	 * converted back into it.
+	 */
+	richTextFormat?: 'lexical' | 'editorjs' | 'portable-text' | 'slate'
 	/** Role → the key this field's documents use for it (`{ url: 'src' }`). */
 	presetKeys?: Record<string, string>
 	/** A human confirmed `preset` in the field designer; detection never sets this. */

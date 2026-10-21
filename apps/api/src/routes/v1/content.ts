@@ -44,6 +44,8 @@ import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/fron
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
 import { mergeMetadataUpdate, removedMetadataKeys } from '../../services/metadata-merge.js'
+import { richTextToMarkdown } from '../../services/rich-text.js'
+import { applyRichTextWrites } from '../../services/rich-text-writes.js'
 import { syncState } from '../../services/sync-state.js'
 import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
@@ -105,6 +107,21 @@ export async function contentRoutes(app: FastifyInstance) {
 	// Multi-select actions for the list view. Registered here rather than in
 	// app.ts so they share this prefix and its project scoping.
 	await contentBulkActionRoutes(app)
+
+	// Rich-text editor state as markdown for the editor (viewer+): the markdown when
+	// every block converts losslessly, otherwise what does not and a preview. The
+	// editor shows the preview read-only instead of offering an edit that the write
+	// path would refuse.
+	app.post(
+		'/rich-text/markdown',
+		{ preHandler: [app.requireProject('viewer')] },
+		async (request, reply) => {
+			const { value } = (request.body ?? {}) as { value?: unknown }
+			const result = richTextToMarkdown(value)
+			if (!result) return reply.status(400).send({ error: 'Not rich-text editor state' })
+			return result
+		},
+	)
 
 	// List content (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request, reply) => {
@@ -464,6 +481,13 @@ export async function contentRoutes(app: FastifyInstance) {
 		// On a collection whose fields hold one value per language, a plain string
 		// belongs in this record's locale slot — not in place of the whole map.
 		input.metadata = applyLocalizedWrite(col.fields, input, { locale })
+		// Markdown written to a field the source keeps as rich-text editor state is
+		// converted into that format here, before validation and the external write.
+		const richCreate = applyRichTextWrites(col.fields, input)
+		if (richCreate.issues.length > 0) {
+			return reply.status(400).send(contentValidationError(col.fields, richCreate.issues))
+		}
+		input.metadata = richCreate.metadata
 
 		// Validate metadata against the collection's field schema. Required fields
 		// are enforced only when publishing; drafts may be incomplete. Extra keys
@@ -690,6 +714,12 @@ export async function contentRoutes(app: FastifyInstance) {
 			item.metadata = applyLocalizedWrite(col.fields, item, {
 				locale: item.locale || defaultLocale,
 			})
+			const richItem = applyRichTextWrites(col.fields, item)
+			if (richItem.issues.length > 0) {
+				itemErrors.push({ index, slug: item.slug, errors: richItem.issues })
+				continue
+			}
+			item.metadata = richItem.metadata
 			const errors = validateContentMetadata(col.fields, item.metadata, {
 				enforceRequired: item.status === 'published',
 				locales,
@@ -1003,6 +1033,17 @@ export async function contentRoutes(app: FastifyInstance) {
 					locale: current.locale,
 					existing: current.metadata as Record<string, unknown>,
 				})
+				const richItem = applyRichTextWrites(col.fields, item, {
+					current: {
+						metadata: current.metadata as Record<string, unknown>,
+						markdown: current.markdown,
+					},
+				})
+				if (richItem.issues.length > 0) {
+					itemErrors.push({ index, id: item.id, errors: richItem.issues })
+					continue
+				}
+				item.metadata = richItem.metadata
 				// Same MERGE semantics as the single-item update: item.metadata becomes
 				// the full post-update blob (null deletes a key), so the transaction
 				// below writes the same fields everywhere — external row and cache alike.
@@ -1426,6 +1467,16 @@ export async function contentRoutes(app: FastifyInstance) {
 						locale: current.locale,
 						existing: current.metadata as Record<string, unknown>,
 					})
+					const richUpdate = applyRichTextWrites(col.fields, input, {
+						current: {
+							metadata: current.metadata as Record<string, unknown>,
+							markdown: current.markdown,
+						},
+					})
+					if (richUpdate.issues.length > 0) {
+						return reply.status(400).send(contentValidationError(col.fields, richUpdate.issues))
+					}
+					input.metadata = richUpdate.metadata
 				}
 				// Update metadata is a shallow MERGE into the stored blob (a partial
 				// update never wipes fields the caller didn't send); an explicit null

@@ -395,6 +395,11 @@
 				"key-value": "Key-value table",
 				"rich-text": "Rich text"
 			}
+		},
+		"richText": {
+			"unsupported": "This text uses {{what}}, which can’t be edited here without losing it. Edit it where it was created; the preview below is read-only.",
+			"empty": "No text yet.",
+			"loading": "Loading text…"
 		}
 	},
 	"settings": {

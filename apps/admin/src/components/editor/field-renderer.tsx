@@ -26,6 +26,7 @@ import { ObjectArrayField } from './object-array-field'
 import { PillInput } from './pill-input'
 import { PresetField, presetHandles } from './presets/preset-field'
 import { RelationField } from './relation-field'
+import { RichTextField } from './rich-text-field'
 import { SubformField } from './subform-field'
 
 /** Normalize a stored value (array or comma string) to a string array. */
@@ -210,6 +211,12 @@ export function FieldRenderer({
 	// untouched unless an admin rewrites it as JSON under Technical fields.
 	if (f.ui?.opaque) {
 		return <JsonField value={value} onChange={(v) => onChange(v)} disabled />
+	}
+
+	// Rich-text editor state (Lexical, Editor.js, …): edited as markdown when it
+	// converts losslessly, a read-only preview otherwise.
+	if (!localized && f.ui?.preset === 'rich-text') {
+		return <RichTextField value={value} onChange={onChange} disabled={ro} />
 	}
 
 	// A recognised shape (image, link, money, …) renders as one control in the

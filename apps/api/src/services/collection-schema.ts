@@ -10,7 +10,12 @@
  * genuinely cannot carry.
  */
 
-import { type CollectionField, detectFieldPreset, hasFieldCustomizations } from '@innolope/config'
+import {
+	type CollectionField,
+	detectFieldPreset,
+	detectRichTextFormat,
+	hasFieldCustomizations,
+} from '@innolope/config'
 import type { SourceColumn, SourceSchema } from '@innolope/db'
 import { buildSubField, type ObjectArrayShape } from '../adapters/mongo-introspect.js'
 import { opaqueFieldNames, soleType } from '../adapters/source-schema.js'
@@ -347,12 +352,15 @@ export function refineFieldsFromSamples(
 		const match = detectFieldPreset(values, next.type)
 		if (!match) return next
 		if (next.type === 'text' && match.preset !== 'image') return next
+		const richTextFormat =
+			match.preset === 'rich-text' ? (detectRichTextFormat(filled[0]) ?? undefined) : undefined
 		return {
 			...next,
 			ui: {
 				...next.ui,
 				preset: match.preset,
 				...(Object.keys(match.keys).length > 0 && { presetKeys: match.keys }),
+				...(richTextFormat && { richTextFormat }),
 			},
 		}
 	})

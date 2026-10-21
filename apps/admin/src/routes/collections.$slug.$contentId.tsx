@@ -19,6 +19,7 @@ import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
 import { PillInput } from '../components/editor/pill-input'
 import { RelationField } from '../components/editor/relation-field'
+import { RichTextPreview, useRichTextConversion } from '../components/editor/rich-text-field'
 import { TechnicalFields } from '../components/editor/technical-fields'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ScheduledBadge } from '../components/scheduled-badge'
@@ -1425,6 +1426,14 @@ function CollectionContentEditor() {
 	// The collection may be unknown (renamed, deleted, or outside this member's
 	// allowlist): `loading` would otherwise never resolve and the pane stays
 	// blank forever. Say so instead, once the collection list has loaded.
+	// A body the source keeps as rich-text editor state: editable as markdown when
+	// it converts losslessly; otherwise shown read-only, since a save would drop
+	// the blocks markdown cannot hold (the API refuses it). A hook, so it runs
+	// before the early returns below.
+	const richBodyName =
+		BODY_FIELD_NAMES.find((name) => collection?.fields?.some((f) => f.name === name)) ?? null
+	const bodyRichText = useRichTextConversion(richBodyName ? extraFields[richBodyName] : undefined)
+
 	if (!collection && !collectionsLoading) {
 		return (
 			<div className="p-8 pt-5">
@@ -2248,7 +2257,9 @@ function CollectionContentEditor() {
 													/>
 												)}
 
-												{bodyEditable ? (
+												{bodyRichText && 'unsupported' in bodyRichText ? (
+													<RichTextPreview conversion={bodyRichText} />
+												) : bodyEditable ? (
 													<MarkdownEditor
 														content={bodyMap ? (bodyMap[paneLocale] ?? '') : markdown}
 														onChange={(v) => {

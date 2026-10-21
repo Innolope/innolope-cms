@@ -6,11 +6,12 @@ interface CollectionField {
 }
 
 import { createHash } from 'node:crypto'
-import { CONTENT_STATUSES } from '@innolope/config'
+import { CONTENT_STATUSES, detectRichTextFormat } from '@innolope/config'
 import type { collections, content, contentVersions, Database } from '@innolope/db'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { ExternalDbAdapter, ExternalDocument } from '../adapters/external-db.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
+import { richTextToMarkdown } from './rich-text.js'
 import { mergeSyncState, type SyncState, stableValue, syncState } from './sync-state.js'
 
 /**
@@ -190,6 +191,16 @@ export function documentToMarkdown(
 			if (isLocaleMap(value)) {
 				metadata[key] = stripNullBytes(value)
 				bodyContent = stripNullBytes(flattenLocaleMap(value))
+			} else if (detectRichTextFormat(value)) {
+				// Editor state (Lexical, Editor.js, Portable Text, Slate) stays in
+				// `metadata` exactly as the site stores it; `markdown` carries its
+				// converted copy for editing and search, or a plain-text preview when
+				// it uses blocks that cannot convert. It used to become "[object Object]".
+				metadata[key] = stripNullBytes(value)
+				const converted = richTextToMarkdown(value)
+				bodyContent = converted
+					? stripNullBytes('markdown' in converted ? converted.markdown : converted.preview)
+					: ''
 			} else {
 				bodyContent = stripNullBytes(String(value ?? ''))
 			}
@@ -230,7 +241,7 @@ function findBodyField(doc: ExternalDocument, fields: CollectionField[]): string
 		// A localized body (`content: { en, ua }`) is still the body — without this it
 		// fell through to `metadata` as an anonymous object and the editor, which hides
 		// `content`/`body`, never rendered it at all.
-		if (typeof value === 'string' || isLocaleMap(value)) return name
+		if (typeof value === 'string' || isLocaleMap(value) || detectRichTextFormat(value)) return name
 	}
 	// Last resort: a body living under a name we cannot write back to. These keep
 	// the 100-character floor — a short `description` is a structured field, not a

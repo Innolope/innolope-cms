@@ -35,6 +35,7 @@ describe.skipIf(!hasTestDb)(
 		const short = randomUUID().slice(0, 8)
 		const products = `ext_products_${short}`
 		const pages = `ext_pages_${short}`
+		const articles = `ext_articles_${short}`
 		const SOURCE_URL = TEST_DB_URL ?? ''
 		const collectionsByTable = new Map<string, typeof collections.$inferSelect>()
 
@@ -103,9 +104,30 @@ describe.skipIf(!hasTestDb)(
 				PRIMARY KEY (tenant, sku)
 			);
 			CREATE TABLE ${pages} (id serial PRIMARY KEY, title text NOT NULL);
+			CREATE TABLE ${articles} (id serial PRIMARY KEY, title text NOT NULL, content jsonb);
 		`)
 			await source`INSERT INTO ${source(products)} ${source({ tenant: 'acme', sku: 'A-1', title: 'Widget', price: '1.000000', stock: '9007199254740993', tags: source.json(['a']) })}`
 			await source`INSERT INTO ${source(pages)} ${source({ title: 'Home' })}`
+			const lexicalParagraph = (text: string) => ({
+				type: 'paragraph',
+				version: 1,
+				children: [{ type: 'text', version: 1, text, format: 0 }],
+			})
+			await source`INSERT INTO ${source(articles)} ${source({
+				title: 'Editable',
+				content: source.json({
+					root: { type: 'root', children: [lexicalParagraph('Original body')] },
+				}),
+			})}`
+			await source`INSERT INTO ${source(articles)} ${source({
+				title: 'Has a table',
+				content: source.json({
+					root: {
+						type: 'root',
+						children: [lexicalParagraph('Intro'), { type: 'table', children: [] }],
+					},
+				}),
+			})}`
 
 			const [user] = await app.db
 				.insert(users)
@@ -132,6 +154,7 @@ describe.skipIf(!hasTestDb)(
 			token = await createJwt({ id: userId, email: user.email, name: 'Codec', role: 'editor' })
 			await importTable(products)
 			await importTable(pages)
+			await importTable(articles)
 		})
 
 		afterAll(async () => {
@@ -139,7 +162,7 @@ describe.skipIf(!hasTestDb)(
 			if (userId) await app.db.delete(users).where(eq(users.id, userId))
 			if (source) {
 				await source.unsafe(
-					`DROP TABLE IF EXISTS ${products}; DROP TABLE IF EXISTS ${pages}; DROP TYPE IF EXISTS ext_mood_${short};`,
+					`DROP TABLE IF EXISTS ${products}; DROP TABLE IF EXISTS ${pages}; DROP TABLE IF EXISTS ${articles}; DROP TYPE IF EXISTS ext_mood_${short};`,
 				)
 				await source.end()
 			}
@@ -208,6 +231,41 @@ describe.skipIf(!hasTestDb)(
 			expect(res.statusCode).toBe(400)
 			expect(res.json()).toMatchObject({ code: 'EXTERNAL_REQUIRED' })
 			expect(res.json().issues[0].path).toBe('metadata.title')
+		})
+
+		it('edits a Lexical body as markdown and writes Lexical back', async () => {
+			const row = await cached(articles, '1')
+			expect(row.markdown).toBe('Original body')
+			const res = await app.inject({
+				method: 'PUT',
+				url: `/api/v1/content/${row.id}`,
+				headers: headers(),
+				payload: { markdown: 'Edited **body**', metadata: row.metadata as Record<string, unknown> },
+			})
+			expect(res.statusCode).toBe(200)
+			const [sourceRow] = await source`SELECT content FROM ${source(articles)} WHERE id = 1`
+			const leaves = sourceRow.content.root.children[0].children
+			expect(
+				leaves.map((leaf: { text: string; format: number }) => [leaf.text, leaf.format]),
+			).toEqual([
+				['Edited ', 0],
+				['body', 1],
+			])
+		})
+
+		it('refuses a markdown edit to a body with blocks markdown cannot hold', async () => {
+			const row = await cached(articles, '2')
+			expect(row.markdown).toContain('Intro')
+			const res = await app.inject({
+				method: 'PUT',
+				url: `/api/v1/content/${row.id}`,
+				headers: headers(),
+				payload: { markdown: 'Rewritten' },
+			})
+			expect(res.statusCode).toBe(400)
+			expect(res.json().issues[0].message).toContain('table')
+			const [sourceRow] = await source`SELECT content FROM ${source(articles)} WHERE id = 2`
+			expect(sourceRow.content.root.children[1].type).toBe('table')
 		})
 
 		it('returns real values of one field for the field designer', async () => {
