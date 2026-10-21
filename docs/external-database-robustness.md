@@ -2,7 +2,7 @@
 
 Design document for making externally connected databases (PostgreSQL, MySQL, MongoDB and the Postgres-compatible hosts) safe to edit and sync regardless of how the source data is shaped, and for presenting complex nested data to editors who are not technical.
 
-Status: proposal. The "Current behaviour" sections describe the code as of this writing; file references point at the places a change would land.
+Status: implemented (all nine rollout steps). The "Current behaviour" sections describe the code before this work; see [Implementation notes](#implementation-notes) for where each part landed and where the implementation departs from the proposal.
 
 Contents:
 
@@ -308,6 +308,26 @@ Ordered by user impact per unit of work. Each step ships on its own.
 7. **The field designer and project-level presets**, with AI-assisted proposals.
 8. **The contract suite** against the three databases, so every later adapter change is proven before it ships. In practice this should start alongside step 4 and grow with each step.
 9. **Rich-text converters**, one format at a time, starting with whichever the connected projects actually use.
+
+---
+
+## Implementation notes
+
+Where each part of the design lives, and the decisions made while building it.
+
+| Part | Code |
+|------|------|
+| Patch semantics | `apps/api/src/services/external-patch.ts`, used by `updateExternalDb` in `external-content.ts`. Explicit removals (`null` in an update) become `$unset` / NULL; a key merely missing from the cache is never removed, because a column filled by a source default never reached it. `updatedAt` is stamped only on a non-empty patch. |
+| Structured errors and re-scan | `apps/api/src/services/external-errors.ts` (Postgres SQLSTATE, MySQL errno, MongoDB codes, network failures). Unknown columns re-learn the table through `external-schema.ts` and retry once. |
+| `sourceSchema` and the codec | `describeTable` on every adapter (`adapters/external-db.ts`), the histogram and hash in `adapters/source-schema.ts`, the codec and preflight in `adapters/codec.ts`. MongoDB reads use `promoteLongs: false`; Longs that fit and all Decimal128 values decode to exact JSON. Composite keys use a JSON-array external id. MySQL reads DATE as a string and writes DATETIME from a Date. |
+| Drift | `checkSourceSchemaDrift` on the sync worker's pass, at most every five minutes per collection; `schemaDrift` on `external_sync_state`; "Update fields" in the collection header calls `POST /collections/:id/rescan`. A collection imported before shapes existed gets its first descriptor silently on its first check. |
+| Opaque fallback | `opaqueFieldNames` in `adapters/source-schema.ts` covers mixed MongoDB fields and types with no editor (BSON binary, timestamp, regex; SQL bytea, geometry and other non-enum user-defined types, ranges, intervals, bit strings, text-search vectors, MySQL blobs and spatial types). |
+| Firestore | Refused at setup rather than adapted: a read-only adapter could not be verified against a real Firestore here. Reversing it means adding an adapter and listing it in `WRITABLE_EXTERNAL_DB_TYPES`. |
+| Presets | Catalogue and detection in `packages/config/src/presets.ts`; controls in `apps/admin/src/components/editor/presets/`; table cells in `components/content/field-cell.tsx`. Presets record the document's own key names in `ui.presetKeys`. |
+| Editor readability | Summaries in `apps/admin/src/lib/field-summary.ts`; collapsed rows and the focused view in `object-array-field.tsx` and `subform-field.tsx`; Technical fields in `technical-fields.tsx`. |
+| Field designer | `apps/admin/src/components/schema/field-designer.tsx`, `GET /collections/:id/field-samples`, `POST /ai/design-field`. Project presets live in `settings.fieldPresets`. Locked shapes are validated in `content-validation.ts`. |
+| Contract suite | `apps/api/src/contract/`, run by the `contract` CI job against PostgreSQL, MySQL and MongoDB service containers rather than testcontainers: the same isolation with no new dependency, in the shape the integration job already uses. |
+| Rich text | `apps/api/src/services/rich-text.ts` (Lexical, Editor.js, Portable Text, Slate and Plate) and `rich-text-writes.ts`; `POST /content/rich-text/markdown` for the editor. All four formats shipped together rather than one at a time, since the block model is shared. |
 
 ---
 
