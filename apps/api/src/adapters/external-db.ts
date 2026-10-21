@@ -684,15 +684,19 @@ export class MySqlAdapter implements ExternalDbAdapter {
 				? `WHERE (${keyList}) > (${pk.map(() => '?').join(', ')})`
 				: ''
 		const params = opts?.startAfterId !== undefined ? keyValuesFromId(opts.startAfterId, pk) : []
-		// mysql2's connection.query({...}).stream() returns a Node Readable that
-		// emits one row per tick — bounded memory regardless of row count.
+		// Row streaming lives on the underlying callback connection: the promise
+		// API's query() resolves the whole result set and has no .stream(). Its
+		// Query streams a Node Readable that emits one row per tick — bounded
+		// memory regardless of row count.
 		const stream = (
 			this.db() as unknown as {
-				query: (config: { sql: string; values?: unknown[] }) => {
-					stream: (opts?: { highWaterMark?: number }) => AsyncIterable<Record<string, unknown>>
+				connection: {
+					query: (config: { sql: string; values?: unknown[] }) => {
+						stream: (opts?: { highWaterMark?: number }) => AsyncIterable<Record<string, unknown>>
+					}
 				}
 			}
-		)
+		).connection
 			.query({
 				sql: `SELECT * FROM ${quoteMysqlIdentifier(table)} ${where} ORDER BY ${keyList}`,
 				values: params,
