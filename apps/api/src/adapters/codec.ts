@@ -249,6 +249,16 @@ export function encodeSqlValue(
 		return dialect === 'mysql' ? JSON.stringify(value) : value
 	}
 	if (isBooleanTinyint(column) && typeof value === 'boolean') return value ? 1 : 0
+	// MySQL does not read an ISO-8601 string with a `Z` as a DATETIME; the driver
+	// writes a Date in the connection's time zone, the same one it reads back in.
+	if (
+		dialect === 'mysql' &&
+		/^(datetime|timestamp)$/i.test(column.nativeType) &&
+		typeof value === 'string'
+	) {
+		const date = new Date(value)
+		return Number.isNaN(date.getTime()) ? value : date
+	}
 	if (EXACT_NUMERIC.test(column.udtName ?? '') || EXACT_NUMERIC.test(column.nativeType)) {
 		// Exact numerics travel as their digit string; a JS float would round them.
 		if (typeof value === 'number' && Number.isFinite(value)) return String(value)

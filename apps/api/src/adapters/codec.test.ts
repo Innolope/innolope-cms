@@ -168,6 +168,18 @@ describe('encodeSqlValues', () => {
 		expect(encodeSqlValues({ meta: { a: 1 } }, mysql)).toEqual({ meta: '{"a":1}' })
 	})
 
+	it('turns an ISO string into a Date for a MySQL DATETIME only', () => {
+		const mysql = sealSourceSchema({
+			dialect: 'mysql',
+			table: 't',
+			primaryKey: ['id'],
+			columns: [column('at', 'datetime'), column('day', 'date')],
+		})
+		const out = encodeSqlValues({ at: '2026-01-02T03:04:05.000Z', day: '2026-01-02' }, mysql)
+		expect(out.at).toEqual(new Date('2026-01-02T03:04:05.000Z'))
+		expect(out.day).toBe('2026-01-02')
+	})
+
 	it('writes a boolean into tinyint(1) as 0/1', () => {
 		const mysql = sealSourceSchema({
 			dialect: 'mysql',

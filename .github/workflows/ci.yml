@@ -92,3 +92,74 @@ jobs:
       # which creates the full schema on the empty Postgres service.
       - name: Integration tests
         run: pnpm --filter @innolope/api test
+
+  # The external-database adapter contract: the same zoo of tables and documents
+  # (serial/uuid/composite/no keys, jsonb, arrays, enums, exact numerics,
+  # generated columns, tinyint(1); nested ObjectIds and Dates, Decimal128, Long,
+  # mixed and locale-map fields) against a real PostgreSQL, MySQL and MongoDB.
+  # Every adapter or codec change is proven here before it ships.
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: contract
+          POSTGRES_PASSWORD: contract
+          POSTGRES_DB: contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U contract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: contract
+          MYSQL_DATABASE: contract
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pcontract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONTRACT_POSTGRES_URL: postgres://contract:contract@localhost:5432/contract
+      CONTRACT_MYSQL_URL: mysql://root:contract@127.0.0.1:3306/contract
+      CONTRACT_MONGO_URL: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.8.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm --filter "@innolope/api^..." build
+
+      - name: Adapter contract
+        timeout-minutes: 5
+        run: pnpm --filter @innolope/api exec vitest run src/contract

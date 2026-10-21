@@ -579,6 +579,9 @@ export class MySqlAdapter implements ExternalDbAdapter {
 			// rounded float; smaller values stay numbers. DECIMAL is a string already.
 			supportBigNumbers: true,
 			bigNumberStrings: false,
+			// A DATE is a calendar day. As a JS Date it becomes local midnight, and on
+			// any server not running in UTC its ISO copy in the cache is the day before.
+			dateStrings: ['DATE'],
 		})
 	}
 
