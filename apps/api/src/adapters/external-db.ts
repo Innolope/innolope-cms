@@ -871,6 +871,10 @@ export const WRITABLE_EXTERNAL_DB_TYPES = [
 	'mysql',
 ] as const
 
+export function isWritableExternalDbType(type: string): boolean {
+	return (WRITABLE_EXTERNAL_DB_TYPES as readonly string[]).includes(type)
+}
+
 export function createExternalDbAdapter(config: {
 	type: string
 	connectionString: string

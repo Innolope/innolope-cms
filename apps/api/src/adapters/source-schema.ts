@@ -160,3 +160,77 @@ export function parseMysqlEnumValues(columnType: string): string[] | undefined {
 	}
 	return values
 }
+
+/** SQL column types the editor has no faithful widget for. */
+const UNMODELED_SQL_TYPES = new Set([
+	// PostgreSQL
+	'bytea',
+	'tsvector',
+	'tsquery',
+	'xml',
+	'interval',
+	'point',
+	'line',
+	'lseg',
+	'box',
+	'path',
+	'polygon',
+	'circle',
+	'int4range',
+	'int8range',
+	'numrange',
+	'tsrange',
+	'tstzrange',
+	'daterange',
+	'bit',
+	'bit varying',
+	// MySQL
+	'blob',
+	'tinyblob',
+	'mediumblob',
+	'longblob',
+	'binary',
+	'varbinary',
+	'geometry',
+	'linestring',
+	'multipoint',
+	'multilinestring',
+	'multipolygon',
+	'geometrycollection',
+])
+
+/** BSON types the editor has no faithful widget for. */
+const UNMODELED_BSON_TYPES = new Set([
+	'binary',
+	'timestamp',
+	'bsonregexp',
+	'code',
+	'minkey',
+	'maxkey',
+	'dbpointer',
+	'bsonsymbol',
+	'other',
+])
+
+/**
+ * Top-level fields of a recorded shape the CMS cannot model: a MongoDB field
+ * whose documents disagree on type or hold a BSON type with no editor (binary,
+ * timestamp…), or a SQL column of a type with no faithful widget (bytea,
+ * geometry, ranges, PostGIS and other non-enum user-defined types). These
+ * round-trip untouched and are written only as JSON an admin edits.
+ */
+export function opaqueFieldNames(schema: SourceSchema | null | undefined): Set<string> {
+	const names = new Set<string>()
+	for (const column of schema?.columns ?? []) {
+		const type = column.nativeType.toLowerCase()
+		const userDefined =
+			type === 'user-defined' && !column.enumValues?.length && column.udtName !== 'citext'
+		if (UNMODELED_SQL_TYPES.has(type) || userDefined) names.add(column.name)
+	}
+	for (const path of schema?.paths ?? []) {
+		if (path.path.includes('.') || path.path.includes('[')) continue
+		const sole = soleType(path)
+		if (path.mixed || (sole && UNMODELED_BSON_TYPES.has(sole))) names.add(path.path)
+	}
+	return names
+}

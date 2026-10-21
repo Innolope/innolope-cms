@@ -26,6 +26,7 @@ import {
 } from '@innolope/db'
 import { eq } from 'drizzle-orm'
 import type { ExternalDbAdapter } from '../adapters/external-db.js'
+import { opaqueFieldNames } from '../adapters/source-schema.js'
 import {
 	buildCollectionFields,
 	carryMongoDetections,
@@ -179,7 +180,7 @@ export async function checkSourceSchemaDrift(
 	const recorded = col.sourceSchema
 
 	if (!recorded) {
-		const fields = markMixedFieldsOpaque(col.fields as CollectionField[], current)
+		const fields = markOpaqueFields(col.fields as CollectionField[], current)
 		await db
 			.update(collections)
 			.set({ sourceSchema: current, sourceSchemaHash: current.hash, fields })
@@ -203,19 +204,18 @@ export async function checkSourceSchemaDrift(
 	return drift
 }
 
-/** Mark top-level MongoDB fields whose sampled documents disagree on type. */
-export function markMixedFieldsOpaque(
+/**
+ * Mark the fields the CMS cannot model as opaque (see `opaqueFieldNames`):
+ * mixed or editor-less BSON types, and SQL columns with no faithful widget.
+ */
+export function markOpaqueFields(
 	fields: CollectionField[],
 	schema: SourceSchema,
 ): CollectionField[] {
-	const mixed = new Set(
-		(schema.paths ?? [])
-			.filter((path) => path.mixed && !path.path.includes('.') && !path.path.includes('['))
-			.map((path) => path.path),
-	)
-	if (mixed.size === 0) return fields
+	const opaque = opaqueFieldNames(schema)
+	if (opaque.size === 0) return fields
 	return fields.map((field) =>
-		mixed.has(field.name) && !field.ui?.opaque
+		opaque.has(field.name) && !field.ui?.opaque
 			? { ...field, ui: { ...field.ui, opaque: true } }
 			: field,
 	)

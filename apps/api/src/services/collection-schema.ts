@@ -13,7 +13,7 @@
 import { type CollectionField, detectFieldPreset, hasFieldCustomizations } from '@innolope/config'
 import type { SourceColumn, SourceSchema } from '@innolope/db'
 import { buildSubField, type ObjectArrayShape } from '../adapters/mongo-introspect.js'
-import { soleType } from '../adapters/source-schema.js'
+import { opaqueFieldNames, soleType } from '../adapters/source-schema.js'
 import { mapColumnType } from '../adapters/type-mapper.js'
 
 /** A column as it arrives from a scan. */
@@ -76,7 +76,7 @@ export function buildCollectionFields(
 		/**
 		 * The table's recorded shape. SQL columns refine the type (a native enum
 		 * becomes a dropdown, `tinyint(1)` a checkbox, a generated column read-only);
-		 * a MongoDB path with mixed types becomes an opaque field.
+		 * a value the CMS cannot model becomes an opaque field (see `opaqueFieldNames`).
 		 */
 		sourceSchema?: SourceSchema | null
 	} = {},
@@ -84,9 +84,7 @@ export function buildCollectionFields(
 	const sourceColumns = new Map<string, SourceColumn>(
 		(opts.sourceSchema?.columns ?? []).map((column) => [column.name, column]),
 	)
-	const mixedPaths = new Set(
-		(opts.sourceSchema?.paths ?? []).filter((path) => path.mixed).map((path) => path.path),
-	)
+	const opaqueNames = opaqueFieldNames(opts.sourceSchema)
 	return columns
 		.filter((c) => !EXCLUDED_COLUMNS.has(c.name))
 		.map((c) => {
@@ -109,14 +107,14 @@ export function buildCollectionFields(
 					resolvedType = 'boolean'
 				}
 			}
-			const opaque = mixedPaths.has(c.name)
+			const opaque = opaqueNames.has(c.name)
 
 			// Read-only (system fields) and subFields (array-of-object shape) coexist
 			// when both apply; the spread keeps the field shape compact when neither does.
 			let ui: CollectionField['ui'] | undefined
 			if (isSystem || source?.isGenerated) ui = { ...(ui ?? {}), readOnly: true }
-			// Documents disagree on this field's type: it round-trips untouched and is
-			// written only when an admin edits it as JSON.
+			// A value the CMS cannot model (mixed types across documents, binary, a
+			// geometry…): it round-trips untouched and is written only as admin JSON.
 			if (opaque) ui = { ...(ui ?? {}), opaque: true }
 			const shape = resolvedType === 'array' ? opts.arrayShapes?.get(c.name) : undefined
 			if (shape && shape.keys.length > 0) {

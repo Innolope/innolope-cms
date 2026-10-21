@@ -210,6 +210,17 @@ describe.skipIf(!hasTestDb)(
 			expect(res.json().issues[0].path).toBe('metadata.title')
 		})
 
+		it('refuses to connect Firestore, which nothing can import from or write to', async () => {
+			const res = await app.inject({
+				method: 'PUT',
+				url: `/api/v1/projects/${projectId}/database`,
+				headers: headers(),
+				payload: { type: 'firebase', connectionString: '{}', tables: [] },
+			})
+			expect(res.statusCode).toBe(400)
+			expect(res.json().error).toContain('Firestore')
+		})
+
 		it('detects drift on the sync pass and re-learns the fields when an admin updates them', async () => {
 			const col = collectionsByTable.get(pages)
 			if (!col) throw new Error('pages collection missing')

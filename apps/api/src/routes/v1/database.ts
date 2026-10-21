@@ -16,7 +16,7 @@ import {
 	validateConnectionString,
 	validatePublicUrl,
 } from '../../adapters/connection-guard.js'
-import { createExternalDbAdapter } from '../../adapters/external-db.js'
+import { createExternalDbAdapter, isWritableExternalDbType } from '../../adapters/external-db.js'
 import {
 	classifyMongoValue,
 	detectMongoArrayShapes,
@@ -622,6 +622,18 @@ export async function databaseRoutes(app: FastifyInstance) {
 
 			// When the client sends the explicit selection, the wizard becomes the source of
 			// truth for sidebar visibility.
+			// The wizard can scan Firestore, but no adapter can import from or write
+			// to it, so connecting one used to succeed and then fail every import and
+			// every save. Refuse it up front instead.
+			if (type && type !== 'built-in' && !isWritableExternalDbType(type)) {
+				return reply.status(400).send({
+					error:
+						type === 'firebase'
+							? 'Firestore can be scanned but not imported or edited yet. Connect MongoDB, PostgreSQL or MySQL instead.'
+							: `Unsupported database type: ${type}`,
+				})
+			}
+
 			const hasVisibilitySignal = Array.isArray(visibleTables)
 			const visibleTableSet = new Set(visibleTables ?? [])
 

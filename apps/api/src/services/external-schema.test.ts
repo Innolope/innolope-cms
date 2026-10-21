@@ -8,11 +8,7 @@ import {
 	mongoShapesFromSchema,
 	refineFieldsFromSamples,
 } from './collection-schema.js'
-import {
-	diffSourceSchemas,
-	fieldsFromSourceSchema,
-	markMixedFieldsOpaque,
-} from './external-schema.js'
+import { diffSourceSchemas, fieldsFromSourceSchema, markOpaqueFields } from './external-schema.js'
 
 const sqlColumn = (name: string, nativeType: string, extra: Record<string, unknown> = {}) => ({
 	name,
@@ -143,9 +139,27 @@ describe('diffSourceSchemas', () => {
 	})
 })
 
-describe('markMixedFieldsOpaque', () => {
+describe('markOpaqueFields', () => {
+	it('marks SQL columns with no faithful widget, but not native enums or citext', () => {
+		const fields = markOpaqueFields(
+			[
+				{ name: 'blob', type: 'text' },
+				{ name: 'area', type: 'text' },
+				{ name: 'mood', type: 'enum' },
+				{ name: 'email', type: 'text' },
+			],
+			pg([
+				sqlColumn('blob', 'bytea'),
+				sqlColumn('area', 'USER-DEFINED', { udtName: 'geometry' }),
+				sqlColumn('mood', 'USER-DEFINED', { udtName: 'mood', enumValues: ['a'] }),
+				sqlColumn('email', 'USER-DEFINED', { udtName: 'citext' }),
+			]),
+		)
+		expect(fields.map((f) => f.ui?.opaque ?? false)).toEqual([true, true, false, false])
+	})
+
 	it('marks only the mixed top-level fields', () => {
-		const fields = markMixedFieldsOpaque(
+		const fields = markOpaqueFields(
 			[
 				{ name: 'price', type: 'text' },
 				{ name: 'title', type: 'text' },
