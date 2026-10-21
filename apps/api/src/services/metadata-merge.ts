@@ -26,3 +26,15 @@ export function mergeMetadataUpdate(
 	}
 	return merged
 }
+
+/**
+ * Keys an update explicitly removed — sent as `null`. The external write turns
+ * these into a real removal on the source row; a key that is merely missing from
+ * the merged metadata is not one (see `diffExternalPayload`).
+ */
+export function removedMetadataKeys(incoming: Record<string, unknown> | undefined): string[] {
+	if (!incoming) return []
+	return Object.entries(incoming)
+		.filter(([, value]) => value === null)
+		.map(([key]) => key)
+}

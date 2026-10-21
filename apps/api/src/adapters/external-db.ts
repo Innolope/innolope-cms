@@ -22,6 +22,17 @@ export interface StreamAllOpts {
 	startAfterId?: string
 }
 
+export interface UpdateOpts {
+	unset?: string[]
+}
+
+/** SQL has no "remove a column from one row": a removed value is a NULL. */
+function withUnsetAsNull(data: Record<string, unknown>, opts?: UpdateOpts) {
+	const out = { ...data }
+	for (const key of opts?.unset ?? []) out[key] = null
+	return out
+}
+
 export interface ExternalDbAdapter {
 	connect(): Promise<void>
 	disconnect(): Promise<void>
@@ -36,7 +47,17 @@ export interface ExternalDbAdapter {
 	streamAll(table: string, opts?: StreamAllOpts): AsyncIterable<ExternalDocument[]>
 	findById(table: string, id: string): Promise<ExternalDocument | null>
 	insert(table: string, data: Record<string, unknown>): Promise<ExternalDocument>
-	update(table: string, id: string, data: Record<string, unknown>): Promise<ExternalDocument>
+	/**
+	 * Write `data` to one row. On MongoDB a key may be a dotted path into a
+	 * sub-document. `opts.unset` names keys to remove: `$unset` on MongoDB, NULL
+	 * on SQL targets.
+	 */
+	update(
+		table: string,
+		id: string,
+		data: Record<string, unknown>,
+		opts?: UpdateOpts,
+	): Promise<ExternalDocument>
 	delete(table: string, id: string): Promise<void>
 	count(table: string): Promise<number>
 	testWritePermission(table: string): Promise<boolean>
@@ -150,10 +171,14 @@ export class MongoDbAdapter implements ExternalDbAdapter {
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
+		const update: Record<string, Record<string, unknown>> = {}
+		if (Object.keys(data).length > 0) update.$set = data
+		if (opts?.unset?.length) update.$unset = Object.fromEntries(opts.unset.map((key) => [key, '']))
 		const result = await this.db()
 			.collection(table)
-			.updateOne(await this.buildIdFilter(id), { $set: data })
+			.updateOne(await this.buildIdFilter(id), update)
 		if (result.matchedCount === 0) throw new Error(`External row not found: ${id}`)
 		return { ...data, _id: id }
 	}
@@ -271,10 +296,12 @@ export class PostgreSqlAdapter implements ExternalDbAdapter {
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
+		const values = withUnsetAsNull(data, opts)
 		const [row] =
-			await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(data)} WHERE ${this.sql()(pk)} = ${id} RETURNING *`
+			await this.sql()`UPDATE ${this.sql()(table)} SET ${this.sql()(values)} WHERE ${this.sql()(pk)} = ${id} RETURNING *`
 		if (!row) throw new Error(`External row not found: ${id}`)
 		return { ...row, _id: String(row[pk]) }
 	}
@@ -416,14 +443,16 @@ export class MySqlAdapter implements ExternalDbAdapter {
 		table: string,
 		id: string,
 		data: Record<string, unknown>,
+		opts?: UpdateOpts,
 	): Promise<ExternalDocument> {
 		const pk = await this.getPrimaryKey(table)
-		const sets = Object.keys(data)
+		const values = withUnsetAsNull(data, opts)
+		const sets = Object.keys(values)
 			.map((c) => `${quoteMysqlIdentifier(c)} = ?`)
 			.join(', ')
 		const [result] = await this.db().execute(
 			`UPDATE ${quoteMysqlIdentifier(table)} SET ${sets} WHERE ${quoteMysqlIdentifier(pk)} = ?`,
-			[...Object.values(data), id] as (string | number | boolean | Date | null)[],
+			[...Object.values(values), id] as (string | number | boolean | Date | null)[],
 		)
 		if ((result as { affectedRows?: number }).affectedRows === 0)
 			throw new Error(`External row not found: ${id}`)

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildExternalData,
 	mergeExternalTimestamps,
+	omitEmptyOnInsert,
 	stripUnmappedSystemColumns,
 } from './external-content.js'
 
@@ -91,6 +92,21 @@ describe('buildExternalData', () => {
 			createdAt: new Date('2026-07-23T00:00:00.000Z'),
 		})
 		expect(data.createdAt).toBe('2026-07-23T00:00:00.000Z')
+	})
+
+	it('writes a cleared number, date or select as null instead of an empty string', () => {
+		// Postgres rejects '' for an integer or timestamp column (22P02) and MongoDB
+		// silently changes the field's type, which is what an emptied input sends.
+		const col = makeCol([
+			{ name: 'price', type: 'number' },
+			{ name: 'eventDate', type: 'date' },
+			{ name: 'category', type: 'enum' },
+			{ name: 'subtitle', type: 'text' },
+		])
+		const data = buildExternalData(col, {
+			metadata: { price: '', eventDate: '', category: '', subtitle: '' },
+		})
+		expect(data).toEqual({ price: null, eventDate: null, category: null, subtitle: '' })
 	})
 
 	it('does not invent createdAt/updatedAt for a collection that maps neither', () => {
@@ -210,5 +226,18 @@ describe('stripUnmappedSystemColumns', () => {
 		// insert/updateExternalDb bail out instead of issuing the statement.
 		const col = makeCol([{ name: 'title', type: 'text' }])
 		expect(stripUnmappedSystemColumns('postgresql', col, { status: 'draft' })).toEqual({})
+	})
+})
+
+describe('omitEmptyOnInsert', () => {
+	it('leaves empty non-text values out of a new row so column defaults apply', () => {
+		const col = makeCol([
+			{ name: 'price', type: 'number' },
+			{ name: 'subtitle', type: 'text' },
+		])
+		expect(omitEmptyOnInsert(col, { price: null, subtitle: null, title: 'T' })).toEqual({
+			subtitle: null,
+			title: 'T',
+		})
 	})
 })

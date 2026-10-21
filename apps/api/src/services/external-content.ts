@@ -11,6 +11,15 @@ import { marked } from 'marked'
 import { createExternalDbAdapter, type ExternalDocument } from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
+import {
+	applyExternalPatch,
+	diffExternalPayload,
+	type ExternalPatch,
+	externalBaseline,
+	fullPatch,
+	isEmptyPatch,
+	writtenValues,
+} from './external-patch.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
 import { syncState } from './sync-state.js'
@@ -181,8 +190,26 @@ export function mergeExternalTimestamps(
 	return merged
 }
 
+/**
+ * Field types whose source columns cannot hold an empty string. The editor
+ * clears a number, date or select input to `''`, and Postgres and strict MySQL
+ * reject that for an integer or timestamp column (`22P02`) while MongoDB takes
+ * it and silently changes the field's type. For these an empty string means
+ * "no value".
+ */
+const EMPTY_STRING_IS_NULL = new Set([
+	'number',
+	'date',
+	'boolean',
+	'enum',
+	'relation',
+	'object',
+	'array',
+])
+
 function coerceExternalFieldValue(fieldType: string | undefined, value: unknown): unknown {
 	if (value === null || value === undefined) return value
+	if (value === '' && fieldType && EMPTY_STRING_IS_NULL.has(fieldType)) return null
 	// A column the source stores as an ISO string (very common for Mongo documents
 	// written by an ORM) must keep receiving strings. Writing a Date into it instead
 	// leaves the column holding both BSON types, and BSON sorts every String before
@@ -251,6 +278,26 @@ async function coerceExternalRelations(
 	return out
 }
 
+/**
+ * Leave empty non-text values out of a new row instead of writing NULL. A column
+ * with a default then gets its default, and a nullable one ends up NULL either
+ * way; only an explicit NULL could fail a NOT NULL column that has a default.
+ */
+export function omitEmptyOnInsert(
+	col: Pick<typeof collections.$inferSelect, 'fields'>,
+	data: Record<string, unknown>,
+): Record<string, unknown> {
+	const types = new Map((col.fields || []).map((field) => [field.name, field.type]))
+	const out: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(data)) {
+		const type = types.get(key)
+		if (value === undefined) continue
+		if (value === null && type && type !== 'text') continue
+		out[key] = value
+	}
+	return out
+}
+
 export async function insertIntoExternalDb(
 	app: FastifyInstance,
 	projectId: string,
@@ -269,7 +316,7 @@ export async function insertIntoExternalDb(
 	const payload = await coerceExternalRelations(
 		extDb.type,
 		col,
-		stripUnmappedSystemColumns(extDb.type, col, data),
+		omitEmptyOnInsert(col, stripUnmappedSystemColumns(extDb.type, col, data)),
 	)
 	if (Object.keys(payload).length === 0) return null
 
@@ -282,6 +329,33 @@ export async function insertIntoExternalDb(
 	}
 }
 
+/**
+ * Stamp the edit time onto a non-empty patch when the collection maps an
+ * `updatedAt` column. The cached metadata still carries the value the row was
+ * imported with, so without this an edit would leave the source's edit time
+ * where it was — and an incremental sync keyed on it would never see the edit.
+ */
+function stampEditTime(col: typeof collections.$inferSelect, patch: ExternalPatch, now: Date) {
+	if (isEmptyPatch(patch) || 'updatedAt' in patch.set) return
+	const declared = (col.fields || []).find((field) => field.name === 'updatedAt')
+	if (!declared) return
+	patch.set.updatedAt = coerceExternalFieldValue(declared.type, now)
+}
+
+/** Top-level keys a target can remove: any key on MongoDB, declared columns on SQL. */
+function removableKeys(dbType: string, col: typeof collections.$inferSelect, keys: string[]) {
+	if (isSchemalessExternalDb(dbType)) return keys.filter((key) => key !== '_id')
+	const declared = new Set((col.fields || []).map((field) => field.name))
+	return keys.filter((key) => declared.has(key))
+}
+
+export interface ExternalWriteResult {
+	/** The source row after the write. */
+	doc: ExternalDocument
+	/** Top-level values the write sent; a removed column reads as null. */
+	written: Record<string, unknown>
+}
+
 export async function updateExternalDb(
 	app: FastifyInstance,
 	projectId: string,
@@ -289,7 +363,11 @@ export async function updateExternalDb(
 	externalId: string,
 	data: Record<string, unknown>,
 	snapshotDb: Pick<Database, 'select' | 'update'> = app.db,
-) {
+	opts: {
+		/** Top-level keys the caller explicitly removed (sent as `null`). */
+		unset?: string[]
+	} = {},
+): Promise<ExternalWriteResult | null> {
 	const [project] = await snapshotDb
 		.select()
 		.from(projects)
@@ -303,21 +381,46 @@ export async function updateExternalDb(
 		col,
 		stripUnmappedSystemColumns(extDb.type, col, data),
 	)
-	// Nothing this target can accept. Mongo rejects `{ $set: {} }` outright and a
-	// SQL UPDATE with no SET clause is a syntax error, so an unguarded empty payload
-	// turns a no-op into a 502 — which is how a status sync to a collection with no
-	// status column used to fail.
-	if (Object.keys(payload).length === 0) return null
+	const nested = isSchemalessExternalDb(extDb.type)
+	const unset = removableKeys(extDb.type, col, opts.unset ?? [])
+
+	// Diff against the source row as last observed. A legacy row cached before
+	// snapshots existed has nothing to diff against and is written whole, once;
+	// the read-back below records its first snapshot.
+	const [cached] = await snapshotDb
+		.select({ externalSnapshot: content.externalSnapshot })
+		.from(content)
+		.where(
+			and(
+				eq(content.projectId, projectId),
+				eq(content.collectionId, col.id),
+				eq(content.externalId, externalId),
+			),
+		)
+		.limit(1)
+	const patch = cached?.externalSnapshot
+		? diffExternalPayload(payload, externalBaseline(col.fields, cached.externalSnapshot), {
+				nested,
+				unset,
+			})
+		: fullPatch(payload, unset)
+	if (cached?.externalSnapshot) stampEditTime(col, patch, new Date())
+
+	// Nothing to change. This is also the guard for a target that can accept none
+	// of the payload: Mongo rejects `{ $set: {} }` outright and a SQL UPDATE with no
+	// SET clause is a syntax error, so an unguarded empty patch turns a no-op into a
+	// 502 — which is how a status sync to a collection with no status column failed.
+	if (isEmptyPatch(patch)) return null
 
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		const updated = await adapter.update(col.externalTable, externalId, payload)
+		await adapter.update(col.externalTable, externalId, patch.set, { unset: patch.unset })
 		// Mongo/MySQL updates return only the patch; observe the complete row.
 		const observed = await adapter.findById(col.externalTable, externalId)
 		// The values this write committed remain the baseline even if another
 		// client edits the row between our write and read-back.
-		const doc = { ...observed, ...updated }
+		const doc = applyExternalPatch(observed ?? { _id: externalId }, patch, nested)
 		// A successful write-through becomes the new shared external state. CMS-
 		// only fields remain distinguishable from later incoming source changes.
 		await snapshotDb
@@ -332,7 +435,7 @@ export async function updateExternalDb(
 					eq(content.externalId, externalId),
 				),
 			)
-		return doc
+		return { doc, written: writtenValues(patch) }
 	} finally {
 		await adapter.disconnect()
 	}

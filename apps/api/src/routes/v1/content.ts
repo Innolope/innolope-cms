@@ -42,7 +42,7 @@ import {
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
-import { mergeMetadataUpdate } from '../../services/metadata-merge.js'
+import { mergeMetadataUpdate, removedMetadataKeys } from '../../services/metadata-merge.js'
 import { syncState } from '../../services/sync-state.js'
 import { contentBulkActionRoutes } from './content-bulk-actions.js'
 
@@ -935,6 +935,9 @@ export async function contentRoutes(app: FastifyInstance) {
 			id: string
 			errors: Array<{ field: string; message: string }>
 		}> = []
+		// Keys each item explicitly removed, captured before the merge below folds
+		// them away — the external write turns them into real removals.
+		const removedKeysByItem = new Map<string, string[]>()
 		for (const [index, item] of items.entries()) {
 			const current = currentMap.get(item.id)
 			if (!current) {
@@ -1003,6 +1006,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				// the full post-update blob (null deletes a key), so the transaction
 				// below writes the same fields everywhere — external row and cache alike.
 				const updatedKeys = Object.keys(item.metadata ?? {})
+				removedKeysByItem.set(item.id, removedMetadataKeys(item.metadata))
 				item.metadata = mergeMetadataUpdate(
 					current.metadata as Record<string, unknown>,
 					item.metadata,
@@ -1120,8 +1124,18 @@ export async function contentRoutes(app: FastifyInstance) {
 					publishedAt: current.publishedAt,
 				})
 				let externalId = current.externalId
+				let written: Record<string, unknown> = externalData
 				if (externalId) {
-					await updateExternalDb(app, getProject(request).id, col, externalId, externalData)
+					const result = await updateExternalDb(
+						app,
+						getProject(request).id,
+						col,
+						externalId,
+						externalData,
+						app.db,
+						{ unset: removedKeysByItem.get(item.id) },
+					)
+					written = result?.written ?? {}
 					applied.push({ col, externalId, previous, inserted: false })
 				} else {
 					const inserted = await insertIntoExternalDb(
@@ -1137,7 +1151,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					externalId,
 					// Keep the cache in step with what the external row now holds, so the
 					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata: mergeExternalTimestamps(nextMetadata, externalData, col.fields),
+					cachedMetadata: mergeExternalTimestamps(nextMetadata, written, col.fields),
 				})
 			}
 		} catch (err) {
@@ -1490,9 +1504,21 @@ export async function contentRoutes(app: FastifyInstance) {
 						publishedAt: nextPublishedAt,
 					})
 
+					// What actually reached the source row: the whole payload for an insert,
+					// only the changed keys for an update.
+					let written: Record<string, unknown> = externalData
 					try {
 						if (externalId) {
-							await updateExternalDb(app, getProject(request).id, col, externalId, externalData, tx)
+							const result = await updateExternalDb(
+								app,
+								getProject(request).id,
+								col,
+								externalId,
+								externalData,
+								tx,
+								{ unset: removedMetadataKeys(input.metadata) },
+							)
+							written = result?.written ?? {}
 						} else {
 							const inserted = await insertIntoExternalDb(
 								app,
@@ -1511,7 +1537,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					// doesn't read back a stale/blank createdAt/updatedAt. Built from the same
 					// merged view that was just written — the cache and the source database
 					// must hold the same fields.
-					cachedMetadata = mergeExternalTimestamps(nextMetadata, externalData, col.fields)
+					cachedMetadata = mergeExternalTimestamps(nextMetadata, written, col.fields)
 				}
 
 				await tx.insert(contentVersions).values({
@@ -1773,9 +1799,10 @@ export async function contentRoutes(app: FastifyInstance) {
 						updatedAt: new Date(),
 						publishedAt: current.publishedAt,
 					})
+					let written: Record<string, unknown> = externalData
 					try {
 						if (revertExternalId) {
-							await updateExternalDb(
+							const result = await updateExternalDb(
 								app,
 								getProject(request).id,
 								revertCol,
@@ -1783,6 +1810,7 @@ export async function contentRoutes(app: FastifyInstance) {
 								externalData,
 								tx,
 							)
+							written = result?.written ?? {}
 						} else {
 							const inserted = await insertIntoExternalDb(
 								app,
@@ -1801,7 +1829,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}
 					revertMetadata = mergeExternalTimestamps(
 						version.metadata,
-						externalData,
+						written,
 						revertCol.fields,
 					) as typeof version.metadata
 				}
