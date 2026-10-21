@@ -9,6 +9,14 @@ export interface ExternalSyncStatus {
 	lastAttemptAt: string | null
 	error: string | null
 	conflicts: SyncConflict[]
+	/** The source table's shape changed since the collection last learned it. */
+	schemaDrift?: {
+		detectedAt: string
+		added: string[]
+		removed: string[]
+		changed: string[]
+		hash: string
+	} | null
 }
 
 const IDLE_MS = 2 * 60_000

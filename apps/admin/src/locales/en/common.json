@@ -331,6 +331,70 @@
 			"doneEditing": "Done",
 			"opaque": "Mixed or unknown structure, kept exactly as stored",
 			"empty": "—"
+		},
+		"presets": {
+			"image": {
+				"none": "No image",
+				"url": "Image URL",
+				"choose": "Choose…",
+				"alt": "Alt text (describes the image)",
+				"width": "Width",
+				"height": "Height"
+			},
+			"link": {
+				"label": "Text",
+				"url": "URL"
+			},
+			"social": {
+				"platform": "Platform"
+			},
+			"seo": {
+				"empty": "No search title yet",
+				"title": "Search title",
+				"description": "Search description",
+				"keywords": "Keywords",
+				"ogImage": "Share image URL",
+				"canonical": "Canonical URL",
+				"noindex": "Hide from search engines"
+			},
+			"money": {
+				"amount": "Amount",
+				"currency": "Currency"
+			},
+			"geo": {
+				"lat": "Latitude",
+				"lng": "Longitude",
+				"viewMap": "View on map"
+			},
+			"address": {
+				"street": "Street",
+				"line2": "Apartment, suite, etc.",
+				"city": "City",
+				"region": "State or region",
+				"postalCode": "Postal code",
+				"country": "Country"
+			},
+			"dateRange": {
+				"start": "Start",
+				"end": "End",
+				"invalid": "The end date is before the start date."
+			},
+			"keyValue": {
+				"key": "Key",
+				"value": "Value"
+			},
+			"names": {
+				"image": "Image",
+				"link": "Link",
+				"social-link": "Social link",
+				"seo": "SEO",
+				"money": "Money",
+				"geo-point": "Map point",
+				"address": "Address",
+				"date-range": "Date range",
+				"key-value": "Key-value table",
+				"rich-text": "Rich text"
+			}
 		}
 	},
 	"settings": {
@@ -1261,6 +1325,18 @@
 				"message": "Your saved CMS edits have been kept. Review the external changes to decide which version to use.",
 				"retry": "Automatic sync could not finish. Your edits are safe, and sync will retry.",
 				"review": "Review changes"
+			},
+			"schemaDrift": {
+				"title": "The source table changed since this collection was imported",
+				"added": "{{count}} new: {{names}}",
+				"removed": "{{count}} gone: {{names}}",
+				"changed": "{{count}} changed: {{names}}",
+				"review": "Update fields",
+				"updating": "Updating…",
+				"updated": "Fields updated from the source. Labels and settings were kept.",
+				"updatedWithLosses": "Fields updated from the source. Settings could not be kept for: {{names}}.",
+				"updateFailed": "Could not update the fields from the source",
+				"askAdmin": "An admin can update the fields to match."
 			}
 		},
 		"new": {

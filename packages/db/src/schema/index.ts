@@ -14,7 +14,11 @@ export {
 export { content, contentVersions } from './content.js'
 export { contentAnalytics } from './content-analytics.js'
 export { contentEmbeddings } from './content-embeddings.js'
-export { type ExternalSyncConflict, externalSyncState } from './external-sync.js'
+export {
+	type ExternalSchemaDrift,
+	type ExternalSyncConflict,
+	externalSyncState,
+} from './external-sync.js'
 export { importJobs } from './imports.js'
 export { licenseSettings } from './license.js'
 export { mcpFeedback } from './mcp-feedback.js'

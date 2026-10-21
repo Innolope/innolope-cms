@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { ColumnConfig, type ColumnOption } from '../components/column-config'
 import { BulkActionsBar } from '../components/content/bulk-actions-bar'
 import { ExternalSyncNotice } from '../components/content/external-sync-notice'
+import { renderPresetCell } from '../components/content/field-cell'
 import {
 	type SyncConflict,
 	SyncConflictsDialog,
@@ -290,14 +291,23 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 		},
 	]
 
+	// Opaque values (mixed or unknown structure) have nothing a table cell can say.
 	const metadataCols: ColumnDescriptor[] = fields
-		.filter((f) => f.name !== primaryField && !SYSTEM_COLUMN_TWINS.has(f.name) && !f.ui?.hidden)
+		.filter(
+			(f) =>
+				f.name !== primaryField &&
+				!SYSTEM_COLUMN_TWINS.has(f.name) &&
+				!f.ui?.hidden &&
+				!f.ui?.opaque,
+		)
 		.map((f) => ({
 			id: `meta:${f.name}`,
 			label: fieldLabel(f),
 			sortable: SORTABLE_FIELD_TYPES.has(f.type),
 			sortKey: SORTABLE_FIELD_TYPES.has(f.type) ? `meta:${f.name}` : undefined,
-			render: (item, ctx) => renderMetadataValue(item.metadata?.[f.name], ctx),
+			render: (item, ctx) =>
+				renderPresetCell(f, item.metadata?.[f.name], { locale: ctx.defaultLocale }) ??
+				renderMetadataValue(item.metadata?.[f.name], ctx),
 		}))
 
 	return [...builtins, ...metadataCols]
@@ -757,6 +767,7 @@ function CollectionContentList() {
 		<div className="p-8 pt-5 flex flex-col min-h-full">
 			<ExternalSyncNotice
 				status={automaticSync}
+				collectionId={collection.id}
 				onReview={() => setSyncConflicts(automaticSync?.conflicts ?? [])}
 			/>
 			<div className="flex items-center justify-between mb-6">

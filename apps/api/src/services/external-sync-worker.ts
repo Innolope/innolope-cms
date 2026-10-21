@@ -10,6 +10,7 @@ import {
 import { and, asc, eq, inArray, isNull, lte, notExists, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { createExternalDbAdapter } from '../adapters/external-db.js'
+import { checkSourceSchemaDrift } from './external-schema.js'
 import { syncMarkdownCache } from './markdown-cache.js'
 
 const DEFAULT_INTERVAL_MS = 10_000
@@ -138,6 +139,13 @@ export async function syncExternalCollection(
 			.where(eq(collections.id, collection.id))
 			.limit(1)
 		if (!current?.externalTable) throw new Error('External collection no longer exists')
+		// Throttled to one description per few minutes; a failure here must never
+		// cost the content sync.
+		try {
+			await checkSourceSchemaDrift(app.db, current, adapter)
+		} catch (err) {
+			app.log.warn({ err, collectionId: current.id }, 'Source schema drift check failed')
+		}
 		const result = await syncMarkdownCache(
 			app.db,
 			content,

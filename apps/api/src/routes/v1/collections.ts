@@ -12,6 +12,8 @@ import {
 import { getMediaStorageMap } from '../../lib/media-storage.js'
 import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { getProject } from '../../plugins/project.js'
+import { sendExternalWriteFailure } from '../../services/external-errors.js'
+import { rescanExternalCollection } from '../../services/external-schema.js'
 import {
 	externalSyncIntervalMs,
 	markExternalSyncActive,
@@ -316,9 +318,64 @@ export async function collectionRoutes(app: FastifyInstance) {
 				lastSyncedAt: collection.lastSyncedAt,
 				lastAttemptAt: state?.lastAttemptAt ?? null,
 				error: state?.lastError ?? null,
+				// The source table's shape changed since the collection last learned it.
+				schemaDrift: state?.schemaDrift ?? null,
 				conflicts: (state?.conflicts ?? []).filter(
 					(item) => !request.query.contentId || item.contentId === request.query.contentId,
 				),
+			}
+		},
+	)
+
+	// Re-learn the fields of an external collection from its source table (admin+).
+	// Answers detected schema drift: added columns appear, dropped ones go, and the
+	// schema editor's labels, widgets and required ticks are kept.
+	app.post<{ Params: { id: string } }>(
+		'/:id/rescan',
+		{ preHandler: [app.requireProject('admin')] },
+		async (request, reply) => {
+			const [collection] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.params.id),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!collection) return reply.status(404).send({ error: 'Collection not found' })
+			if (collection.source !== 'external' || !collection.externalTable) {
+				return reply.status(400).send({ error: 'Collection is not backed by an external database' })
+			}
+			const [project] = await app.db
+				.select()
+				.from(projects)
+				.where(eq(projects.id, getProject(request).id))
+				.limit(1)
+			const extDb = getExternalDbConfig(project)
+			if (!extDb) return reply.status(400).send({ error: 'External database is not configured' })
+			const adapter = createExternalDbAdapter(extDb)
+			try {
+				await adapter.connect()
+				const { col, unpreserved, schema } = await rescanExternalCollection(
+					app.db,
+					collection,
+					adapter,
+				)
+				return {
+					fields: col.fields,
+					sourceSchemaHash: schema.hash,
+					unpreserved,
+				}
+			} catch (err) {
+				return sendExternalWriteFailure(reply, err, {
+					log: app.log,
+					message: 'Re-scanning the source table failed',
+					fields: collection.fields,
+				})
+			} finally {
+				await adapter.disconnect().catch(() => undefined)
 			}
 		},
 	)

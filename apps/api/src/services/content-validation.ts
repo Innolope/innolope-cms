@@ -48,6 +48,9 @@ export function validateContentMetadata(
 			continue
 		}
 		if (touched && !touched.has(field.name)) continue
+		// An opaque value holds whatever shape the source stores; an admin edits it
+		// as JSON and it is written exactly as entered.
+		if (field.ui?.opaque) continue
 		const typeError = checkFieldType(field, value)
 		if (typeError) errors.push({ field: field.name, message: typeError })
 	}

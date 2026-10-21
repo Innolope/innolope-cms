@@ -8,10 +8,12 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
+import { type PreflightIssue, preflightMongo, preflightSql } from '../adapters/codec.js'
 import {
 	createExternalDbAdapter,
 	type ExternalDbAdapter,
 	type ExternalDocument,
+	type WriteOpts,
 } from '../adapters/external-db.js'
 import { applyMediaStorage, getMediaStorageMap } from '../lib/media-storage.js'
 import { resolveRelations } from '../lib/resolve-relations.js'
@@ -324,7 +326,13 @@ export async function insertIntoExternalDb(
 		col,
 		omitEmptyOnInsert(col, stripUnmappedSystemColumns(extDb.type, col, data)),
 	)
-	if (Object.keys(payload).length === 0) return null
+	// Nothing to write — unless the source requires something. Checked before the
+	// early return, or a table with a NOT NULL column would get a CMS-only record
+	// that never reaches it instead of a message naming the missing field.
+	if (Object.keys(payload).length === 0) {
+		prepareExternalWrite(col, payload, { mode: 'insert' })
+		return null
+	}
 
 	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
@@ -332,7 +340,10 @@ export async function insertIntoExternalDb(
 	try {
 		const { result } = await writeWithRescan(app, col, adapter, payload, (target, retry) => {
 			const values = retry ? keepSourceColumns(target, payload) : payload
-			return Object.keys(values).length > 0 ? adapter.insert(table, values) : null
+			const prepared = prepareExternalWrite(target, values, { mode: 'insert' })
+			return Object.keys(prepared.values).length > 0
+				? adapter.insert(table, prepared.values, prepared.opts)
+				: null
 		})
 		return result
 	} finally {
@@ -341,6 +352,67 @@ export async function insertIntoExternalDb(
 }
 
 type Collection = typeof collections.$inferSelect
+
+const PREFLIGHT_CODES = {
+	required: 'EXTERNAL_REQUIRED',
+	enum: 'EXTERNAL_INVALID_VALUE',
+	tooLong: 'EXTERNAL_TOO_LONG',
+	generated: 'EXTERNAL_REFUSED',
+	mixed: 'EXTERNAL_REFUSED',
+} as const
+
+/** Fields the CMS cannot model: written exactly as an admin entered them. */
+function opaqueFieldNames(col: Collection): Set<string> {
+	return new Set((col.fields || []).filter((field) => field.ui?.opaque).map((field) => field.name))
+}
+
+/**
+ * Check a write against the recorded source schema before the source is touched,
+ * and hand the adapter what it needs to write native types.
+ *
+ * SQL: keys that are not columns (and generated columns) are dropped, a NOT NULL
+ * column without a default must be filled on insert and cannot be cleared on
+ * update, enum values and lengths are checked. MongoDB: a path whose sampled
+ * documents disagree on its type is refused unless the field is opaque.
+ * A refusal is a 400 naming each field, in the shape the editor shows inline.
+ */
+function prepareExternalWrite(
+	col: Collection,
+	values: Record<string, unknown>,
+	opts: { mode: 'insert' | 'update'; unset?: string[] },
+): { values: Record<string, unknown>; opts: WriteOpts } {
+	const schema = col.sourceSchema ?? null
+	const raw = opaqueFieldNames(col)
+	const writeOpts: WriteOpts = { schema, raw: [...raw] }
+	if (!schema) return { values, opts: writeOpts }
+	const label = (column: string) => {
+		const field = (col.fields || []).find((f) => f.name === column)
+		return field?.label || column
+	}
+	let checked = values
+	let issues: PreflightIssue[]
+	if (schema.dialect === 'mongodb') {
+		const touched = { ...values, ...Object.fromEntries((opts.unset ?? []).map((k) => [k, null])) }
+		issues = preflightMongo(touched, schema, { opaque: raw, label })
+	} else {
+		const touched = { ...values, ...Object.fromEntries((opts.unset ?? []).map((k) => [k, null])) }
+		const result = preflightSql(touched, schema, { mode: opts.mode, label })
+		issues = result.issues
+		checked = Object.fromEntries(
+			Object.entries(result.values).filter(([key]) => !(opts.unset ?? []).includes(key)),
+		)
+	}
+	if (issues.length > 0) {
+		const first = issues[0]
+		throw new ExternalWriteError({
+			statusCode: 400,
+			code: PREFLIGHT_CODES[first.reason],
+			error: first.message,
+			fields: issues.map((issue) => ({ field: issue.field, message: issue.message })),
+		})
+	}
+	return { values: checked, opts: writeOpts }
+}
 
 /** Only the keys a refreshed SQL schema still declares. */
 function keepSourceColumns(col: Collection, values: Record<string, unknown>) {
@@ -491,9 +563,17 @@ export async function updateExternalDb(
 							),
 						}
 					: patch
-				if (isEmptyPatch(attemptPatch)) return null
-				await adapter.update(table, externalId, attemptPatch.set, { unset: attemptPatch.unset })
-				return attemptPatch
+				const prepared = prepareExternalWrite(current, attemptPatch.set, {
+					mode: 'update',
+					unset: attemptPatch.unset,
+				})
+				const checkedPatch = { set: prepared.values, unset: attemptPatch.unset }
+				if (isEmptyPatch(checkedPatch)) return null
+				await adapter.update(table, externalId, checkedPatch.set, {
+					...prepared.opts,
+					unset: checkedPatch.unset,
+				})
+				return checkedPatch
 			},
 		)
 		// Everything this edit changed was in a column the source no longer has.

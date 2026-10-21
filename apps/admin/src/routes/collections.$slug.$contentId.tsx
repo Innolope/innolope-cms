@@ -1882,6 +1882,7 @@ function CollectionContentEditor() {
 		<div className="flex h-full flex-col">
 			<ExternalSyncNotice
 				status={automaticSync}
+				collectionId={collection?.id}
 				onReview={() => setExternalConflicts(automaticSync?.conflicts ?? [])}
 			/>
 			{externalConflicts.length > 0 && collection && (

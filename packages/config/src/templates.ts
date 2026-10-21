@@ -19,6 +19,8 @@ export interface CollectionFieldUi {
 	 * `apps/admin/src/lib/field-presets.ts` for the catalogue.
 	 */
 	preset?: string
+	/** Role → the key this field's documents use for it (`{ url: 'src' }`). */
+	presetKeys?: Record<string, string>
 	/** A human confirmed `preset` in the field designer; detection never sets this. */
 	presetConfirmed?: boolean
 	/** Sub-key whose value titles a collapsed row or card. */

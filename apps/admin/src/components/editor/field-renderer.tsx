@@ -17,12 +17,14 @@
 
 import type { CollectionField } from '@innolope/config'
 import { useTranslation } from 'react-i18next'
+import { toNumberValue } from '../../lib/number-value'
 import { useAutoSizeTextarea } from '../../lib/use-autosize-textarea'
 import { Dropdown } from '../dropdown'
 import { JsonField } from './json-field'
 import { LocalizedTextField } from './localized-text-field'
 import { ObjectArrayField } from './object-array-field'
 import { PillInput } from './pill-input'
+import { PresetField, presetHandles } from './presets/preset-field'
 import { RelationField } from './relation-field'
 import { SubformField } from './subform-field'
 
@@ -210,6 +212,20 @@ export function FieldRenderer({
 		return <JsonField value={value} onChange={(v) => onChange(v)} disabled />
 	}
 
+	// A recognised shape (image, link, money, …) renders as one control in the
+	// document's own key names, instead of a generic subform.
+	if (!localized && presetHandles(f, value)) {
+		return (
+			<PresetField
+				field={f}
+				value={value}
+				onChange={onChange}
+				disabled={ro}
+				locale={locale?.activeLocale}
+			/>
+		)
+	}
+
 	// `boolean` ────────────────────────────────────────────────────────────────
 	if (f.type === 'boolean') {
 		return (
@@ -234,7 +250,7 @@ export function FieldRenderer({
 			<input
 				type="number"
 				value={String(value ?? '')}
-				onChange={(e) => onChange(e.target.value ? Number(e.target.value) : '')}
+				onChange={(e) => onChange(e.target.value ? toNumberValue(e.target.value) : '')}
 				disabled={ro}
 				placeholder={placeholder}
 				className={inputCls}

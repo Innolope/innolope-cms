@@ -33,6 +33,12 @@ export const collections = pgTable(
 		// Source-table column used as the incremental cursor (e.g. updated_at).
 		// Null means incremental mode is unavailable for this collection.
 		cursorColumn: text(),
+		// What the source table actually is — columns with their constraints, or a
+		// MongoDB type histogram — as opposed to the editor-facing `fields`. The write
+		// path restores native types and refuses impossible writes from it.
+		sourceSchema: jsonb().$type<SourceSchema>(),
+		// `sourceSchema.hash`, kept beside it for a cheap drift comparison.
+		sourceSchemaHash: text(),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	},
@@ -85,6 +91,8 @@ export interface CollectionFieldUi {
 	 * `apps/admin/src/lib/field-presets.ts` for the catalogue.
 	 */
 	preset?: string
+	/** Role → the key this field's documents use for it (`{ url: 'src' }`). */
+	presetKeys?: Record<string, string>
 	/** A human confirmed `preset` in the field designer; detection never sets this. */
 	presetConfirmed?: boolean
 	/** Sub-key whose value titles a collapsed row or card. */
