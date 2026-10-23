@@ -1007,6 +1007,28 @@ describe.skipIf(!hasTestDb)('IndexNow (real Postgres)', () => {
 			expect(await queuedUrls(site)).toEqual([])
 		})
 
+		it('sends every URL exactly once when several flushes race over the same queue', async () => {
+			const site = await seedSite()
+			const records = await Promise.all(
+				Array.from({ length: 6 }, () => seedContent(site, 'published')),
+			)
+			const res = await api(
+				site,
+				'POST',
+				`/api/v1/indexnow/collections/${site.collectionId}/resubmit`,
+			)
+			expect(res.json()).toEqual({ queued: 6, skipped: 0 })
+
+			// Several instances' timers firing at once: each URL must be claimed by one.
+			const now = later(MINUTE)
+			await Promise.all(Array.from({ length: 4 }, () => flush(now, { maxUrlsPerRequest: 2 })))
+
+			const sent = sentUrls(site)
+			expect(sorted(sent)).toEqual(sorted(records.map((r) => urlOf(site, r.slug as string))))
+			expect(new Set(sent).size).toBe(sent.length)
+			expect(await queuedUrls(site)).toEqual([])
+		})
+
 		it.each([
 			[
 				'a 429 with Retry-After',

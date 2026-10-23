@@ -28,7 +28,7 @@ import {
  * The IndexNow queue: content events put the public URLs they changed into
  * `indexnow_queue`, and a timer sends them in batches. Durable on purpose — a
  * deploy right after a publish must not lose the submission — and claimed with
- * a lease plus SKIP LOCKED, so several API instances never send a URL twice.
+ * a lease (compare-and-set), so several API instances never send a URL twice.
  *
  * Content events are the only feed, so every publish path (editor, bulk update,
  * bulk actions, approve, revert, scheduled publisher, MCP) is covered by the
@@ -329,17 +329,23 @@ async function flushGroup(
 			: sql`${indexNowQueue.collectionId} IS NULL`,
 		eq(indexNowQueue.host, group.host),
 	)
-	// Claim: SKIP LOCKED plus the lease keep a sibling instance on other rows.
+	const claimable = sql`(${indexNowQueue.leaseUntil} IS NULL OR ${indexNowQueue.leaseUntil} <= ${at})
+		AND (${indexNowQueue.attempts} = 0 OR ${indexNowQueue.nextAttemptAt} <= ${at})`
+	// Claim with a compare-and-set, like the webhook retry sweep: the outer WHERE
+	// re-checks the lease on each row it updates, so when two instances pick the
+	// same rows, the second finds them leased (Postgres re-evaluates after the
+	// row lock; CockroachDB retries the transaction) and claims none of them.
 	const rows = await app.db
 		.update(indexNowQueue)
 		.set({ leaseToken: token, leaseUntil: new Date(now.getTime() + LEASE_MS) })
 		.where(
-			inArray(
-				indexNowQueue.id,
-				sql`(SELECT ${indexNowQueue.id} FROM ${indexNowQueue} WHERE ${sameGroup}
-					AND (${indexNowQueue.leaseUntil} IS NULL OR ${indexNowQueue.leaseUntil} <= ${at})
-					AND (${indexNowQueue.attempts} = 0 OR ${indexNowQueue.nextAttemptAt} <= ${at})
-					ORDER BY ${indexNowQueue.createdAt} LIMIT ${max} FOR UPDATE SKIP LOCKED)`,
+			and(
+				inArray(
+					indexNowQueue.id,
+					sql`(SELECT ${indexNowQueue.id} FROM ${indexNowQueue} WHERE ${sameGroup}
+						AND ${claimable} ORDER BY ${indexNowQueue.createdAt} LIMIT ${max})`,
+				),
+				claimable,
 			),
 		)
 		.returning()
