@@ -60,6 +60,23 @@ export interface Collection {
 	name: string
 	description: string | null
 	fields: { name: string; type: string; required?: boolean; localized?: boolean }[]
+	/** `publicUrlTemplate`: where a record lives on the site, e.g. `https://example.com/blog/{slug}/`. */
+	settings?: { publicUrlTemplate?: string }
+}
+
+/**
+ * The IndexNow key-file contract (GET /api/v1/indexnow/key). Write
+ * `keyFile.content` to `keyFile.path` on the site so search engines can verify
+ * the CMS's submissions. All fields are null when no key is configured.
+ */
+export interface IndexNowKeyFile {
+	enabled: boolean
+	key: string | null
+	/** The configured key-file URL, or null for the default `https://<host>/<key>.txt`. */
+	keyLocation: string | null
+	keyFile: { path: string; content: string } | null
+	/** Each host the project submits for, with the key-file URL used there. */
+	hosts: { host: string; keyLocation: string }[]
 }
 
 export interface LocaleInfo {

@@ -7,6 +7,7 @@ import { SaveBar } from '../components/save-bar'
 import { CustomDomainSettings } from '../components/settings/custom-domain-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
+import { IndexNowSettings } from '../components/settings/indexnow-settings'
 import { LicenseSettings } from '../components/settings/license-settings'
 import { MediaSettings } from '../components/settings/media-settings'
 import { SsoSettings } from '../components/settings/sso-settings'
@@ -58,6 +59,7 @@ const LEGACY_TABS: Record<string, SettingsTab> = {
 	'api-keys': 'developer',
 	webhooks: 'developer',
 	'custom-domain': 'developer',
+	indexnow: 'developer',
 }
 
 function SettingsSection({
@@ -208,6 +210,12 @@ function Settings() {
 					<LicenseGate feature="webhooks" featureLabel={t('settingsPage.featureLabels.webhooks')}>
 						<WebhookSettings />
 					</LicenseGate>
+				</SettingsSection>
+				<SettingsSection
+					title={t('settingsPage.sections.indexNow.title')}
+					description={t('settingsPage.sections.indexNow.description')}
+				>
+					<IndexNowSettings />
 				</SettingsSection>
 				<SettingsSection
 					title={t('settingsPage.sections.customDomain.title')}

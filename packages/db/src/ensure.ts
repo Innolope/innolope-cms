@@ -103,6 +103,7 @@ export async function ensureTables(connectionUrl: string) {
 				"lastSyncedAt" TIMESTAMPTZ,
 				"lastSyncedCursor" TIMESTAMPTZ,
 				"cursorColumn" TEXT,
+				settings JSONB NOT NULL DEFAULT '{}',
 				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
 				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 			)
@@ -508,6 +509,39 @@ export async function ensureTables(connectionUrl: string) {
 			)
 		`
 
+		await sql`
+			CREATE TABLE IF NOT EXISTS indexnow_queue (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				"collectionId" UUID REFERENCES collections(id) ON DELETE SET NULL,
+				host TEXT NOT NULL,
+				url TEXT NOT NULL,
+				reason TEXT NOT NULL DEFAULT 'change',
+				attempts INT NOT NULL DEFAULT 0,
+				"nextAttemptAt" TIMESTAMPTZ NOT NULL,
+				"leaseToken" UUID,
+				"leaseUntil" TIMESTAMPTZ,
+				"lastError" TEXT,
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
+			CREATE TABLE IF NOT EXISTS indexnow_submissions (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				"collectionId" UUID REFERENCES collections(id) ON DELETE SET NULL,
+				host TEXT NOT NULL,
+				"urlCount" INT NOT NULL,
+				"sampleUrls" JSONB NOT NULL DEFAULT '[]',
+				status TEXT NOT NULL,
+				"statusCode" INT,
+				message TEXT,
+				trigger TEXT NOT NULL DEFAULT 'change',
+				"createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
 		// pgvector: extension + embeddings table + HNSW index. Each step degrades
 		// gracefully when the extension is unavailable — semantic search is disabled
 		// but the rest of the schema still comes up.
@@ -549,6 +583,7 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "cursorColumn" TEXT`
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "sourceSchema" JSONB`
 		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS "sourceSchemaHash" TEXT`
+		await sql`ALTER TABLE collections ADD COLUMN IF NOT EXISTS settings JSONB NOT NULL DEFAULT '{}'`
 		await sql`ALTER TABLE external_sync_state ADD COLUMN IF NOT EXISTS "schemaDrift" JSONB`
 		await sql`ALTER TABLE external_sync_state ADD COLUMN IF NOT EXISTS "schemaCheckedAt" TIMESTAMPTZ`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalId" TEXT`
@@ -592,6 +627,9 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS webhooks_project_idx ON webhooks("projectId")`
 		await sql`CREATE INDEX IF NOT EXISTS deliveries_webhook_idx ON webhook_deliveries("webhookId")`
 		await sql`CREATE INDEX IF NOT EXISTS deliveries_status_retry_idx ON webhook_deliveries(status,"nextRetry")`
+		await sql`CREATE UNIQUE INDEX IF NOT EXISTS indexnow_queue_project_url_idx ON indexnow_queue("projectId", url)`
+		await sql`CREATE INDEX IF NOT EXISTS indexnow_queue_due_idx ON indexnow_queue("nextAttemptAt")`
+		await sql`CREATE INDEX IF NOT EXISTS indexnow_submissions_project_idx ON indexnow_submissions("projectId","collectionId","createdAt")`
 		await sql`CREATE INDEX IF NOT EXISTS analytics_project_idx ON content_analytics("projectId")`
 		await sql`CREATE INDEX IF NOT EXISTS analytics_project_event_idx ON content_analytics("projectId",event)`
 		await sql`CREATE INDEX IF NOT EXISTS analytics_content_idx ON content_analytics("contentId")`

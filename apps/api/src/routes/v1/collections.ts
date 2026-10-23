@@ -1,7 +1,15 @@
 import { type CollectionField, externalStatusSupport } from '@innolope/config'
-import { collections, content, externalSyncState, importJobs, projects } from '@innolope/db'
+import {
+	type CollectionSettings,
+	collections,
+	content,
+	externalSyncState,
+	importJobs,
+	projects,
+} from '@innolope/db'
 import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { validatePublicUrl } from '../../adapters/connection-guard.js'
 import { createExternalDbAdapter } from '../../adapters/external-db.js'
 import {
 	checkCollectionAccess,
@@ -19,6 +27,8 @@ import {
 	markExternalSyncActive,
 	syncExternalCollection,
 } from '../../services/external-sync-worker.js'
+import { checkUrlTemplate } from '../../services/indexnow.js'
+import { queueCollectionUrls } from '../../services/indexnow-queue.js'
 import { previewMarkdownCacheSync } from '../../services/markdown-cache.js'
 
 function getExternalDbConfig(project: { settings?: unknown } | undefined) {
@@ -31,6 +41,40 @@ function getExternalDbConfig(project: { settings?: unknown } | undefined) {
 		connectionString: extDb.connectionString as string,
 		database: extDb.database as string | undefined,
 	}
+}
+
+/**
+ * Merge a `settings` patch into a collection's settings. Only known keys are
+ * kept; `publicUrlTemplate: null` (or '') removes the template. The template's
+ * host goes through the outbound URL guard: it is where IndexNow submissions
+ * and key-file checks for this collection are aimed.
+ */
+export async function mergeCollectionSettings(
+	current: CollectionSettings,
+	patch: unknown,
+): Promise<{ settings: CollectionSettings } | { error: string }> {
+	if (patch === undefined) return { settings: current }
+	if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+		return { error: 'settings must be an object' }
+	}
+	const next: CollectionSettings = { ...current }
+	if ('publicUrlTemplate' in patch) {
+		const value = (patch as { publicUrlTemplate?: unknown }).publicUrlTemplate
+		if (value === null || value === undefined || value === '') {
+			delete next.publicUrlTemplate
+		} else if (typeof value !== 'string') {
+			return { error: 'settings.publicUrlTemplate must be a string or null' }
+		} else if (value.trim() !== current.publicUrlTemplate) {
+			// Only a changed template is screened, so re-saving other settings never
+			// fails while the site's DNS is briefly unavailable.
+			const check = checkUrlTemplate(value)
+			if (!check.ok) return { error: check.error }
+			const blocked = await validatePublicUrl(`${check.origin}/`)
+			if (blocked) return { error: `Public URL template: ${blocked}` }
+			next.publicUrlTemplate = value.trim()
+		}
+	}
+	return { settings: next }
 }
 
 /**
@@ -106,6 +150,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 				accessMode: collections.accessMode,
 				externalTable: collections.externalTable,
 				sidebarMode: collections.sidebarMode,
+				settings: collections.settings,
 				createdAt: collections.createdAt,
 				contentCount: sql<number>`cast(count(${content.id}) as int)`,
 			})
@@ -484,20 +529,24 @@ export async function collectionRoutes(app: FastifyInstance) {
 
 	// Create collection (admin+, project-scoped)
 	app.post('/', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
-		const { name, label, description, fields, titleField, sidebarMode } = request.body as {
-			name: string
-			label: string
-			description?: string
-			fields?: unknown[]
-			titleField?: string | null
-			sidebarMode?: 'auto' | 'show' | 'hide'
-		}
+		const { name, label, description, fields, titleField, sidebarMode, settings } =
+			request.body as {
+				name: string
+				label: string
+				description?: string
+				fields?: unknown[]
+				titleField?: string | null
+				sidebarMode?: 'auto' | 'show' | 'hide'
+				settings?: unknown
+			}
 
 		if (name === 'media') {
 			return reply
 				.status(400)
 				.send({ error: 'The "media" collection name is reserved by the system' })
 		}
+		const merged = await mergeCollectionSettings({}, settings)
+		if ('error' in merged) return reply.status(400).send({ error: merged.error })
 
 		const [created] = await app.db
 			.insert(collections)
@@ -509,6 +558,7 @@ export async function collectionRoutes(app: FastifyInstance) {
 				fields: (fields || []) as CollectionField[],
 				titleField: titleField ?? null,
 				...(sidebarMode ? { sidebarMode } : {}),
+				settings: merged.settings,
 			})
 			.returning()
 
@@ -520,17 +570,19 @@ export async function collectionRoutes(app: FastifyInstance) {
 		'/:id',
 		{ preHandler: [app.requireProject('admin')] },
 		async (request, reply) => {
-			const { name, label, description, fields, titleField, sidebarMode } = request.body as {
-				name?: string
-				label?: string
-				description?: string
-				fields?: unknown[]
-				titleField?: string | null
-				sidebarMode?: 'auto' | 'show' | 'hide'
-			}
+			const { name, label, description, fields, titleField, sidebarMode, settings } =
+				request.body as {
+					name?: string
+					label?: string
+					description?: string
+					fields?: unknown[]
+					titleField?: string | null
+					sidebarMode?: 'auto' | 'show' | 'hide'
+					settings?: unknown
+				}
 
 			const [existing] = await app.db
-				.select({ source: collections.source })
+				.select({ source: collections.source, settings: collections.settings })
 				.from(collections)
 				.where(
 					and(
@@ -554,6 +606,11 @@ export async function collectionRoutes(app: FastifyInstance) {
 			if (fields !== undefined) updates.fields = fields
 			if (titleField !== undefined) updates.titleField = titleField
 			if (sidebarMode !== undefined) updates.sidebarMode = sidebarMode
+			if (settings !== undefined) {
+				const merged = await mergeCollectionSettings(existing.settings ?? {}, settings)
+				if ('error' in merged) return reply.status(400).send({ error: merged.error })
+				updates.settings = merged.settings
+			}
 
 			const [updated] = await app.db
 				.update(collections)
@@ -593,6 +650,13 @@ export async function collectionRoutes(app: FastifyInstance) {
 					.status(400)
 					.send({ error: 'The Media collection is managed by the system and cannot be deleted' })
 			}
+
+			// Its published pages leave the site with it: tell search engines. Best
+			// effort — a project without IndexNow, or a collection without public
+			// URLs, has nothing to queue, and a queue failure must not block the delete.
+			await queueCollectionUrls(app, getProject(request).id, request.params.id, 'remove').catch(
+				(err) => app.log.warn(err, '[indexnow] could not queue the URLs of a deleted collection'),
+			)
 
 			await app.db
 				.delete(collections)

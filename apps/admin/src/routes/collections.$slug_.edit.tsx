@@ -93,6 +93,9 @@ function CollectionSchemaEditor() {
 	// `null` = use the smart heuristic (display-title.ts).
 	const [titleField, setTitleField] = useState<string | null>(null)
 	const [sidebarMode, setSidebarMode] = useState<'auto' | 'show' | 'hide'>('auto')
+	// Where a record lives on the public site; drives IndexNow submission.
+	const [publicUrlTemplate, setPublicUrlTemplate] = useState('')
+	const [loadedPublicUrlTemplate, setLoadedPublicUrlTemplate] = useState('')
 	// Which field rows have their "Advanced" expander open. Keyed by index.
 	const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 	const [saving, setSaving] = useState(false)
@@ -108,8 +111,11 @@ function CollectionSchemaEditor() {
 			| Record<string, ProjectFieldPreset>
 			| undefined) ?? {}
 
+	// Keyed on the id, not the list entry: the collections list refetches on every
+	// tab refocus, and reloading here then would wipe the form's unsaved edits.
+	const collectionId = collection?.id
 	useEffect(() => {
-		if (collection) {
+		if (collectionId) {
 			api
 				.get<{
 					name: string
@@ -118,7 +124,8 @@ function CollectionSchemaEditor() {
 					fields: CollectionField[]
 					titleField?: string | null
 					sidebarMode?: 'auto' | 'show' | 'hide'
-				}>(`/api/v1/collections/${collection.id}`)
+					settings?: { publicUrlTemplate?: string }
+				}>(`/api/v1/collections/${collectionId}`)
 				.then((col) => {
 					setLabel(col.label)
 					setCollectionName(col.name)
@@ -127,13 +134,15 @@ function CollectionSchemaEditor() {
 					setLoadedFields(col.fields)
 					setTitleField(col.titleField ?? null)
 					setSidebarMode(col.sidebarMode ?? 'auto')
+					setPublicUrlTemplate(col.settings?.publicUrlTemplate ?? '')
+					setLoadedPublicUrlTemplate(col.settings?.publicUrlTemplate ?? '')
 				})
 				.catch(() => navigate({ to: '/dashboard' }))
 				.finally(() => setLoading(false))
 		} else {
 			setLoading(false)
 		}
-	}, [collection, navigate])
+	}, [collectionId, navigate])
 
 	const addField = () => {
 		setFields([...fields, { name: '', type: 'text', required: false, localized: false }])
@@ -195,6 +204,10 @@ function CollectionSchemaEditor() {
 				fields: validFields,
 				titleField: titleField || null,
 				sidebarMode,
+				// Sent only when changed: the server checks a new template's host.
+				...(publicUrlTemplate.trim() !== loadedPublicUrlTemplate && {
+					settings: { publicUrlTemplate: publicUrlTemplate.trim() || null },
+				}),
 			})
 			await refreshCollections()
 			navigate({ to: `/collections/${collectionName}` })
@@ -297,6 +310,24 @@ function CollectionSchemaEditor() {
 						]}
 					/>
 					<p className="mt-1 text-xs text-text-muted">{t('collections.edit.sidebarHint')}</p>
+				</Field>
+
+				<Field label={t('collections.edit.publicUrl')}>
+					<input
+						type="url"
+						value={publicUrlTemplate}
+						onChange={(e) => setPublicUrlTemplate(e.target.value)}
+						placeholder="https://example.com/blog/{slug}/"
+						className="w-full px-3 py-2 bg-input border border-border rounded text-sm font-mono focus:outline-none focus:border-border-strong"
+					/>
+					<p className="mt-1 text-xs text-text-muted">{t('collections.edit.publicUrlHint')}</p>
+					{publicUrlExample(publicUrlTemplate, currentProject?.settings) && (
+						<p className="mt-1 text-xs text-text-secondary font-mono break-all">
+							{t('collections.edit.publicUrlExample', {
+								url: publicUrlExample(publicUrlTemplate, currentProject?.settings),
+							})}
+						</p>
+					)}
 				</Field>
 
 				<div>
@@ -672,6 +703,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 			{children}
 		</label>
 	)
+}
+
+/** What a record's public URL looks like under the template, as a sanity check. */
+function publicUrlExample(template: string, projectSettings: unknown): string | null {
+	const value = template.trim()
+	if (!/^https?:\/\/[^/{}]+/.test(value) || !/\{(slug|id)\}/.test(value)) return null
+	const locale = (projectSettings as { defaultLocale?: string } | undefined)?.defaultLocale ?? 'en'
+	return value
+		.replaceAll('{slug}', 'example-post')
+		.replaceAll('{locale}', locale)
+		.replaceAll('{id}', '3f2c9a10-0000-4000-8000-000000000000')
 }
 
 /** The label of a field's preset chip: a catalogue name or a project preset's own. */

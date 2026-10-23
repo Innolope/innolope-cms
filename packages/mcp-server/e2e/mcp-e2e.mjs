@@ -64,7 +64,7 @@ const client = await connect()
 // --- 1. tools/list: annotations derived from operationType ------------------
 const { tools } = await client.listTools()
 const byName = Object.fromEntries(tools.map((t) => [t.name, t]))
-check('29 tools registered', tools.length === 29, `got ${tools.length}`)
+check('36 tools registered', tools.length === 36, `got ${tools.length}`)
 check(
 	'list_content has readOnlyHint=true',
 	byName.list_content?.annotations?.readOnlyHint === true,
