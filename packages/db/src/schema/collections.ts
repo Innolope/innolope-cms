@@ -39,11 +39,23 @@ export const collections = pgTable(
 		sourceSchema: jsonb().$type<SourceSchema>(),
 		// `sourceSchema.hash`, kept beside it for a cheap drift comparison.
 		sourceSchemaHash: text(),
+		// Per-collection options that are not part of the field schema.
+		settings: jsonb().$type<CollectionSettings>().notNull().default({}),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 	},
 	(table) => [uniqueIndex('collections_name_project_idx').on(table.name, table.projectId)],
 )
+
+export interface CollectionSettings {
+	/**
+	 * Where a record of this collection lives on the public site, e.g.
+	 * `https://example.com/blog/{slug}/`. Placeholders: `{slug}`, `{locale}`,
+	 * `{id}`. Unset means the collection has no public pages, so nothing of it is
+	 * submitted to search engines.
+	 */
+	publicUrlTemplate?: string
+}
 
 export interface CollectionField {
 	name: string

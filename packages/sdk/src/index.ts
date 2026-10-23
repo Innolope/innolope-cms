@@ -5,6 +5,7 @@ export type {
 	Content,
 	ContentListParams,
 	ContentListResponse,
+	IndexNowKeyFile,
 	LocaleInfo,
 	MediaItem,
 } from './types.js'

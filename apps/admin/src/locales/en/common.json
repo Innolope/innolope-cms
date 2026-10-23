@@ -1015,6 +1015,69 @@
 					"image-id": "Bare image ID"
 				}
 			}
+		},
+		"indexNow": {
+			"intro": "IndexNow tells Bing, Yandex, Seznam, Naver and other search engines the moment a page is published, updated, unpublished or deleted, so they recrawl it within minutes instead of days. Every collection with a public URL takes part.",
+			"enabled": "Submit changed pages to search engines",
+			"enabledHelp": "Changes are batched: edits made within a minute go out as one submission.",
+			"key": "Key",
+			"keyPending": "A key is created when you save.",
+			"copy": "Copy",
+			"copied": "Copied",
+			"regenerate": "Regenerate",
+			"regenerateConfirmTitle": "Regenerate the IndexNow key",
+			"regenerateConfirmMessage": "Your site must serve the new key file before submissions resume. Until then they are held, not lost.",
+			"regenerateConfirmLabel": "Regenerate",
+			"keyLocation": "Key file URL",
+			"keyLocationPlaceholder": "https://example.com/{{key}}.txt",
+			"keyLocationHelp": "Where your site serves the key. Leave empty for https://<your-site>/<key>.txt, or use a sub-path when the site can only serve files there, e.g. https://example.com/news/<key>.txt.",
+			"save": "Save",
+			"saving": "Saving…",
+			"saved": "IndexNow settings saved",
+			"saveFailed": "Failed to save IndexNow settings",
+			"loadFailed": "Failed to load IndexNow settings",
+			"keyFilesTitle": "Key file your site must serve",
+			"keyFilesHelp": "A plain-text file whose only content is the key. Submissions are held until it is reachable.",
+			"keyFilesNone": "Give a collection a public URL first; the key file goes on that site.",
+			"keyFileContent": "File content",
+			"buildHint1": "Static site? On every build, read",
+			"buildHint2": "with a read-only API key and write keyFile.content to keyFile.path.",
+			"check": "Check key file",
+			"checking": "Checking…",
+			"checkFailed": "Could not check the key file",
+			"collectionsTitle": "Collections",
+			"collectionsHelp": "Collections with a public URL are submitted. Set the URL in a collection’s settings.",
+			"collectionsEmpty": "No collection has a public URL yet, so nothing is submitted. Open a collection, choose Edit, and fill in Public URL.",
+			"never": "Not submitted yet",
+			"queued_one": "{{count}} URL queued",
+			"queued_other": "{{count}} URLs queued",
+			"held_one": "{{count}} URL held until the key file is valid",
+			"held_other": "{{count}} URLs held until the key file is valid",
+			"urls_one": "{{count}} URL",
+			"urls_other": "{{count}} URLs",
+			"resubmit": "Submit all",
+			"resubmitting": "Queuing…",
+			"resubmitted_one": "Queued {{count}} URL",
+			"resubmitted_other": "Queued {{count}} URLs",
+			"resubmitFailed": "Could not queue the collection",
+			"resubmitDisabled": "Turn IndexNow on first",
+			"recentTitle": "Recent submissions",
+			"recentEmpty": "Nothing submitted yet.",
+			"colWhen": "When",
+			"colCollection": "Collection",
+			"colUrls": "URLs",
+			"colResult": "Result",
+			"deletedCollection": "Deleted collection",
+			"status": {
+				"success": "Submitted",
+				"retrying": "Retrying",
+				"waiting": "Held",
+				"failed": "Failed"
+			},
+			"trigger": {
+				"change": "change",
+				"resubmit": "full resubmit"
+			}
 		}
 	},
 	"notFound": {
@@ -1695,7 +1758,10 @@
 				"saveFailed": "Save failed",
 				"deleteFailed": "Delete failed",
 				"noExternalDb": "No external DB config"
-			}
+			},
+			"publicUrl": "Public URL",
+			"publicUrlHint": "Where each record lives on your site. Placeholders: {slug}, {locale}, {id}. Used to notify search engines through IndexNow (Settings → Developer).",
+			"publicUrlExample": "e.g. {{url}}"
 		},
 		"bulk": {
 			"selected_one": "{{count}} selected",
@@ -1920,6 +1986,10 @@
 			"customDomain": {
 				"title": "Custom Domain",
 				"description": "Serve this project from your own domain."
+			},
+			"indexNow": {
+				"title": "IndexNow",
+				"description": "Tell search engines when published pages change."
 			}
 		},
 		"featureLabels": {

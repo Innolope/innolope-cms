@@ -305,6 +305,10 @@ export async function projectRoutes(app: FastifyInstance) {
 					}
 					nextSettings.covers = covers
 				}
+				// IndexNow is owned by /api/v1/indexnow. Forms here echo the settings they
+				// loaded, so a stale copy must not switch IndexNow off or swap its key.
+				if (currentSettings.indexNow === undefined) delete nextSettings.indexNow
+				else nextSettings.indexNow = currentSettings.indexNow
 				updates.settings = sealProjectSettings(nextSettings)
 			}
 

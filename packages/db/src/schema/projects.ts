@@ -113,4 +113,20 @@ export interface ProjectSettings {
 		/** Stage sizes the template supports; the first is the default. */
 		formats?: { name: string; width: number; height: number }[]
 	}
+	/**
+	 * IndexNow submission for the project's site. Owned by `/api/v1/indexnow`:
+	 * a generic project-settings save never changes it.
+	 */
+	indexNow?: IndexNowSettings
+}
+
+export interface IndexNowSettings {
+	enabled: boolean
+	/** Proves ownership of the site: served as the only content of the key file. */
+	key: string
+	/**
+	 * Where the site serves the key file. Unset means `https://<host>/<key>.txt`.
+	 * On a host other than this URL's, the same path is used on that host.
+	 */
+	keyLocation?: string | null
 }

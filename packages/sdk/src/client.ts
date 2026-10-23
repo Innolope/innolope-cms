@@ -4,6 +4,7 @@ import type {
 	Content,
 	ContentListParams,
 	ContentListResponse,
+	IndexNowKeyFile,
 	LocaleInfo,
 	MediaItem,
 } from './types.js'
@@ -111,6 +112,17 @@ export class InnolopeCMS {
 		slug: string,
 	): Promise<Record<string, { id: string; locale: string; status: string }>> {
 		return this.request(`/api/v1/locales/translations/${slug}`)
+	}
+
+	// IndexNow
+
+	/**
+	 * The IndexNow key file this site must serve. A static site builder writes
+	 * `keyFile.content` to `keyFile.path` (when `keyFile` is not null) on every
+	 * build; a read-only API key is enough.
+	 */
+	async getIndexNowKey(): Promise<IndexNowKeyFile> {
+		return this.request<IndexNowKeyFile>('/api/v1/indexnow/key')
 	}
 
 	// Health

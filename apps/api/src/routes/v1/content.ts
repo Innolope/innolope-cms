@@ -12,7 +12,11 @@ import {
 	checkCollectionAccess,
 	resolveReadableCollectionScope,
 } from '../../lib/collection-access.js'
-import { emitContentStatusEvent } from '../../lib/content-events.js'
+import {
+	contentEventData,
+	deletedContentEventData,
+	emitContentStatusEvent,
+} from '../../lib/content-events.js'
 import { requestSource } from '../../lib/request-source.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
@@ -1266,9 +1270,11 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		for (const result of updated) {
+			const before = currentMap.get(result.id)
 			emitContentStatusEvent(app, {
 				base: 'content:updated',
-				previousStatus: currentMap.get(result.id)?.status,
+				previousStatus: before?.status,
+				...(before && { previous: { slug: before.slug, locale: before.locale } }),
 				updated: result,
 				projectId: getProject(request).id,
 			})
@@ -1647,8 +1653,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					app.events.emit({
 						type: eventType,
 						data: {
-							id: updated.id,
-							slug: updated.slug,
+							...contentEventData(updated, current),
 							version: updated.version,
 							projectId: getProject(request).id,
 						},
@@ -1732,8 +1737,13 @@ export async function contentRoutes(app: FastifyInstance) {
 				app.events.emit({
 					type: 'content:deleted',
 					data: {
-						id: request.params.id,
-						slug: live.item.slug ?? null,
+						...deletedContentEventData({
+							id: request.params.id,
+							slug: typeof live.item.slug === 'string' ? live.item.slug : null,
+							collectionId: liveCol.id,
+							locale: typeof live.item.locale === 'string' ? live.item.locale : undefined,
+							status: typeof live.item.status === 'string' ? live.item.status : undefined,
+						}),
 						projectId: getProject(request).id,
 					},
 					timestamp: new Date().toISOString(),
@@ -1774,7 +1784,7 @@ export async function contentRoutes(app: FastifyInstance) {
 
 			app.events.emit({
 				type: 'content:deleted',
-				data: { id: deleted.id, slug: deleted.slug, projectId: getProject(request).id },
+				data: { ...deletedContentEventData(deleted), projectId: getProject(request).id },
 				timestamp: new Date().toISOString(),
 			})
 
@@ -1927,8 +1937,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					app.events.emit({
 						type: 'content:updated',
 						data: {
-							id: reverted.id,
-							slug: reverted.slug,
+							...contentEventData(reverted, current),
 							revertedTo: targetVersion,
 							projectId: getProject(request).id,
 						},
@@ -2181,7 +2190,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				afterCommit(() =>
 					app.events.emit({
 						type: 'content:published',
-						data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
+						data: { ...contentEventData(updated, item), projectId: getProject(request).id },
 						timestamp: new Date().toISOString(),
 					}),
 				)
@@ -2246,7 +2255,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				afterCommit(() =>
 					app.events.emit({
 						type: 'content:submitted',
-						data: { id: updated.id, slug: updated.slug, projectId: getProject(request).id },
+						data: { ...contentEventData(updated, item), projectId: getProject(request).id },
 						timestamp: new Date().toISOString(),
 					}),
 				)
@@ -2399,7 +2408,11 @@ export async function contentRoutes(app: FastifyInstance) {
 				afterCommit(() =>
 					app.events.emit({
 						type: 'content:rejected',
-						data: { id: updated.id, slug: updated.slug, reason, projectId: getProject(request).id },
+						data: {
+							...contentEventData(updated, item),
+							reason,
+							projectId: getProject(request).id,
+						},
 						timestamp: new Date().toISOString(),
 					}),
 				)

@@ -200,6 +200,7 @@ export class InnolopeClient {
 			description?: string
 			fields?: unknown[]
 			titleField?: string | null
+			settings?: { publicUrlTemplate?: string | null }
 		},
 		projectIdOverride?: string,
 	) {
@@ -207,6 +208,47 @@ export class InnolopeClient {
 			'/api/v1/collections',
 			{ method: 'POST', body: JSON.stringify(input) },
 			projectIdOverride,
+		)
+	}
+
+	/** Partial update; `fields` is deliberately not offered to agents here. */
+	async updateCollection(
+		id: string,
+		input: {
+			label?: string
+			description?: string
+			titleField?: string | null
+			settings?: { publicUrlTemplate?: string | null }
+		},
+	) {
+		return this.request<CollectionItem>(`/api/v1/collections/${encodeURIComponent(id)}`, {
+			method: 'PUT',
+			body: JSON.stringify(input),
+		})
+	}
+
+	// --- IndexNow --------------------------------------------------------------
+
+	async getIndexNowStatus() {
+		return this.request<IndexNowStatus>('/api/v1/indexnow')
+	}
+
+	async configureIndexNow(input: {
+		enabled?: boolean
+		key?: string
+		keyLocation?: string | null
+		regenerateKey?: boolean
+	}) {
+		return this.request<IndexNowStatus>('/api/v1/indexnow', {
+			method: 'PUT',
+			body: JSON.stringify(input),
+		})
+	}
+
+	async resubmitToIndexNow(collectionId: string) {
+		return this.request<{ queued: number; skipped: number }>(
+			`/api/v1/indexnow/collections/${encodeURIComponent(collectionId)}/resubmit`,
+			{ method: 'POST', body: '{}' },
 		)
 	}
 
@@ -641,6 +683,8 @@ interface CollectionItem {
 	accessMode?: string | null
 	/** For external collections: the table/collection in the source database. */
 	externalTable?: string | null
+	/** `publicUrlTemplate`: where a record lives on the site, for IndexNow. */
+	settings?: { publicUrlTemplate?: string }
 	fields: Array<{
 		name: string
 		type: string
@@ -648,6 +692,40 @@ interface CollectionItem {
 		/** Value is a per-language map (`{ en, uk }`) in the source database. */
 		localized?: boolean
 		options?: string[]
+	}>
+}
+
+/** Shape of GET /api/v1/indexnow. */
+export interface IndexNowStatus {
+	settings: { enabled: boolean; key: string | null; keyLocation: string | null }
+	keyFiles: Array<{ host: string; url: string; path: string }>
+	collections: Array<{
+		id: string
+		name: string
+		label: string
+		publicUrlTemplate: string | null
+		pending: number
+		waiting: number
+		lastSubmission: {
+			status: string
+			statusCode: number | null
+			message: string | null
+			urlCount: number
+			trigger: string
+			createdAt: string
+		} | null
+	}>
+	recent: Array<{
+		id: string
+		collectionId: string | null
+		host: string
+		urlCount: number
+		sampleUrls: string[]
+		status: string
+		statusCode: number | null
+		message: string | null
+		trigger: string
+		createdAt: string
 	}>
 }
 

@@ -1,6 +1,7 @@
 import { content } from '@innolope/db'
 import { and, asc, eq, isNotNull, lte, notInArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { contentEventData } from '../lib/content-events.js'
 import { syncExternalStatus } from './external-content.js'
 
 /**
@@ -145,8 +146,7 @@ export async function publishDueContent(app: FastifyInstance): Promise<number> {
 		app.events.emit({
 			type: 'content:published',
 			data: {
-				id: updated.id,
-				slug: updated.slug,
+				...contentEventData(updated, item),
 				projectId: updated.projectId,
 				scheduled: true,
 			},

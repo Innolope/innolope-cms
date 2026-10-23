@@ -4,6 +4,7 @@ import { and, asc, eq, gt, inArray, isNotNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { checkCollectionAccess, resolveReadableCollectionScope } from '../lib/collection-access.js'
+import { contentEventData } from '../lib/content-events.js'
 import { requestSource } from '../lib/request-source.js'
 import { getUser } from '../plugins/auth.js'
 import { getProject } from '../plugins/project.js'
@@ -80,8 +81,7 @@ export async function schedulingRoutes(app: FastifyInstance) {
 			app.events.emit({
 				type: 'content:scheduled',
 				data: {
-					id: updated.id,
-					slug: updated.slug,
+					...contentEventData(updated, current),
 					projectId: getProject(request).id,
 					publishedAt: publishedAt.toISOString(),
 				},

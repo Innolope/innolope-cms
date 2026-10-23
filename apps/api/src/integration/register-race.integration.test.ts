@@ -7,17 +7,30 @@ import { buildTestApp, hasTestDb } from '../test/harness.js'
 
 /**
  * First-admin registration must be exactly-once even under concurrent requests.
- * The shared test database is not empty, so the transactional guard is exercised
- * through the same path with the table pre-populated: every concurrent request
- * must be refused, and none may slip an extra admin in. Four requests stay
- * under the endpoint's 5/min rate limit so the guard, not the limiter, answers.
+ * The transactional guard is exercised with the users table pre-populated: every
+ * concurrent request must be refused, and none may slip an extra admin in. The
+ * suite seeds its own user — the shared test database is empty whenever this
+ * file runs before the others (or alone), and the first registration then
+ * rightly succeeds. Four requests stay under the endpoint's 5/min rate limit so
+ * the guard, not the limiter, answers.
  */
 describe.skipIf(!hasTestDb)('first-admin registration race (real Postgres)', () => {
 	let app: FastifyInstance
+	let seedId: string
 	beforeAll(async () => {
 		app = await buildTestApp()
+		const [seed] = await app.db
+			.insert(users)
+			.values({
+				email: `race-seed-${randomUUID().slice(0, 8)}@example.com`,
+				name: 'Seed',
+				role: 'editor',
+			})
+			.returning({ id: users.id })
+		seedId = seed.id
 	})
 	afterAll(async () => {
+		if (seedId) await app.db.delete(users).where(eq(users.id, seedId))
 		await app?.close()
 	})
 

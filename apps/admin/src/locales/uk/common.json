@@ -1041,6 +1041,77 @@
 					"image-id": "Лише ID зображення"
 				}
 			}
+		},
+		"indexNow": {
+			"intro": "IndexNow повідомляє Bing, Yandex, Seznam, Naver та інші пошукові системи щойно сторінку опубліковано, оновлено, знято з публікації або видалено, тож вони переобходять її за хвилини, а не дні. Бере участь кожна колекція з публічною URL-адресою.",
+			"enabled": "Надсилати змінені сторінки пошуковикам",
+			"enabledHelp": "Зміни групуються: правки протягом хвилини надсилаються одним запитом.",
+			"key": "Ключ",
+			"keyPending": "Ключ буде створено під час збереження.",
+			"copy": "Копіювати",
+			"copied": "Скопійовано",
+			"regenerate": "Створити новий",
+			"regenerateConfirmTitle": "Створити новий ключ IndexNow",
+			"regenerateConfirmMessage": "Ваш сайт має віддавати новий файл ключа, перш ніж надсилання відновиться. До того часу URL-адреси чекають у черзі й не губляться.",
+			"regenerateConfirmLabel": "Створити новий",
+			"keyLocation": "URL файлу ключа",
+			"keyLocationPlaceholder": "https://example.com/{{key}}.txt",
+			"keyLocationHelp": "Де ваш сайт віддає ключ. Залиште порожнім для https://<ваш-сайт>/<ключ>.txt або вкажіть підшлях, якщо сайт може віддавати файли лише там, наприклад https://example.com/news/<ключ>.txt.",
+			"save": "Зберегти",
+			"saving": "Збереження…",
+			"saved": "Налаштування IndexNow збережено",
+			"saveFailed": "Не вдалося зберегти налаштування IndexNow",
+			"loadFailed": "Не вдалося завантажити налаштування IndexNow",
+			"keyFilesTitle": "Файл ключа, який має віддавати ваш сайт",
+			"keyFilesHelp": "Текстовий файл, єдиний вміст якого — ключ. Надсилання чекає, доки файл стане доступним.",
+			"keyFilesNone": "Спершу вкажіть публічну URL-адресу для колекції — файл ключа розміщується на тому сайті.",
+			"keyFileContent": "Вміст файлу",
+			"buildHint1": "Статичний сайт? Під час кожної збірки читайте",
+			"buildHint2": "ключем API лише для читання й записуйте keyFile.content у keyFile.path.",
+			"check": "Перевірити файл ключа",
+			"checking": "Перевірка…",
+			"checkFailed": "Не вдалося перевірити файл ключа",
+			"collectionsTitle": "Колекції",
+			"collectionsHelp": "Надсилаються колекції з публічною URL-адресою. Її задають у налаштуваннях колекції.",
+			"collectionsEmpty": "Жодна колекція ще не має публічної URL-адреси, тому нічого не надсилається. Відкрийте колекцію, натисніть «Редагувати» й заповніть «Публічна URL-адреса».",
+			"never": "Ще не надсилалося",
+			"queued_one": "{{count}} URL-адреса в черзі",
+			"queued_few": "{{count}} URL-адреси в черзі",
+			"queued_many": "{{count}} URL-адрес у черзі",
+			"queued_other": "{{count}} URL-адреси в черзі",
+			"held_one": "{{count}} URL-адреса чекає на дійсний файл ключа",
+			"held_few": "{{count}} URL-адреси чекають на дійсний файл ключа",
+			"held_many": "{{count}} URL-адрес чекають на дійсний файл ключа",
+			"held_other": "{{count}} URL-адреси чекають на дійсний файл ключа",
+			"urls_one": "{{count}} URL-адреса",
+			"urls_few": "{{count}} URL-адреси",
+			"urls_many": "{{count}} URL-адрес",
+			"urls_other": "{{count}} URL-адреси",
+			"resubmit": "Надіслати все",
+			"resubmitting": "Додавання в чергу…",
+			"resubmitted_one": "У черзі {{count}} URL-адреса",
+			"resubmitted_few": "У черзі {{count}} URL-адреси",
+			"resubmitted_many": "У черзі {{count}} URL-адрес",
+			"resubmitted_other": "У черзі {{count}} URL-адреси",
+			"resubmitFailed": "Не вдалося додати колекцію в чергу",
+			"resubmitDisabled": "Спершу увімкніть IndexNow",
+			"recentTitle": "Останні надсилання",
+			"recentEmpty": "Ще нічого не надсилалося.",
+			"colWhen": "Коли",
+			"colCollection": "Колекція",
+			"colUrls": "URL-адреси",
+			"colResult": "Результат",
+			"deletedCollection": "Видалена колекція",
+			"status": {
+				"success": "Надіслано",
+				"retrying": "Повтор",
+				"waiting": "Очікує",
+				"failed": "Помилка"
+			},
+			"trigger": {
+				"change": "зміна",
+				"resubmit": "повне надсилання"
+			}
 		}
 	},
 	"notFound": {
@@ -1739,7 +1810,10 @@
 				"saveFailed": "Збереження не вдалося",
 				"deleteFailed": "Видалення не вдалося",
 				"noExternalDb": "Немає конфігурації зовнішньої БД"
-			}
+			},
+			"publicUrl": "Публічна URL-адреса",
+			"publicUrlHint": "Де кожен запис розміщено на вашому сайті. Заповнювачі: {slug}, {locale}, {id}. Використовується, щоб повідомляти пошуковики через IndexNow (Налаштування → Розробник).",
+			"publicUrlExample": "напр. {{url}}"
 		},
 		"bulk": {
 			"selected_one": "Вибрано {{count}}",
@@ -1978,6 +2052,10 @@
 			"customDomain": {
 				"title": "Кастомний домен",
 				"description": "Обслуговуйте цей проєкт з вашого домену."
+			},
+			"indexNow": {
+				"title": "IndexNow",
+				"description": "Повідомляйте пошуковики, коли опубліковані сторінки змінюються."
 			}
 		},
 		"featureLabels": {

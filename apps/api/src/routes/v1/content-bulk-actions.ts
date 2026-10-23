@@ -21,6 +21,7 @@ import {
 	checkCollectionAccess,
 	resolveReadableCollectionScope,
 } from '../../lib/collection-access.js'
+import { contentEventData, deletedContentEventData } from '../../lib/content-events.js'
 import { requestSource } from '../../lib/request-source.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
@@ -289,7 +290,7 @@ async function deleteMany(
 
 		app.events.emit({
 			type: 'content:deleted',
-			data: { id: deleted.id, slug: deleted.slug, projectId: pid },
+			data: { ...deletedContentEventData(deleted), projectId: pid },
 			timestamp: new Date().toISOString(),
 		})
 		results.push({ id: row.id, ok: true, ...(warning && { warning }) })
@@ -421,7 +422,11 @@ async function updateMany(
 
 			app.events.emit({
 				type: statusAfter === 'published' ? 'content:published' : 'content:updated',
-				data: { id: row.id, slug: row.slug, version: row.version + 1, projectId: pid },
+				data: {
+					...contentEventData({ ...row, status: statusAfter }, row),
+					version: row.version + 1,
+					projectId: pid,
+				},
 				timestamp: new Date().toISOString(),
 			})
 			results.push({ id: row.id, ok: true })
@@ -520,7 +525,7 @@ async function duplicateMany(
 				.returning()
 			app.events.emit({
 				type: 'content:created',
-				data: { id: created.id, slug, version: 1, projectId: pid },
+				data: { ...contentEventData(created, null), version: 1, projectId: pid },
 				timestamp: now.toISOString(),
 			})
 			results.push({ id: row.id, ok: true, createdId: created.id })

@@ -33,6 +33,7 @@ import { customDomainRoutes } from './routes/v1/custom-domain.js'
 import { databaseRoutes } from './routes/v1/database.js'
 import { exportRoutes } from './routes/v1/export.js'
 import { feedbackRoutes } from './routes/v1/feedback.js'
+import { indexNowRoutes } from './routes/v1/indexnow.js'
 import { cloudflareIntegrationRoutes } from './routes/v1/integrations/cloudflare.js'
 import { inviteRoutes } from './routes/v1/invites.js'
 import { licenseRoutes } from './routes/v1/license.js'
@@ -50,6 +51,7 @@ import { ExternalWriteError, externalFailureBody } from './services/external-err
 import { initExternalSyncWorker } from './services/external-sync-worker.js'
 import { firebaseWebConfig } from './services/firebase-auth.js'
 import { initImportWorker } from './services/import-worker.js'
+import { initIndexNow } from './services/indexnow-queue.js'
 import { initScheduledPublisher } from './services/scheduled-publisher.js'
 import { initWebhookDispatcher } from './services/webhook-dispatch.js'
 
@@ -250,6 +252,7 @@ export async function buildApp() {
 	initImportWorker(app)
 	initExternalSyncWorker(app)
 	initScheduledPublisher(app)
+	initIndexNow(app)
 	await app.register(emailPlugin)
 	await app.register(mediaPlugin)
 
@@ -395,6 +398,7 @@ export async function buildApp() {
 	await app.register(streamRoutes, { prefix: '/api/v1/stream' })
 	await app.register(unsplashRoutes, { prefix: '/api/v1/unsplash' })
 	await app.register(coverRoutes, { prefix: '/api/v1/covers' })
+	await app.register(indexNowRoutes, { prefix: '/api/v1/indexnow' })
 
 	// Enterprise Edition routes
 	await app.register(auditLogRoutes, { prefix: '/api/v1/ee/audit-logs' })

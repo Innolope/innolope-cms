@@ -8,7 +8,7 @@ import {
 import { InnolopeApiError } from '@innolope/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import type { InnolopeClient } from './api-client.js'
+import type { IndexNowStatus, InnolopeClient } from './api-client.js'
 
 /**
  * Every tool declares an operation type; annotations (readOnlyHint/destructiveHint),
@@ -837,6 +837,12 @@ export function registerTools(
 				.optional()
 				.describe('Explicit field definitions (see get_collection_schema for the shape)'),
 			titleField: z.string().optional().describe('Name of the field used as the display title'),
+			publicUrlTemplate: z
+				.string()
+				.optional()
+				.describe(
+					'Where each record lives on the public site, e.g. "https://example.com/blog/{slug}/" (placeholders {slug}, {locale}, {id}). Used for IndexNow submission — see configure_indexnow.',
+				),
 			template: z
 				.string()
 				.optional()
@@ -844,7 +850,15 @@ export function registerTools(
 					'Template name from list_templates (e.g. "knowledge-base"). Fills label/description/fields.',
 				),
 		},
-		handler: async ({ name, label, description, fields, titleField, template }) => {
+		handler: async ({
+			name,
+			label,
+			description,
+			fields,
+			titleField,
+			publicUrlTemplate,
+			template,
+		}) => {
 			const guard = await requireProject()
 			if (guard) return guard
 			let resolvedLabel = label
@@ -866,6 +880,7 @@ export function registerTools(
 				description: resolvedDescription,
 				fields: resolvedFields,
 				titleField: titleField ?? null,
+				...(publicUrlTemplate && { settings: { publicUrlTemplate } }),
 			})
 			return text(
 				`Collection created.\nName: ${created.name}\nID: ${created.id}\nFields: ${
@@ -1668,7 +1683,10 @@ export function registerTools(
 								`${f.name} (${f.type}${f.required ? ', required' : ''}${f.localized ? ', translatable' : ''})`,
 						)
 						.join(', ')
-					return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Storage: ${writeTargetNote(c)}\n  Fields: ${fields || 'None'}${localizedNote(c.fields)}`
+					const publicUrl = c.settings?.publicUrlTemplate
+						? `\n  Public URL: ${c.settings.publicUrlTemplate}`
+						: ''
+					return `**${c.label}** (name: ${c.name}, id: ${c.id})\n  ${c.description || 'No description'}\n  Storage: ${writeTargetNote(c)}${publicUrl}\n  Fields: ${fields || 'None'}${localizedNote(c.fields)}`
 				})
 				.join('\n\n')
 			return {
@@ -1706,6 +1724,7 @@ export function registerTools(
 			source: z.string().nullable().optional(),
 			accessMode: z.string().nullable().optional(),
 			externalTable: z.string().nullable().optional(),
+			publicUrlTemplate: z.string().nullable().optional(),
 			fields: z.array(collectionFieldSchema),
 		},
 		handler: async ({ id }) => {
@@ -1724,9 +1743,161 @@ export function registerTools(
 					source: col.source ?? null,
 					accessMode: col.accessMode ?? null,
 					externalTable: col.externalTable ?? null,
+					publicUrlTemplate: col.settings?.publicUrlTemplate ?? null,
 					fields: col.fields,
 				},
 			}
+		},
+	})
+
+	defineTool({
+		name: 'update_collection',
+		description:
+			'Change a collection\'s label, description, display-title field, or public URL template. The public URL template says where each record lives on the site — e.g. "https://example.com/blog/{slug}/", with {slug}, {locale} and {id} placeholders — and is what IndexNow submission uses (see configure_indexnow). Does not change the field schema. Requires project admin.',
+		operationType: 'update',
+		schema: {
+			id: z.string().uuid().describe('Collection UUID (see list_collections)'),
+			label: z.string().optional().describe('Display label'),
+			description: z.string().optional().describe('Collection description'),
+			titleField: z
+				.string()
+				.nullable()
+				.optional()
+				.describe('Field used as the display title; null restores automatic detection'),
+			publicUrlTemplate: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(
+					'Public URL of a record, e.g. "https://example.com/blog/{slug}/" ({slug}, {locale}, {id}); null removes it',
+				),
+		},
+		handler: async ({ id, label, description, titleField, publicUrlTemplate }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const body = {
+				...(label !== undefined && { label }),
+				...(description !== undefined && { description }),
+				...(titleField !== undefined && { titleField }),
+				...(publicUrlTemplate !== undefined && { settings: { publicUrlTemplate } }),
+			}
+			if (Object.keys(body).length === 0) {
+				return fail(
+					'Nothing to update: pass at least one of label, description, titleField or publicUrlTemplate.',
+				)
+			}
+			const updated = await client.updateCollection(id, body)
+			return text(
+				`Collection updated${projectSuffix()}.\nName: ${updated.name}\nLabel: ${updated.label}\nPublic URL template: ${updated.settings?.publicUrlTemplate ?? 'none'}`,
+			)
+		},
+	})
+
+	// --- IndexNow --------------------------------------------------------------
+
+	const indexNowSummary = (status: IndexNowStatus): string => {
+		const { settings } = status
+		const lines = [`IndexNow${projectSuffix()}: ${settings.enabled ? 'enabled' : 'disabled'}`]
+		if (settings.key) lines.push(`Key: ${settings.key}`)
+		lines.push(`Key location: ${settings.keyLocation ?? 'default (https://<host>/<key>.txt)'}`)
+		if (status.keyFiles.length > 0) {
+			lines.push('Key files the site must serve (plain text, the key as the only content):')
+			for (const file of status.keyFiles) lines.push(`- ${file.url}`)
+		}
+		if (status.collections.length === 0) {
+			lines.push(
+				'No collection has a public URL template, so nothing is submitted. Set one with update_collection (publicUrlTemplate).',
+			)
+		} else {
+			lines.push('Collections:')
+			for (const c of status.collections) {
+				const last = c.lastSubmission
+				const lastText = last
+					? `${last.status}${last.statusCode ? ` (HTTP ${last.statusCode})` : ''}, ${last.urlCount} URL(s) at ${last.createdAt}${last.message ? ` — ${last.message}` : ''}`
+					: 'never submitted'
+				const held = c.waiting > 0 ? ` (${c.waiting} held until the key file is valid)` : ''
+				lines.push(
+					`- ${c.label} (id: ${c.id}) — ${c.publicUrlTemplate}; queued: ${c.pending}${held}; last: ${lastText}`,
+				)
+			}
+		}
+		return lines.join('\n')
+	}
+
+	defineTool({
+		name: 'get_indexnow_status',
+		description:
+			"Show the active project's IndexNow setup and results: whether submission is enabled, the key and the key-file URL(s) the site must serve, each collection's public URL template, how many URLs are queued (or held because the key file is not reachable yet), and the last submission per collection with its HTTP status. Use it to check that published pages reach search engines, and before configure_indexnow or resubmit_to_indexnow.",
+		operationType: 'metadata',
+		schema: {},
+		handler: async () => {
+			const guard = await requireProject()
+			if (guard) return guard
+			return text(indexNowSummary(await client.getIndexNowStatus()))
+		},
+	})
+
+	defineTool({
+		name: 'configure_indexnow',
+		description:
+			'Turn IndexNow submission on or off for the active project and manage its key. IndexNow tells Bing, Yandex, Seznam, Naver and other search engines which URLs changed. Once enabled, every publish, edit of a published record, unpublish, archive and delete in a collection with a public URL template (see update_collection) is submitted automatically. A 32-character key is generated when none exists. The site must serve the key as the only content of a text file at the key location — by default https://<host>/<key>.txt; set keyLocation when the site can only serve files under a sub-path (e.g. https://example.com/news/<key>.txt). Submissions are held until that file is reachable. Requires project admin.',
+		operationType: 'update',
+		schema: {
+			enabled: z.boolean().optional().describe('true turns automatic submission on, false off'),
+			keyLocation: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(
+					'Absolute URL where the site serves the key file; null restores the default https://<host>/<key>.txt',
+				),
+			key: z
+				.string()
+				.optional()
+				.describe(
+					'Use this key instead of the stored or generated one (8–128 letters, digits, dashes). Rarely needed.',
+				),
+			regenerateKey: z
+				.boolean()
+				.optional()
+				.describe(
+					'Replace the key with a new random one; the site must then serve the new key file',
+				),
+		},
+		handler: async ({ enabled, keyLocation, key, regenerateKey }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const status = await client.configureIndexNow({
+				...(enabled !== undefined && { enabled }),
+				...(keyLocation !== undefined && { keyLocation }),
+				...(key !== undefined && { key }),
+				...(regenerateKey !== undefined && { regenerateKey }),
+			})
+			const next = !status.settings.enabled
+				? ''
+				: status.collections.length === 0
+					? '\n\nNext: give a collection a public URL template with update_collection.'
+					: '\n\nNext: make sure the site serves the key file(s) above (a site builder can read them from GET /api/v1/indexnow/key with a read-only API key), then call resubmit_to_indexnow once per collection to submit the pages that are already published.'
+			return text(`IndexNow settings saved.\n\n${indexNowSummary(status)}${next}`)
+		},
+	})
+
+	defineTool({
+		name: 'resubmit_to_indexnow',
+		description:
+			"Queue every published record of one collection for IndexNow submission. Use it once right after enabling IndexNow, or after the collection's public URL template changed. Routine publishes, edits, unpublishes and deletes are submitted automatically, so do not call this after each publish. URLs go out in batches of up to 10,000 within about 15 seconds; check the result with get_indexnow_status. Requires project admin.",
+		operationType: 'update',
+		schema: { collectionId: z.string().uuid().describe('Collection UUID (see list_collections)') },
+		handler: async ({ collectionId }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const result = await client.resubmitToIndexNow(collectionId)
+			const skipped = result.skipped
+				? ` ${result.skipped} published record(s) have no URL (no slug) and were skipped.`
+				: ''
+			return text(
+				`Queued ${result.queued} URL(s) for IndexNow${projectSuffix()}.${skipped} They are sent within about 15 seconds; check get_indexnow_status for the result.`,
+			)
 		},
 	})
 
