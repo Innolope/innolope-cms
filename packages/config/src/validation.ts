@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+/** Opaque server fingerprint; callers must copy it from the reviewed record. */
+export const contentHashSchema = z
+	.string()
+	.length(71)
+	.regex(/^sha256:[a-f0-9]{64}$/)
+
 /**
  * Single source of truth for content statuses. Every schema and MCP tool derives
  * its enum from this list (or a named slice of it) so the accepted values can't
@@ -144,13 +150,17 @@ export const contentListSchema = z.object({
 	// only an identifier can follow `meta:`. Bad values fall back to createdAt instead of 400ing.
 	sortBy: z
 		.string()
-		.regex(/^(createdAt|updatedAt|publishedAt|slug|status|locale|meta:[a-zA-Z_][a-zA-Z0-9_]*)$/)
+		.regex(
+			/^(createdAt|updatedAt|contentEditedAt|publishedAt|slug|status|locale|meta:[a-zA-Z_][a-zA-Z0-9_]*)$/,
+		)
 		.catch('createdAt'),
 	sortOrder: z.enum(['asc', 'desc']).catch('desc'),
 	// Date bounds must parse as dates here, so a malformed value is a 400 and
 	// not a Postgres cast error surfacing as a 500.
 	updatedFrom: dateBound,
 	updatedTo: dateBound,
+	editedFrom: dateBound,
+	editedTo: dateBound,
 	createdFrom: dateBound,
 	createdTo: dateBound,
 	publishedFrom: dateBound,

@@ -4,6 +4,7 @@ import {
 	COLLECTION_TEMPLATES,
 	CONTENT_STATUSES,
 	CREATABLE_CONTENT_STATUSES,
+	contentHashSchema,
 } from '@innolope/config'
 import { InnolopeApiError } from '@innolope/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -49,6 +50,7 @@ Content model:
 - Markdown is the canonical body format. Never write rich-text editor state (Lexical/Slate/ProseMirror/EditorJS JSON) or raw HTML documents into the body or a content field — sites render CommonMark, and serialized editor JSON reaches the page as literal text.
 
 Updating content:
+- Before changing, publishing, submitting for review, or deleting an existing record, call get_content and copy its contentHash into expectedHash. Every bulk_update item needs its own reviewed hash. After CONTENT_CONFLICT or CONTENT_HASH_REQUIRED, re-read and reconcile; never silently fetch a fresh hash and retry stale changes. If a write times out, its outcome is unknown: read and reconcile before another write. Uncached external records must be imported/cached before conditional deletion.
 - update_content / bulk_update MERGE metadata at the top level: send only the fields you are changing — omitted fields keep their stored values. Sending a field's value as null deletes it.
 - For external read-write collections, writes sync to the source database synchronously — a successful create/update response means the external row already holds the change (the response echoes the external id).
 
@@ -473,7 +475,13 @@ function guidanceForStatus(status: number, body: Record<string, unknown>): strin
 		}
 		case 404:
 			return 'Check the id — call list_projects, list_collections, or list_content to discover valid ids.'
+		case 428:
+			return 'Call get_content for each affected record, review it, and pass contentHash as expectedHash. Never refresh a hash and blindly retry a write.'
 		case 409:
+			if (body.code === 'CONTENT_CONFLICT')
+				return 'Call get_content for each affected record, review and reconcile the latest changes, then retry with its contentHash as expectedHash. Do not blindly overwrite or automatically retry.'
+			if (body.code === 'CONTENT_NOT_CACHED')
+				return 'Import/cache the external record first, then call get_content and review it before retrying.'
 			return 'A content item with this slug and locale already exists. Pass a different slug, or update the existing item instead.'
 		case 502:
 			return 'Syncing to the external database failed. Retry, or verify the connection with test_external_database. If this keeps happening, file it with report_feedback (type: "bug").'
@@ -1214,6 +1222,7 @@ export function registerTools(
 				.describe(`Maximum response size in bytes (default: ${DEFAULT_CONTENT_BYTES})`),
 		},
 		outputSchema: {
+			contentHash: z.string().optional(),
 			id: z.string(),
 			slug: z.string().nullable(),
 			status: z.string(),
@@ -1247,13 +1256,15 @@ export function registerTools(
 			].join('\n')
 			return {
 				...text(
-					capText(
-						body,
-						'Re-call get_content with a larger maxBytes to see more.',
-						maxBytes ?? DEFAULT_CONTENT_BYTES,
-					),
+					`Content hash: ${item.contentHash ?? 'unavailable — import/cache this record before editing'}. Pass as expectedHash after reviewing.\n` +
+						capText(
+							body,
+							'Re-call get_content with a larger maxBytes to see more.',
+							maxBytes ?? DEFAULT_CONTENT_BYTES,
+						),
 				),
 				structuredContent: {
+					...(item.contentHash && { contentHash: item.contentHash }),
 					id: item.id,
 					slug: item.slug ?? null,
 					status: item.status,
@@ -1360,6 +1371,9 @@ export function registerTools(
 			'Update an existing content item. Only provide fields to change. metadata is MERGED into the stored metadata at the top level: fields you omit keep their current values, fields you send replace them, and sending null for a field deletes it — never resend the whole object just to change one field. Validation runs on the merged result; required fields are enforced when the result is published. On translatable fields an update targets a single language and never drops the record\'s other translations — pass a locale map to set specific languages ({ "uk": null } deletes one translation), or a plain string to set the record\'s own locale. For external read-write collections the write syncs to the source database synchronously: a successful response means the external row is already updated.',
 		operationType: 'update',
 		schema: {
+			expectedHash: contentHashSchema.describe(
+				'contentHash from the record you reviewed with get_content; re-read and reconcile after a conflict',
+			),
 			id: z.string().uuid().describe('Content item UUID'),
 			slug: z.string().optional().describe('New slug'),
 			markdown: z
@@ -1392,13 +1406,7 @@ export function registerTools(
 			const updated = await client.updateContent(id, updates)
 			// A markdown-only update can introduce a duplicate title H1 too — fall
 			// back to the stored metadata for the comparison (best-effort).
-			let metadata = updates.metadata
-			if (updates.markdown !== undefined && !metadata) {
-				metadata = await client
-					.getContent(id)
-					.then((item) => item.metadata as Record<string, unknown>)
-					.catch(() => undefined)
-			}
+			const metadata = updates.metadata ?? updated.metadata
 			const warnings = [
 				titleHeadingWarning(updates.markdown, metadata),
 				titleShapeWarning(updates.metadata),
@@ -1411,7 +1419,7 @@ export function registerTools(
 				? `\nExternal ID: ${updated.externalId} — synced to the source database.`
 				: ''
 			return text(
-				`Content updated. Version: ${updated.version}${externalNote}${warnings.map((w) => `\n\n⚠ ${w}`).join('')}`,
+				`Content updated. Version: ${updated.version}. Content hash: ${updated.contentHash ?? 'call get_content before the next edit'}${externalNote}${warnings.map((w) => `\n\n⚠ ${w}`).join('')}`,
 			)
 		},
 	})
@@ -1421,10 +1429,17 @@ export function registerTools(
 		description:
 			'Publish a content item: sets status to published and stamps publishedAt. Fails with field errors if required collection fields are missing — fill them via update_content first (see get_collection_schema).',
 		operationType: 'update',
-		schema: { id: z.string().uuid().describe('Content item UUID') },
-		handler: async ({ id }) => {
-			const published = await client.publishContent(id)
-			return text(`Published. ID: ${published.id} at ${published.publishedAt}`)
+		schema: {
+			id: z.string().uuid().describe('Content item UUID'),
+			expectedHash: contentHashSchema.describe(
+				'contentHash from get_content after reviewing the record',
+			),
+		},
+		handler: async ({ id, expectedHash }) => {
+			const published = await client.publishContent(id, expectedHash)
+			return text(
+				`Published. ID: ${published.id} at ${published.publishedAt}. Content hash: ${published.contentHash ?? 'call get_content before the next edit'}`,
+			)
 		},
 	})
 
@@ -1434,6 +1449,11 @@ export function registerTools(
 			'Permanently delete a content item by ID. For external (MongoDB/SQL) collections this also removes the backing external record — the id may be the external record id, and collectionId should be passed when the record is not cached in the CMS yet. Requires project admin access. This cannot be undone. Two-step: call WITHOUT confirm first to get a summary of what would be deleted, then re-call with confirm: true to actually delete.',
 		operationType: 'delete',
 		schema: {
+			expectedHash: contentHashSchema
+				.optional()
+				.describe(
+					'Required with confirm: true; copy contentHash from the reviewed preview/get_content',
+				),
 			id: z.string().describe('Content item UUID (or external record id for external collections)'),
 			collectionId: z
 				.string()
@@ -1445,15 +1465,19 @@ export function registerTools(
 				.optional()
 				.describe('Must be true to actually delete. Omit to preview what would be deleted.'),
 		},
-		handler: async ({ id, collectionId, confirm }) => {
+		handler: async ({ id, collectionId, confirm, expectedHash }) => {
 			if (confirm !== true) {
 				const item = await client.getContent(id, collectionId)
 				const title = displayTitle(item.metadata, item.locale) ?? item.slug ?? item.id
 				return text(
-					`This will PERMANENTLY delete "${title}" (slug: ${item.slug}, status: ${item.status}, version: ${item.version}, id: ${item.id}), including any backing external database record. This cannot be undone.\n\nNothing was deleted. Re-call delete_content with confirm: true to proceed.`,
+					`This will PERMANENTLY delete "${title}" (slug: ${item.slug}, status: ${item.status}, version: ${item.version}, id: ${item.id}), including any backing external database record. This cannot be undone.\n\nContent hash: ${item.contentHash ?? 'unavailable — import/cache first'}. Nothing was deleted. Re-call delete_content with confirm: true and this hash as expectedHash after reviewing.`,
 				)
 			}
-			const result = await client.deleteContent(id, collectionId)
+			if (!expectedHash)
+				return fail(
+					'CONTENT_HASH_REQUIRED: preview with delete_content or call get_content, review, and pass contentHash as expectedHash with confirm: true.',
+				)
+			const result = await client.deleteContent(id, collectionId, expectedHash)
 			if (result?.externalCleanup === 'failed') {
 				return text(
 					`Deleted content ${id} from the CMS, but with a warning:\n${result.message ?? 'Removing the backing external database record failed — it needs manual cleanup.'}`,
@@ -1978,6 +2002,9 @@ export function registerTools(
 			items: z
 				.array(
 					z.object({
+						expectedHash: contentHashSchema.describe(
+							'contentHash from this item reviewed with get_content',
+						),
 						id: z.string().uuid().describe('Content item UUID'),
 						slug: z.string().optional().describe('New slug'),
 						markdown: z
@@ -1990,7 +2017,9 @@ export function registerTools(
 						status: z.enum(CONTENT_STATUSES).optional().describe('New status'),
 					}),
 				)
-				.describe('Array of content updates'),
+				.min(1)
+				.max(50)
+				.describe('Array of content updates; each needs its own reviewed expectedHash'),
 			dryRun: z
 				.boolean()
 				.optional()
@@ -2008,7 +2037,9 @@ export function registerTools(
 					`Dry run: all ${result.total} item(s) are valid. Nothing was written — re-call without dryRun to update them.`,
 				)
 			}
-			return text(`Updated ${result.count} items.`)
+			return text(
+				`Updated ${result.count} items. Call get_content before the next edit to review the new content and hash.`,
+			)
 		},
 	})
 
@@ -2278,10 +2309,17 @@ export function registerTools(
 		description:
 			'Submit a draft content item for editorial review: sets status from draft to pending_review so an editor can approve and publish it. Use this instead of setting status directly when the project uses a review workflow. Requires the review-workflows license.',
 		operationType: 'update',
-		schema: { id: z.string().uuid().describe('Content item UUID') },
-		handler: async ({ id }) => {
-			const submitted = await client.submitForReview(id)
-			return text(`Submitted for review. ID: ${submitted.id}, slug: ${submitted.slug}`)
+		schema: {
+			id: z.string().uuid().describe('Content item UUID'),
+			expectedHash: contentHashSchema.describe(
+				'contentHash from get_content after reviewing the record',
+			),
+		},
+		handler: async ({ id, expectedHash }) => {
+			const submitted = await client.submitForReview(id, expectedHash)
+			return text(
+				`Submitted for review. ID: ${submitted.id}, slug: ${submitted.slug}. Content hash: ${submitted.contentHash ?? 'call get_content before the next edit'}`,
+			)
 		},
 	})
 }

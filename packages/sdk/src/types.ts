@@ -1,4 +1,7 @@
 export interface Content {
+	/** Opaque conflict token on cached single-record reads/writes. */
+	contentHash?: string
+	contentEditedAt?: string | null
 	id: string
 	slug: string
 	status: 'draft' | 'published' | 'archived'
@@ -22,7 +25,9 @@ export interface ContentListParams {
 	search?: string
 	page?: number
 	limit?: number
-	sortBy?: 'createdAt' | 'updatedAt' | 'publishedAt'
+	sortBy?: 'createdAt' | 'updatedAt' | 'contentEditedAt' | 'publishedAt'
+	editedFrom?: string
+	editedTo?: string
 	sortOrder?: 'asc' | 'desc'
 	/**
 	 * Relation hydration depth. `0` returns relation fields as raw ids; `>=1` (the API

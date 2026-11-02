@@ -93,6 +93,8 @@ export interface SyncChange {
 }
 
 export interface SyncConflict {
+	/** Full bodies are available from the authenticated detail endpoint. */
+	fullComparison?: boolean
 	contentId: string
 	externalId: string
 	slug: string | null
@@ -512,8 +514,9 @@ async function applySyncBatch(
 					externalId: next.externalId,
 					slug: current.slug,
 					metadata: current.metadata,
-					local: { ...local, markdown: local.markdown.slice(0, 240) },
-					external: { ...incoming, markdown: incoming.markdown.slice(0, 240) },
+					local,
+					fullComparison: true,
+					external: incoming,
 					token,
 					categories: [
 						...new Set(

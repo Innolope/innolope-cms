@@ -17,9 +17,9 @@ import { LocalizationBar, localeDisplayName } from '../components/editor/localiz
 import { LocalizedTextField } from '../components/editor/localized-text-field'
 import { MarkdownEditor } from '../components/editor/markdown-editor'
 import { ObjectArrayField } from '../components/editor/object-array-field'
-import { PillInput } from '../components/editor/pill-input'
 import { RelationField } from '../components/editor/relation-field'
 import { RichTextPreview, useRichTextConversion } from '../components/editor/rich-text-field'
+import { TagInput } from '../components/editor/tag-input'
 import { TechnicalFields } from '../components/editor/technical-fields'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ScheduledBadge } from '../components/scheduled-badge'
@@ -122,6 +122,7 @@ interface ContentItem {
 	publishedAt?: string | null
 	createdAt?: string | null
 	updatedAt?: string | null
+	contentEditedAt?: string | null
 	live?: boolean
 }
 
@@ -671,6 +672,7 @@ function CollectionContentEditor() {
 	const [createdAt, setCreatedAt] = useState('')
 	// Edit time is server-owned — displayed, never sent.
 	const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+	const [contentEditedAt, setContentEditedAt] = useState<string | null>(null)
 	// What the record held when it loaded. A date is only sent when it differs, so
 	// a save from a stale tab can't rewrite a stamp it never touched.
 	const loadedDates = useRef({ publishedAt: '', createdAt: '' })
@@ -763,6 +765,7 @@ function CollectionContentEditor() {
 		setCreatedAt(dates.createdAt)
 		loadedDates.current = dates
 		setUpdatedAt(item.updatedAt ?? null)
+		setContentEditedAt(item.contentEditedAt ?? null)
 		setVersion(item.version)
 		setExternalId(item.externalId || null)
 		setRecordConflict(null)
@@ -862,6 +865,7 @@ function CollectionContentEditor() {
 					setPublishedAt(loadedPublishedAt)
 					setCreatedAt(loadedCreatedAt)
 					setUpdatedAt(item.updatedAt ?? null)
+					setContentEditedAt(item.contentEditedAt ?? null)
 					loadedDates.current = { publishedAt: loadedPublishedAt, createdAt: loadedCreatedAt }
 					setVersion(item.version)
 					setExternalId(item.externalId || null)
@@ -1218,6 +1222,7 @@ function CollectionContentEditor() {
 				})
 				setVersion(updated.version)
 				setUpdatedAt(updated.updatedAt ?? null)
+				setContentEditedAt(updated.contentEditedAt ?? null)
 				setRecordConflict(null)
 				setConflictDetected(false)
 			}
@@ -1253,6 +1258,7 @@ function CollectionContentEditor() {
 			)
 			setVersion(updated.version)
 			setUpdatedAt(updated.updatedAt ?? null)
+			setContentEditedAt(updated.contentEditedAt ?? null)
 			setStatus('pending_review')
 		} catch (err) {
 			if (handleSaveConflict(err)) return
@@ -1347,12 +1353,14 @@ function CollectionContentEditor() {
 			})
 			setVersion(saved.version)
 			setUpdatedAt(saved.updatedAt ?? null)
+			setContentEditedAt(saved.contentEditedAt ?? null)
 			const published = await api.post<ContentItem>(`/api/v1/content/${contentId}/publish`, {
 				expectedVersion: saved.version,
 				expectedUpdatedAt: saved.updatedAt ?? null,
 			})
 			setVersion(published.version)
 			setUpdatedAt(published.updatedAt ?? null)
+			setContentEditedAt(published.contentEditedAt ?? null)
 			setRecordConflict(null)
 			setConflictDetected(false)
 			setStatus('published')
@@ -1380,6 +1388,7 @@ function CollectionContentEditor() {
 			})
 			setVersion(updated.version)
 			setUpdatedAt(updated.updatedAt ?? null)
+			setContentEditedAt(updated.contentEditedAt ?? null)
 			setStatus('published')
 		} catch (err) {
 			if (handleSaveConflict(err)) return
@@ -1411,6 +1420,7 @@ function CollectionContentEditor() {
 			})
 			setVersion(updated.version)
 			setUpdatedAt(updated.updatedAt ?? null)
+			setContentEditedAt(updated.contentEditedAt ?? null)
 			setStatus('draft')
 		} catch (err) {
 			if (handleSaveConflict(err)) return
@@ -2513,7 +2523,9 @@ function CollectionContentEditor() {
 				    external schema has no `tags` column — is just noise. */}
 						{(collection?.fields?.some((f) => f.name === 'tags') || tags.length > 0) && (
 							<Field label={t('collections.detail.fields.tags')}>
-								<PillInput
+								<TagInput
+									collectionId={collection?.id ?? ''}
+									projectId={currentProject?.id}
 									value={tags}
 									onChange={(v) => {
 										setTags(v)
@@ -2570,9 +2582,15 @@ function CollectionContentEditor() {
 								<Field label={t('collections.detail.fields.updatedAt')}>
 									<p
 										className="text-sm text-text-secondary"
-										title={updatedAt ? absoluteDate(updatedAt) : undefined}
+										title={
+											contentEditedAt
+												? absoluteDate(contentEditedAt)
+												: t('collections.list.unknownEditedAtHelp')
+										}
 									>
-										{updatedAt ? relativeTime(updatedAt) : '—'}
+										{contentEditedAt
+											? relativeTime(contentEditedAt)
+											: t('collections.list.unknownEditedAt')}
 									</p>
 								</Field>
 							</div>

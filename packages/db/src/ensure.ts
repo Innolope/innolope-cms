@@ -590,6 +590,41 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "externalSnapshot" JSONB`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "updatedBy" UUID REFERENCES users(id)`
 		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "updatedSource" TEXT`
+		await sql`ALTER TABLE content ADD COLUMN IF NOT EXISTS "contentEditedAt" TIMESTAMPTZ`
+		// Central enforcement covers legacy clients, background sync, bulk actions,
+		// covers and direct database writers. Do not backfill unreliable source times.
+		// Use the API's millisecond precision: JS date round trips must not turn
+		// untouched creation/publication dates into edits or break exact filters.
+		await sql`
+			CREATE OR REPLACE FUNCTION cms_content_edited_at() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			DECLARE ignored text[] := ARRAY[
+				'updatedAt','createdAt','__v','_v','_rev','_version','_etag','etag',
+				'views','viewsCount','viewCount','view_count','views_count',
+				'lastViewedAt','lastViewed','last_viewed_at'
+			];
+			BEGIN
+				IF TG_OP = 'INSERT' THEN
+					NEW."contentEditedAt" := CASE
+						WHEN NEW."externalId" IS NULL
+						AND NEW."updatedSource" IS DISTINCT FROM 'import' THEN date_trunc('milliseconds', clock_timestamp())
+						ELSE NULL END;
+				ELSIF NEW.markdown IS DISTINCT FROM OLD.markdown
+					OR (NEW.metadata - ignored) IS DISTINCT FROM (OLD.metadata - ignored)
+					OR NEW.slug IS DISTINCT FROM OLD.slug
+					OR NEW.status IS DISTINCT FROM OLD.status
+					OR NEW.locale IS DISTINCT FROM OLD.locale
+					OR date_trunc('milliseconds', NEW."publishedAt") IS DISTINCT FROM date_trunc('milliseconds', OLD."publishedAt")
+					OR date_trunc('milliseconds', NEW."createdAt") IS DISTINCT FROM date_trunc('milliseconds', OLD."createdAt") THEN
+					NEW."contentEditedAt" := date_trunc('milliseconds', clock_timestamp());
+				ELSE
+					NEW."contentEditedAt" := OLD."contentEditedAt";
+				END IF;
+				RETURN NEW;
+			END $$
+		`
+		await sql`CREATE OR REPLACE TRIGGER cms_content_edited_at_trigger
+			BEFORE INSERT OR UPDATE ON content FOR EACH ROW EXECUTE FUNCTION cms_content_edited_at()`
 		await sql`ALTER TABLE content_versions ADD COLUMN IF NOT EXISTS source TEXT`
 		await sql`ALTER TABLE content ALTER COLUMN slug DROP NOT NULL`
 		await sql`ALTER TABLE media ADD COLUMN IF NOT EXISTS origin TEXT`
@@ -611,6 +646,7 @@ export async function ensureTables(connectionUrl: string) {
 		await sql`CREATE INDEX IF NOT EXISTS content_project_collection_external_idx ON content("projectId","collectionId","externalId")`
 		await sql`CREATE INDEX IF NOT EXISTS content_project_status_created_idx ON content("projectId",status,"createdAt")`
 		await sql`CREATE INDEX IF NOT EXISTS content_project_updated_idx ON content("projectId","updatedAt")`
+		await sql`CREATE INDEX IF NOT EXISTS content_project_edited_idx ON content("projectId","contentEditedAt")`
 		// The scheduled publisher polls project-wide for due rows every minute. A
 		// partial index keeps that a tiny lookup no matter how much published content
 		// the table holds — scheduled rows are always a handful.

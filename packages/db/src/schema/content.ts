@@ -46,6 +46,8 @@ export const content = pgTable(
 		version: integer().notNull().default(1),
 		createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+		// Server-owned authoring time. Null on imports/legacy rows without reliable history.
+		contentEditedAt: timestamp({ withTimezone: true }),
 		publishedAt: timestamp({ withTimezone: true }),
 		externalId: text(),
 		// Last observed external values for three-way sync; null on legacy rows.
@@ -84,6 +86,7 @@ export const content = pgTable(
 		),
 		index('content_project_status_created_idx').on(table.projectId, table.status, table.createdAt),
 		index('content_project_updated_idx').on(table.projectId, table.updatedAt),
+		index('content_project_edited_idx').on(table.projectId, table.contentEditedAt),
 	],
 )
 

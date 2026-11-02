@@ -122,10 +122,17 @@ describe.skipIf(!hasTestDb)('content write attribution and history (real Postgre
 
 	it('attributes a status transition like any other write', async () => {
 		const id = await createPost(asAdmin(), `publish-${randomUUID().slice(0, 6)}`)
+		const reviewed = await app.inject({
+			method: 'GET',
+			url: `/api/v1/content/${id}`,
+			headers: asMcp(),
+		})
+		expect(reviewed.statusCode).toBe(200)
 		const res = await app.inject({
 			method: 'POST',
 			url: `/api/v1/content/${id}/publish`,
 			headers: asMcp(),
+			payload: { expectedHash: reviewed.json().contentHash },
 		})
 		expect(res.statusCode).toBe(200)
 		expect((await history(id)).current).toMatchObject({ source: 'mcp', status: 'published' })

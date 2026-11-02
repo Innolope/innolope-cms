@@ -311,7 +311,8 @@ export async function insertIntoExternalDb(
 	projectId: string,
 	col: typeof collections.$inferSelect,
 	data: Record<string, unknown>,
-	sourceDb: Pick<Database, 'select'> = app.db,
+	sourceDb: Pick<Database, 'select' | 'update'> = app.db,
+	onInserted?: (record: ExternalDocument) => void,
 ) {
 	const [project] = await sourceDb
 		.select()
@@ -338,13 +339,21 @@ export async function insertIntoExternalDb(
 	const adapter = createExternalDbAdapter(extDb)
 	await adapter.connect()
 	try {
-		const { result } = await writeWithRescan(app, col, adapter, payload, (target, retry) => {
-			const values = retry ? keepSourceColumns(target, payload) : payload
-			const prepared = prepareExternalWrite(target, values, { mode: 'insert' })
-			return Object.keys(prepared.values).length > 0
-				? adapter.insert(table, prepared.values, prepared.opts)
-				: null
-		})
+		const { result } = await writeWithRescan(
+			app,
+			col,
+			adapter,
+			payload,
+			(target, retry) => {
+				const values = retry ? keepSourceColumns(target, payload) : payload
+				const prepared = prepareExternalWrite(target, values, { mode: 'insert' })
+				return Object.keys(prepared.values).length > 0
+					? adapter.insert(table, prepared.values, prepared.opts)
+					: null
+			},
+			sourceDb,
+		)
+		if (result) onInserted?.(result)
 		return result
 	} finally {
 		await adapter.disconnect()
@@ -434,6 +443,7 @@ async function writeWithRescan<T>(
 	adapter: ExternalDbAdapter,
 	payload: Record<string, unknown>,
 	attempt: (target: Collection, retry: boolean) => Promise<T> | T,
+	schemaDb: Pick<Database, 'update'> = app.db,
 ): Promise<{ result: T; col: Collection }> {
 	try {
 		return { result: await attempt(col, false), col }
@@ -442,7 +452,7 @@ async function writeWithRescan<T>(
 		if (!failure.unknownColumn) throw new ExternalWriteError(failure)
 		let refreshed: Collection
 		try {
-			const rescan = await rescanExternalCollection(app.db, col, adapter)
+			const rescan = await rescanExternalCollection(schemaDb, col, adapter)
 			refreshed = rescan.col
 			app.log.info(
 				{ collection: col.name, column: failure.unknownColumn, unpreserved: rescan.unpreserved },
@@ -499,6 +509,10 @@ export async function updateExternalDb(
 	opts: {
 		/** Top-level keys the caller explicitly removed (sent as `null`). */
 		unset?: string[]
+		/** Forward source image retained outside the transaction for compensation. */
+		baseline?: ReturnType<typeof syncState>
+		/** Register compensation before readback/snapshot persistence can fail. */
+		onApplied?: (snapshot: ReturnType<typeof syncState>) => void
 	} = {},
 ): Promise<ExternalWriteResult | null> {
 	const [project] = await snapshotDb
@@ -531,13 +545,14 @@ export async function updateExternalDb(
 			),
 		)
 		.limit(1)
-	const patch = cached?.externalSnapshot
-		? diffExternalPayload(payload, externalBaseline(col.fields, cached.externalSnapshot), {
+	const baseline = opts.baseline ?? cached?.externalSnapshot
+	const patch = baseline
+		? diffExternalPayload(payload, externalBaseline(col.fields, baseline), {
 				nested,
 				unset,
 			})
 		: fullPatch(payload, unset)
-	if (cached?.externalSnapshot) stampEditTime(col, patch, new Date())
+	if (baseline) stampEditTime(col, patch, new Date())
 
 	// Nothing to change. This is also the guard for a target that can accept none
 	// of the payload: Mongo rejects `{ $set: {} }` outright and a SQL UPDATE with no
@@ -573,8 +588,17 @@ export async function updateExternalDb(
 					...prepared.opts,
 					unset: checkedPatch.unset,
 				})
+				opts.onApplied?.(
+					syncState(
+						externalDocToContentItem(
+							applyExternalPatch({ ...payload, _id: externalId }, checkedPatch, nested),
+							current,
+						),
+					),
+				)
 				return checkedPatch
 			},
+			snapshotDb,
 		)
 		// Everything this edit changed was in a column the source no longer has.
 		if (!sent) return null
@@ -608,8 +632,13 @@ export async function deleteFromExternalDb(
 	projectId: string,
 	col: typeof collections.$inferSelect,
 	externalId: string,
+	sourceDb: Pick<Database, 'select'> = app.db,
 ) {
-	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+	const [project] = await sourceDb
+		.select()
+		.from(projects)
+		.where(eq(projects.id, projectId))
+		.limit(1)
 	const extDb = getExternalDbConfig(project)
 	if (!extDb || !col.externalTable) return
 

@@ -1,12 +1,13 @@
 import {
 	type ContentStatus,
+	contentHashSchema,
 	contentInputSchema,
 	contentListSchema,
 	validateSchedule,
 } from '@innolope/config'
 import { collections, content, contentAnalytics, contentVersions, media, users } from '@innolope/db'
 import { type AnyColumn, and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import {
 	checkCollectionAccess,
@@ -17,6 +18,7 @@ import {
 	deletedContentEventData,
 	emitContentStatusEvent,
 } from '../../lib/content-events.js'
+import { contentHash, withContentHash } from '../../lib/content-hash.js'
 import { requestSource } from '../../lib/request-source.js'
 import { mediaRowToContentItem, resolveRelations } from '../../lib/resolve-relations.js'
 import { getUser } from '../../plugins/auth.js'
@@ -43,7 +45,11 @@ import {
 	syncExternalStatus,
 	updateExternalDb,
 } from '../../services/external-content.js'
-import { ExternalWriteError, sendExternalWriteFailure } from '../../services/external-errors.js'
+import {
+	describeExternalDbError,
+	ExternalWriteError,
+	sendExternalWriteFailure,
+} from '../../services/external-errors.js'
 import { normalizeIncomingMarkdown, parseFrontmatter } from '../../services/frontmatter.js'
 import { applyLocalizedWrite } from '../../services/localized-fields.js'
 import { cacheMissingDocs, externalDocToContentItem } from '../../services/markdown-cache.js'
@@ -57,12 +63,14 @@ import { contentBulkActionRoutes } from './content-bulk-actions.js'
 // example Mongo ObjectIds) must never reach a PostgreSQL UUID comparison.
 const LOCAL_CONTENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const contentRevisionSchema = z.object({
+	expectedHash: contentHashSchema.optional(),
 	expectedVersion: z.number().int().positive().optional(),
 	expectedUpdatedAt: z.string().datetime().nullable().optional(),
 })
 function revisionConflict(body: unknown, record: typeof content.$inferSelect): boolean {
 	const expected = contentRevisionSchema.parse(body ?? {})
 	return (
+		(expected.expectedHash !== undefined && expected.expectedHash !== contentHash(record)) ||
 		(expected.expectedVersion !== undefined && expected.expectedVersion !== record.version) ||
 		(expected.expectedUpdatedAt !== undefined &&
 			expected.expectedUpdatedAt !== (record.updatedAt?.toISOString() ?? null))
@@ -74,13 +82,59 @@ const CONTENT_CONFLICT = {
 		'This record changed since you opened it. Your edits have not been saved. Review the latest record before saving again.',
 }
 
+/** Call only after authorization and while holding the target row lock. */
+function contentPrecondition(
+	request: FastifyRequest,
+	record: typeof content.$inferSelect,
+	body: unknown = request.body,
+) {
+	const expected = contentRevisionSchema.parse(body ?? {})
+	if (requestSource(request) === 'mcp' && expected.expectedHash === undefined) {
+		return {
+			status: 428,
+			body: {
+				code: 'CONTENT_HASH_REQUIRED',
+				error:
+					'Read this record with get_content and pass its contentHash as expectedHash. Review the latest content before writing.',
+			},
+		}
+	}
+	if (revisionConflict(expected, record)) return { status: 409, body: CONTENT_CONFLICT }
+	return null
+}
+
 type ContentTransaction = Parameters<Parameters<FastifyInstance['db']['transaction']>[0]>[0]
 async function withContentTransaction<T>(
 	app: FastifyInstance,
-	write: (tx: ContentTransaction, afterCommit: (effect: () => void) => void) => Promise<T>,
+	write: (
+		tx: ContentTransaction,
+		afterCommit: (effect: () => void) => void,
+		afterRollback: (effect: () => Promise<void>) => void,
+	) => Promise<T>,
 ): Promise<T> {
 	const effects: Array<() => void> = []
-	const result = await app.db.transaction((tx) => write(tx, (effect) => effects.push(effect)))
+	const rollbackEffects: Array<() => Promise<void>> = []
+	let result: T
+	try {
+		result = await app.db.transaction((tx) =>
+			write(
+				tx,
+				(effect) => effects.push(effect),
+				(effect) => rollbackEffects.push(effect),
+			),
+		)
+	} catch (error) {
+		// The transaction (including commit) has failed and its locks are released.
+		// Provider compensation may now safely use the ordinary connection pool.
+		for (const effect of rollbackEffects.reverse()) {
+			try {
+				await effect()
+			} catch (err) {
+				app.log.error(err, 'Content rollback compensation failed')
+			}
+		}
+		throw error
+	}
 	// SSE and webhook listeners must observe the committed revision.
 	for (const effect of effects) effect()
 	return result
@@ -198,6 +252,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		const realCols: Record<string, AnyColumn> = {
 			createdAt: content.createdAt,
 			updatedAt: content.updatedAt,
+			contentEditedAt: content.contentEditedAt,
 			publishedAt: content.publishedAt,
 			slug: content.slug,
 			status: content.status,
@@ -223,6 +278,8 @@ export async function contentRoutes(app: FastifyInstance) {
 						: sql`${content.metadata}->>${key}`
 				primaryOrder = sql`${expr} ${dir} nulls last`
 			}
+		} else if (sortBy === 'contentEditedAt') {
+			primaryOrder = sql`${content.contentEditedAt} ${sql.raw(sortOrder)} nulls last`
 		} else if (realCols[sortBy]) {
 			primaryOrder = orderDir(realCols[sortBy])
 		}
@@ -243,6 +300,9 @@ export async function contentRoutes(app: FastifyInstance) {
 		// is still running (the partial cache would otherwise show only a subset).
 		if (
 			collectionId &&
+			!params.editedFrom &&
+			!params.editedTo &&
+			sortBy !== 'contentEditedAt' &&
 			(Number(countResult[0].count) === 0 ||
 				(collection?.source === 'external' && (await hasActiveImport(app, collectionId))))
 		) {
@@ -422,6 +482,7 @@ export async function contentRoutes(app: FastifyInstance) {
 			const access = await checkCollectionAccess(request, item.collectionId, 'read')
 			if (!access.ok) return reply.status(access.status).send({ error: access.error })
 
+			const hash = contentHash(item)
 			await hydrateRelations(app, getProject(request).id, item, request.query.depth)
 
 			// Track read analytics (fire-and-forget)
@@ -435,7 +496,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				})
 				.catch(() => {})
 
-			return item
+			return { ...item, contentHash: hash }
 		},
 	)
 
@@ -601,7 +662,7 @@ export async function contentRoutes(app: FastifyInstance) {
 		)
 		const fieldWarnings = collectFieldWarnings(col.fields, input.metadata)
 		return reply.status(201).send({
-			...created,
+			...withContentHash(created),
 			...(languageWarning && { languageWarning }),
 			...(fieldWarnings.length > 0 && { fieldWarnings }),
 		})
@@ -913,375 +974,463 @@ export async function contentRoutes(app: FastifyInstance) {
 		}
 
 		return reply.status(201).send({
-			data: created,
+			data: created.map(withContentHash),
 			count: created.length,
 			...(languageWarnings.length > 0 && { warnings: languageWarnings }),
 		})
 	})
 
 	// Bulk update content (editor+, project-scoped)
-	app.put('/bulk', { preHandler: [app.requireProject('editor')] }, async (request, reply) => {
-		const { items, dryRun } = request.body as {
-			items: Array<{
-				id: string
-				slug?: string
-				markdown?: string
-				metadata?: Record<string, unknown>
-				status?: string
-				publishedAt?: string
-			}>
-			dryRun?: boolean
-		}
-
-		if (!Array.isArray(items) || items.length === 0)
-			return reply.status(400).send({ error: 'items array is required' })
-		if (items.length > 50)
-			return reply.status(400).send({ error: 'Maximum 50 items per bulk update' })
-
-		// Prefetch the target rows and their collections in two queries rather than
-		// two per item. Done before the transaction so the batch can be validated
-		// (and dry-run) without touching the database.
-		const updateIds = [...new Set(items.map((i) => i.id))]
-		const currentRows = await app.db
-			.select()
-			.from(content)
-			.where(and(inArray(content.id, updateIds), eq(content.projectId, getProject(request).id)))
-		const currentMap = new Map(currentRows.map((r) => [r.id, r]))
-		const updateColIds = [...new Set(currentRows.map((r) => r.collectionId))]
-		const updateCols = updateColIds.length
-			? await app.db
-					.select()
-					.from(collections)
-					.where(
-						and(
-							inArray(collections.id, updateColIds),
-							eq(collections.projectId, getProject(request).id),
-						),
-					)
-			: []
-		const updateColMap = new Map(updateCols.map((c) => [c.id, c]))
-
-		// Validate the whole batch before writing, mirroring the single-item update
-		// path: metadata is checked MERGED with the current row, required fields are
-		// enforced only when the merged result is published. Every bad item is
-		// reported; the transaction below stays all-or-nothing.
-		const itemErrors: Array<{
-			index: number
-			id: string
-			errors: Array<{ field: string; message: string }>
-		}> = []
-		// Keys each item explicitly removed, captured before the merge below folds
-		// them away — the external write turns them into real removals.
-		const removedKeysByItem = new Map<string, string[]>()
-		for (const [index, item] of items.entries()) {
-			const current = currentMap.get(item.id)
-			if (!current) {
-				itemErrors.push({
-					index,
-					id: item.id,
-					errors: [{ field: 'id', message: `Content not found: ${item.id}` }],
+	app.put('/bulk', { preHandler: [app.requireProject('editor')] }, async (request, reply) =>
+		withContentTransaction(app, async (tx, afterCommit, afterRollback) => {
+			const { items, dryRun } = z
+				.object({
+					items: z
+						.array(
+							contentInputSchema
+								.pick({
+									slug: true,
+									markdown: true,
+									metadata: true,
+									status: true,
+									publishedAt: true,
+								})
+								.partial()
+								.extend({ id: z.string().uuid(), ...contentRevisionSchema.shape }),
+						)
+						.min(1)
+						.max(50),
+					dryRun: z.boolean().optional(),
 				})
-				continue
-			}
-			const col = updateColMap.get(current.collectionId)
-			if (col?.source === 'external' && col.accessMode === 'read-only') {
-				itemErrors.push({
-					index,
-					id: item.id,
-					errors: [{ field: 'id', message: `Collection is read-only: ${col.name}` }],
-				})
-				continue
-			}
-			// Same frontmatter rule as every other write path: the block is stripped
-			// into metadata (explicit keys win) instead of being stored as body text.
-			if (item.markdown !== undefined) {
-				const { body, meta } = parseFrontmatter(item.markdown)
-				if (Object.keys(meta).length > 0) {
-					item.markdown = body
-					item.metadata = { ...meta, ...(item.metadata ?? {}) }
-				}
-			}
-			const mergedStatus = item.status ?? current.status
-			if (
-				item.status === 'published' &&
-				current.status !== 'published' &&
-				!request.canPublishDirectly
-			) {
-				itemErrors.push({
-					index,
-					id: item.id,
-					errors: [
-						{ field: 'status', message: 'Direct publish not allowed — submit for review instead.' },
-					],
-				})
-				continue
-			}
-			const scheduleIssue = checkSchedulable(
-				app,
-				mergedStatus,
-				item.publishedAt ?? current.publishedAt,
-			)
-			if (scheduleIssue) {
-				itemErrors.push({
-					index,
-					id: item.id,
-					errors: [{ field: 'publishedAt', message: scheduleIssue.error }],
-				})
-				continue
-			}
-			if (col) {
-				// Fold localized fields against what the row already holds, so updating
-				// one language keeps the others. Done in this pre-pass so the
-				// transaction below sees the normalized metadata.
-				item.metadata = applyLocalizedWrite(col.fields, item, {
-					locale: current.locale,
-					existing: current.metadata as Record<string, unknown>,
-				})
-				const richItem = applyRichTextWrites(col.fields, item, {
-					current: {
-						metadata: current.metadata as Record<string, unknown>,
-						markdown: current.markdown,
-					},
-				})
-				if (richItem.issues.length > 0) {
-					itemErrors.push({ index, id: item.id, errors: richItem.issues })
-					continue
-				}
-				item.metadata = richItem.metadata
-				// Same MERGE semantics as the single-item update: item.metadata becomes
-				// the full post-update blob (null deletes a key), so the transaction
-				// below writes the same fields everywhere — external row and cache alike.
-				const updatedKeys = Object.keys(item.metadata ?? {})
-				removedKeysByItem.set(item.id, removedMetadataKeys(item.metadata))
-				item.metadata = mergeMetadataUpdate(
-					current.metadata as Record<string, unknown>,
-					item.metadata,
-				)
-				const errors = validateContentMetadata(
-					col.fields,
-					item.metadata ?? (current.metadata as Record<string, unknown>),
-					// Type-check only the touched fields — legacy values must not block
-					// an unrelated update (mirrors the single-item path).
-					{
-						enforceRequired: mergedStatus === 'published',
-						updatedKeys,
-						locales: getProject(request).locales,
-					},
-				)
-				if (errors.length > 0) itemErrors.push({ index, id: item.id, errors })
-			}
-		}
+				.parse(request.body)
 
-		if (dryRun) {
-			return reply.send({
-				dryRun: true,
-				valid: items.length - new Set(itemErrors.map((e) => e.index)).size,
-				total: items.length,
-				errors: itemErrors,
-			})
-		}
-		if (itemErrors.length > 0) {
-			return reply.status(400).send({
-				error: 'Some items failed validation — nothing was updated',
-				items: itemErrors,
-			})
-		}
+			if (!Array.isArray(items) || items.length === 0)
+				return reply.status(400).send({ error: 'items array is required' })
+			if (items.length > 50)
+				return reply.status(400).send({ error: 'Maximum 50 items per bulk update' })
 
-		// Access checks first — nothing is written until every item is allowed.
-		const accessChecked = new Set<string>()
-		for (const [index, item] of items.entries()) {
-			const current = currentMap.get(item.id)
-			if (!current) return reply.status(404).send({ error: `item ${index}: Content not found` })
-			if (accessChecked.has(current.collectionId)) continue
-			accessChecked.add(current.collectionId)
-			const access = await checkCollectionAccess(request, current.collectionId, 'write')
-			if (!access.ok)
-				return reply.status(access.status).send({ error: `item ${index}: ${access.error}` })
-		}
-
-		// External writes happen OUTSIDE the Postgres transaction, each remembered
-		// with the row's previous external image. If a later external write or
-		// the CMS transaction fails, the applied ones are rolled back best-effort,
-		// so the source database and the cache do not end up telling different
-		// stories.
-		type Applied = {
-			col: (typeof updateCols)[number]
-			externalId: string
-			previous: Record<string, unknown>
-			inserted: boolean
-		}
-		const applied: Applied[] = []
-		const externalResults = new Map<
-			string,
-			{ externalId: string | null; cachedMetadata: Record<string, unknown> | undefined }
-		>()
-		const compensate = async () => {
-			for (const a of applied.reverse()) {
-				try {
-					if (a.inserted) {
-						await deleteFromExternalDb(app, getProject(request).id, a.col, a.externalId)
-					} else {
-						await updateExternalDb(app, getProject(request).id, a.col, a.externalId, a.previous)
-					}
-				} catch (err) {
-					app.log.error(
-						{ err, externalId: a.externalId, collection: a.col.name },
-						'Failed to roll back an external write after a bulk update failed',
-					)
-				}
+			// Validate the envelope before UUID queries. Lock in a stable order to
+			// serialize overlapping batches, single saves, and conditional deletion.
+			z.array(z.object({ id: z.string().uuid() })).parse(items)
+			if (new Set(items.map((item) => item.id)).size !== items.length) {
+				return reply.status(400).send({ error: 'Duplicate content IDs in bulk update' })
 			}
-		}
+			const updateIds = [...new Set(items.map((i) => i.id))]
+			const currentRows = await tx
+				.select()
+				.from(content)
+				.where(and(inArray(content.id, updateIds), eq(content.projectId, getProject(request).id)))
+				.orderBy(asc(content.id))
+				.for('update')
+			const currentMap = new Map(currentRows.map((r) => [r.id, r]))
+			const updateColIds = [...new Set(currentRows.map((r) => r.collectionId))]
+			const updateCols = updateColIds.length
+				? await tx
+						.select()
+						.from(collections)
+						.where(
+							and(
+								inArray(collections.id, updateColIds),
+								eq(collections.projectId, getProject(request).id),
+							),
+						)
+				: []
+			const updateColMap = new Map(updateCols.map((c) => [c.id, c]))
 
-		try {
+			for (const item of items) {
+				const current = currentMap.get(item.id)
+				if (!current) return reply.status(404).send({ error: 'Content not found' })
+				const access = await checkCollectionAccess(request, current.collectionId, 'write', tx)
+				if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			}
 			for (const [index, item] of items.entries()) {
 				const current = currentMap.get(item.id)
 				if (!current) continue
-				const col = updateColMap.get(current.collectionId)
-				if (col?.source === 'external' && col.accessMode === 'read-only') {
-					throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
-				}
-				if (!(col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable)) {
+				const precondition = contentPrecondition(request, current, item)
+				if (precondition)
+					return reply
+						.status(precondition.status)
+						.send({ ...precondition.body, index, id: item.id })
+			}
+
+			// Validate the whole batch before writing, mirroring the single-item update
+			// path: metadata is checked MERGED with the current row, required fields are
+			// enforced only when the merged result is published. Every bad item is
+			// reported; the transaction below stays all-or-nothing.
+			const itemErrors: Array<{
+				index: number
+				id: string
+				errors: Array<{ field: string; message: string }>
+			}> = []
+			// Keys each item explicitly removed, captured before the merge below folds
+			// them away — the external write turns them into real removals.
+			const removedKeysByItem = new Map<string, string[]>()
+			for (const [index, item] of items.entries()) {
+				const current = currentMap.get(item.id)
+				if (!current) {
+					itemErrors.push({
+						index,
+						id: item.id,
+						errors: [{ field: 'id', message: `Content not found: ${item.id}` }],
+					})
 					continue
 				}
-				const nextPublishedAt = item.publishedAt
-					? new Date(item.publishedAt)
-					: item.status === 'published' && !current.publishedAt
-						? new Date()
-						: current.publishedAt
-				// item.metadata was already merged with the stored blob in the pre-pass.
-				const nextMetadata = item.metadata ?? (current.metadata as Record<string, unknown>)
-				const now = new Date()
-				const externalData = buildExternalData(col, {
-					slug: item.slug ?? current.slug,
-					status: item.status ?? current.status,
-					metadata: nextMetadata,
-					markdown: item.markdown ?? current.markdown,
-					createdAt: current.createdAt,
-					updatedAt: now,
-					publishedAt: nextPublishedAt,
-				})
-				const previous = buildExternalData(col, {
-					slug: current.slug,
-					status: current.status,
-					metadata: current.metadata as Record<string, unknown>,
-					markdown: current.markdown,
-					createdAt: current.createdAt,
-					updatedAt: current.updatedAt,
-					publishedAt: current.publishedAt,
-				})
-				let externalId = current.externalId
-				let written: Record<string, unknown> = externalData
-				if (externalId) {
-					const result = await updateExternalDb(
-						app,
-						getProject(request).id,
-						col,
-						externalId,
-						externalData,
-						app.db,
-						{ unset: removedKeysByItem.get(item.id) },
-					)
-					written = result?.written ?? {}
-					applied.push({ col, externalId, previous, inserted: false })
-				} else {
-					const inserted = await insertIntoExternalDb(
-						app,
-						getProject(request).id,
-						col,
-						externalData,
-					)
-					externalId = inserted?._id ?? null
-					if (externalId) applied.push({ col, externalId, previous, inserted: true })
+				const col = updateColMap.get(current.collectionId)
+				if (col?.source === 'external' && col.accessMode === 'read-only') {
+					itemErrors.push({
+						index,
+						id: item.id,
+						errors: [{ field: 'id', message: `Collection is read-only: ${col.name}` }],
+					})
+					continue
 				}
-				externalResults.set(item.id, {
-					externalId,
-					// Keep the cache in step with what the external row now holds, so the
-					// editor doesn't read back a stale/blank updatedAt.
-					cachedMetadata: mergeExternalTimestamps(nextMetadata, written, col.fields),
+				// Same frontmatter rule as every other write path: the block is stripped
+				// into metadata (explicit keys win) instead of being stored as body text.
+				if (item.markdown !== undefined) {
+					const { body, meta } = parseFrontmatter(item.markdown)
+					if (Object.keys(meta).length > 0) {
+						item.markdown = body
+						item.metadata = { ...meta, ...(item.metadata ?? {}) }
+					}
+				}
+				const mergedStatus = item.status ?? current.status
+				if (
+					item.status === 'published' &&
+					current.status !== 'published' &&
+					!request.canPublishDirectly
+				) {
+					itemErrors.push({
+						index,
+						id: item.id,
+						errors: [
+							{
+								field: 'status',
+								message: 'Direct publish not allowed — submit for review instead.',
+							},
+						],
+					})
+					continue
+				}
+				const scheduleIssue = checkSchedulable(
+					app,
+					mergedStatus,
+					item.publishedAt ?? current.publishedAt,
+				)
+				if (scheduleIssue) {
+					itemErrors.push({
+						index,
+						id: item.id,
+						errors: [{ field: 'publishedAt', message: scheduleIssue.error }],
+					})
+					continue
+				}
+				if (col) {
+					// Fold localized fields against what the row already holds, so updating
+					// one language keeps the others. Done in this pre-pass so the
+					// transaction below sees the normalized metadata.
+					item.metadata = applyLocalizedWrite(col.fields, item, {
+						locale: current.locale,
+						existing: current.metadata as Record<string, unknown>,
+					})
+					const richItem = applyRichTextWrites(col.fields, item, {
+						current: {
+							metadata: current.metadata as Record<string, unknown>,
+							markdown: current.markdown,
+						},
+					})
+					if (richItem.issues.length > 0) {
+						itemErrors.push({ index, id: item.id, errors: richItem.issues })
+						continue
+					}
+					item.metadata = richItem.metadata
+					// Same MERGE semantics as the single-item update: item.metadata becomes
+					// the full post-update blob (null deletes a key), so the transaction
+					// below writes the same fields everywhere — external row and cache alike.
+					const updatedKeys = Object.keys(item.metadata ?? {})
+					removedKeysByItem.set(item.id, removedMetadataKeys(item.metadata))
+					item.metadata = mergeMetadataUpdate(
+						current.metadata as Record<string, unknown>,
+						item.metadata,
+					)
+					const errors = validateContentMetadata(
+						col.fields,
+						item.metadata ?? (current.metadata as Record<string, unknown>),
+						// Type-check only the touched fields — legacy values must not block
+						// an unrelated update (mirrors the single-item path).
+						{
+							enforceRequired: mergedStatus === 'published',
+							updatedKeys,
+							locales: getProject(request).locales,
+						},
+					)
+					if (errors.length > 0) itemErrors.push({ index, id: item.id, errors })
+				}
+			}
+
+			if (dryRun) {
+				return reply.send({
+					dryRun: true,
+					valid: items.length - new Set(itemErrors.map((e) => e.index)).size,
+					total: items.length,
+					errors: itemErrors,
 				})
 			}
-		} catch (err) {
-			await compensate()
-			if ((err as { statusCode?: number }).statusCode && !(err instanceof ExternalWriteError)) {
-				throw err
+			if (itemErrors.length > 0) {
+				return reply.status(400).send({
+					error: 'Some items failed validation — nothing was updated',
+					items: itemErrors,
+				})
 			}
-			return sendExternalWriteFailure(reply, err, {
-				log: app.log,
-				message: 'Bulk update: external write failed — applied external writes rolled back',
+
+			// Hold local row locks across provider writes. Remember each previous
+			// external image for best-effort compensation on provider/DB/commit failure.
+			// These are separate databases, so this is not distributed atomicity.
+			type Applied = {
+				recordId: string
+				forwardSnapshot?: ReturnType<typeof syncState>
+				restoreUnset?: string[]
+				col: (typeof updateCols)[number]
+				externalId: string
+				previous: Record<string, unknown>
+				inserted: boolean
+			}
+			const applied: Applied[] = []
+			const externalResults = new Map<
+				string,
+				{ externalId: string | null; cachedMetadata: Record<string, unknown> | undefined }
+			>()
+			const compensate = async (
+				snapshotDb: Pick<FastifyInstance['db'], 'select' | 'update'> = tx,
+				recoveredRows?: Map<string, typeof content.$inferSelect>,
+			) => {
+				for (const a of applied.splice(0).reverse()) {
+					// A writer may have committed after rollback released our original
+					// locks. Never undo its newer source state while compensating ours.
+					if (recoveredRows) {
+						const row = recoveredRows.get(a.recordId)
+						const original = currentMap.get(a.recordId)
+						if (!row || !original || contentHash(row) !== contentHash(original)) {
+							app.log.error(
+								{
+									code: 'EXTERNAL_RECONCILIATION_REQUIRED',
+									contentId: a.recordId,
+									externalId: a.externalId,
+								},
+								'Skipped external compensation because the record changed after rollback',
+							)
+							continue
+						}
+					}
+					try {
+						if (a.inserted) {
+							await deleteFromExternalDb(
+								app,
+								getProject(request).id,
+								a.col,
+								a.externalId,
+								snapshotDb,
+							)
+						} else {
+							await updateExternalDb(
+								app,
+								getProject(request).id,
+								a.col,
+								a.externalId,
+								a.previous,
+								snapshotDb,
+								{ baseline: a.forwardSnapshot, unset: a.restoreUnset },
+							)
+						}
+					} catch (err) {
+						app.log.error(
+							{ err, externalId: a.externalId, collection: a.col.name },
+							'Failed to roll back an external write after a bulk update failed',
+						)
+					}
+				}
+			}
+
+			afterRollback(async () => {
+				if (!applied.length) return
+				await app.db.transaction(async (recoveryTx) => {
+					const rows = await recoveryTx
+						.select()
+						.from(content)
+						.where(
+							and(
+								inArray(
+									content.id,
+									applied.map((item) => item.recordId),
+								),
+								eq(content.projectId, getProject(request).id),
+							),
+						)
+						.orderBy(asc(content.id))
+						.for('update')
+					await compensate(recoveryTx, new Map(rows.map((row) => [row.id, row])))
+				})
 			})
-		}
 
-		let updated: (typeof content.$inferSelect)[]
-		try {
-			updated = await app.db.transaction(async (tx) => {
-				const results = []
-
+			try {
 				for (const [index, item] of items.entries()) {
 					const current = currentMap.get(item.id)
-					if (!current) throw httpError(`item ${index}: Content not found: ${item.id}`, 404)
-
-					// Same rule as the single-item update: an explicit date wins, a first
-					// publish stamps now, otherwise keep what's stored.
+					if (!current) continue
+					const col = updateColMap.get(current.collectionId)
+					if (col?.source === 'external' && col.accessMode === 'read-only') {
+						throw httpError(`item ${index}: Collection is read-only: ${col.name}`, 403)
+					}
+					if (
+						!(col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable)
+					) {
+						continue
+					}
 					const nextPublishedAt = item.publishedAt
 						? new Date(item.publishedAt)
 						: item.status === 'published' && !current.publishedAt
 							? new Date()
 							: current.publishedAt
-					const external = externalResults.get(item.id)
-					const externalId = external ? external.externalId : current.externalId
-					// Metadata to cache locally — `undefined` leaves the stored blob untouched.
-					const cachedMetadata = external ? external.cachedMetadata : item.metadata
-
-					await tx.insert(contentVersions).values({
-						contentId: current.id,
-						version: current.version,
-						markdown: current.markdown,
-						metadata: current.metadata,
-						createdBy: getUser(request).id,
-						source: requestSource(request),
+					// item.metadata was already merged with the stored blob in the pre-pass.
+					const nextMetadata = item.metadata ?? (current.metadata as Record<string, unknown>)
+					const now = new Date()
+					const externalData = buildExternalData(col, {
+						slug: item.slug ?? current.slug,
+						status: item.status ?? current.status,
+						metadata: nextMetadata,
+						markdown: item.markdown ?? current.markdown,
+						createdAt: current.createdAt,
+						updatedAt: now,
+						publishedAt: nextPublishedAt,
 					})
-
-					const html = item.markdown !== undefined ? await renderMarkdown(item.markdown) : undefined
-					const [result] = await tx
-						.update(content)
-						.set({
-							...(item.slug && { slug: item.slug }),
-							...(item.markdown !== undefined && { markdown: item.markdown }),
-							...(html !== undefined && { html }),
-							...(cachedMetadata && { metadata: cachedMetadata }),
-							...(item.status && { status: item.status as ContentStatus }),
-							version: current.version + 1,
-							updatedAt: new Date(),
-							updatedBy: getUser(request).id,
-							updatedSource: requestSource(request),
-							publishedAt: nextPublishedAt,
-							...(externalId && { externalId }),
-						})
-						.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
-						.returning()
-
-					if (result) results.push(result)
+					const previous = buildExternalData(col, {
+						slug: current.slug,
+						status: current.status,
+						metadata: current.metadata as Record<string, unknown>,
+						markdown: current.markdown,
+						createdAt: current.createdAt,
+						updatedAt: current.updatedAt,
+						publishedAt: current.publishedAt,
+					})
+					let externalId = current.externalId
+					let written: Record<string, unknown> = externalData
+					if (externalId) {
+						const appliedExternalId = externalId
+						const result = await updateExternalDb(
+							app,
+							getProject(request).id,
+							col,
+							externalId,
+							externalData,
+							tx,
+							{
+								unset: removedKeysByItem.get(item.id),
+								onApplied: (forwardSnapshot) =>
+									applied.push({
+										recordId: current.id,
+										col,
+										externalId: appliedExternalId,
+										previous,
+										inserted: false,
+										forwardSnapshot,
+										restoreUnset: Object.keys(externalData).filter((key) => !(key in previous)),
+									}),
+							},
+						)
+						written = result?.written ?? {}
+					} else {
+						const inserted = await insertIntoExternalDb(
+							app,
+							getProject(request).id,
+							col,
+							externalData,
+							tx,
+							(record) =>
+								applied.push({
+									recordId: current.id,
+									col,
+									externalId: String(record._id),
+									previous,
+									inserted: true,
+								}),
+						)
+						externalId = inserted?._id ?? null
+					}
+					externalResults.set(item.id, {
+						externalId,
+						// Keep the cache in step with what the external row now holds, so the
+						// editor doesn't read back a stale/blank updatedAt.
+						cachedMetadata: mergeExternalTimestamps(nextMetadata, written, col.fields),
+					})
 				}
-				return results
-			})
-		} catch (err) {
-			await compensate()
-			throw err
-		}
+			} catch (err) {
+				if (err instanceof ExternalWriteError) throw err
+				throw new ExternalWriteError(describeExternalDbError(err))
+			}
 
-		for (const result of updated) {
-			const before = currentMap.get(result.id)
-			emitContentStatusEvent(app, {
-				base: 'content:updated',
-				previousStatus: before?.status,
-				...(before && { previous: { slug: before.slug, locale: before.locale } }),
-				updated: result,
-				projectId: getProject(request).id,
-			})
-		}
+			const updated: (typeof content.$inferSelect)[] = []
 
-		return { data: updated, count: updated.length }
-	})
+			for (const [index, item] of items.entries()) {
+				const current = currentMap.get(item.id)
+				if (!current) throw httpError(`item ${index}: Content not found: ${item.id}`, 404)
+
+				// Same rule as the single-item update: an explicit date wins, a first
+				// publish stamps now, otherwise keep what's stored.
+				const nextPublishedAt = item.publishedAt
+					? new Date(item.publishedAt)
+					: item.status === 'published' && !current.publishedAt
+						? new Date()
+						: current.publishedAt
+				const external = externalResults.get(item.id)
+				const externalId = external ? external.externalId : current.externalId
+				// Metadata to cache locally — `undefined` leaves the stored blob untouched.
+				const cachedMetadata = external ? external.cachedMetadata : item.metadata
+
+				await tx.insert(contentVersions).values({
+					contentId: current.id,
+					version: current.version,
+					markdown: current.markdown,
+					metadata: current.metadata,
+					createdBy: getUser(request).id,
+					source: requestSource(request),
+				})
+
+				const html = item.markdown !== undefined ? await renderMarkdown(item.markdown) : undefined
+				const [result] = await tx
+					.update(content)
+					.set({
+						...(item.slug && { slug: item.slug }),
+						...(item.markdown !== undefined && { markdown: item.markdown }),
+						...(html !== undefined && { html }),
+						...(cachedMetadata && { metadata: cachedMetadata }),
+						...(item.status && { status: item.status as ContentStatus }),
+						version: current.version + 1,
+						updatedAt: new Date(),
+						updatedBy: getUser(request).id,
+						updatedSource: requestSource(request),
+						publishedAt: nextPublishedAt,
+						...(externalId && { externalId }),
+					})
+					.where(and(eq(content.id, item.id), eq(content.projectId, getProject(request).id)))
+					.returning()
+
+				if (result) updated.push(result)
+			}
+
+			for (const result of updated) {
+				const before = currentMap.get(result.id)
+				afterCommit(() =>
+					emitContentStatusEvent(app, {
+						base: 'content:updated',
+						previousStatus: before?.status,
+						...(before && { previous: { slug: before.slug, locale: before.locale } }),
+						updated: result,
+						projectId: getProject(request).id,
+					}),
+				)
+			}
+
+			return { data: updated.map(withContentHash), count: updated.length }
+		}),
+	)
 
 	// Query content by metadata fields (viewer+, project-scoped)
 	app.post(
@@ -1376,6 +1525,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				const {
 					updatedAt: _ua,
 					collectionId: requestedCollectionId,
+					expectedHash,
 					expectedVersion,
 					expectedUpdatedAt,
 					...input
@@ -1446,9 +1596,12 @@ export async function contentRoutes(app: FastifyInstance) {
 
 				// Lock the record before comparing the editor's revision. Two editors
 				// saving the same revision must never both pass this check.
-				if (revisionConflict({ expectedVersion, expectedUpdatedAt }, current)) {
-					return reply.status(409).send(CONTENT_CONFLICT)
-				}
+				const precondition = contentPrecondition(request, current, {
+					expectedHash,
+					expectedVersion,
+					expectedUpdatedAt,
+				})
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
 
 				const [col] = await tx
 					.select()
@@ -1661,143 +1814,172 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return fieldWarnings.length > 0 ? { ...updated, fieldWarnings } : updated
+				return { ...withContentHash(updated), ...(fieldWarnings.length > 0 && { fieldWarnings }) }
 			}),
 	)
 
 	// Delete content (admin+, project-scoped)
-	app.delete<{ Params: { id: string }; Querystring: { collectionId?: string } }>(
-		'/:id',
-		{ preHandler: [app.requireProject('admin')] },
-		async (request, reply) => {
-			// Resolve the id the same three ways GET /:id does: local uuid, then the
-			// external id of a cached row, then a live external record (uncached —
-			// requires ?collectionId, like the GET live fallback). A non-UUID id makes
-			// the uuid-typed comparison throw — treat that as "not found locally".
-			let deleted: typeof content.$inferSelect | undefined
-			try {
-				;[deleted] = await app.db
-					.delete(content)
+	app.delete<{
+		Params: { id: string }
+		Querystring: { collectionId?: string; expectedHash?: string }
+	}>('/:id', { preHandler: [app.requireProject('admin')] }, async (request, reply) => {
+		const deleted = await app.db.transaction(async (tx) => {
+			let row: typeof content.$inferSelect | undefined
+			if (LOCAL_CONTENT_ID.test(request.params.id)) {
+				;[row] = await tx
+					.select()
+					.from(content)
 					.where(
 						and(eq(content.id, request.params.id), eq(content.projectId, getProject(request).id)),
 					)
-					.returning()
-			} catch {
-				deleted = undefined
+					.limit(1)
+					.for('update')
 			}
-
-			if (!deleted) {
-				;[deleted] = await app.db
-					.delete(content)
+			if (!row) {
+				;[row] = await tx
+					.select()
+					.from(content)
 					.where(
 						and(
 							eq(content.externalId, request.params.id),
 							eq(content.projectId, getProject(request).id),
-						),
-					)
-					.returning()
-			}
-
-			// Live external record with no cached CMS row: delete straight from the
-			// external database. Existence is checked first so a wrong id is a 404,
-			// not a silent no-op delete.
-			if (!deleted && request.query.collectionId) {
-				const access = await checkCollectionAccess(request, request.query.collectionId, 'write')
-				if (!access.ok) return reply.status(access.status).send({ error: access.error })
-				const [liveCol] = await app.db
-					.select()
-					.from(collections)
-					.where(
-						and(
-							eq(collections.id, request.query.collectionId),
-							eq(collections.projectId, getProject(request).id),
+							...(request.query.collectionId
+								? [eq(content.collectionId, request.query.collectionId)]
+								: []),
 						),
 					)
 					.limit(1)
-				if (!liveCol) return reply.status(404).send({ error: 'Collection not found' })
-				if (liveCol.source !== 'external' || !liveCol.externalTable) {
-					return reply.status(404).send({ error: 'Content not found' })
-				}
-				if (liveCol.accessMode === 'read-only') {
-					return reply.status(403).send({ error: 'This collection is read-only' })
-				}
-				const live = await fetchLiveExternalRecord(
-					app,
-					getProject(request).id,
-					liveCol.id,
-					request.params.id,
-				).catch(() => null)
-				if (!live) return reply.status(404).send({ error: 'Content not found' })
-				try {
-					await deleteFromExternalDb(app, getProject(request).id, liveCol, request.params.id)
-				} catch (err) {
-					app.log.error(err, 'Failed to delete live external record')
-					return reply.status(502).send({ error: 'Failed to delete from external database' })
-				}
-				app.events.emit({
-					type: 'content:deleted',
-					data: {
-						...deletedContentEventData({
-							id: request.params.id,
-							slug: typeof live.item.slug === 'string' ? live.item.slug : null,
-							collectionId: liveCol.id,
-							locale: typeof live.item.locale === 'string' ? live.item.locale : undefined,
-							status: typeof live.item.status === 'string' ? live.item.status : undefined,
-						}),
-						projectId: getProject(request).id,
-					},
-					timestamp: new Date().toISOString(),
+					.for('update')
+			}
+			if (!row) return undefined
+			const access = await checkCollectionAccess(request, row.collectionId, 'write', tx)
+			if (!access.ok) {
+				reply.status(access.status).send({ error: access.error })
+				return undefined
+			}
+			const precondition = contentPrecondition(request, row, {
+				...((request.body as object) ?? {}),
+				...request.query,
+			})
+			if (precondition) {
+				reply.status(precondition.status).send(precondition.body)
+				return undefined
+			}
+			await tx.delete(content).where(eq(content.id, row.id))
+			return row
+		})
+		if (reply.sent) return reply
+
+		// Live external record with no cached CMS row: delete straight from the
+		// external database. Existence is checked first so a wrong id is a 404,
+		// not a silent no-op delete.
+		if (!deleted && request.query.collectionId) {
+			const access = await checkCollectionAccess(request, request.query.collectionId, 'write')
+			if (!access.ok) return reply.status(access.status).send({ error: access.error })
+			const [liveCol] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, request.query.collectionId),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (!liveCol) return reply.status(404).send({ error: 'Collection not found' })
+			if (liveCol.source !== 'external' || !liveCol.externalTable) {
+				return reply.status(404).send({ error: 'Content not found' })
+			}
+			if (liveCol.accessMode === 'read-only') {
+				return reply.status(403).send({ error: 'This collection is read-only' })
+			}
+			const live = await fetchLiveExternalRecord(
+				app,
+				getProject(request).id,
+				liveCol.id,
+				request.params.id,
+			).catch(() => null)
+			if (!live) return reply.status(404).send({ error: 'Content not found' })
+			const liveExpected = contentRevisionSchema.parse({
+				...((request.body as object) ?? {}),
+				...request.query,
+			})
+			if (requestSource(request) === 'mcp' || liveExpected.expectedHash !== undefined) {
+				return reply.status(409).send({
+					code: 'CONTENT_NOT_CACHED',
+					error:
+						'Import/cache this external record before a conditional deletion; then re-read it with get_content.',
 				})
-				return reply.status(204).send()
 			}
-
-			if (!deleted) return reply.status(404).send({ error: 'Content not found' })
-
-			// Propagate the delete to the external DB when this row was backed by one,
-			// so external collections don't accumulate orphaned documents. The CMS row
-			// is already gone, so a failure here can't fail the request (no 5xx) — but
-			// it must not be silent either: the caller gets a 200 warning payload so it
-			// knows the external record dangles and needs manual cleanup.
-			let externalCleanupError: string | undefined
-			let externalTable: string | undefined
-			if (deleted.externalId) {
-				const [col] = await app.db
-					.select()
-					.from(collections)
-					.where(
-						and(
-							eq(collections.id, deleted.collectionId),
-							eq(collections.projectId, getProject(request).id),
-						),
-					)
-					.limit(1)
-				if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
-					externalTable = col.externalTable
-					try {
-						await deleteFromExternalDb(app, getProject(request).id, col, deleted.externalId)
-					} catch (err) {
-						app.log.error(err, 'Failed to delete external row after CMS delete')
-						externalCleanupError = err instanceof Error ? err.message : String(err)
-					}
-				}
+			try {
+				await deleteFromExternalDb(app, getProject(request).id, liveCol, request.params.id)
+			} catch (err) {
+				app.log.error(err, 'Failed to delete live external record')
+				return reply.status(502).send({ error: 'Failed to delete from external database' })
 			}
-
 			app.events.emit({
 				type: 'content:deleted',
-				data: { ...deletedContentEventData(deleted), projectId: getProject(request).id },
+				data: {
+					...deletedContentEventData({
+						id: request.params.id,
+						slug: typeof live.item.slug === 'string' ? live.item.slug : null,
+						collectionId: liveCol.id,
+						locale: typeof live.item.locale === 'string' ? live.item.locale : undefined,
+						status: typeof live.item.status === 'string' ? live.item.status : undefined,
+					}),
+					projectId: getProject(request).id,
+				},
 				timestamp: new Date().toISOString(),
 			})
-
-			if (externalCleanupError) {
-				return reply.status(200).send({
-					deleted: true,
-					externalCleanup: 'failed',
-					message: `The content item was deleted from the CMS, but removing the backing record (id ${deleted.externalId}) from the external table "${externalTable}" failed: ${externalCleanupError}. Delete it there manually to avoid an orphaned row.`,
-				})
-			}
 			return reply.status(204).send()
-		},
-	)
+		}
+
+		if (!deleted) return reply.status(404).send({ error: 'Content not found' })
+
+		// Propagate the delete to the external DB when this row was backed by one,
+		// so external collections don't accumulate orphaned documents. The CMS row
+		// is already gone, so a failure here can't fail the request (no 5xx) — but
+		// it must not be silent either: the caller gets a 200 warning payload so it
+		// knows the external record dangles and needs manual cleanup.
+		let externalCleanupError: string | undefined
+		let externalTable: string | undefined
+		if (deleted.externalId) {
+			const [col] = await app.db
+				.select()
+				.from(collections)
+				.where(
+					and(
+						eq(collections.id, deleted.collectionId),
+						eq(collections.projectId, getProject(request).id),
+					),
+				)
+				.limit(1)
+			if (col?.source === 'external' && col.accessMode === 'read-write' && col.externalTable) {
+				externalTable = col.externalTable
+				try {
+					await deleteFromExternalDb(app, getProject(request).id, col, deleted.externalId)
+				} catch (err) {
+					app.log.error(err, 'Failed to delete external row after CMS delete')
+					externalCleanupError = err instanceof Error ? err.message : String(err)
+				}
+			}
+		}
+
+		app.events.emit({
+			type: 'content:deleted',
+			data: { ...deletedContentEventData(deleted), projectId: getProject(request).id },
+			timestamp: new Date().toISOString(),
+		})
+
+		if (externalCleanupError) {
+			return reply.status(200).send({
+				deleted: true,
+				externalCleanup: 'failed',
+				message: `The content item was deleted from the CMS, but removing the backing record (id ${deleted.externalId}) from the external table "${externalTable}" failed: ${externalCleanupError}. Delete it there manually to avoid an orphaned row.`,
+			})
+		}
+		return reply.status(204).send()
+	})
 
 	// Revert content (editor+, project-scoped)
 	app.post<{ Params: { id: string; version: string } }>(
@@ -1818,7 +2000,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				const writeAccess = await checkCollectionAccess(request, current.collectionId, 'write', tx)
 				if (!writeAccess.ok)
 					return reply.status(writeAccess.status).send({ error: writeAccess.error })
-				if (revisionConflict(request.body, current)) return reply.status(409).send(CONTENT_CONFLICT)
+				const precondition = contentPrecondition(request, current)
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
 
 				const targetVersion = Number(request.params.version)
 				const [version] = await tx
@@ -1945,7 +2128,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return reverted
+				return withContentHash(reverted)
 			}),
 	)
 
@@ -2122,8 +2305,9 @@ export async function contentRoutes(app: FastifyInstance) {
 				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
 				if (!writeAccess.ok)
 					return reply.status(writeAccess.status).send({ error: writeAccess.error })
-				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
-				if (item.status === 'published') return item
+				const precondition = contentPrecondition(request, item)
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
+				if (item.status === 'published') return withContentHash(item)
 
 				// Publishing is the point where required fields must all be present.
 				const [pubCol] = await tx
@@ -2195,7 +2379,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return updated
+				return withContentHash(updated)
 			}),
 	)
 
@@ -2227,7 +2411,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
 				if (!writeAccess.ok)
 					return reply.status(writeAccess.status).send({ error: writeAccess.error })
-				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				const precondition = contentPrecondition(request, item)
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
 				if (item.status !== 'draft')
 					return reply.status(400).send({ error: 'Only drafts can be submitted for review' })
 
@@ -2260,7 +2445,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return updated
+				return withContentHash(updated)
 			}),
 	)
 
@@ -2283,7 +2468,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
 				if (!writeAccess.ok)
 					return reply.status(writeAccess.status).send({ error: writeAccess.error })
-				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				const precondition = contentPrecondition(request, item)
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
 				if (item.status !== 'pending_review')
 					return reply.status(400).send({ error: 'Only pending review items can be approved' })
 
@@ -2335,7 +2521,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return updated
+				return withContentHash(updated)
 			}),
 	)
 
@@ -2360,7 +2546,8 @@ export async function contentRoutes(app: FastifyInstance) {
 				const writeAccess = await checkCollectionAccess(request, item.collectionId, 'write', tx)
 				if (!writeAccess.ok)
 					return reply.status(writeAccess.status).send({ error: writeAccess.error })
-				if (revisionConflict(request.body, item)) return reply.status(409).send(CONTENT_CONFLICT)
+				const precondition = contentPrecondition(request, item)
+				if (precondition) return reply.status(precondition.status).send(precondition.body)
 				if (item.status !== 'pending_review')
 					return reply.status(400).send({ error: 'Only pending review items can be rejected' })
 
@@ -2417,7 +2604,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					}),
 				)
 
-				return updated
+				return withContentHash(updated)
 			}),
 	)
 
