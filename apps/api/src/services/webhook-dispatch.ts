@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { webhookDeliveries, webhooks } from '@innolope/db'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, lte, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { safeFetch, validatePublicUrl } from '../adapters/connection-guard.js'
 import { decryptSecret } from '../lib/crypto.js'
@@ -257,8 +257,12 @@ function getNextRetry(attempts: number): Date | null {
  * dispatch). Each row is claimed with a conditional UPDATE — a compare-and-set
  * that exactly one instance wins — so two API replicas never send the same
  * delivery twice.
+ *
+ * Compare `now` through drizzle operators, never inside a raw `sql` template:
+ * the postgres-js driver passes Date parameters through unserialized, so a raw
+ * Date reaches postgres.js as an object and the query throws on Postgres.
  */
-async function retryFailedDeliveries(app: FastifyInstance) {
+export async function retryFailedDeliveries(app: FastifyInstance) {
 	if (!app.db) return
 
 	const now = new Date()
@@ -275,12 +279,14 @@ async function retryFailedDeliveries(app: FastifyInstance) {
 		.innerJoin(webhooks, eq(webhookDeliveries.webhookId, webhooks.id))
 		.where(
 			and(
-				sql`${webhookDeliveries.attempts} < ${MAX_ATTEMPTS}`,
-				sql`(
-					(${webhookDeliveries.status} = 'failed' AND ${webhookDeliveries.nextRetry} IS NOT NULL AND ${webhookDeliveries.nextRetry} <= ${now})
-					OR
-					(${webhookDeliveries.status} = 'pending' AND (${webhookDeliveries.nextRetry} IS NULL OR ${webhookDeliveries.nextRetry} <= ${now}))
-				)`,
+				lt(webhookDeliveries.attempts, MAX_ATTEMPTS),
+				or(
+					and(eq(webhookDeliveries.status, 'failed'), lte(webhookDeliveries.nextRetry, now)),
+					and(
+						eq(webhookDeliveries.status, 'pending'),
+						or(isNull(webhookDeliveries.nextRetry), lte(webhookDeliveries.nextRetry, now)),
+					),
+				),
 			),
 		)
 		.limit(50)
@@ -298,7 +304,7 @@ async function retryFailedDeliveries(app: FastifyInstance) {
 					eq(webhookDeliveries.attempts, delivery.attempts),
 					delivery.nextRetry
 						? eq(webhookDeliveries.nextRetry, delivery.nextRetry)
-						: sql`${webhookDeliveries.nextRetry} IS NULL`,
+						: isNull(webhookDeliveries.nextRetry),
 				),
 			)
 			.returning({ id: webhookDeliveries.id })

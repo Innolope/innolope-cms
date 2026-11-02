@@ -52,7 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        # Same image as production (cloud docker-compose.yml).
+        image: pgvector/pgvector:0.8.7-pg18-trixie
         env:
           POSTGRES_USER: innolope
           POSTGRES_PASSWORD: innolope
