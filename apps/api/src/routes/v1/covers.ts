@@ -55,6 +55,27 @@ interface RenderBody {
 }
 
 export async function coverRoutes(app: FastifyInstance) {
+	// Render/upload independently, then attach through update_content with the
+	// hash the agent reviewed. Legacy render-and-attach has no conditional save.
+	const requireConditionalAgentAttachment = async (
+		request: FastifyRequest,
+		reply: FastifyReply,
+	) => {
+		const body = request.body as
+			| { contentId?: string; field?: string; covers?: RenderBody[] }
+			| undefined
+		if (
+			requestSource(request) === 'mcp' &&
+			(body?.contentId || body?.covers?.some((cover) => cover.contentId))
+		) {
+			return reply.status(428).send({
+				code: 'CONTENT_HASH_REQUIRED',
+				error:
+					'Render covers without contentId, then call get_content, review, and attach the URL with update_content using expectedHash.',
+			})
+		}
+	}
+
 	/** Is the feature usable for this project? Cheap, no Cloudflare call. */
 	app.get(
 		'/status',
@@ -98,7 +119,13 @@ export async function coverRoutes(app: FastifyInstance) {
 	 */
 	app.post<{ Body: { contentId: string; format?: string; field: string } }>(
 		'/generate',
-		{ preHandler: [app.requireProject('editor'), app.requireLicense('cover-generator')] },
+		{
+			preHandler: [
+				app.requireProject('editor'),
+				app.requireLicense('cover-generator'),
+				requireConditionalAgentAttachment,
+			],
+		},
 		async (request, reply) => {
 			const { contentId, format, field } = request.body ?? {}
 			if (!contentId || !field) {
@@ -167,7 +194,13 @@ export async function coverRoutes(app: FastifyInstance) {
 	/** Render one cover, store it, optionally write the URL onto a record. */
 	app.post<{ Body: RenderBody }>(
 		'/render',
-		{ preHandler: [app.requireProject('editor'), app.requireLicense('cover-generator')] },
+		{
+			preHandler: [
+				app.requireProject('editor'),
+				app.requireLicense('cover-generator'),
+				requireConditionalAgentAttachment,
+			],
+		},
 		async (request, reply) => {
 			try {
 				const result = await renderAndStore(app, request, request.body)
@@ -189,7 +222,13 @@ export async function coverRoutes(app: FastifyInstance) {
 	 */
 	app.post<{ Body: { covers: RenderBody[] } }>(
 		'/bulk',
-		{ preHandler: [app.requireProject('editor'), app.requireLicense('cover-generator')] },
+		{
+			preHandler: [
+				app.requireProject('editor'),
+				app.requireLicense('cover-generator'),
+				requireConditionalAgentAttachment,
+			],
+		},
 		async (request, reply) => {
 			const covers = request.body?.covers
 			if (!Array.isArray(covers) || covers.length === 0) {

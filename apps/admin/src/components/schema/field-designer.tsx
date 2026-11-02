@@ -270,7 +270,7 @@ export function FieldDesigner({
 		set('subFields', subFields.length ? subFields : undefined)
 		set('summaryKey', summaryKey || undefined)
 		// Confirming any shape locks it unless the admin opened it up.
-		set('allowExtraKeys', allowExtraKeys ? true : false)
+		set('allowExtraKeys', allowExtraKeys)
 		onApply({
 			...field,
 			...(label.trim() ? { label: label.trim() } : { label: undefined }),

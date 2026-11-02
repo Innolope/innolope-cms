@@ -134,6 +134,38 @@ For a single project, run the stdio server with a key created in **Settings > AP
 
 Either way, Claude can create, read, update, publish, search, and import content.
 
+## Safe agent edits
+
+Every MCP edit to an existing record requires the hash of the version the agent reviewed:
+
+1. Call `get_content({ id })` and review its content. The response includes `contentHash` separately from any truncated body or expanded relations.
+2. Pass that value as `expectedHash` to `update_content`, `publish_content`, `submit_for_review`, or confirmed `delete_content`. Each `bulk_update` item needs its own hash.
+3. After `CONTENT_CONFLICT`, re-read and reconcile changes before writing again. Never fetch a fresh hash just to retry stale changes. If a response times out, first read to determine whether the write committed.
+
+```json
+{
+  "id": "the-record-uuid",
+  "expectedHash": "sha256:the-64-lowercase-hex-digits-returned-by-get_content",
+  "metadata": { "title": "Reviewed new title" }
+}
+```
+
+The API computes SHA-256 over the complete stored authoring state, record/project identity and revision. Hash checks and writes share PostgreSQL row locks. Changing a record and then reverting it invalidates earlier hashes. Bulk edits lock in a stable order and check all hashes before any effects; a dry-run does not reserve a revision.
+
+For REST authoring, send `expectedHash` in the update/status/revert JSON body, in each bulk item, or as a DELETE query parameter. Missing hashes on MCP-marked writes return **428 `CONTENT_HASH_REQUIRED`**, malformed hashes return **400**, and stale hashes return **409 `CONTENT_CONFLICT`**. Supplied hashes are enforced for other clients too. Existing admin version/date checks stay compatible. New record creation needs no previous hash. Old MCP clients must upgrade and re-read; there is no database migration.
+
+The older admin bulk-action endpoint does not accept reviewed hashes: MCP callers must use the conditional content endpoints instead. Agents can render cover media independently and attach its URL through `update_content` with a reviewed hash; legacy render-and-attach requests are refused. An uncached external record cannot be locked in the CMS and must be imported/cached before conditional deletion.
+
+These checks coordinate writes through the CMS. The client attribution header is not authentication, and a hash is not a permission token. Direct external-database writers still require the existing sync/conflict-review process. External writes use best-effort compensation; a database failure after a provider write can require reconciliation, and rollback diagnostics identify records that changed before compensation could reacquire their locks. This does not provide live text merging or a distributed transaction.
+
+## Comparing edits, tags and edit dates
+
+Sync conflicts show changed fields and highlight removed CMS text and added external text. Full comparisons load on demand, including changes beyond the short list preview. Recheck older or changed comparisons before selecting a version.
+
+Record tags suggest existing tags from the same collection after three characters. Suggestions support keyboard and mouse selection; free entry remains available when lookup fails.
+
+“Last edited” uses the nullable CMS-only `contentEditedAt`, independently of source `updatedAt` and view counters. Existing/imported records show “Unknown” until a meaningful edit is observed; no external database field or unreliable backfill is required. Startup schema setup installs the field and trigger. REST clients can sort with `sortBy=contentEditedAt` (unknown dates last) and filter with `editedFrom`/`editedTo`; legacy `updatedFrom`/`updatedTo` retain their existing meaning.
+
 ## API Routes
 
 | Prefix | Description | Auth |

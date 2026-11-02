@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 /** When this many separator characters get added to commit. Default is Enter-only. */
@@ -17,6 +17,8 @@ interface PillInputProps {
 	 *  - 'both': alias for 'comma'.
 	 */
 	separator?: PillSeparator
+	suggestions?: string[]
+	onDraftChange?: (value: string) => void
 }
 
 /** Text input that turns entries into removable pills. */
@@ -26,32 +28,82 @@ export function PillInput({
 	disabled,
 	placeholder,
 	separator = 'enter',
+	suggestions = [],
+	onDraftChange,
 }: PillInputProps) {
 	const { t } = useTranslation()
 	const [draft, setDraft] = useState('')
+	const [activeIndex, setActiveIndex] = useState(-1)
+	const [dismissed, setDismissed] = useState(false)
+	const listId = useId()
+	const expanded = !disabled && !dismissed && suggestions.length > 0
+	const autocompleteProps = onDraftChange
+		? {
+				role: 'combobox' as const,
+				'aria-autocomplete': 'list' as const,
+				'aria-expanded': expanded,
+				'aria-controls': expanded ? listId : undefined,
+				'aria-activedescendant':
+					expanded && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined,
+			}
+		: {}
+	const setText = (text: string) => {
+		setDraft(text)
+		onDraftChange?.(text)
+		setActiveIndex(-1)
+		setDismissed(false)
+	}
 	const splitsOnComma = separator !== 'enter'
 
 	const commit = (raw: string) => {
+		if (disabled) return
 		const parts = splitsOnComma ? raw.split(',') : [raw]
 		const cleaned = parts.map((p) => p.trim()).filter(Boolean)
 		if (cleaned.length === 0) return
 		const next = [...value]
 		for (const p of cleaned) if (!next.includes(p)) next.push(p)
 		onChange(next)
-		setDraft('')
+		setText('')
 	}
 
 	const removeAt = (i: number) => onChange(value.filter((_, idx) => idx !== i))
 
 	return (
-		<div>
+		<div className="relative">
 			<input
 				type="text"
+				{...autocompleteProps}
 				value={draft}
 				disabled={disabled}
 				placeholder={placeholder || t('editor.pillInput.placeholder')}
-				onChange={(e) => setDraft(e.target.value)}
+				onChange={(e) => {
+					if (!disabled) setText(e.target.value)
+				}}
 				onKeyDown={(e) => {
+					if (disabled || e.nativeEvent.isComposing) return
+					if (expanded && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+						e.preventDefault()
+						setActiveIndex((index) =>
+							e.key === 'ArrowDown'
+								? (index + 1) % suggestions.length
+								: index <= 0
+									? suggestions.length - 1
+									: (index - 1) % suggestions.length,
+						)
+						return
+					}
+					if (e.key === 'Escape' && expanded) {
+						e.preventDefault()
+						e.stopPropagation()
+						setDismissed(true)
+						setActiveIndex(-1)
+						return
+					}
+					if (e.key === 'Enter' && expanded && activeIndex >= 0 && suggestions[activeIndex]) {
+						e.preventDefault()
+						commit(suggestions[activeIndex])
+						return
+					}
 					if (e.key === 'Enter' || (splitsOnComma && e.key === ',')) {
 						e.preventDefault()
 						commit(draft)
@@ -64,6 +116,29 @@ export function PillInput({
 				}}
 				className="w-full px-3 py-2 bg-input border border-border rounded text-sm focus:outline-none focus:border-border-strong disabled:opacity-60"
 			/>
+			{expanded && (
+				<div
+					id={listId}
+					role="listbox"
+					aria-label={t('editor.pillInput.suggestions')}
+					className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-auto rounded border border-border bg-surface shadow-lg"
+				>
+					{suggestions.map((suggestion, index) => (
+						<button
+							key={suggestion}
+							id={`${listId}-${index}`}
+							type="button"
+							role="option"
+							aria-selected={index === activeIndex}
+							onMouseDown={(event) => event.preventDefault()}
+							onClick={() => commit(suggestion)}
+							className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface-alt ${index === activeIndex ? 'bg-surface-alt' : ''}`}
+						>
+							{suggestion}
+						</button>
+					))}
+				</div>
+			)}
 			{value.length > 0 && (
 				<div className="flex flex-wrap gap-1.5 mt-2">
 					{value.map((item, i) => {

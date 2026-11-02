@@ -366,6 +366,7 @@ export class InnolopeClient {
 
 	async bulkUpdateContent(
 		items: Array<{
+			expectedHash: string
 			id: string
 			slug?: string
 			markdown?: string
@@ -466,6 +467,7 @@ export class InnolopeClient {
 	async updateContent(
 		id: string,
 		input: {
+			expectedHash: string
 			slug?: string
 			markdown?: string
 			metadata?: Record<string, unknown>
@@ -481,8 +483,8 @@ export class InnolopeClient {
 		})
 	}
 
-	async publishContent(id: string) {
-		return this.updateContent(id, { status: 'published' })
+	async publishContent(id: string, expectedHash: string) {
+		return this.updateContent(id, { status: 'published', expectedHash })
 	}
 
 	/**
@@ -490,8 +492,11 @@ export class InnolopeClient {
 	 * the backing external-DB record could not be, the API answers 200 with a
 	 * warning payload instead — surface it, the external row needs manual cleanup.
 	 */
-	async deleteContent(id: string, collectionId?: string) {
-		const qs = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
+	async deleteContent(id: string, collectionId?: string, expectedHash?: string) {
+		const query = new URLSearchParams()
+		if (collectionId) query.set('collectionId', collectionId)
+		if (expectedHash) query.set('expectedHash', expectedHash)
+		const qs = query.size ? `?${query}` : ''
 		return this.request<
 			{ deleted: boolean; externalCleanup?: 'failed'; message?: string } | undefined
 		>(`/api/v1/content/${encodeURIComponent(id)}${qs}`, { method: 'DELETE' })
@@ -501,10 +506,10 @@ export class InnolopeClient {
 		return this.listContent({ search: query })
 	}
 
-	async submitForReview(id: string) {
+	async submitForReview(id: string, expectedHash: string) {
 		return this.request<ContentItem>(`/api/v1/content/${id}/submit-for-review`, {
 			method: 'POST',
-			body: JSON.stringify({}),
+			body: JSON.stringify({ expectedHash }),
 		})
 	}
 
@@ -615,6 +620,9 @@ interface BulkWriteResult {
 }
 
 interface ContentItem {
+	/** Absent on uncached live external records. */
+	contentHash?: string
+	contentEditedAt?: string | null
 	id: string
 	slug: string
 	status: string

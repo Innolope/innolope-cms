@@ -114,6 +114,16 @@ export async function contentBulkActionRoutes(app: FastifyInstance) {
 			}
 		}
 
+		// The admin's best-effort selection actions have no per-record review
+		// tokens. Agents must use the conditional content endpoints instead.
+		if (requestSource(req) === 'mcp' && action !== 'duplicate') {
+			return reply.status(428).send({
+				code: 'CONTENT_HASH_REQUIRED',
+				error:
+					'Use bulk_update with each reviewed contentHash as expectedHash, or the conditional publish/delete/review endpoints. This legacy bulk-action endpoint cannot accept reviewed hashes.',
+			})
+		}
+
 		const selection = await resolveSelection(app, req, body)
 		if ('error' in selection) return reply.status(selection.status).send({ error: selection.error })
 		if (selection.ids.length === 0) {

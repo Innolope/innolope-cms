@@ -21,6 +21,8 @@ export interface ContentFilterParams {
 	search?: string
 	updatedFrom?: string
 	updatedTo?: string
+	editedFrom?: string
+	editedTo?: string
 	createdFrom?: string
 	createdTo?: string
 	publishedFrom?: string
@@ -60,6 +62,8 @@ export function buildContentConditions(
 	// Date range filters — strings are passed through to Postgres, which parses them.
 	if (params.updatedFrom) conditions.push(sql`${content.updatedAt} >= ${params.updatedFrom}`)
 	if (params.updatedTo) conditions.push(sql`${content.updatedAt} <= ${params.updatedTo}`)
+	if (params.editedFrom) conditions.push(sql`${content.contentEditedAt} >= ${params.editedFrom}`)
+	if (params.editedTo) conditions.push(sql`${content.contentEditedAt} <= ${params.editedTo}`)
 	if (params.createdFrom) conditions.push(sql`${content.createdAt} >= ${params.createdFrom}`)
 	if (params.createdTo) conditions.push(sql`${content.createdAt} <= ${params.createdTo}`)
 	if (params.publishedFrom) conditions.push(sql`${content.publishedAt} >= ${params.publishedFrom}`)

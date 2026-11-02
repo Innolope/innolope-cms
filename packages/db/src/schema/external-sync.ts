@@ -2,6 +2,8 @@ import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-c
 import { collections } from './collections.js'
 
 export interface ExternalSyncConflict {
+	/** Full bodies are available from the authenticated detail endpoint. */
+	fullComparison?: boolean
 	contentId: string
 	externalId: string
 	slug: string | null

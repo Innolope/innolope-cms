@@ -1,0 +1,21 @@
+{
+	"schema_version": 1,
+	"timeout_seconds": 480,
+	"checks": [
+		{
+			"name": "tests",
+			"argv": ["pnpm", "test", "--concurrency=1", "--", "--maxWorkers=4"],
+			"cwd": "."
+		},
+		{
+			"name": "lint",
+			"argv": ["pnpm", "lint"],
+			"cwd": "."
+		},
+		{
+			"name": "typecheck",
+			"argv": ["pnpm", "typecheck"],
+			"cwd": "."
+		}
+	]
+}

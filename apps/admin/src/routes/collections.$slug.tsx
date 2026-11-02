@@ -60,6 +60,7 @@ interface ContentItem {
 	version: number
 	externalId?: string | null
 	createdAt: string | null
+	contentEditedAt?: string | null
 	updatedAt: string | null
 	publishedAt?: string | null
 }
@@ -236,25 +237,21 @@ function buildColumns(collection: CollectionWithCount, t: Translator): ColumnDes
 			id: 'updatedAt',
 			label: t('collections.list.columns.lastEdited'),
 			sortable: true,
-			sortKey: 'updatedAt',
-			render: (item) => {
-				if (!item.updatedAt) return <span className="text-text-muted">—</span>
-				const created = item.createdAt ? new Date(item.createdAt).getTime() : Number.NaN
-				const updated = new Date(item.updatedAt).getTime()
-				const neverEdited = Number.isFinite(created) && Math.abs(updated - created) < 5_000
-				return (
-					<span
-						className={neverEdited ? 'text-text-muted italic' : 'text-text-secondary'}
-						title={
-							neverEdited
-								? t('collections.list.importedNeverEdited', { date: absoluteDate(item.updatedAt) })
-								: absoluteDate(item.updatedAt)
-						}
-					>
-						{relativeTime(item.updatedAt)}
-					</span>
-				)
-			},
+			sortKey: 'contentEditedAt',
+			render: (item) => (
+				<span
+					className="text-text-secondary"
+					title={
+						item.contentEditedAt
+							? absoluteDate(item.contentEditedAt)
+							: t('collections.list.unknownEditedAtHelp')
+					}
+				>
+					{item.contentEditedAt
+						? relativeTime(item.contentEditedAt)
+						: t('collections.list.unknownEditedAt')}
+				</span>
+			),
 		},
 		{
 			id: 'createdAt',
@@ -400,8 +397,8 @@ function filtersToQueryParams(filters: FilterMap): URLSearchParams {
 			continue
 		}
 		if (id === 'updatedAt' && typeof value === 'object') {
-			if (value.from) out.set('updatedFrom', value.from)
-			if (value.to) out.set('updatedTo', value.to)
+			if (value.from) out.set('editedFrom', value.from)
+			if (value.to) out.set('editedTo', value.to)
 			continue
 		}
 		if (id === 'createdAt' && typeof value === 'object') {
@@ -507,7 +504,7 @@ function CollectionContentList() {
 			return s === extId || s === `${extId}-${extId.slice(-6)}`
 		}
 		if (items.every(isSyntheticSlug)) set.add('slug')
-		for (const col of ['updatedAt', 'createdAt', 'publishedAt'] as const) {
+		for (const col of ['createdAt', 'publishedAt'] as const) {
 			if (items.every((it) => !it[col])) set.add(col)
 		}
 		return set
@@ -585,7 +582,7 @@ function CollectionContentList() {
 		params.set('page', String(page))
 		params.set('limit', '25')
 		params.set('collectionId', collection.id)
-		params.set('sortBy', sort.key)
+		params.set('sortBy', sort.key === 'updatedAt' ? 'contentEditedAt' : sort.key)
 		params.set('sortOrder', sort.dir)
 		if (search) params.set('search', search)
 		// Merge active filters
@@ -1239,9 +1236,15 @@ function CollectionContentList() {
 										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>
 										<td
 											className="px-4 py-3 text-text-secondary"
-											title={item.updatedAt ? absoluteDate(item.updatedAt) : undefined}
+											title={
+												item.contentEditedAt
+													? absoluteDate(item.contentEditedAt)
+													: t('collections.list.unknownEditedAtHelp')
+											}
 										>
-											{item.updatedAt ? relativeTime(item.updatedAt) : '—'}
+											{item.contentEditedAt
+												? relativeTime(item.contentEditedAt)
+												: t('collections.list.unknownEditedAt')}
 										</td>
 										<td className="px-4 py-3 text-right">
 											<div className="flex gap-2 justify-end">

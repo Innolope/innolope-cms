@@ -25,6 +25,7 @@ export {
 	CONTENT_SOURCES,
 	CONTENT_STATUSES,
 	CREATABLE_CONTENT_STATUSES,
+	contentHashSchema,
 	contentInputSchema,
 	contentListSchema,
 	envSchema,

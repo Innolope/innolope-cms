@@ -30,6 +30,7 @@ import {
 import { checkUrlTemplate } from '../../services/indexnow.js'
 import { queueCollectionUrls } from '../../services/indexnow-queue.js'
 import { previewMarkdownCacheSync } from '../../services/markdown-cache.js'
+import { collectionEditorTools } from './collection-editor-tools.js'
 
 function getExternalDbConfig(project: { settings?: unknown } | undefined) {
 	const extDb = (project?.settings as Record<string, unknown> | undefined)?.externalDb as
@@ -101,6 +102,7 @@ async function resolveVisibleCollectionIds(
 }
 
 export async function collectionRoutes(app: FastifyInstance) {
+	await collectionEditorTools(app)
 	// List collections (viewer+, project-scoped).
 	// The `media`-backed collection is an internal relation target — consumers fetch
 	// assets via GET /api/v1/media, so it is excluded from this public list.
@@ -365,9 +367,18 @@ export async function collectionRoutes(app: FastifyInstance) {
 				error: state?.lastError ?? null,
 				// The source table's shape changed since the collection last learned it.
 				schemaDrift: state?.schemaDrift ?? null,
-				conflicts: (state?.conflicts ?? []).filter(
-					(item) => !request.query.contentId || item.contentId === request.query.contentId,
-				),
+				conflicts: (state?.conflicts ?? [])
+					.filter((item) => !request.query.contentId || item.contentId === request.query.contentId)
+					.map((item) => ({
+						...item,
+						preview: true,
+						...(item.local && {
+							local: { ...item.local, markdown: item.local.markdown.slice(0, 240) },
+						}),
+						...(item.external && {
+							external: { ...item.external, markdown: item.external.markdown.slice(0, 240) },
+						}),
+					})),
 			}
 		},
 	)

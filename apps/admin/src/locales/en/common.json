@@ -292,7 +292,8 @@
 		},
 		"pillInput": {
 			"placeholder": "Type and press Enter",
-			"remove": "Remove {{label}}"
+			"remove": "Remove {{label}}",
+			"suggestions": "Existing tags"
 		},
 		"relationField": {
 			"uploadFailed": "Upload failed",
@@ -1367,6 +1368,30 @@
 					"content": "content",
 					"details": "record details",
 					"status": "status"
+				},
+				"legend": "Removed CMS text is crossed out; added external text is highlighted.",
+				"missing": "Not present",
+				"nullValue": "No value (null)",
+				"emptyText": "Empty text",
+				"showContext": "Show unchanged context ({{count}} characters)",
+				"hideContext": "Hide unchanged context",
+				"grouped": "Large change: highlighted as one block.",
+				"noDifferences": "No differences in the compared values.",
+				"moreFields": "Showing {{shown}} of {{total}} changed fields. Show more",
+				"loading": "Loading the full comparison…",
+				"loadFailed": "The comparison could not be loaded. Try again.",
+				"legacyPreview": "This older preview does not contain the full changes. Recheck before choosing.",
+				"retry": "Try again",
+				"refresh": "Recheck changes",
+				"valueTypes": {
+					"empty": "Empty text",
+					"string": "Text",
+					"number": "Number",
+					"boolean": "Boolean",
+					"object": "Object",
+					"array": "List",
+					"null": "No value (null)",
+					"missing": "Not present"
 				}
 			},
 			"import": {
@@ -1405,7 +1430,9 @@
 				"updatedWithLosses": "Fields updated from the source. Settings could not be kept for: {{names}}.",
 				"updateFailed": "Could not update the fields from the source",
 				"askAdmin": "An admin can update the fields to match."
-			}
+			},
+			"unknownEditedAt": "Unknown",
+			"unknownEditedAtHelp": "No reliable content edit has been recorded yet."
 		},
 		"new": {
 			"title": "New Collection",
