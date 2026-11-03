@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { isLocaleMap, resolveLocalizedValue } from './locale-value'
+import {
+	isLocaleMap,
+	readEditableTitle,
+	resolveLocalizedValue,
+	titleMetadataPatch,
+} from './locale-value'
 
 describe('isLocaleMap', () => {
 	it('recognizes a map keyed by configured locales', () => {
@@ -55,5 +60,35 @@ describe('resolveLocalizedValue', () => {
 		expect(resolveLocalizedValue(null)).toBeNull()
 		expect(resolveLocalizedValue(42)).toBeNull()
 		expect(resolveLocalizedValue(['a'])).toBeNull()
+	})
+})
+
+describe('editing a title in one plain input', () => {
+	it('shows the row language of a localized title and leaves it out of the save when untouched', () => {
+		const source = readEditableTitle({ en: 'Hello', uk: 'Привіт' }, 'uk')
+		expect(source.shown).toBe('Привіт')
+		expect(titleMetadataPatch(source, 'Привіт')).toEqual({})
+	})
+
+	it('writes an edit into the row language and keeps the other languages', () => {
+		const source = readEditableTitle({ en: 'Hello', uk: 'Привіт' }, 'uk')
+		expect(titleMetadataPatch(source, 'Вітаю')).toEqual({ title: { en: 'Hello', uk: 'Вітаю' } })
+	})
+
+	it('falls back to another language for display when the row language has none', () => {
+		const source = readEditableTitle({ en: 'Hello' }, 'uk')
+		expect(source.shown).toBe('Hello')
+		expect(titleMetadataPatch(source, 'Hello')).toEqual({})
+		expect(titleMetadataPatch(source, 'Привіт')).toEqual({ title: { en: 'Hello', uk: 'Привіт' } })
+	})
+
+	it.each([
+		['a plain title', 'Hello', 'Hello'],
+		['no title yet', undefined, ''],
+		['a value that is not text', 42, ''],
+	])('saves %s as plain text, as before', (_case, raw, shown) => {
+		const source = readEditableTitle(raw, 'en')
+		expect(source.shown).toBe(shown)
+		expect(titleMetadataPatch(source, 'New')).toEqual({ title: 'New' })
 	})
 })

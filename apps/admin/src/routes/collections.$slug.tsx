@@ -1230,7 +1230,9 @@ function CollectionContentList() {
 												params={{ slug, contentId: item.id }}
 												className="hover:text-text transition-colors"
 											>
-												{(item.metadata?.title as string) || item.slug}
+												{resolveLocalizedValue(item.metadata?.title, {
+													defaultLocale: renderCtx.defaultLocale,
+												}) || item.slug}
 											</Link>
 										</td>
 										<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AiChatPanel } from '../components/ai/ai-chat-panel'
 import { SelectionToolbar } from '../components/ai/selection-toolbar'
@@ -10,6 +10,7 @@ import { hasFeature, useLicense } from '../components/license-gate'
 import { VersionPanel } from '../components/versions/version-panel'
 import { api } from '../lib/api-client'
 import { usePrompt } from '../lib/confirm'
+import { type EditableTitle, readEditableTitle, titleMetadataPatch } from '../lib/locale-value'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/content/$id')({
@@ -37,6 +38,14 @@ function ContentEditor() {
 
 	const [markdown, setMarkdown] = useState('')
 	const [title, setTitle] = useState('')
+	// What the title was loaded as: a localized title is a { locale: text } map that
+	// this single input must not overwrite with one string.
+	const [titleSource, setTitleSource] = useState<EditableTitle | null>(null)
+	const showTitle = useCallback((item: ContentItem) => {
+		const source = readEditableTitle(item.metadata?.title, item.locale)
+		setTitleSource(source)
+		setTitle(source.shown)
+	}, [])
 	const [slug, setSlug] = useState('')
 	const [status, setStatus] = useState('draft')
 	const [tags, setTags] = useState('')
@@ -114,7 +123,7 @@ function ContentEditor() {
 				.get<ContentItem>(`/api/v1/content/${id}`)
 				.then((item) => {
 					setMarkdown(item.markdown)
-					setTitle((item.metadata?.title as string) || '')
+					showTitle(item)
 					setSlug(item.slug)
 					setStatus(item.status)
 					setCollectionId(item.collectionId)
@@ -126,7 +135,7 @@ function ContentEditor() {
 				.catch(() => navigate({ to: '/dashboard' }))
 				.finally(() => setLoading(false))
 		}
-	}, [id, isNew, navigate])
+	}, [id, isNew, navigate, showTitle])
 
 	const generateSlug = (text: string) => {
 		return text
@@ -138,7 +147,8 @@ function ContentEditor() {
 	const save = async () => {
 		setSaving(true)
 		try {
-			const metadata: Record<string, unknown> = { title }
+			const titlePatch = titleSource ? titleMetadataPatch(titleSource, title) : { title }
+			const metadata: Record<string, unknown> = { ...titlePatch }
 			if (tags.trim()) {
 				metadata.tags = tags
 					.split(',')
@@ -164,6 +174,9 @@ function ContentEditor() {
 					metadata,
 					status,
 				})
+				// The next save compares against what is stored now.
+				if (titleSource?.map && 'title' in titlePatch)
+					setTitleSource(readEditableTitle(titlePatch.title, titleSource.locale))
 				setDirty(false)
 			}
 		} catch (err) {
@@ -404,7 +417,7 @@ function ContentEditor() {
 								// Reload content after revert
 								api.get<ContentItem>(`/api/v1/content/${id}`).then((item) => {
 									setMarkdown(item.markdown)
-									setTitle((item.metadata?.title as string) || '')
+									showTitle(item)
 									setVersion(item.version)
 								})
 							}}

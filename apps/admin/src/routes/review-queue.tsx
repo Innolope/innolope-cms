@@ -2,7 +2,9 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { usePrompt } from '../lib/confirm'
+import { resolveLocalizedValue } from '../lib/locale-value'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/review-queue')({
@@ -29,6 +31,9 @@ function ReviewQueue() {
 	const { t } = useTranslation()
 	const toast = useToast()
 	const prompt = usePrompt()
+	const { currentProject } = useAuth()
+	const defaultLocale = (currentProject?.settings as Record<string, unknown> | undefined)
+		?.defaultLocale as string | undefined
 	const [items, setItems] = useState<ContentItem[]>([])
 	const [total, setTotal] = useState(0)
 	const [page, setPage] = useState(1)
@@ -115,7 +120,7 @@ function ReviewQueue() {
 											params={{ id: item.id }}
 											className="hover:text-text transition-colors"
 										>
-											{(item.metadata?.title as string) || item.slug}
+											{resolveLocalizedValue(item.metadata?.title, { defaultLocale }) || item.slug}
 										</Link>
 									</td>
 									<td className="px-4 py-3 text-text-secondary font-mono text-xs">{item.slug}</td>

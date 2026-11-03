@@ -117,3 +117,38 @@ export function resolveLocalizedValue(
 	}
 	return null
 }
+
+/** A record title as a single text input shows it, and what it was stored as. */
+export interface EditableTitle {
+	/** The stored `{ locale: text }` map, when the title is localized. */
+	map: Record<string, unknown> | null
+	/** The record's language: the key an edit is written to. */
+	locale: string
+	/** The text the input starts with. */
+	shown: string
+}
+
+/**
+ * Read a title for an editor with one plain title input. A localized title shows
+ * the record's own language, or another one when it has none yet.
+ */
+export function readEditableTitle(raw: unknown, locale: string): EditableTitle {
+	if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+		const map = raw as Record<string, unknown>
+		const own = map[locale]
+		const shown = typeof own === 'string' && own.trim() ? own : resolveLocalizedValue(map)
+		return { map, locale, shown: shown ?? '' }
+	}
+	return { map: null, locale, shown: typeof raw === 'string' ? raw : '' }
+}
+
+/**
+ * The metadata to save for the title input's text. Updates merge metadata by key,
+ * so an untouched localized title is left out, and an edited one is written back
+ * into its language with the others kept: saving a plain string would replace them all.
+ */
+export function titleMetadataPatch(source: EditableTitle, title: string): { title?: unknown } {
+	if (!source.map) return { title }
+	if (title === source.shown) return {}
+	return { title: { ...source.map, [source.locale]: title } }
+}

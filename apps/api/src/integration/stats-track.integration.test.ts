@@ -123,4 +123,32 @@ describe.skipIf(!hasTestDb)('POST /api/v1/stats/track (real Postgres)', () => {
 			report.json().topContent.some((c: { contentId: string }) => c.contentId === item.id),
 		).toBe(true)
 	})
+
+	// A localized title is a { locale: text } map; the dashboard renders this
+	// field as text and crashed on the object.
+	it.each([
+		['the default language', { uk: 'Привіт', en: 'Hello' }, 'Hello'],
+		['the only language there is', { uk: 'Привіт' }, 'Привіт'],
+		['a plain title', 'Plain title', 'Plain title'],
+	])('reports %s of a title as text in the analytics report', async (_case, title, expected) => {
+		const [item] = await app.db
+			.insert(content)
+			.values({
+				projectId,
+				collectionId,
+				slug: `titled-${randomUUID().slice(0, 6)}`,
+				markdown: '',
+				metadata: { title },
+			})
+			.returning()
+		expect((await track(item.id, `titled-${randomUUID().slice(0, 8)}`)).statusCode).toBe(204)
+
+		const report = await app.inject({
+			method: 'GET',
+			url: '/api/v1/stats/analytics',
+			headers: authed(),
+		})
+		const row = report.json().topContent.find((c: { contentId: string }) => c.contentId === item.id)
+		expect(row.title).toBe(expected)
+	})
 })
