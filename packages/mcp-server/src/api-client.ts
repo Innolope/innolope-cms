@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { CLIENT_HEADER } from '@innolope/config'
 import { httpRequest } from '@innolope/sdk'
 
@@ -123,6 +124,9 @@ export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
 	private projectId: string | undefined
+	private projectContext = new AsyncLocalStorage<string>()
+	private projectList?: { items: ProjectItem[]; expiresAt: number }
+	private projectListRequest?: Promise<ProjectItem[]>
 
 	constructor(baseUrl: string, apiKey: string, projectId?: string) {
 		this.baseUrl = baseUrl.replace(/\/$/, '')
@@ -154,7 +158,12 @@ export class InnolopeClient {
 	}
 
 	getProjectId(): string | undefined {
-		return this.projectId
+		return this.projectContext.getStore() ?? this.projectId
+	}
+
+	/** Isolate a tool's project across every asynchronous request it makes. */
+	runWithProject<T>(projectId: string, fn: () => T): T {
+		return this.projectContext.run(projectId, fn)
 	}
 
 	private async request<T>(
@@ -176,21 +185,46 @@ export class InnolopeClient {
 				[CLIENT_HEADER]: 'mcp',
 			},
 			apiKey: this.apiKey,
-			projectId: projectIdOverride ?? this.projectId,
+			projectId: projectIdOverride ?? this.getProjectId(),
 		})
 	}
 
 	// --- Project & provisioning ------------------------------------------------
 
-	async listProjects() {
-		return this.request<ProjectItem[]>('/api/v1/projects')
+	/**
+	 * Projects the credential can access. Cached for 60 s for the per-call
+	 * `project` lookups; `fresh` skips the cache for explicit discovery
+	 * (list_projects, use_project), so a project just created elsewhere shows up.
+	 */
+	async listProjects(opts?: { fresh?: boolean }) {
+		if (!opts?.fresh) {
+			if (this.projectList && this.projectList.expiresAt > Date.now()) return this.projectList.items
+			if (this.projectListRequest) return this.projectListRequest
+		}
+		const pending = this.request<ProjectItem[]>('/api/v1/projects', {
+			signal: AbortSignal.timeout(10_000),
+		})
+		this.projectListRequest = pending
+		try {
+			const items = await pending
+			if (this.projectListRequest === pending) {
+				this.projectList = { items, expiresAt: Date.now() + 60_000 }
+			}
+			return items
+		} finally {
+			if (this.projectListRequest === pending) this.projectListRequest = undefined
+		}
 	}
 
 	async createProject(input: { name: string; slug: string }) {
-		return this.request<ProjectItem>('/api/v1/projects', {
+		const project = await this.request<ProjectItem>('/api/v1/projects', {
 			method: 'POST',
 			body: JSON.stringify(input),
 		})
+		// An older in-flight list must not repopulate the cache after creation.
+		this.projectList = undefined
+		this.projectListRequest = undefined
+		return project
 	}
 
 	async createCollection(
@@ -270,9 +304,11 @@ export class InnolopeClient {
 	}
 
 	private requireProjectId(): string {
-		const id = this.projectId
+		const id = this.getProjectId()
 		if (!id)
-			throw new Error('No active project selected. Call create_project or use_project first.')
+			throw new Error(
+				'No active project selected. Call create_project or use_project first, or pass the project parameter (id or slug).',
+			)
 		return id
 	}
 
@@ -554,7 +590,7 @@ export class InnolopeClient {
 		// Return raw text (JSONL)
 		return httpRequest<string>(this.baseUrl, `/api/v1/content/export${qs ? `?${qs}` : ''}`, {
 			apiKey: this.apiKey,
-			projectId: this.projectId,
+			projectId: this.getProjectId(),
 			raw: true,
 		})
 	}
@@ -566,9 +602,10 @@ export class InnolopeClient {
 		summary: string
 		details?: string
 	}) {
+		const projectId = this.getProjectId()
 		return this.request<{ id: string; createdAt: string }>('/api/v1/feedback', {
 			method: 'POST',
-			body: JSON.stringify({ ...data, ...(this.projectId && { projectId: this.projectId }) }),
+			body: JSON.stringify({ ...data, ...(projectId && { projectId }) }),
 		})
 	}
 

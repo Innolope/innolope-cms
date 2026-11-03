@@ -62,6 +62,16 @@ export async function ensureTables(connectionUrl: string) {
 		`
 
 		await sql`
+			CREATE TABLE IF NOT EXISTS mcp_project_selections (
+				"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				"clientId" TEXT NOT NULL DEFAULT '',
+				"projectId" UUID NOT NULL,
+				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+				PRIMARY KEY ("userId", "clientId")
+			)
+		`
+
+		await sql`
 			CREATE TABLE IF NOT EXISTS projects (
 				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 				name TEXT NOT NULL,

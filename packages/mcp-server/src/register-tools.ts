@@ -26,6 +26,10 @@ interface ToolResult {
 }
 
 export interface RegisterToolsOptions {
+	/** A hosted selection already checked against the user's current projects. */
+	initialProject?: { id: string; name: string; slug: string }
+	/** Best-effort durable selection; stdio leaves this unset. */
+	onProjectSelected?: (projectId: string) => Promise<void>
 	/** Register only read/metadata tools. Defaults to env INNOLOPE_MCP_READ_ONLY. */
 	readOnly?: boolean
 	/**
@@ -48,6 +52,9 @@ Content model:
 - Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
 - The title goes in metadata.title ONLY, as a short plain string. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page. Never put body prose in the title.
 - Markdown is the canonical body format. Never write rich-text editor state (Lexical/Slate/ProseMirror/EditorJS JSON) or raw HTML documents into the body or a content field — sites render CommonMark, and serialized editor JSON reaches the page as literal text.
+
+Projects:
+- Every project-scoped tool accepts an optional \`project\` (project id or slug) for that call. The active selection survives hosted reconnects. When a conversation touches more than one project, pass \`project\` on every write.
 
 Updating content:
 - Before changing, publishing, submitting for review, or deleting an existing record, call get_content and copy its contentHash into expectedHash. Every bulk_update item needs its own reviewed hash. After CONTENT_CONFLICT or CONTENT_HASH_REQUIRED, re-read and reconcile; never silently fetch a fresh hash and retry stale changes. If a write times out, its outcome is unknown: read and reconcile before another write. Uncached external records must be imported/cached before conditional deletion.
@@ -82,7 +89,7 @@ const SERVER_MAX_RESPONSE_BYTES = (() => {
 const DEFAULT_CONTENT_BYTES = 50_000
 
 const NO_PROJECT_MESSAGE =
-	'No active project. Call use_project (or create_project) first — list_projects shows what is available.'
+	'No active project. Call use_project (or create_project) first, or pass the project parameter (id or slug) on this call — list_projects shows what is available.'
 
 /** The API's marker for a request that arrived without project context. */
 function isMissingProjectError(err: unknown): boolean {
@@ -530,6 +537,37 @@ export function registerTools(
 		isError: true,
 		content: [{ type: 'text' as const, text: body }],
 	})
+	const knownProjects = new Map<string, { name: string; slug: string }>()
+	let restoredProject = options.initialProject
+	if (restoredProject) {
+		client.setProject(restoredProject.id)
+		knownProjects.set(restoredProject.id, restoredProject)
+	}
+	// Preserve selection order even when an earlier durable write is slow.
+	let selectionWrite = Promise.resolve()
+	const selectProject = async (id: string) => {
+		client.setProject(id)
+		restoredProject = undefined
+		selectionWrite = selectionWrite.then(async () => {
+			try {
+				await options.onProjectSelected?.(id)
+			} catch {
+				console.error('[innolope-mcp] Could not persist project selection; continuing session.')
+			}
+		})
+		await selectionWrite
+	}
+	const withRestoredNotice = (result: ToolResult): ToolResult => {
+		if (!restoredProject) return result
+		const project = restoredProject
+		restoredProject = undefined
+		const notice = `Active project restored from your last selection: ${project.name} (slug: ${project.slug}, id: ${project.id}). If this conversation is about another project, call use_project or pass \`project\`.`
+		const [first, ...rest] = result.content
+		return {
+			...result,
+			content: [{ type: 'text', text: `${notice}\n${first?.text ?? ''}` }, ...rest],
+		}
+	}
 
 	/**
 	 * Register one tool: derives annotations from its operation type, applies
@@ -542,6 +580,8 @@ export function registerTools(
 		name: string
 		description: string
 		operationType: OperationType
+		/** Account-level tools explicitly opt out of the central project argument. */
+		projectScoped?: boolean
 		schema: Shape
 		outputSchema?: z.ZodRawShape
 		/** Register even in read-only mode (meta tools that don't touch content). */
@@ -564,7 +604,7 @@ export function registerTools(
 			destructiveHint: def.operationType === 'delete',
 		}
 
-		const handler = async (args: z.objectOutputType<Shape, z.ZodTypeAny>): Promise<ToolResult> => {
+		const execute = async (args: z.objectOutputType<Shape, z.ZodTypeAny>): Promise<ToolResult> => {
 			const start = Date.now()
 			// Analytics only ever sees redacted arguments: connection strings,
 			// service-account JSON and tokens must not leave the process.
@@ -578,7 +618,8 @@ export function registerTools(
 					// drops the active project, and every project-scoped call then fails.
 					// Recover in place — re-select the only project when there is only
 					// one, and retry — instead of erroring a previously-working session.
-					if (!isMissingProjectError(err) || !(await autoSelectProject())) throw err
+					if (!isMissingProjectError(err) || client.getProjectId() || !(await autoSelectProject()))
+						throw err
 					result = await def.handler(args)
 				}
 				client.trackToolCall({
@@ -609,12 +650,54 @@ export function registerTools(
 				return fail(`Error running ${def.name}: ${message}`)
 			}
 		}
+		const handler = async (
+			args: z.objectOutputType<Shape, z.ZodTypeAny> & { project?: string },
+		): Promise<ToolResult> => {
+			const { project, ...toolArgs } = args
+			let result: ToolResult
+			try {
+				if (def.projectScoped !== false && project !== undefined) {
+					const projects = await client.listProjects()
+					for (const item of projects) knownProjects.set(item.id, item)
+					const match =
+						projects.find((item) => item.id === project) ??
+						projects.find((item) => item.slug === project)
+					if (!match) {
+						return withRestoredNotice(
+							fail(
+								`Unknown project "${project}". Pass the project parameter or call use_project with one of:\n${projects.map((item) => `- ${item.name} (slug: ${item.slug}, id: ${item.id})`).join('\n') || 'No projects available. Call create_project.'}`,
+							),
+						)
+					}
+					if (!client.getProjectId()) await selectProject(match.id)
+					result = await client.runWithProject(match.id, () =>
+						execute(toolArgs as z.objectOutputType<Shape, z.ZodTypeAny>),
+					)
+				} else {
+					result = await execute(toolArgs as z.objectOutputType<Shape, z.ZodTypeAny>)
+				}
+			} catch (err) {
+				result = fail(
+					`Error running ${def.name}: ${err instanceof InnolopeApiError ? formatApiError(err) : err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+			return withRestoredNotice(result)
+		}
 
 		server.registerTool(
 			def.name,
 			{
 				description: def.description,
-				inputSchema: def.schema,
+				inputSchema: {
+					...def.schema,
+					...(def.projectScoped !== false && {
+						project: z
+							.string()
+							.min(1)
+							.optional()
+							.describe('Project UUID or slug for this call only'),
+					}),
+				},
 				...(def.outputSchema && { outputSchema: def.outputSchema }),
 				annotations,
 			},
@@ -630,7 +713,10 @@ export function registerTools(
 	const autoSelectProject = async (): Promise<boolean> => {
 		try {
 			const projects = await client.listProjects()
+			// A deliberate selection may have completed while the lookup was pending.
+			if (client.getProjectId()) return true
 			if (projects.length === 1) {
+				knownProjects.set(projects[0].id, projects[0])
 				client.setProject(projects[0].id)
 				return true
 			}
@@ -650,7 +736,7 @@ export function registerTools(
 		const projects = await client.listProjects().catch(() => [])
 		if (projects.length === 0) return NO_PROJECT_MESSAGE
 		const lines = projects.map((p) => `- ${p.name} (slug: ${p.slug}, id: ${p.id})`)
-		return `No active project — the session's project selection was lost (this happens after a reconnect or server restart; it is safe to just re-select). Call use_project with one of:\n${lines.join('\n')}`
+		return `No active project. Pass the project parameter (id or slug) on this call, or call use_project with one of:\n${lines.join('\n')}`
 	}
 
 	/** Shared guard: fail (isError) when no project is active, instead of success-shaped text. */
@@ -668,7 +754,8 @@ export function registerTools(
 	 */
 	const projectSuffix = () => {
 		const id = client.getProjectId()
-		return id ? ` (project: ${id})` : ''
+		const project = id ? knownProjects.get(id) : undefined
+		return id ? ` (project: ${project ? `${project.slug}, id ${id}` : id})` : ''
 	}
 
 	const contentSummaryShape = {
@@ -743,12 +830,14 @@ export function registerTools(
 
 	defineTool({
 		name: 'list_projects',
+		projectScoped: false,
 		description:
 			'List the projects the current credential can access, with id, slug, name, and role. Use this to discover an existing project or confirm one before calling use_project.',
 		operationType: 'metadata',
 		schema: {},
 		handler: async () => {
-			const projects = await client.listProjects()
+			const projects = await client.listProjects({ fresh: true })
+			for (const project of projects) knownProjects.set(project.id, project)
 			if (projects.length === 0) {
 				return text('No projects yet. Call create_project to make one.')
 			}
@@ -767,8 +856,9 @@ export function registerTools(
 
 	defineTool({
 		name: 'use_project',
+		projectScoped: false,
 		description:
-			'Select the active project for subsequent tool calls. Provide either a projectId or a slug. All content/collection tools operate on the active project.',
+			'Select the active project for subsequent tool calls and save the selection across hosted reconnects. Provide either a projectId or a slug. To target another project for just one call, pass project (id or slug) on that tool; when working across projects, pass project on every write.',
 		operationType: 'metadata',
 		schema: {
 			projectId: z.string().uuid().optional().describe('Project UUID to activate'),
@@ -778,7 +868,7 @@ export function registerTools(
 			let id = projectId
 			let match: Awaited<ReturnType<typeof client.listProjects>>[number] | undefined
 			if (!id && slug) {
-				match = (await client.listProjects()).find((p) => p.slug === slug)
+				match = (await client.listProjects({ fresh: true })).find((p) => p.slug === slug)
 				if (!match)
 					return fail(
 						`No project found with slug "${slug}". Call list_projects to see valid slugs.`,
@@ -786,8 +876,12 @@ export function registerTools(
 				id = match.id
 			}
 			if (!id) return fail('Provide a projectId or slug (see list_projects).')
-			if (!match) match = (await client.listProjects().catch(() => [])).find((p) => p.id === id)
-			client.setProject(id)
+			if (!match)
+				match = (await client.listProjects({ fresh: true }).catch(() => [])).find(
+					(p) => p.id === id,
+				)
+			if (match) knownProjects.set(match.id, match)
+			await selectProject(id)
 			const label = match ? ` — ${match.name} (slug: ${match.slug})` : ''
 			const locales = match?.settings?.locales?.length
 				? ` Locales: ${match.settings.locales.join(', ')} (default: ${match.settings.defaultLocale ?? match.settings.locales[0]}) — pass \`locale\` on writes for non-default languages.`
@@ -800,6 +894,7 @@ export function registerTools(
 
 	defineTool({
 		name: 'create_project',
+		projectScoped: false,
 		description:
 			'Create a new, empty project and make it the active project. Returns the new project id. After creating, use create_collection to add content types and get_connection_string to obtain a per-project API key. Note: the Community plan allows only 1 project.',
 		operationType: 'create',
@@ -814,7 +909,8 @@ export function registerTools(
 		handler: async ({ name, slug }) => {
 			try {
 				const project = await client.createProject({ name, slug })
-				client.setProject(project.id)
+				knownProjects.set(project.id, project)
+				await selectProject(project.id)
 				return text(
 					`Project created and activated.\nName: ${project.name}\nSlug: ${project.slug}\nID: ${project.id}\n\nNext: create_collection to add content types, then get_connection_string for a per-project API key.`,
 				)
@@ -1256,7 +1352,7 @@ export function registerTools(
 			].join('\n')
 			return {
 				...text(
-					`Content hash: ${item.contentHash ?? 'unavailable — import/cache this record before editing'}. Pass as expectedHash after reviewing.\n` +
+					`Content hash: ${item.contentHash ?? 'unavailable — import/cache this record before editing'}. Pass as expectedHash after reviewing.${projectSuffix()}\n` +
 						capText(
 							body,
 							'Re-call get_content with a larger maxBytes to see more.',
@@ -1961,6 +2057,7 @@ export function registerTools(
 
 	defineTool({
 		name: 'list_templates',
+		projectScoped: false,
 		description:
 			'List available collection templates with predefined field schemas. Use these when creating new collections for common content types like Knowledge Base, FAQ, Product Catalog, Documentation, Changelog, or API Reference.',
 		operationType: 'metadata',

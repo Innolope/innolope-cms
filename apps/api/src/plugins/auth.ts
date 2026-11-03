@@ -194,7 +194,7 @@ export async function createOAuthAccessToken(
 export async function verifyOAuthAccessToken(
 	token: string,
 	opts: { audience: string },
-): Promise<AuthUser | null> {
+): Promise<(AuthUser & { clientId: string }) | null> {
 	try {
 		const { payload } = await jwtVerify(token, getMcpJwtSecret(), { audience: opts.audience })
 		if (payload.token_use !== 'access') return null
@@ -204,6 +204,7 @@ export async function verifyOAuthAccessToken(
 			email: payload.email as string,
 			name: payload.name as string,
 			role: payload.role as UserRole,
+			clientId: typeof payload.client_id === 'string' ? payload.client_id : '',
 		}
 	} catch {
 		return null
