@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { CLIENT_HEADER } from '@innolope/config'
-import { httpRequest } from '@innolope/sdk'
+import { httpRequest, InnolopeApiError } from '@innolope/sdk'
 
 /**
  * Normalize an arbitrary label into a slug the CMS accepts
@@ -500,8 +500,24 @@ export class InnolopeClient {
 			target.resolved.kind !== 'collection' ||
 			!target.resolved.collectionId ||
 			!target.resolved.fields
-		)
-			return { ...(await this.listMedia(params)), target }
+		) {
+			try {
+				return { ...(await this.listMedia(params)), target }
+			} catch (err) {
+				if (!(err instanceof InnolopeApiError) || err.status !== 403) throw err
+				return {
+					target,
+					data: [],
+					pagination: {
+						page: params?.page ?? 1,
+						limit: params?.limit ?? 20,
+						total: 0,
+						totalPages: 0,
+					},
+					note: 'The media library requires the media-integrations license.',
+				}
+			}
+		}
 		const result = await this.listContent({
 			collectionId: target.resolved.collectionId,
 			page: params?.page,

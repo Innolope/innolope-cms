@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import rateLimit from '@fastify/rate-limit'
 import { InnolopeClient } from '@innolope/mcp-server/lib'
 import type { FastifyInstance } from 'fastify'
 import Fastify from 'fastify'
@@ -98,7 +99,7 @@ describe('independent media review regressions', () => {
 		})
 	})
 
-	async function completionFixture(overrides: Record<string, unknown> = {}) {
+	async function completionFixture(overrides: Record<string, unknown> = {}, rateLimited = false) {
 		const token = 'review-capability-token'
 		const session = {
 			id: uploadId,
@@ -118,9 +119,13 @@ describe('independent media review regressions', () => {
 		const transaction = vi.fn(() => {
 			throw new Error('completion must not reserve a pool transaction during ingest')
 		})
+		const reads = vi.fn()
 		const db = {
 			transaction,
-			select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ ...session }] }) }) }),
+			select: (fields?: Record<string, unknown>) => {
+				reads(fields)
+				return { from: () => ({ where: () => ({ limit: async () => [{ ...session }] }) }) }
+			},
 			update: vi.fn(() => ({
 				set: (patch: Record<string, unknown>) => ({
 					where: () => {
@@ -143,6 +148,7 @@ describe('independent media review regressions', () => {
 			})),
 		}
 		app = Fastify()
+		if (rateLimited) await app.register(rateLimit, { global: false })
 		app.decorate('license', { hasFeature: () => true } as never)
 		app.decorate('db', db as unknown as FastifyInstance['db'])
 		app.decorate('requireLicense', () => async () => {})
@@ -160,6 +166,7 @@ describe('independent media review regressions', () => {
 		const currentApp = app
 		return {
 			session,
+			reads,
 			transaction,
 			update: db.update,
 			put: (payload: Buffer, suppliedToken = token, headers: Record<string, string> = {}) =>
@@ -177,6 +184,47 @@ describe('independent media review regressions', () => {
 				}),
 		}
 	}
+
+	it('R1 counts invalid capability probes before the pre-body gate', async () => {
+		const fixture = await completionFixture({}, true)
+		for (let i = 0; i < 30; i++)
+			expect((await fixture.put(Buffer.from('{'), 'wrong')).statusCode).toBe(404)
+		expect((await fixture.put(Buffer.from('{'), 'wrong')).statusCode).toBe(429)
+		expect(fixture.update).not.toHaveBeenCalled()
+	})
+	it('R6 selects session metadata without loading bytea for PUT or completion polls', async () => {
+		boundary.ingestMedia.mockResolvedValue({ id: uploadId })
+		const fixture = await completionFixture()
+		expect((await fixture.put(png)).statusCode).toBe(200)
+		expect((await fixture.complete()).statusCode).toBe(200)
+		for (const [fields] of fixture.reads.mock.calls) {
+			expect(fields).toBeDefined()
+			expect(fields).not.toHaveProperty('data')
+		}
+	})
+	it('R7 replays a done receipt even when its original expiry has passed', async () => {
+		const result = { id: uploadId, target: { kind: 'library' } }
+		const fixture = await completionFixture({
+			status: 'done',
+			result,
+			data: null,
+			expiresAt: new Date(0),
+		})
+		const response = await fixture.complete()
+		expect(response.statusCode).toBe(200)
+		expect(response.json()).toEqual(result)
+		expect(boundary.ingestMedia).not.toHaveBeenCalled()
+	})
+	it('R7 extends expiry on processing claim and after finishing', async () => {
+		const before = Date.now()
+		const fixture = await completionFixture()
+		boundary.ingestMedia.mockImplementation(async () => {
+			expect(fixture.session.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 30 * 60_000)
+			return { id: uploadId }
+		})
+		expect((await fixture.complete()).statusCode).toBe(200)
+		expect(fixture.session.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 30 * 60_000)
+	})
 
 	it('rechecks the library license before replaying a completed receipt', async () => {
 		boundary.ingestMedia.mockResolvedValue({

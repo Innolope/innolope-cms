@@ -1836,7 +1836,7 @@ export function registerTools(
 			const guard = await requireProject()
 			if (guard) return guard
 			const result = await client.listUploadMedia({ type, search, page, limit })
-			const destination = `Agent uploads: ${result.target.resolved.collectionLabel ?? result.target.resolved.kind ?? 'unresolved'}${result.target.problem ? ` — ${result.target.problem}` : ''}.`
+			const destination = `Agent uploads: ${result.target.resolved.collectionLabel ?? result.target.resolved.kind ?? 'unresolved'}${result.target.problem ? ` — ${result.target.problem}` : ''}.${'note' in result && result.note ? ` ${result.note}` : ''}`
 			if (result.data.length === 0) {
 				return text(
 					`${destination} No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Call upload_media for a sourceUrl, or create_media_upload for a local file.`,

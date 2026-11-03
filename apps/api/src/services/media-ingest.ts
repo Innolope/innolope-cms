@@ -16,6 +16,7 @@ import { MediaConfigError, resolveMediaAdapter } from '../plugins/media.js'
 import { getProject } from '../plugins/project.js'
 import { CloudflareReconnectError } from './cloudflare-oauth.js'
 import { buildExternalData, fetchLiveExternalRecord } from './external-content.js'
+import { describeExternalDbError } from './external-errors.js'
 import { externalDocToContentItem } from './markdown-cache.js'
 import { mediaDelivery } from './media-delivery.js'
 import {
@@ -86,6 +87,12 @@ export async function storeMediaBuffer(
 		let uploaded: Awaited<ReturnType<typeof app.media.upload>>
 		try {
 			resolved = await resolveMediaAdapter(project?.settings, { projectId: pid, app })
+		} catch (err) {
+			if (err instanceof MediaConfigError || err instanceof CloudflareReconnectError)
+				throw ingestError(err.message)
+			throw err
+		}
+		try {
 			uploaded = await resolved.adapter.upload(
 				input.buffer,
 				input.filename,
@@ -206,9 +213,10 @@ export async function storeMediaBuffer(
 		externalId = inserted?._id
 	} catch (err) {
 		if (!agent) throw err
+		request.log.warn({ err }, 'Media external row insert failed')
 		if (err instanceof Error && 'statusCode' in err) throw err
 		throw ingestError(
-			'Provider upload succeeded but external row insert failed; uploaded object may need cleanup. Check the external database before retrying.',
+			`Provider upload succeeded but external row insert failed: ${describeExternalDbError(err, { fields: col.fields }).error}. Uploaded object may need cleanup. Check the external database before retrying.`,
 			502,
 		)
 	} finally {
@@ -235,7 +243,7 @@ export async function storeMediaBuffer(
 				locale: 'en',
 				status: 'published',
 				createdBy: getUser(request).id,
-				updatedSource: requestSource(request),
+				...(agent && { updatedSource: requestSource(request) }),
 				...(agent &&
 					externalId && {
 						externalSnapshot: syncState(
@@ -247,21 +255,23 @@ export async function storeMediaBuffer(
 			.returning()
 	} catch (err) {
 		if (!agent) throw err
+		request.log.warn({ err }, 'Media cache insert failed')
 		throw ingestError(
-			`Provider upload and external row insert succeeded (${externalId ?? 'unknown id'}), but caching failed; reconcile the external record before retrying.`,
+			`Provider upload and external row insert succeeded (${externalId ?? 'unknown id'}), but caching failed: ${describeExternalDbError(err instanceof Error ? (err.cause ?? err) : err, { fields: col.fields }).error}. Reconcile the external record before retrying.`,
 			502,
 		)
 	}
-	app.events.emit({
-		type: 'media:uploaded',
-		data: {
-			id: created.id,
-			filename: String(rowData[fields.filename ?? ''] ?? input.filename),
-			type: 'image',
-			projectId: pid,
-		},
-		timestamp: new Date().toISOString(),
-	})
+	if (agent)
+		app.events.emit({
+			type: 'media:uploaded',
+			data: {
+				id: created.id,
+				filename: String(rowData[fields.filename ?? ''] ?? input.filename),
+				type: 'image',
+				projectId: pid,
+			},
+			timestamp: new Date().toISOString(),
+		})
 	return {
 		record: created,
 		filename: String(rowData[fields.filename ?? ''] ?? input.filename),
@@ -336,7 +346,10 @@ export async function ingestMedia(
 	)
 	// Human receipts store raw paths without network work on the admin request.
 	// Refresh delivery on replay, including private signed URLs and changed variants.
-	if (result.duplicate) return { ...result, ...(await mediaDelivery(result.fullPath, target)) }
+	if (result.duplicate) {
+		const { warnings: _oldWarnings, ...receipt } = result
+		return { ...receipt, ...(await mediaDelivery(result.fullPath, target)) }
+	}
 	return result
 }
 /** Human uploads publish receipts after writing, without a lookup or dedupe. */

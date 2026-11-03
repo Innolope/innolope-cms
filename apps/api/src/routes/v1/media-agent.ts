@@ -1,17 +1,24 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Readable } from 'node:stream'
-import { content, contentVersions, media, mediaUploadSessions } from '@innolope/db'
-import { and, eq, inArray, lt, or } from 'drizzle-orm'
+import { content, contentVersions, media, mediaUploadSessions, projects } from '@innolope/db'
+import { and, eq, getTableColumns, gt, inArray, lt, ne, or, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { checkCollectionAccess } from '../../lib/collection-access.js'
+import { contentEventData } from '../../lib/content-events.js'
 import { contentHash, withContentHash } from '../../lib/content-hash.js'
 import { mediaItemHash } from '../../lib/media-item-hash.js'
 import { requestSource } from '../../lib/request-source.js'
 import { getUser } from '../../plugins/auth.js'
 import { mediaMaxSize } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
-import { fetchLiveExternalRecord, updateExternalDb } from '../../services/external-content.js'
+import { withContentTransaction } from '../../services/content-transaction.js'
+import {
+	buildExternalData,
+	fetchLiveExternalRecord,
+	updateExternalDb,
+} from '../../services/external-content.js'
+import { describeExternalDbError, ExternalWriteError } from '../../services/external-errors.js'
 import { cacheMissingDocs } from '../../services/markdown-cache.js'
 import { ingestMedia, uploadContext } from '../../services/media-ingest.js'
 import {
@@ -20,8 +27,10 @@ import {
 	fetchSourceImage,
 	imageFilename,
 	ingestError,
+	normalizeImageMime,
 } from '../../services/media-ingest-policy.js'
 import { publicBaseUrl } from '../../services/oauth-metadata.js'
+import type { SyncState } from '../../services/sync-state.js'
 
 const filenameSchema = z
 	.string()
@@ -67,6 +76,7 @@ const completeSchema = z
 	.strict()
 const uuid = z.string().uuid()
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
+const { data: _sessionData, ...sessionMetadata } = getTableColumns(mediaUploadSessions)
 
 export async function agentMediaRoutes(app: FastifyInstance) {
 	const viewer = { preHandler: [app.requireProject('viewer')] }
@@ -100,7 +110,7 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				'declared' in source &&
 				source.declared &&
 				input.mimeType &&
-				source.declared !== input.mimeType
+				source.declared !== normalizeImageMime(input.mimeType)
 			)
 				throw ingestError(
 					`Data URI type ${source.declared} contradicts declared ${input.mimeType}.`,
@@ -139,18 +149,50 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 			throw ingestError(`Image is too large; maximum ${ctx.info.maxBytes} bytes.`)
 		const token = randomBytes(32).toString('base64url')
 		const expiresAt = new Date(Date.now() + 30 * 60_000)
-		const [session] = await app.db
-			.insert(mediaUploadSessions)
-			.values({
-				projectId: getProject(request).id,
-				userId: getUser(request).id,
-				filename: imageFilename(parsed.data.mimeType, parsed.data.filename),
-				mimeType: parsed.data.mimeType,
-				bytes: parsed.data.bytes,
-				tokenHash: sha(token),
-				expiresAt,
-			})
-			.returning({ id: mediaUploadSessions.id })
+		const projectId = getProject(request).id
+		const userId = getUser(request).id
+		const session = await app.db.transaction(async (tx) => {
+			// All admissions for a project share a lock, including different users.
+			await tx
+				.select({ id: projects.id })
+				.from(projects)
+				.where(eq(projects.id, projectId))
+				.for('update')
+			const [usage] = await tx
+				.select({
+					userSessions: sql<number>`count(*) filter (where ${mediaUploadSessions.userId} = ${userId})::int`,
+					declaredBytes: sql<number>`coalesce(sum(${mediaUploadSessions.bytes}), 0)::bigint`,
+				})
+				.from(mediaUploadSessions)
+				.where(
+					and(
+						eq(mediaUploadSessions.projectId, projectId),
+						ne(mediaUploadSessions.status, 'done'),
+						gt(mediaUploadSessions.expiresAt, new Date()),
+					),
+				)
+			if (
+				Number(usage.userSessions) >= 20 ||
+				Number(usage.declaredBytes) + parsed.data.bytes > 200_000_000
+			)
+				throw ingestError(
+					'Upload session quota reached (20 open sessions per user per project; 200 MB declared bytes per project). Complete existing sessions or let them expire before creating more.',
+					429,
+				)
+			const [created] = await tx
+				.insert(mediaUploadSessions)
+				.values({
+					projectId,
+					userId,
+					filename: imageFilename(parsed.data.mimeType, parsed.data.filename),
+					mimeType: parsed.data.mimeType,
+					bytes: parsed.data.bytes,
+					tokenHash: sha(token),
+					expiresAt,
+				})
+				.returning({ id: mediaUploadSessions.id })
+			return created
+		})
 		return reply.status(201).send({
 			uploadId: session.id,
 			uploadUrl: `${publicBaseUrl(request)}/api/v1/media/uploads/${session.id}/content?token=${token}`,
@@ -181,11 +223,11 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 			{
 				bodyLimit: mediaMaxSize(),
 				config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
-				onRequest: async (request, reply) => {
+				preParsing: async (request, reply) => {
 					if (!uuid.safeParse(request.params.id).success)
 						return reply.status(404).send({ error: 'Upload session not found' })
 					const [session] = await app.db
-						.select()
+						.select(sessionMetadata)
 						.from(mediaUploadSessions)
 						.where(eq(mediaUploadSessions.id, request.params.id))
 						.limit(1)
@@ -214,7 +256,7 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 						'Upload body is empty; PUT the image bytes before complete_media_upload',
 					)
 				const [session] = await app.db
-					.select()
+					.select(sessionMetadata)
 					.from(mediaUploadSessions)
 					.where(eq(mediaUploadSessions.id, request.params.id))
 					.limit(1)
@@ -248,7 +290,7 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 		const started = Date.now()
 		for (;;) {
 			const [session] = await app.db
-				.select()
+				.select(sessionMetadata)
 				.from(mediaUploadSessions)
 				.where(
 					and(
@@ -265,10 +307,6 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				return reply
 					.status(403)
 					.send({ error: 'Only the uploading user or a project admin can complete this upload' })
-			if (session.expiresAt.getTime() <= Date.now())
-				return reply
-					.status(410)
-					.send({ error: 'Upload session expired; call create_media_upload again' })
 			if (session.status === 'done' && session.result) {
 				const target = session.result.target as { kind?: string; collectionId?: string } | undefined
 				if (target?.kind === 'library' && !app.license.hasFeature('media-integrations'))
@@ -279,6 +317,11 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				}
 				return session.result
 			}
+			if (session.expiresAt.getTime() <= Date.now())
+				return reply
+					.status(410)
+					.send({ error: 'Upload session expired; call create_media_upload again' })
+
 			if (session.status === 'processing') {
 				// Recovery after an interrupted worker. CAS prevents stealing a fresh claim.
 				await app.db
@@ -299,14 +342,18 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				await new Promise((resolve) => setTimeout(resolve, 100))
 				continue
 			}
-			if (!session.data)
+			if (session.status !== 'uploaded')
 				throw ingestError(
 					'No image bytes uploaded. PUT the bytes to uploadUrl, then call complete_media_upload.',
 				)
 			const claimedAt = new Date()
 			const [claim] = await app.db
 				.update(mediaUploadSessions)
-				.set({ status: 'processing', updatedAt: claimedAt })
+				.set({
+					status: 'processing',
+					updatedAt: claimedAt,
+					expiresAt: new Date(claimedAt.getTime() + 30 * 60_000),
+				})
 				.where(
 					and(
 						eq(mediaUploadSessions.id, session.id),
@@ -322,15 +369,22 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				eq(mediaUploadSessions.updatedAt, claimedAt),
 			)
 			try {
+				if (!claim.data) throw ingestError('Uploaded image bytes are missing; PUT the bytes again.')
 				const result = await ingestMedia(app, request, {
 					...input.data,
-					buffer: claim.data ?? session.data,
+					buffer: claim.data,
 					filename: input.data.filename ?? session.filename,
 					mimeType: session.mimeType,
 				})
 				const [done] = await app.db
 					.update(mediaUploadSessions)
-					.set({ status: 'done', data: null, result, updatedAt: new Date() })
+					.set({
+						status: 'done',
+						data: null,
+						result,
+						updatedAt: new Date(),
+						expiresAt: new Date(Date.now() + 30 * 60_000),
+					})
 					.where(owned)
 					.returning({ id: mediaUploadSessions.id })
 				if (!done)
@@ -406,14 +460,21 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 		)
 		const [cached] = await app.db.select({ id: content.id }).from(content).where(identity).limit(1)
 		if (!cached) {
-			const live = await fetchLiveExternalRecord(app, pid, target.collection.id, request.params.id)
+			const live = await fetchLiveExternalRecord(
+				app,
+				pid,
+				target.collection.id,
+				request.params.id,
+			).catch((err) => {
+				throw new ExternalWriteError(describeExternalDbError(err))
+			})
 			if (!live)
 				throw ingestError('Media record not found. Call list_media to discover valid ids.', 404)
 			await cacheMissingDocs(app.db, content, [live.doc], target.collection, {
 				userId: getUser(request).id,
 			})
 		}
-		return app.db.transaction(async (tx) => {
+		return withContentTransaction(app, async (tx, afterCommit, afterRollback) => {
 			const [item] = await tx
 				.select()
 				.from(content)
@@ -456,6 +517,47 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 					'Media record has no externalId; reconcile the external collection before update_media.',
 					409,
 				)
+			const externalId = item.externalId
+			const previousData = buildExternalData(target.collection, {
+				metadata: item.metadata,
+				markdown: item.markdown,
+				slug: item.slug,
+				status: item.status,
+				createdAt: item.createdAt,
+				updatedAt: item.updatedAt,
+				publishedAt: item.publishedAt,
+			})
+			// Restore only edited columns; source changes to other fields survive.
+			const previous = Object.fromEntries(
+				Object.entries(previousData).filter(([key]) => key in patch || key === 'updatedAt'),
+			)
+			let forwardSnapshot: SyncState | undefined
+			afterRollback(async () => {
+				if (!forwardSnapshot) return
+				await app.db.transaction(async (recoveryTx) => {
+					const [current] = await recoveryTx
+						.select()
+						.from(content)
+						.where(and(eq(content.id, item.id), eq(content.projectId, pid)))
+						.for('update')
+						.limit(1)
+					if (!current || contentHash(current) !== contentHash(item)) {
+						app.log.error(
+							{
+								code: 'EXTERNAL_RECONCILIATION_REQUIRED',
+								contentId: item.id,
+								externalId: item.externalId,
+							},
+							'Skipped external compensation because the record changed after rollback',
+						)
+						return
+					}
+					await updateExternalDb(app, pid, target.collection, externalId, previous, recoveryTx, {
+						baseline: forwardSnapshot,
+						unset: Object.keys(patch).filter((key) => !(key in previous)),
+					})
+				})
+			})
 			const external = await updateExternalDb(
 				app,
 				pid,
@@ -463,7 +565,14 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				item.externalId,
 				patch,
 				tx,
-			)
+				{
+					onApplied: (snapshot) => {
+						forwardSnapshot = snapshot
+					},
+				},
+			).catch((err) => {
+				throw new ExternalWriteError(describeExternalDbError(err))
+			})
 			await tx.insert(contentVersions).values({
 				contentId: item.id,
 				version: item.version,
@@ -491,13 +600,28 @@ export async function agentMediaRoutes(app: FastifyInstance) {
 				})
 				.where(eq(content.id, item.id))
 				.returning()
+			afterCommit(() =>
+				app.events.emit({
+					type: 'content:updated',
+					data: { ...contentEventData(updated, item), version: updated.version, projectId: pid },
+					timestamp: new Date().toISOString(),
+				}),
+			)
 			return withContentHash(updated)
 		})
 	})
 	const sweep = setInterval(() => {
 		void app.db
 			.delete(mediaUploadSessions)
-			.where(lt(mediaUploadSessions.expiresAt, new Date()))
+			.where(
+				and(
+					lt(mediaUploadSessions.expiresAt, new Date()),
+					or(
+						ne(mediaUploadSessions.status, 'processing'),
+						lt(mediaUploadSessions.updatedAt, new Date(Date.now() - 300_000)),
+					),
+				),
+			)
 			.catch(() => app.log.warn('Expired media upload session cleanup failed'))
 	}, 60_000)
 	sweep.unref()

@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { createServer as createHttpServer, request as httpRequest, type Server } from 'node:http'
 import { createServer as createPortProbe } from 'node:net'
-import { collections, projectMembers, projects, users } from '@innolope/db'
-import { inArray, sql } from 'drizzle-orm'
+import { collections, content, media, projectMembers, projects, users } from '@innolope/db'
+import { eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createOAuthAccessToken } from '../plugins/auth.js'
-import { buildTestApp, hasTestDb } from '../test/harness.js'
+import { buildTestApp, hasTestDb, TEST_DB_URL } from '../test/harness.js'
 
 const png = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aV8AAAAASUVORK5CYII=',
@@ -42,7 +43,10 @@ describe.skipIf(!hasTestDb)('six-image MCP acceptance (real Postgres)', { timeou
 	let token: string
 	let userId: string
 	let projectId: string
+	let externalProjectId: string
 	let collectionId: string
+	let source: ReturnType<typeof postgres> | undefined
+	const mediaTable = `mcp_media_${randomUUID().slice(0, 8)}`
 	let sessionId: string
 	let requestId = 1
 	const previousInternal = process.env.INTERNAL_API_URL
@@ -204,8 +208,14 @@ describe.skipIf(!hasTestDb)('six-image MCP acceptance (real Postgres)', { timeou
 		else process.env.INTERNAL_API_URL = previousInternal
 		if (userId) {
 			await app.db.execute(sql`DELETE FROM mcp_project_selections WHERE "userId" = ${userId}`)
-			await app.db.delete(projects).where(inArray(projects.id, [projectId]))
+			await app.db
+				.delete(projects)
+				.where(inArray(projects.id, [projectId, externalProjectId].filter(Boolean)))
 			await app.db.delete(users).where(inArray(users.id, [userId]))
+		}
+		if (source) {
+			await source`DROP TABLE IF EXISTS ${source(mediaTable)}`
+			await source.end()
 		}
 		await app?.close()
 		if (sourceServer?.listening)
@@ -258,6 +268,149 @@ describe.skipIf(!hasTestDb)('six-image MCP acceptance (real Postgres)', { timeou
 		for (const url of urls) expect(checkOutput).toContain(url)
 		expect(checkOutput).toContain('All 6 image(s) serve correctly.')
 		expect(checkOutput.match(/library: yes/g)).toHaveLength(6)
+		expect(checkOutput).not.toMatch(/external or deleted|BROKEN/)
+	})
+
+	it('uses external media IDs in article relations and finds the serving image through MCP (F16)', async () => {
+		source = postgres(TEST_DB_URL ?? '', { onnotice: () => {} })
+		await source`CREATE TABLE ${source(mediaTable)} (id serial PRIMARY KEY, "fullPath" text NOT NULL, filename text UNIQUE, alt text, "mimeType" text, filesize integer, width integer, height integer, "createdAt" timestamptz, "updatedAt" timestamptz)`
+		const [project] = await app.db
+			.insert(projects)
+			.values({
+				name: 'Klekit MCP media',
+				slug: `klekit-mcp-${randomUUID().slice(0, 8)}`,
+				ownerId: userId,
+				settings: {
+					mediaUploads: { target: 'auto' },
+					externalDb: {
+						type: 'postgresql',
+						connectionString: TEST_DB_URL,
+						accessMode: 'read-write',
+						mediaStorage: {
+							[mediaTable]: {
+								adapter: 'cloudflare-images',
+								pathColumn: 'fullPath',
+								access: 'private',
+								credentials: {
+									accountId: 'test-account',
+									apiToken: 'test-token',
+									accountHash: 'test-hash',
+								},
+							},
+						},
+					},
+				} as never,
+			})
+			.returning()
+		externalProjectId = project.id
+		await app.db
+			.insert(projectMembers)
+			.values({ projectId: externalProjectId, userId, role: 'owner' })
+		const [mediaCollection] = await app.db
+			.insert(collections)
+			.values({
+				projectId: externalProjectId,
+				name: mediaTable,
+				label: 'Klekit media',
+				source: 'external',
+				externalTable: mediaTable,
+				accessMode: 'read-write',
+				fields: [
+					{ name: 'fullPath', type: 'text' },
+					{ name: 'filename', type: 'text' },
+					{ name: 'alt', type: 'text' },
+					{ name: 'mimeType', type: 'text' },
+					{ name: 'filesize', type: 'number' },
+					{ name: 'width', type: 'number' },
+					{ name: 'height', type: 'number' },
+					{ name: 'createdAt', type: 'date' },
+					{ name: 'updatedAt', type: 'date' },
+				],
+			})
+			.returning()
+		const [articles] = await app.db
+			.insert(collections)
+			.values({
+				projectId: externalProjectId,
+				name: 'articles',
+				label: 'Articles',
+				fields: [
+					{ name: 'title', type: 'text' },
+					{ name: 'hero', type: 'relation', relationTo: mediaTable },
+				],
+			})
+			.returning()
+		const selected = await call('use_project', { projectId: externalProjectId })
+		expect(selected.isError, text(selected)).not.toBe(true)
+		const listed = await call('list_media', {})
+		expect(listed.isError, text(listed)).not.toBe(true)
+		expect(text(listed)).toContain('Agent uploads: Klekit media')
+
+		const alt = 'Klekit growth chart'
+		const uploaded = await call('upload_media', {
+			data: png.toString('base64'),
+			mimeType: 'image/png',
+			filename: 'klekit-chart.png',
+			alt,
+		})
+		expect(uploaded.isError, text(uploaded)).not.toBe(true)
+		const output = uploaded.structuredContent as {
+			results: Array<{
+				id: string
+				externalId: string
+				deliveryUrl: string
+				fullPath: string
+				deliveryVerified: boolean
+				target: { kind: string; collectionId: string }
+			}>
+		}
+		expect(output.results).toHaveLength(1)
+		const image = output.results[0]
+		expect(image.target).toMatchObject({ kind: 'collection', collectionId: mediaCollection.id })
+		expect(image.externalId).toMatch(/^\d+$/)
+		expect(image.id).not.toBe(image.externalId)
+		expect(image.deliveryVerified).toBe(true)
+		expect(image.deliveryUrl).toMatch(/^https:\/\/imagedelivery\.net\/test-hash\/[^/]+\/public$/)
+		const [sourceImage] =
+			await source`SELECT * FROM ${source(mediaTable)} WHERE id = ${Number(image.externalId)}`
+		expect(sourceImage).toMatchObject({
+			fullPath: image.fullPath,
+			alt,
+			filename: 'klekit-chart.png',
+		})
+		const [cachedImage] = await app.db.select().from(content).where(eq(content.id, image.id))
+		expect(cachedImage).toMatchObject({
+			collectionId: mediaCollection.id,
+			externalId: image.externalId,
+		})
+		expect(await app.db.select().from(media).where(eq(media.projectId, externalProjectId))).toEqual(
+			[],
+		)
+
+		const markdown = `![${alt}](${image.deliveryUrl})`
+		const created = await call('create_content', {
+			collectionId: articles.id,
+			slug: 'klekit-growth',
+			metadata: { title: 'Klekit growth', hero: image.externalId },
+			markdown,
+			status: 'draft',
+		})
+		expect(created.isError, text(created)).not.toBe(true)
+		const [article] = await app.db
+			.select()
+			.from(content)
+			.where(eq(content.collectionId, articles.id))
+		expect(article).toMatchObject({
+			metadata: { title: 'Klekit growth', hero: image.externalId },
+			markdown,
+			status: 'draft',
+		})
+		const checked = await call('check_media', { id: article.id })
+		expect(checked.isError, text(checked)).not.toBe(true)
+		const checkOutput = text(checked)
+		expect(checkOutput).toContain(image.deliveryUrl)
+		expect(checkOutput).toContain(`yes (id: ${image.id}, externalId: ${image.externalId})`)
+		expect(checkOutput).toContain('All 1 image(s) serve correctly.')
 		expect(checkOutput).not.toMatch(/external or deleted|BROKEN/)
 	})
 })

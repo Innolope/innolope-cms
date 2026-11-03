@@ -207,6 +207,19 @@ describe('registered agent media tools', () => {
 		expect(JSON.stringify(client.trackToolCall.mock.calls)).not.toContain('AAAA')
 		expect(JSON.stringify(client.trackToolCall.mock.calls)).toContain('[redacted]')
 	})
+	it('R12 names the target and explains a forbidden library listing', async () => {
+		client.listUploadMedia.mockResolvedValue({
+			target: { resolved: { kind: 'library' }, problem: null },
+			data: [],
+			pagination: { page: 1, total: 0 },
+			note: 'The media library requires the media-integrations license.',
+		} as never)
+		const result = await invoke('list_media', {})
+		expect(result.isError).not.toBe(true)
+		expect(text(result)).toContain('Agent uploads: library')
+		expect(text(result)).toContain('media-integrations license')
+	})
+
 	it('discovers target uploads and checks both the collection and existing library independent of CF variant', async () => {
 		const listed = await invoke('list_media', {})
 		expect(text(listed)).toContain('Agent uploads: Blog media')

@@ -100,7 +100,7 @@ export function detectMediaFields(
 		width: null,
 		height: null,
 	}
-	const used = new Set([result.path])
+	const used = new Set([result.path, ...Object.values(overrides)])
 	for (const key of ['mimeType', 'filename', 'size', 'width', 'height', 'alt'] as const) {
 		const field =
 			overrides[key] ??
@@ -216,7 +216,11 @@ export function resolveUploadTarget(
 		},
 	}
 }
+export function normalizeImageMime(value?: string) {
+	return value === 'image/jpg' ? 'image/jpeg' : value
+}
 export function sniffImage(buffer: Buffer, declared?: string) {
+	declared = normalizeImageMime(declared)
 	let detected = 'unknown'
 	if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) detected = 'image/jpeg'
 	else if (buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
@@ -273,21 +277,21 @@ export function imageFilename(mime: string, input?: string) {
 }
 export function decodeImageData(data: string): { buffer: Buffer; declared?: string } {
 	const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(data)
-	const encoded = match ? match[2] : data
+	const encoded = (match ? match[2] : data).replace(/[\t\n\v\f\r ]/g, '')
 	if (encoded.length > 4 * Math.ceil(INLINE_MAX_BYTES / 3))
 		throw ingestError(
 			'Base64 data exceeds 1 MB decoded. Call create_media_upload for the two-step upload.',
 		)
 	if (!encoded || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
 		throw ingestError(
-			'Invalid base64 image data. Use upload_media with sourceUrl or create_media_upload.',
+			'Invalid base64 image data. Encode with base64 -w0. Use upload_media with sourceUrl or create_media_upload.',
 		)
 	const buffer = Buffer.from(encoded, 'base64')
 	if (buffer.length > INLINE_MAX_BYTES)
 		throw ingestError(
 			'Base64 data exceeds 1 MB decoded. Call create_media_upload for the two-step upload.',
 		)
-	return { buffer, declared: match?.[1] }
+	return { buffer, declared: normalizeImageMime(match?.[1]) }
 }
 export async function fetchSourceImage(
 	url: string,

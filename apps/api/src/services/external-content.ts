@@ -67,6 +67,29 @@ function getExternalDbConfig(
 	}
 }
 
+async function connectExternalSource(app: FastifyInstance, adapter: ExternalDbAdapter) {
+	try {
+		await adapter.connect()
+	} catch (err) {
+		app.log.warn(
+			{ code: 'EXTERNAL_UNREACHABLE', detail: describeExternalDbError(err).detail },
+			'Source database connection failed',
+		)
+		// A driver can allocate resources before connect rejects.
+		try {
+			await adapter.disconnect()
+		} catch {
+			// Preserve the connection failure when cleanup also fails.
+		}
+		throw new ExternalWriteError({
+			statusCode: 502,
+			code: 'EXTERNAL_UNREACHABLE',
+			error: 'The source database was unreachable. Check its connection and try again.',
+			fields: [],
+		})
+	}
+}
+
 export function buildExternalData(
 	col: typeof collections.$inferSelect,
 	input: {
@@ -563,7 +586,7 @@ export async function updateExternalDb(
 
 	const table = col.externalTable
 	const adapter = createExternalDbAdapter(extDb)
-	await adapter.connect()
+	await connectExternalSource(app, adapter)
 	try {
 		const { result: sent, col: target } = await writeWithRescan(
 			app,
@@ -800,7 +823,7 @@ export async function fetchLiveExternalRecord(
 	if (!col.externalTable) return null
 
 	const adapter = createExternalDbAdapter(extDb)
-	await adapter.connect()
+	await connectExternalSource(app, adapter)
 	try {
 		const doc = await adapter.findById(col.externalTable, externalId)
 		if (!doc) return null

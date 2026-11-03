@@ -80,8 +80,6 @@ describe('agent media byte gate (F1/F2)', () => {
 		'a===',
 		'data:image/png,not-base64',
 		'ab-c',
-		'a b c d',
-		'YWJj\n',
 		'====',
 	])('rejects malformed base64 %s', (value) =>
 		expect(() => decodeImageData(value)).toThrow(/base64/))
@@ -223,7 +221,11 @@ describe('target resolution and field/settings contracts (F4/F3)', () => {
 	it('respects overrides; refuses nonexistent and overlapping mappings before writes', () => {
 		const project = {
 			settings: settings({
-				mediaUploads: { target: 'collection', collectionId: 'a', fields: { alt: 'filename' } },
+				mediaUploads: {
+					target: 'collection',
+					collectionId: 'a',
+					fields: { alt: 'filename', filename: 'filename' },
+				},
 				externalDb: { mediaStorage: { a: { adapter: 'r2', pathColumn: 'fullPath' } } },
 			}),
 		}

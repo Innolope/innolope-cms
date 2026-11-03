@@ -1,5 +1,7 @@
+import { lookup as connectLookup } from 'node:dns'
 import { lookup, resolveSrv } from 'node:dns/promises'
-import { isIP, isIPv6 } from 'node:net'
+import { isIP, isIPv6, type LookupFunction } from 'node:net'
+import { Agent, type RequestInit as UndiciRequestInit, fetch as undiciFetch } from 'undici'
 
 /** Hostnames that are always internal, whatever they resolve to. */
 const BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal', 'metadata'])
@@ -234,6 +236,23 @@ export function isPrivateAddress(address: string): boolean {
 	return isPrivateIpv4(parts)
 }
 
+// Re-resolve only through this lookup when opening a socket. Keeping the hostname
+// in the URL preserves TLS SNI/certificate verification and HTTP Host semantics.
+export const publicLookup: LookupFunction = (hostname, options, callback) => {
+	connectLookup(hostname, { ...options, all: true }, (err, addresses) => {
+		if (err) return callback(err, '', 0)
+		if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address)))
+			return callback(
+				new Error('Request to private/internal addresses is not allowed at connect time.'),
+				'',
+				0,
+			)
+		if (options.all) callback(null, addresses)
+		else callback(null, addresses[0].address, addresses[0].family)
+	})
+}
+const publicDispatcher = new Agent({ connect: { lookup: publicLookup } })
+
 export interface SafeFetchOptions {
 	/** How many redirects to follow, each re-screened. Default 5; 0 hands the 3xx back. */
 	maxRedirects?: number
@@ -257,7 +276,15 @@ export async function safeFetch(
 	for (let hop = 0; ; hop++) {
 		const problem = await validatePublicUrl(current)
 		if (problem) throw new Error(problem)
-		const res = await fetch(current, { ...init, method, body, redirect: 'manual' })
+		// undici's own fetch, not the global one: an npm-undici Agent handed to the
+		// fetch Node bundles breaks when their versions differ (Node 22 ships undici 6).
+		const res = (await undiciFetch(current, {
+			...(init as UndiciRequestInit),
+			method,
+			body: body as UndiciRequestInit['body'],
+			redirect: 'manual',
+			dispatcher: publicDispatcher,
+		})) as unknown as Response
 		const location = res.headers.get('location')
 		if (![301, 302, 303, 307, 308].includes(res.status) || !location) return res
 		if (hop >= maxRedirects) return res
