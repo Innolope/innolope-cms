@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { gzipSync } from 'node:zlib'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The preflight (`validatePublicUrl`) sees a public address; the lookup made when
@@ -23,6 +24,7 @@ vi.mock('node:dns', () => ({
 }))
 
 import { publicLookup, safeFetch } from './connection-guard.js'
+import { guardedRequest, screenedLookup } from './guarded-request.js'
 
 describe('connect-time address screening (DNS rebinding)', () => {
 	let server: Server
@@ -70,5 +72,70 @@ describe('connect-time address screening (DNS rebinding)', () => {
 			publicLookup('example.com', {}, (err, address) => resolve({ err, address })),
 		)
 		expect(result).toEqual({ err: null, address: '93.184.216.34' })
+	})
+})
+
+// The transport under safeFetch must hand callers what fetch did: decoded bodies,
+// every header, the request body, and the URL it answered for. IP-literal hosts
+// skip the lookup, so these run against a local server with screening relaxed.
+describe('guardedRequest response conversion', () => {
+	let server: Server
+	let base = ''
+	const seen: Array<{ method?: string; body: string; headers: Record<string, unknown> }> = []
+	const allowAll = screenedLookup(() => false)
+
+	beforeAll(async () => {
+		server = createServer((req, res) => {
+			let body = ''
+			req.on('data', (chunk) => {
+				body += chunk
+			})
+			req.on('end', () => {
+				seen.push({ method: req.method, body, headers: req.headers })
+				if (req.url === '/gzip') {
+					res.writeHead(200, { 'content-encoding': 'gzip', 'x-multi': ['a', 'b'] })
+					res.end(gzipSync('decoded text'))
+				} else if (req.url === '/empty') {
+					res.writeHead(204)
+					res.end()
+				} else {
+					res.writeHead(201, { 'content-type': 'application/json' })
+					res.end(JSON.stringify({ echoed: body }))
+				}
+			})
+		})
+		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+		base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+	})
+	afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+	it('decodes gzip, keeps repeated headers and reports the URL', async () => {
+		const res = await guardedRequest(`${base}/gzip`, {}, allowAll)
+		expect(res.status).toBe(200)
+		expect(await res.text()).toBe('decoded text')
+		expect(res.headers.get('x-multi')).toBe('a, b')
+		expect(res.url).toBe(`${base}/gzip`)
+		expect(seen.at(-1)?.headers['accept-encoding']).toBe('gzip, deflate, br')
+	})
+
+	it('sends a POST body with its headers', async () => {
+		const res = await guardedRequest(
+			`${base}/echo`,
+			{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"a":1}' },
+			allowAll,
+		)
+		expect(res.status).toBe(201)
+		expect(await res.json()).toEqual({ echoed: '{"a":1}' })
+		expect(seen.at(-1)).toMatchObject({
+			method: 'POST',
+			body: '{"a":1}',
+			headers: { 'content-type': 'application/json', 'content-length': '7' },
+		})
+	})
+
+	it('returns a null body for 204', async () => {
+		const res = await guardedRequest(`${base}/empty`, {}, allowAll)
+		expect(res.status).toBe(204)
+		expect(res.body).toBeNull()
 	})
 })
