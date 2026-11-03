@@ -33,17 +33,20 @@ export function screenedLookup(isBlocked: (address: string) => boolean): LookupF
 	}
 }
 
+// The API's tsconfig has no DOM lib, so take fetch's types from RequestInit.
+type RequestBody = RequestInit['body']
+
 export interface GuardedRequestInit {
 	method?: string
-	headers?: HeadersInit
-	body?: BodyInit | null
+	headers?: RequestInit['headers']
+	body?: RequestBody
 	signal?: AbortSignal | null
 }
 
 /** Statuses whose responses never carry a body (the Response constructor rejects one). */
 const NULL_BODY_STATUSES = new Set([204, 205, 304])
 
-function encodeBody(body: BodyInit | null | undefined): Buffer | undefined {
+function encodeBody(body: RequestBody): Buffer | undefined {
 	if (body == null) return undefined
 	if (typeof body === 'string' || body instanceof URLSearchParams) return Buffer.from(String(body))
 	if (body instanceof ArrayBuffer) return Buffer.from(body)
