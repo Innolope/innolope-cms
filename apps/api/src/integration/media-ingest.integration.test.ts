@@ -44,8 +44,13 @@ describe.skipIf(!hasTestDb)('library upload without a license', { timeout: 30_00
 		// License is an instance-wide singleton: never alter a shared database row.
 		const db = postgres(TEST_DB_URL ?? '', { onnotice: () => {} })
 		try {
-			const [existing] =
-				await db`SELECT count(*)::int AS count FROM license_settings WHERE "licenseKey" IS NOT NULL`
+			// On a fresh database (CI) this suite can run before any app boot has
+			// created the schema; no table means no stored license.
+			const [{ present }] =
+				await db`SELECT to_regclass('public.license_settings') IS NOT NULL AS present`
+			const [existing] = present
+				? await db`SELECT count(*)::int AS count FROM license_settings WHERE "licenseKey" IS NOT NULL`
+				: [{ count: 0 }]
 			if (existing.count !== 0)
 				throw new Error(
 					'Unlicensed fixture requires an isolated test database with no stored license',
