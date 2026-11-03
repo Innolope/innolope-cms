@@ -21,6 +21,21 @@ function isForeignKeyViolation(err: unknown): boolean {
 	return code === '23503'
 }
 
+/**
+ * A record's title as text. A localized title is a `{ locale: text }` map: show the
+ * project's default language, then English, then whichever language has one.
+ */
+function titleText(value: unknown, defaultLocale: string): string | null {
+	if (typeof value === 'string') return value.trim() || null
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+	const map = value as Record<string, unknown>
+	for (const key of [defaultLocale, 'en', ...Object.keys(map)]) {
+		const text = map[key]
+		if (typeof text === 'string' && text.trim()) return text.trim()
+	}
+	return null
+}
+
 export async function statsRoutes(app: FastifyInstance) {
 	// Dashboard stats (viewer+, project-scoped)
 	app.get('/', { preHandler: [app.requireProject('viewer')] }, async (request) => {
@@ -129,7 +144,7 @@ export async function statsRoutes(app: FastifyInstance) {
 
 	// Content analytics (viewer+, project-scoped)
 	app.get('/analytics', { preHandler: [app.requireProject('viewer')] }, async (request) => {
-		const pid = getProject(request).id
+		const { id: pid, defaultLocale } = getProject(request)
 		const thirtyDaysAgo = sql`now() - interval '30 days'`
 
 		const [topContent, topQueries, bySource] = await Promise.all([
@@ -205,7 +220,9 @@ export async function statsRoutes(app: FastifyInstance) {
 			contentMap = Object.fromEntries(
 				items.map((i) => [
 					i.id,
-					((i.metadata as Record<string, unknown>)?.title as string) || i.slug || i.id,
+					titleText((i.metadata as Record<string, unknown> | null)?.title, defaultLocale) ||
+						i.slug ||
+						i.id,
 				]),
 			)
 		}

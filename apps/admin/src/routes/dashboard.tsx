@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { AnalyticsPanel } from '../components/settings/analytics-panel'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { api } from '../lib/api-client'
+import { useAuth } from '../lib/auth'
 import { useCollections } from '../lib/collections'
+import { resolveLocalizedValue } from '../lib/locale-value'
 import { useToast } from '../lib/toast'
 
 export const Route = createFileRoute('/dashboard')({
@@ -67,6 +69,9 @@ function Dashboard() {
 	const { t } = useTranslation()
 	const navigate = useNavigate()
 	const { collections } = useCollections()
+	const { currentProject } = useAuth()
+	const defaultLocale = (currentProject?.settings as Record<string, unknown> | undefined)
+		?.defaultLocale as string | undefined
 	const [stats, setStats] = useState<Stats | null>(null)
 	const [statsError, setStatsError] = useState(false)
 	const [recent, setRecent] = useState<RecentItem[]>([])
@@ -246,7 +251,8 @@ function Dashboard() {
 								>
 									<div className="flex-1 min-w-0">
 										<p className="text-sm truncate">
-											{(item.metadata?.title as string) || item.slug}
+											{/* A localized title is a { locale: text } map, not a string. */}
+											{resolveLocalizedValue(item.metadata?.title, { defaultLocale }) || item.slug}
 										</p>
 										<p className="text-xs text-text-secondary">
 											v{item.version} — {item.locale}
