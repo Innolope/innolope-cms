@@ -421,9 +421,10 @@ export async function buildApp() {
 		decorateReply: false,
 		// Uploads are user content served from the API origin: never let one run
 		// as a document here, whatever it turns out to contain.
-		setHeaders: (res) => {
-			res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'")
-			res.setHeader('X-Content-Type-Options', 'nosniff')
+		// @fastify/static 10 passes the Fastify reply here, not the raw response.
+		setHeaders: (reply) => {
+			reply.header('Content-Security-Policy', "sandbox; default-src 'none'")
+			reply.header('X-Content-Type-Options', 'nosniff')
 		},
 	})
 
