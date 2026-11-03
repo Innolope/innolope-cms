@@ -119,7 +119,7 @@ export const contentInputSchema = z.object({
 		.nullable()
 		.optional(),
 	collectionId: z.string().uuid(),
-	metadata: z.record(z.unknown()).optional(),
+	metadata: z.record(z.string(), z.unknown()).optional(),
 	// Optional: data-shaped records (recipes, products, …) live entirely in
 	// metadata and have no prose body. Defaults to "" on create.
 	markdown: z.string().default(''),
@@ -130,6 +130,12 @@ export const contentInputSchema = z.object({
 	createdAt: z.string().datetime().optional(),
 	updatedAt: z.string().datetime().optional(),
 	publishedAt: z.string().datetime().optional(),
+})
+
+// Zod 4 applies defaults inside optional fields. Updates must preserve an
+// omitted body rather than inherit the create schema's empty-markdown default.
+export const contentUpdateSchema = contentInputSchema.partial().extend({
+	markdown: z.string().optional(),
 })
 
 const dateBound = z

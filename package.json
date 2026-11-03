@@ -25,7 +25,27 @@
 		],
 		"overrides": {
 			"drizzle-orm": "^0.45.2",
-			"isomorphic-dompurify>dompurify": "^3.4.17"
+			"isomorphic-dompurify>dompurify": "^3.4.17",
+			"@types/request>form-data": "2.5.6",
+			"undici@7": "7.30.1",
+			"faye-websocket>websocket-driver": "0.7.5",
+			"minimatch@10>brace-expansion": "5.0.11",
+			"@modelcontextprotocol/sdk>hono": "4.12.25",
+			"fast-uri@3": "3.1.7",
+			"fastify>find-my-way": "9.7.0",
+			"express-rate-limit@8>ip-address": "10.3.1",
+			"postcss>nanoid": "3.3.18",
+			"browserslist@4": "4.28.7",
+			"@node-saml/node-saml>@xmldom/xmldom": "0.8.15",
+			"google-gax>@grpc/grpc-js": "1.14.5",
+			"@firebase/firestore>@grpc/grpc-js": "1.13.6",
+			"@tiptap/pm>prosemirror-view": "1.42.6",
+			"express@5>proxy-addr": "2.0.8",
+			"@firebase/firestore>re2js": "2.8.7",
+			"@tanstack/router-core>seroval": "1.6.8",
+			"source-map-js@1": "1.2.2",
+			"zod@<4.6.6": "4.6.6",
+			"@fastify/busboy@3": "3.2.1"
 		}
 	},
 	"devDependencies": {
