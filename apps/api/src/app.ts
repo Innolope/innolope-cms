@@ -27,6 +27,7 @@ import { mcpRoutes } from './routes/mcp.js'
 import { oauthRoutes, wellKnownRoutes } from './routes/oauth.js'
 import { aiRoutes } from './routes/v1/ai.js'
 import { authRoutes } from './routes/v1/auth.js'
+import { collectionPreviewTemplateRoutes } from './routes/v1/collection-preview-templates.js'
 import { collectionRoutes } from './routes/v1/collections.js'
 import { contentRoutes } from './routes/v1/content.js'
 import { coverRoutes } from './routes/v1/covers.js'
@@ -329,6 +330,7 @@ export async function buildApp() {
 	await app.register(semanticSearchRoutes, { prefix: '/api/v1/content/semantic-search' })
 	await app.register(contentRoutes, { prefix: '/api/v1/content' })
 	await app.register(collectionRoutes, { prefix: '/api/v1/collections' })
+	await app.register(collectionPreviewTemplateRoutes, { prefix: '/api/v1/collections' })
 	await app.register(localeRoutes, { prefix: '/api/v1/locales' })
 	await app.register(mediaRoutes, { prefix: '/api/v1/media' })
 	await app.register(cloudflareIntegrationRoutes, { prefix: '/api/v1/integrations/cloudflare' })

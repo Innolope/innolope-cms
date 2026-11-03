@@ -5,6 +5,7 @@ export {
 	cloudflareConnections,
 	cloudflareOauthStates,
 } from './cloudflare-connections.js'
+export { collectionPreviewTemplates } from './collection-preview-templates.js'
 export {
 	type CollectionSettings,
 	collections,

@@ -401,6 +401,91 @@
 			"unsupported": "This text uses {{what}}, which can’t be edited here without losing it. Edit it where it was created; the preview below is read-only.",
 			"empty": "No text yet.",
 			"loading": "Loading text…"
+		},
+		"articlePreview": {
+			"toggle": "Preview",
+			"toggleHint": "Show this record in your site's design",
+			"title": "Preview",
+			"close": "Close preview",
+			"frameTitle": "Record preview in the site's article layout",
+			"openSource": "Open the article the layout was copied from",
+			"loadFailed": "Couldn't load the preview.",
+			"recapturing": "Re-copying…",
+			"capturedFrom": "Layout copied from {{host}} {{time}}",
+			"detected": "Found: {{slots}}",
+			"notes_one": "{{count}} note",
+			"notes_other": "{{count}} notes",
+			"slots": {
+				"title": "Title",
+				"body": "Article body",
+				"image": "Cover image"
+			},
+			"device": {
+				"label": "Preview width",
+				"desktop": "Desktop",
+				"tablet": "Tablet",
+				"mobile": "Phone"
+			},
+			"menu": {
+				"label": "Preview options",
+				"recapture": "Re-copy from site",
+				"changeArticle": "Use a different article",
+				"detection": "Detection settings",
+				"remove": "Remove preview layout"
+			},
+			"remove": {
+				"title": "Remove the preview layout?",
+				"message": "Everyone editing this collection loses the site preview until someone pastes an article link again.",
+				"confirm": "Remove"
+			},
+			"setup": {
+				"heading": "See this record in your site's design",
+				"changeHeading": "Copy the layout from another article",
+				"body": "Paste a link to any published article on your site. Innolope copies that page's layout and styles once for this collection, then fills it with whatever you're editing.",
+				"urlLabel": "Published article URL",
+				"urlPlaceholder": "https://yoursite.com/blog/an-article",
+				"capture": "Use this article",
+				"recapture": "Copy layout",
+				"capturing": "Copying layout…",
+				"capturingHint": "Fetching the page and its styles. This can take up to half a minute.",
+				"useSuggested": "Use this record's page: {{url}}",
+				"detection": "Detection settings",
+				"detectionHint": "If the preview fills the wrong part of the page, point to the right element with a CSS selector. Leave a field empty to detect it automatically.",
+				"auto": "Detected automatically",
+				"askAdmin": "A project admin can turn this on by pasting a link to a published article from your site."
+			},
+			"errors": {
+				"generic": "Couldn't copy the layout from that page.",
+				"INVALID_URL": "Enter a full web address that starts with https://.",
+				"BLOCKED_URL": "That address points to a private or internal network, which the preview can't reach.",
+				"FETCH_FAILED": "Couldn't load that page. Check that the link opens in a browser and the article is published.",
+				"BLOCKED_BY_SITE": "The site refused the request (bot protection or a login wall). Try another article, or allow the Innolope server through the site's firewall.",
+				"NOT_HTML": "That link isn't a web page. Paste the address of an article page.",
+				"TOO_LARGE": "That page is too large to copy. Try a shorter article from the same site.",
+				"CLIENT_RENDERED": "That page is built by JavaScript in the browser, so its HTML has no article to copy. Sites that render on the server (WordPress, Ghost, most Next.js and Astro sites) work best.",
+				"NO_ARTICLE_FOUND": "Couldn't find an article on that page. Paste a link to a single article, or set the selectors under Detection settings.",
+				"SELECTOR_NOT_FOUND": "One of the selectors under Detection settings doesn't match anything on that page."
+			},
+			"openInTab": "Open preview in a new tab",
+			"tab": {
+				"documentTitle": "{{title}} · Preview",
+				"untitled": "Untitled",
+				"live": "Live",
+				"liveHint": "Updates as you edit in the editor, unsaved changes included",
+				"connecting": "Connecting to the editor…",
+				"closed": "Editor closed",
+				"closedHint": "Showing the last version the editor sent. Open the record again and this tab picks up from there.",
+				"openEditor": "Open editor",
+				"notConnected": {
+					"heading": "Open this record in the editor",
+					"body": "This tab shows the record in your site’s design and follows the editor as you type, unsaved changes included. Open the record and the preview appears here."
+				},
+				"noTemplate": {
+					"heading": "No layout to preview with yet",
+					"body": "Copy the layout from a published article in the editor’s Preview panel first."
+				},
+				"notFound": "This collection doesn’t exist in the current project."
+			}
 		}
 	},
 	"settings": {

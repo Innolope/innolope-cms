@@ -43,6 +43,8 @@ export interface CollectionWithCount {
 	statusSync?: ExternalStatusSupport
 	/** Tri-state sidebar visibility. Defaults to 'auto'. */
 	sidebarMode?: 'auto' | 'show' | 'hide'
+	/** Per-collection options; `publicUrlTemplate` maps a record to its page on the site. */
+	settings?: { publicUrlTemplate?: string }
 	/** Server-computed: another collection references this one via a relation field. */
 	isLinkedTarget?: boolean
 	createdAt: string
