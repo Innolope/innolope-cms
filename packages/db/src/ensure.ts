@@ -110,6 +110,22 @@ export async function ensureTables(connectionUrl: string) {
 		`
 
 		await sql`
+			CREATE TABLE IF NOT EXISTS collection_preview_templates (
+				"collectionId" UUID PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+				"sourceUrl" TEXT NOT NULL,
+				"finalUrl" TEXT NOT NULL,
+				html TEXT NOT NULL,
+				slots JSONB NOT NULL,
+				"classMap" JSONB NOT NULL DEFAULT '{}',
+				selectors JSONB,
+				warnings JSONB NOT NULL DEFAULT '[]',
+				stats JSONB NOT NULL DEFAULT '{}',
+				"capturedBy" UUID REFERENCES users(id) ON DELETE SET NULL,
+				"capturedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+
+		await sql`
 			CREATE TABLE IF NOT EXISTS external_sync_state (
 				"collectionId" UUID PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
 				"leaseToken" UUID,
