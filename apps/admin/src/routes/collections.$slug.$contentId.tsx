@@ -10,6 +10,7 @@ import {
 	type SyncResolutions,
 } from '../components/content/sync-conflicts-dialog'
 import { Dropdown } from '../components/dropdown'
+import { ArticlePreview } from '../components/editor/article-preview-panel'
 import { FieldRenderer, toDateTimeInputValue } from '../components/editor/field-renderer'
 import { GenerateCoverButton } from '../components/editor/generate-cover-button'
 import { JsonField } from '../components/editor/json-field'
@@ -21,6 +22,7 @@ import { RelationField } from '../components/editor/relation-field'
 import { RichTextPreview, useRichTextConversion } from '../components/editor/rich-text-field'
 import { TagInput } from '../components/editor/tag-input'
 import { TechnicalFields } from '../components/editor/technical-fields'
+import { EyeIcon } from '../components/icons'
 import { hasFeature, UpgradePrompt, useLicense } from '../components/license-gate'
 import { ScheduledBadge } from '../components/scheduled-badge'
 import { ApiError, api } from '../lib/api-client'
@@ -693,6 +695,24 @@ function CollectionContentEditor() {
 	const aiLicensed = hasFeature(license, 'ai-assistant')
 	const schedulingLicensed = hasFeature(license, 'scheduling')
 	const [showAi, setShowAi] = useState(false)
+	// Site-design preview beside the editor. Remembered per collection: a writer who
+	// keeps it open for one article wants it open for the next one too.
+	const previewOpenKey = collection?.id ? `innolope:article-preview:open:${collection.id}` : null
+	const [showPreview, setShowPreview] = useState(false)
+	useEffect(() => {
+		if (!previewOpenKey) return
+		try {
+			setShowPreview(localStorage.getItem(previewOpenKey) === '1')
+		} catch {}
+	}, [previewOpenKey])
+	const togglePreview = (open: boolean) => {
+		setShowPreview(open)
+		if (!previewOpenKey) return
+		try {
+			if (open) localStorage.setItem(previewOpenKey, '1')
+			else localStorage.removeItem(previewOpenKey)
+		} catch {}
+	}
 	const [aiTargetField, setAiTargetField] = useState<string | null>(null)
 	const [aiSelectedText, _setAiSelectedText] = useState<string | null>(null)
 	// Field names currently being AI-translated (drives per-field spinner state).
@@ -1539,6 +1559,25 @@ function CollectionContentEditor() {
 					IMAGE_FIELD_NAME_RE.test(f.name)),
 		) ?? null
 
+	// Cover for the site preview: the image field above, else a plain URL field whose
+	// name reads like a cover (logos and avatars belong to other things on the page).
+	const previewImageKey =
+		imageField?.name ??
+		Object.keys(extraFields).find(
+			(k) => IMAGE_FIELD_NAME_RE.test(k) && !/logo|avatar/i.test(k) && extraFields[k],
+		) ??
+		null
+
+	// A published record's own page is the obvious article to copy the layout from.
+	const previewSuggestedUrl = (() => {
+		const pattern = collection?.settings?.publicUrlTemplate
+		if (!pattern || status !== 'published' || !contentSlug) return null
+		return pattern
+			.replaceAll('{slug}', encodeURIComponent(contentSlug))
+			.replaceAll('{locale}', encodeURIComponent(defaultLocale))
+			.replaceAll('{id}', encodeURIComponent(contentId))
+	})()
+
 	/**
 	 * Treat a field as localized for the purposes of dispatch. Combines three sources:
 	 * 1. Schema flag `f.localized` (definitive).
@@ -2172,6 +2211,22 @@ function CollectionContentEditor() {
 									)}
 								</div>
 							)}
+							{isArticleLayout && collection && (
+								<button
+									type="button"
+									onClick={() => togglePreview(!showPreview)}
+									aria-pressed={showPreview}
+									title={t('editor.articlePreview.toggleHint')}
+									className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-sm transition-colors ${
+										showPreview
+											? 'bg-surface-alt border-border-strong text-text'
+											: 'bg-surface-alt/40 border-border text-text-secondary hover:text-text hover:bg-surface-alt'
+									}`}
+								>
+									<EyeIcon className="w-4 h-4" />
+									{t('editor.articlePreview.toggle')}
+								</button>
+							)}
 						</div>
 
 						{/* Draft restore banner */}
@@ -2319,6 +2374,32 @@ function CollectionContentEditor() {
 						)}
 					</div>
 				</div>
+
+				{isArticleLayout && collection && (
+					<ArticlePreview
+						open={showPreview}
+						recordId={isNew ? null : contentId}
+						collectionId={collection.id}
+						canConfigure={canEditSchema}
+						content={{
+							title: (titleMap ? titleMap[visiblePaneLocales[0]] : title) ?? '',
+							markdown: (bodyMap ? bodyMap[visiblePaneLocales[0]] : markdown) ?? '',
+							locale: titleMap || bodyMap ? visiblePaneLocales[0] : null,
+						}}
+						image={
+							previewImageKey
+								? { value: extraFields[previewImageKey], relationTo: imageField?.relationTo }
+								: null
+						}
+						suggestedUrl={previewSuggestedUrl}
+						tabHref={
+							isNew
+								? null
+								: `/collections/${encodeURIComponent(slug)}/${encodeURIComponent(contentId)}/preview`
+						}
+						onClose={() => togglePreview(false)}
+					/>
+				)}
 
 				{/* Sidebar — widens for compare mode only when a localized field actually
 			    renders *here* (article layout puts schema fields in the sidebar). The

@@ -95,3 +95,62 @@ export function SortIcon({ dir, className }: IconProps & { dir: 'asc' | 'desc' |
 		</Svg>
 	)
 }
+
+/** Show the record as it will look on the site. */
+export function EyeIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+			<circle cx="12" cy="12" r="3" />
+		</Svg>
+	)
+}
+
+/** Preview device widths: desktop, tablet, phone. */
+export function MonitorIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<rect x="2" y="4" width="20" height="13" rx="2" />
+			<path d="M8 21h8M12 17v4" />
+		</Svg>
+	)
+}
+
+export function TabletIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<rect x="5" y="2" width="14" height="20" rx="2" />
+			<path d="M11 18h2" />
+		</Svg>
+	)
+}
+
+export function PhoneIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<rect x="7" y="2" width="10" height="20" rx="2" />
+			<path d="M11 18h2" />
+		</Svg>
+	)
+}
+
+/** A link that leaves the admin. */
+export function ExternalLinkIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<path d="M15 3h6v6" />
+			<path d="M10 14 21 3" />
+			<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+		</Svg>
+	)
+}
+
+/** Dismiss a panel. */
+export function CloseIcon({ className }: IconProps) {
+	return (
+		<Svg className={className}>
+			<path d="M18 6 6 18" />
+			<path d="m6 6 12 12" />
+		</Svg>
+	)
+}

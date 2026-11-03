@@ -24,7 +24,8 @@
 			"esbuild"
 		],
 		"overrides": {
-			"drizzle-orm": "^0.45.2"
+			"drizzle-orm": "^0.45.2",
+			"isomorphic-dompurify>dompurify": "^3.4.17"
 		}
 	},
 	"devDependencies": {

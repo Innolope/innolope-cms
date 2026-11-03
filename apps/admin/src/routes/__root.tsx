@@ -76,6 +76,8 @@ function AuthGate() {
 	// Onboarding runs right after first-admin registration, before any project exists.
 	if (location.pathname.startsWith('/onboarding')) return <Outlet />
 	if (!currentProject) return <NoProjectView />
+	// A record's preview tab is the article alone, without the app's sidebar.
+	if (/^\/collections\/[^/]+\/[^/]+\/preview\/?$/.test(location.pathname)) return <Outlet />
 
 	return <AppLayout />
 }
