@@ -45,11 +45,17 @@ export interface PreviewTemplateResponse {
 
 export type Device = 'desktop' | 'tablet' | 'mobile'
 
+const ALL_DEVICES: readonly Device[] = ['desktop', 'tablet', 'mobile']
+/** The record page's preview offers the two layouts a site is designed for. */
+const MODAL_DEVICES: readonly Device[] = ['desktop', 'mobile']
+
 /**
  * Viewport each device renders at. Desktop never goes below 1280 so a narrow pane
  * shows the real desktop layout scaled down rather than the site's tablet layout.
  */
 const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, tablet: 820, mobile: 390 }
+/** A tablet or phone outline is no taller than the screen it stands for. */
+const DEVICE_HEIGHT: Partial<Record<Device, number>> = { tablet: 1180, mobile: 844 }
 const DEVICE_KEY = 'innolope:article-preview:device'
 
 /** How long typing settles before the preview catches up. */
@@ -57,17 +63,21 @@ const FILL_DEBOUNCE_MS = 200
 
 const SLOT_KEYS = ['title', 'body', 'image'] as const
 
-function readDevice(key: string): Device {
+function readDevice(key: string, allowed: readonly Device[]): Device {
 	try {
 		const stored = localStorage.getItem(key)
-		if (stored === 'desktop' || stored === 'tablet' || stored === 'mobile') return stored
+		const match = allowed.find((d) => d === stored)
+		if (match) return match
 	} catch {}
-	return 'desktop'
+	return allowed[0]
 }
 
-/** The device the preview renders at, remembered per place it's shown (panel, tab). */
-export function useStoredDevice(key: string): [Device, (next: Device) => void] {
-	const [device, setDevice] = useState<Device>(() => readDevice(key))
+/** The device the preview renders at, remembered per place it's shown (record page, tab). */
+export function useStoredDevice(
+	key: string,
+	allowed: readonly Device[] = ALL_DEVICES,
+): [Device, (next: Device) => void] {
+	const [device, setDevice] = useState<Device>(() => readDevice(key, allowed))
 	const pick = (next: Device) => {
 		setDevice(next)
 		try {
@@ -232,16 +242,16 @@ function useArticlePreview({
 }
 
 /**
- * The record page's preview: the side panel while it's open, and — open or not —
- * the editor's end of a preview showing in another tab.
+ * The record page's preview: the full-window modal while it's open, and — open or
+ * not — the editor's end of a preview showing in another tab.
  */
 export function ArticlePreview({
 	recordId,
 	content,
 	image,
 	open,
-	...panel
-}: Omit<ArticlePreviewPanelProps, 'content'> & {
+	...modal
+}: Omit<ArticlePreviewModalProps, 'content'> & {
 	recordId: string | null
 	content: Omit<PreviewContent, 'imageUrl'>
 	image?: PreviewImageRef | null
@@ -249,12 +259,104 @@ export function ArticlePreview({
 }) {
 	const resolved = useArticlePreview({
 		recordId,
-		collectionId: panel.collectionId,
+		collectionId: modal.collectionId,
 		content,
 		image,
 		panelOpen: open,
 	})
-	return open ? <ArticlePreviewPanel {...panel} content={resolved} /> : null
+	return open ? <ArticlePreviewModal {...modal} content={resolved} /> : null
+}
+
+/**
+ * Templates already loaded on this page, by collection (`null`: none captured), so
+ * reopening the preview shows the layout at once. Each open still re-checks the API.
+ */
+const templateCache = new Map<string, PreviewTemplateResponse | null>()
+
+/** Test hook: start from an empty cache. */
+export function clearPreviewTemplateCache() {
+	templateCache.clear()
+}
+
+/** The same capture: keeping the old object stops the frame reloading for nothing. */
+function sameTemplate(a: PreviewTemplateResponse | null, b: PreviewTemplateResponse | null) {
+	return (
+		a === b || (!!a && !!b && a.collectionId === b.collectionId && a.capturedAt === b.capturedAt)
+	)
+}
+
+const FOCUSABLE =
+	'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])'
+
+function focusables(root: HTMLElement): HTMLElement[] {
+	return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+		(el) => !el.closest('[inert],[hidden]'),
+	)
+}
+
+/**
+ * Keyboard behaviour of a modal: focus moves in on open and back to the opener on
+ * close, Tab stays inside, and Esc calls `onEscape`. A confirm opened from inside
+ * (removing the layout) renders later in the document and owns the keys while it's up;
+ * a handler that already took Esc (an open menu) marks it with `preventDefault`.
+ */
+function useModalKeys(ref: React.RefObject<HTMLElement | null>, onEscape: () => void): () => void {
+	const escapeRef = useRef(onEscape)
+	escapeRef.current = onEscape
+
+	useEffect(() => {
+		const dialog = ref.current
+		if (!dialog) return
+		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+		dialog.focus({ preventScroll: true })
+
+		const onTop = () => isTopDialog(dialog)
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.defaultPrevented || !onTop()) return
+			if (e.key === 'Escape') {
+				e.preventDefault()
+				escapeRef.current()
+			} else if (e.key === 'Tab') {
+				const items = focusables(dialog)
+				const first = items[0]
+				const last = items[items.length - 1]
+				const active = document.activeElement
+				if (!first || !last) {
+					e.preventDefault()
+				} else if (e.shiftKey && (active === first || active === dialog)) {
+					e.preventDefault()
+					last.focus()
+				} else if (!e.shiftKey && active === last) {
+					e.preventDefault()
+					first.focus()
+				}
+			}
+		}
+		// Tabbing out of the frame's document lands in the parent page, past the trap
+		// above; pull focus back in.
+		const onFocusIn = (e: FocusEvent) => {
+			if (!onTop() || !(e.target instanceof Node) || dialog.contains(e.target)) return
+			;(focusables(dialog)[0] ?? dialog).focus()
+		}
+		document.addEventListener('keydown', onKeyDown)
+		document.addEventListener('focusin', onFocusIn)
+		return () => {
+			document.removeEventListener('keydown', onKeyDown)
+			document.removeEventListener('focusin', onFocusIn)
+			if (opener?.isConnected) opener.focus({ preventScroll: true })
+		}
+	}, [ref])
+
+	// Keys typed inside the preview frame stay in its document; it forwards Esc here.
+	return () => {
+		if (ref.current && isTopDialog(ref.current)) escapeRef.current()
+	}
+}
+
+/** Whether `dialog` is the last modal in the document, i.e. the one the user sees on top. */
+function isTopDialog(dialog: HTMLElement): boolean {
+	const open = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+	return open[open.length - 1] === dialog
 }
 
 export function Spinner({ className = 'w-3.5 h-3.5' }: { className?: string }) {
@@ -271,7 +373,7 @@ interface CaptureError {
 	message: string
 }
 
-interface ArticlePreviewPanelProps {
+interface ArticlePreviewModalProps {
 	collectionId: string
 	/** Admins and owners can capture, change and remove the collection's template. */
 	canConfigure: boolean
@@ -285,46 +387,58 @@ interface ArticlePreviewPanelProps {
 }
 
 /**
- * Shows the record inside its own site's article layout. The layout is captured once
- * per collection from a published article (the API keeps a sanitized copy with the
- * title, body and cover marked as slots); this panel renders that copy in a frame
- * and pours the editor's current content into the slots as the user types.
+ * Shows the record inside its own site's article layout, over the whole window. The
+ * layout is captured once per collection from a published article (the API keeps a
+ * sanitized copy with the title, body and cover marked as slots); this modal renders
+ * that copy in a frame and pours the editor's current content into the slots.
  */
-export function ArticlePreviewPanel({
+export function ArticlePreviewModal({
 	collectionId,
 	canConfigure,
 	content,
 	suggestedUrl,
 	tabHref,
 	onClose,
-}: ArticlePreviewPanelProps) {
+}: ArticlePreviewModalProps) {
 	const { t } = useTranslation()
 	const toast = useToast()
 	const confirm = useConfirm()
-	const [template, setTemplate] = useState<PreviewTemplateResponse | null>(null)
-	const [loading, setLoading] = useState(true)
+	const [template, setTemplate] = useState<PreviewTemplateResponse | null>(
+		() => templateCache.get(collectionId) ?? null,
+	)
+	const [loading, setLoading] = useState(() => !templateCache.has(collectionId))
 	const [loadError, setLoadError] = useState<string | null>(null)
 	// The URL form shown over an existing preview ("Use a different article", "Detection settings").
 	const [changing, setChanging] = useState<null | 'url' | 'selectors'>(null)
 	const [capturing, setCapturing] = useState(false)
 	const [captureError, setCaptureError] = useState<CaptureError | null>(null)
-	const [device, pickDevice] = useStoredDevice(DEVICE_KEY)
+	const [device, pickDevice] = useStoredDevice(DEVICE_KEY, MODAL_DEVICES)
 	const [showNotes, setShowNotes] = useState(false)
+	const dialogRef = useRef<HTMLDivElement>(null)
+	// Esc backs out of the change-layout form first, then closes the preview.
+	const frameEscape = useModalKeys(dialogRef, () => {
+		if (changing && !capturing) setChanging(null)
+		else onClose()
+	})
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `t` only feeds the error fallback; re-fetching when its identity changes would flash the loading state for nothing.
 	useEffect(() => {
 		let cancelled = false
-		setLoading(true)
+		const cached = templateCache.has(collectionId)
+		setLoading(!cached)
 		setLoadError(null)
 		api
 			.get<{ template: PreviewTemplateResponse | null }>(
 				`/api/v1/collections/${collectionId}/preview-template`,
 			)
 			.then((res) => {
-				if (!cancelled) setTemplate(res.template)
+				templateCache.set(collectionId, res.template)
+				if (!cancelled)
+					setTemplate((prev) => (sameTemplate(prev, res.template) ? prev : res.template))
 			})
 			.catch((err) => {
-				if (!cancelled)
+				// A failed re-check keeps showing the layout already on screen.
+				if (!cancelled && !cached)
 					setLoadError(err instanceof Error ? err.message : t('editor.articlePreview.loadFailed'))
 			})
 			.finally(() => {
@@ -343,6 +457,8 @@ export function ArticlePreviewPanel({
 				`/api/v1/collections/${collectionId}/preview-template`,
 				{ url: url.trim(), selectors: cleanSelectors(selectors) },
 			)
+			// Cached first: the copy finishes on the server even if the preview was closed meanwhile.
+			templateCache.set(collectionId, res.template)
 			setTemplate(res.template)
 			setChanging(null)
 			setShowNotes(false)
@@ -376,6 +492,7 @@ export function ArticlePreviewPanel({
 		if (!ok) return
 		try {
 			await api.delete(`/api/v1/collections/${collectionId}/preview-template`)
+			templateCache.set(collectionId, null)
 			setTemplate(null)
 			setChanging(null)
 			announceTemplateChange(collectionId)
@@ -409,148 +526,209 @@ export function ArticlePreviewPanel({
 		: []
 
 	return (
-		<section
-			aria-label={t('editor.articlePreview.title')}
-			className="flex-1 min-w-0 flex flex-col border-l border-border bg-bg"
-		>
-			<header className="flex items-center gap-2 h-14 px-3 border-b border-border shrink-0">
-				<span className="pl-1 text-sm font-medium text-text shrink-0">
-					{t('editor.articlePreview.title')}
-				</span>
-				{template && (
-					<a
-						href={template.finalUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						title={t('editor.articlePreview.openSource')}
-						className="inline-flex items-center min-w-0 px-2 py-1 rounded bg-surface-alt text-[11px] text-text-secondary hover:text-text transition-colors"
-					>
-						<span className="truncate">{shortUrl(template.finalUrl)}</span>
-					</a>
-				)}
-				<span className="flex-1" />
-				{capturing && template && (
-					<span className="inline-flex items-center gap-1.5 text-[11px] text-text-muted shrink-0">
-						<Spinner className="w-3 h-3" />
-						{t('editor.articlePreview.recapturing')}
-					</span>
-				)}
-				{template && <DeviceSwitch value={device} onChange={pickDevice} />}
-				{template && tabHref && (
-					// A plain link, not window.open: popup blockers never stop a click on one.
-					<a
-						href={tabHref}
-						target="_blank"
-						rel="noopener"
-						aria-label={t('editor.articlePreview.openInTab')}
-						title={t('editor.articlePreview.openInTab')}
-						className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text hover:bg-surface-alt transition-colors shrink-0"
-					>
-						<ExternalLinkIcon className="w-4 h-4" />
-					</a>
-				)}
-				{template && canConfigure && (
-					<KebabMenu items={menuItems} label={t('editor.articlePreview.menu.label')} />
-				)}
-				<button
-					type="button"
-					onClick={onClose}
-					aria-label={t('editor.articlePreview.close')}
-					title={t('editor.articlePreview.close')}
-					className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text hover:bg-surface-alt transition-colors shrink-0"
-				>
-					<CloseIcon className="w-4 h-4" />
-				</button>
-			</header>
-
-			{loading ? (
-				<div className="flex-1 flex items-center justify-center text-text-muted">
-					<Spinner className="w-5 h-5" />
-				</div>
-			) : loadError ? (
-				<div className="flex-1 flex items-center justify-center px-6">
-					<p role="alert" className="text-sm text-danger text-center max-w-sm">
-						{loadError}
-					</p>
-				</div>
-			) : !template ? (
-				<TemplateSetup
-					key="first"
-					canConfigure={canConfigure}
-					suggestedUrl={suggestedUrl}
-					capturing={capturing}
-					error={captureError}
-					onSubmit={capture}
-				/>
-			) : (
-				<>
-					<div className="relative flex-1 min-h-0 flex flex-col">
-						<PreviewFrame template={template} content={content} device={device} />
-						{changing && (
-							<div className="absolute inset-0 z-10 flex flex-col bg-bg/95 backdrop-blur-sm">
-								<TemplateSetup
-									key={changing}
-									canConfigure={canConfigure}
-									initialUrl={template.sourceUrl}
-									initialSelectors={template.selectors ?? {}}
-									detected={template.slots}
-									openSelectors={changing === 'selectors'}
-									capturing={capturing}
-									error={captureError}
-									onSubmit={capture}
-									onCancel={() => setChanging(null)}
-								/>
-							</div>
+		<div className="fixed inset-0 z-50 flex sm:p-6 bg-black/60">
+			{/* Clicking the dimmed margin closes; it isn't a tab stop, Esc and the × button are. */}
+			<button
+				type="button"
+				tabIndex={-1}
+				aria-label={t('common.closeDialog')}
+				className="absolute inset-0 cursor-default"
+				onClick={onClose}
+			/>
+			<div
+				ref={dialogRef}
+				role="dialog"
+				aria-modal="true"
+				aria-label={t('editor.articlePreview.title')}
+				tabIndex={-1}
+				className="relative flex-1 min-w-0 flex flex-col bg-bg sm:border sm:border-border sm:rounded-xl shadow-2xl overflow-hidden outline-none motion-safe:animate-[slideIn_0.18s_ease-out]"
+			>
+				{/* Three columns so the device switch sits in the middle whatever the sides hold. */}
+				<header className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 h-14 px-3 border-b border-border shrink-0">
+					<div className="flex items-center gap-2 min-w-0">
+						<EyeIcon className="hidden sm:block w-4 h-4 ml-1 text-text-muted shrink-0" />
+						<span className="text-sm font-medium text-text shrink-0">
+							{t('editor.articlePreview.title')}
+						</span>
+						{template && (
+							<a
+								href={template.finalUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								title={t('editor.articlePreview.openSource')}
+								className="hidden md:inline-flex items-center min-w-0 px-2 py-1 rounded bg-surface-alt text-[11px] text-text-secondary hover:text-text transition-colors"
+							>
+								<span className="truncate">{shortUrl(template.finalUrl)}</span>
+							</a>
 						)}
 					</div>
-					<PreviewFooter
-						template={template}
-						showNotes={showNotes}
-						onToggleNotes={() => setShowNotes((v) => !v)}
+					<div className="flex justify-center">
+						{template && (
+							<DeviceSwitch value={device} onChange={pickDevice} devices={MODAL_DEVICES} labelled />
+						)}
+					</div>
+					<div className="flex items-center justify-end gap-1 min-w-0">
+						{capturing && template && (
+							<span className="hidden lg:inline-flex items-center gap-1.5 mr-1 text-[11px] text-text-muted shrink-0">
+								<Spinner className="w-3 h-3" />
+								{t('editor.articlePreview.recapturing')}
+							</span>
+						)}
+						{template && tabHref && (
+							// A plain link, not window.open: popup blockers never stop a click on one.
+							<a
+								href={tabHref}
+								target="_blank"
+								rel="noopener"
+								aria-label={t('editor.articlePreview.openInTab')}
+								title={t('editor.articlePreview.openInTab')}
+								className="flex items-center justify-center w-8 h-8 rounded text-text-muted hover:text-text hover:bg-surface-alt transition-colors shrink-0"
+							>
+								<ExternalLinkIcon className="w-4 h-4" />
+							</a>
+						)}
+						{template && canConfigure && (
+							<KebabMenu items={menuItems} label={t('editor.articlePreview.menu.label')} />
+						)}
+						<button
+							type="button"
+							onClick={onClose}
+							aria-label={t('editor.articlePreview.close')}
+							title={t('editor.articlePreview.closeHint')}
+							className="flex items-center justify-center w-8 h-8 rounded text-text-muted hover:text-text hover:bg-surface-alt transition-colors shrink-0"
+						>
+							<CloseIcon className="w-4 h-4" />
+						</button>
+					</div>
+				</header>
+
+				{loading ? (
+					<div className="flex-1 flex items-center justify-center text-text-muted">
+						<Spinner className="w-5 h-5" />
+					</div>
+				) : loadError ? (
+					<div className="flex-1 flex items-center justify-center px-6">
+						<p role="alert" className="text-sm text-danger text-center max-w-sm">
+							{loadError}
+						</p>
+					</div>
+				) : !template ? (
+					<TemplateSetup
+						key="first"
+						canConfigure={canConfigure}
+						suggestedUrl={suggestedUrl}
+						capturing={capturing}
+						error={captureError}
+						onSubmit={capture}
 					/>
-				</>
-			)}
-		</section>
+				) : (
+					<>
+						<div className="relative flex-1 min-h-0 flex flex-col">
+							<PreviewFrame
+								template={template}
+								content={content}
+								device={device}
+								onEscape={frameEscape}
+							/>
+							{changing && (
+								<div className="absolute inset-0 z-10 flex flex-col bg-bg/95 backdrop-blur-sm">
+									<TemplateSetup
+										key={changing}
+										canConfigure={canConfigure}
+										initialUrl={template.sourceUrl}
+										initialSelectors={template.selectors ?? {}}
+										detected={template.slots}
+										openSelectors={changing === 'selectors'}
+										capturing={capturing}
+										error={captureError}
+										onSubmit={capture}
+										onCancel={() => setChanging(null)}
+									/>
+								</div>
+							)}
+						</div>
+						<PreviewFooter
+							template={template}
+							showNotes={showNotes}
+							onToggleNotes={() => setShowNotes((v) => !v)}
+						/>
+					</>
+				)}
+			</div>
+		</div>
 	)
 }
 
+const DEVICE_ICON: Record<Device, (props: { className?: string }) => React.ReactNode> = {
+	desktop: MonitorIcon,
+	tablet: TabletIcon,
+	mobile: PhoneIcon,
+}
+
+/**
+ * The preview width as a segmented control. It's a radio group: one tab stop, and
+ * the arrow keys move between the options.
+ */
 export function DeviceSwitch({
 	value,
 	onChange,
+	devices = ALL_DEVICES,
+	labelled = false,
 }: {
 	value: Device
 	onChange: (d: Device) => void
+	devices?: readonly Device[]
+	/** Name each option next to its icon, not only in a tooltip. */
+	labelled?: boolean
 }) {
 	const { t } = useTranslation()
-	const options: { device: Device; icon: React.ReactNode }[] = [
-		{ device: 'desktop', icon: <MonitorIcon className="w-3.5 h-3.5" /> },
-		{ device: 'tablet', icon: <TabletIcon className="w-3.5 h-3.5" /> },
-		{ device: 'mobile', icon: <PhoneIcon className="w-3.5 h-3.5" /> },
-	]
+	const buttons = useRef<(HTMLButtonElement | null)[]>([])
+	const current = Math.max(0, devices.indexOf(value))
+
+	const onKeyDown = (e: React.KeyboardEvent, index: number) => {
+		const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]
+		if (!step) return
+		e.preventDefault()
+		const next = (index + step + devices.length) % devices.length
+		onChange(devices[next])
+		buttons.current[next]?.focus()
+	}
+
 	return (
 		<div
 			role="radiogroup"
 			aria-label={t('editor.articlePreview.device.label')}
 			className="inline-flex items-center p-0.5 rounded-lg bg-surface-alt shrink-0"
 		>
-			{options.map(({ device, icon }) => {
+			{devices.map((device, index) => {
 				const active = value === device
 				const label = t(`editor.articlePreview.device.${device}`)
+				const Icon = DEVICE_ICON[device]
 				return (
 					// biome-ignore lint/a11y/useSemanticElements: a segmented control of icon buttons; native radios can't be styled as icon pills without hiding them.
 					<button
 						key={device}
+						ref={(el) => {
+							buttons.current[index] = el
+						}}
 						type="button"
 						role="radio"
 						aria-checked={active}
 						aria-label={label}
 						title={label}
+						tabIndex={index === current ? 0 : -1}
 						onClick={() => onChange(device)}
-						className={`flex items-center justify-center w-7 h-6 rounded-md transition-colors ${
-							active ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text'
-						}`}
+						onKeyDown={(e) => onKeyDown(e, index)}
+						className={`flex items-center justify-center rounded-md transition-colors ${
+							labelled ? 'gap-1.5 h-7 px-2.5 sm:px-3 text-xs font-medium' : 'w-7 h-6'
+						} ${active ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text'}`}
 					>
-						{icon}
+						<Icon className="w-3.5 h-3.5" />
+						{labelled && (
+							<span aria-hidden="true" className="hidden sm:inline">
+								{label}
+							</span>
+						)}
 					</button>
 				)
 			})}
@@ -569,16 +747,21 @@ export function PreviewFrame({
 	template,
 	content,
 	device,
+	onEscape,
 }: {
 	template: PreviewTemplateResponse
 	content: PreviewContent
 	device: Device
+	/** Esc pressed while the frame has focus, which keeps the key from the page. */
+	onEscape?: () => void
 }) {
 	const { t } = useTranslation()
 	const iframeRef = useRef<HTMLIFrameElement>(null)
 	const stageRef = useRef<HTMLDivElement>(null)
 	const contentRef = useRef(content)
 	contentRef.current = content
+	const escapeRef = useRef(onEscape)
+	escapeRef.current = onEscape
 	const [loaded, setLoaded] = useState(false)
 	const [stage, setStage] = useState({ width: 0, height: 0 })
 
@@ -621,24 +804,29 @@ export function PreviewFrame({
 		template,
 	])
 
-	// Tablet and phone sit in a device outline with breathing room around it; desktop
-	// fills the pane edge to edge.
+	// Tablet and phone sit in a device outline with breathing room around it, centred
+	// when the screen is taller than the device; desktop fills the pane edge to edge.
 	const framed = device !== 'desktop'
 	const gutter = framed ? 48 : 0
 	const available = Math.max(0, stage.width - gutter)
 	const deviceWidth =
 		device === 'desktop' ? Math.max(DEVICE_WIDTH.desktop, available) : DEVICE_WIDTH[device]
 	const scale = available > 0 ? Math.min(1, available / deviceWidth) : 1
-	const frameHeight = Math.max(0, stage.height - gutter)
+	const deviceHeight = DEVICE_HEIGHT[device]
+	const frameHeight = Math.max(
+		0,
+		Math.min(stage.height - gutter, deviceHeight ? deviceHeight * scale : Number.POSITIVE_INFINITY),
+	)
+	const frameTop = framed ? Math.max(gutter / 2, (stage.height - frameHeight) / 2) : 0
 
 	return (
 		<div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden bg-surface-alt">
 			{stage.width > 0 && (
 				<div
 					className={`absolute left-1/2 -translate-x-1/2 overflow-hidden bg-white ${
-						framed ? 'top-6 rounded-2xl ring-1 ring-border-strong shadow-lg' : 'top-0'
+						framed ? 'rounded-2xl ring-1 ring-border-strong shadow-lg' : ''
 					}`}
-					style={{ width: deviceWidth * scale, height: frameHeight }}
+					style={{ top: frameTop, width: deviceWidth * scale, height: frameHeight }}
 				>
 					<iframe
 						ref={iframeRef}
@@ -648,7 +836,13 @@ export function PreviewFrame({
 						referrerPolicy="no-referrer"
 						onLoad={() => {
 							const doc = iframeRef.current?.contentDocument
-							if (doc) fillPreviewSlots(doc, template.classMap, contentRef.current)
+							if (doc) {
+								fillPreviewSlots(doc, template.classMap, contentRef.current)
+								// Each load is a new document, so this never stacks up.
+								doc.addEventListener('keydown', (e) => {
+									if (e.key === 'Escape') escapeRef.current?.()
+								})
+							}
 							setLoaded(true)
 						}}
 						className="block border-0 origin-top-left"

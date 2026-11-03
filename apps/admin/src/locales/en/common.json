@@ -407,6 +407,7 @@
 			"toggleHint": "Show this record in your site's design",
 			"title": "Preview",
 			"close": "Close preview",
+			"closeHint": "Close preview (Esc)",
 			"frameTitle": "Record preview in the site's article layout",
 			"openSource": "Open the article the layout was copied from",
 			"loadFailed": "Couldn't load the preview.",
@@ -424,7 +425,7 @@
 				"label": "Preview width",
 				"desktop": "Desktop",
 				"tablet": "Tablet",
-				"mobile": "Phone"
+				"mobile": "Mobile"
 			},
 			"menu": {
 				"label": "Preview options",
