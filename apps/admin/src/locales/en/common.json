@@ -585,6 +585,46 @@
 				"r2Endpoint": "R2 Endpoint"
 			}
 		},
+		"agentUploads": {
+			"intro": "AI agents connected over MCP can upload images (upload_media) and put them straight into content. Choose where those images go: if your site reads media from its own database, send them to that media collection so the site can show them.",
+			"loadFailed": "Could not load the agent upload settings",
+			"saveFailed": "Could not save the agent upload settings",
+			"saved": "Agent upload settings saved",
+			"save": "Save",
+			"saving": "Saving…",
+			"resolvedCollection": "Agent uploads go to the {{name}} collection.",
+			"resolvedLibrary": "Agent uploads go to the project media library.",
+			"resolvedVariant": "Image URLs given to agents use the variant",
+			"limits": "Accepted: {{types}}, up to {{size}} MB per image.",
+			"target": "Upload destination",
+			"targets": {
+				"auto": "Automatic",
+				"library": "Project media library",
+				"collection": "A media collection"
+			},
+			"targetHelp": {
+				"auto": "Uses the imported media collection when there is exactly one that accepts uploads (or the one other collections link to), otherwise the project media library.",
+				"library": "Images are stored in the CMS media library. Use this when your site reads media through the Innolope API.",
+				"collection": "Images are stored in your own storage and a record is added to this collection, which your site reads directly."
+			},
+			"collection": "Media collection",
+			"pickCollection": "Choose a media collection",
+			"fieldsTitle": "Columns to fill",
+			"fieldsHelp": "Which column of a new media record receives each value. Leave a row on automatic to use the detected column.",
+			"autoDetect": "Automatic",
+			"autoDetected": "Automatic ({{field}})",
+			"fields": {
+				"alt": "Alt text",
+				"filename": "File name",
+				"path": "File path or URL",
+				"mimeType": "MIME type",
+				"size": "File size",
+				"width": "Width",
+				"height": "Height"
+			},
+			"deliveryVariant": "Image URL variant",
+			"deliveryVariantHelp": "Cloudflare Images variant or flexible transform for the URL agents put in markdown, for example format=auto,quality=80,width=1440. Transforms need flexible variants enabled on the Cloudflare account; if one doesn't serve, the named variant is used instead."
+		},
 		"sso": {
 			"loadFailed": "Failed to load SSO connections",
 			"nameSlugRequired": "Name and slug are required",
@@ -2001,6 +2041,10 @@
 			"mediaStorage": {
 				"title": "Media Storage",
 				"description": "Choose where uploaded media files are stored."
+			},
+			"agentUploads": {
+				"title": "Agent image uploads",
+				"description": "Where images that AI agents upload over MCP are stored."
 			},
 			"apiKeys": {
 				"title": "API Keys",

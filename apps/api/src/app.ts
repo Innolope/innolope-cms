@@ -231,6 +231,10 @@ export async function buildApp() {
 		// SAML ACS is a POST from the IdP — no way for it to carry our CSRF cookie; SCIM is bearer-auth machine-to-machine
 		if (/^\/api\/v1\/auth\/sso\/[^/]+\/saml\/acs$/.test(path)) return
 		if (path.startsWith('/api/v1/scim/')) return
+		// Agent upload capability URL: authorized by the single-use token in its query
+		// string, never by cookies, and its callers (curl in agent sandboxes) carry
+		// no session — the CSRF check would refuse every legitimate upload.
+		if (/^\/api\/v1\/media\/uploads\/[^/]+\/content$/.test(path)) return
 
 		const cookieToken = request.cookies.innolope_csrf
 		const headerToken = request.headers['x-csrf-token'] as string | undefined
@@ -347,9 +351,12 @@ export async function buildApp() {
 		}
 		// Never surface raw Postgres error text (message/detail/hint/schema) to the
 		// client — it's captured in the server log and Sentry above. Clients get a
-		// generic 5xx; 4xx keep their own (already client-safe) message.
+		// generic 5xx; 4xx keep their own (already client-safe) message, as do 5xx
+		// errors whose message was written for the client (`expose`, e.g. an
+		// upstream storage provider failing — the caller needs to know which step).
+		const expose = (error as { expose?: boolean }).expose === true
 		reply.status(statusCode).send({
-			error: statusCode >= 500 ? 'Internal server error' : error.message,
+			error: statusCode >= 500 && !expose ? 'Internal server error' : error.message,
 			statusCode,
 		})
 	})

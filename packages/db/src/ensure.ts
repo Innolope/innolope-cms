@@ -183,6 +183,32 @@ export async function ensureTables(connectionUrl: string) {
 		`
 
 		await sql`
+			CREATE TABLE IF NOT EXISTS media_ingest_ledger (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				"targetKey" TEXT NOT NULL, sha256 TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('pending', 'done')),
+				"claimId" UUID NOT NULL,
+				result JSONB, "mediaId" UUID, "contentId" UUID, "externalId" TEXT,
+				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+		await sql`CREATE UNIQUE INDEX IF NOT EXISTS media_ingest_dedupe_idx ON media_ingest_ledger ("projectId", "targetKey", sha256)`
+		await sql`
+			CREATE TABLE IF NOT EXISTS media_upload_sessions (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				"userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				filename TEXT NOT NULL, "mimeType" TEXT NOT NULL, bytes INTEGER NOT NULL CHECK (bytes > 0),
+				"tokenHash" TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'uploaded', 'processing', 'done')),
+				"expiresAt" TIMESTAMPTZ NOT NULL, data BYTEA, result JSONB,
+				"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+			)
+		`
+		await sql`CREATE INDEX IF NOT EXISTS media_upload_expiry_idx ON media_upload_sessions ("expiresAt")`
+
+		await sql`
 			CREATE TABLE IF NOT EXISTS api_keys (
 				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 				"projectId" UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

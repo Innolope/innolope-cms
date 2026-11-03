@@ -5,6 +5,7 @@ import { validateConnectionString, validatePublicUrl } from '../../adapters/conn
 import { sealProjectSettings } from '../../lib/secret-at-rest.js'
 import { getUser, normalizeEmail } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
+import { mediaUploadsSchema } from '../../services/media-ingest-policy.js'
 
 type ProjectRole = 'owner' | 'admin' | 'editor' | 'viewer'
 const PROJECT_ROLES: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer']
@@ -229,6 +230,18 @@ export async function projectRoutes(app: FastifyInstance) {
 			if (settings !== undefined) {
 				const currentSettings = (current.settings as unknown as Record<string, unknown>) || {}
 				const nextSettings = { ...currentSettings, ...settings }
+				if (settings.mediaUploads !== undefined) {
+					const parsed = mediaUploadsSchema.safeParse(settings.mediaUploads)
+					if (!parsed.success)
+						return reply.status(400).send({
+							error: 'Invalid mediaUploads settings',
+							fields: parsed.error.issues.map((i) => ({
+								field: i.path.join('.'),
+								message: i.message,
+							})),
+						})
+					nextSettings.mediaUploads = parsed.data
+				}
 				const currentExternalDb = currentSettings.externalDb as Record<string, unknown> | undefined
 				const nextExternalDb = nextSettings.externalDb as Record<string, unknown> | undefined
 				// A connection string written here is trusted by every later consumer

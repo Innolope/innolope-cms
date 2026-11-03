@@ -60,6 +60,7 @@ export async function uploadToImportedStorage(
 	buffer: Buffer,
 	filename: string,
 	mimeType: string,
+	options?: { signal?: AbortSignal },
 ): Promise<ImportedUploadResult> {
 	const c = revealMediaCredentials(entry.credentials) || {}
 
@@ -81,7 +82,7 @@ export async function uploadToImportedStorage(
 			apiToken: c.apiToken,
 			accountHash: c.accountHash,
 		})
-		const result = await adapter.upload(buffer, filename, mimeType)
+		const result = await adapter.upload(buffer, filename, mimeType, options)
 		// Match whatever shape this library already uses — see `formatMediaPath`.
 		return {
 			key: formatMediaPath(
@@ -114,6 +115,7 @@ export async function uploadToImportedStorage(
 			method: 'PUT',
 			headers: { 'Content-Type': mimeType },
 			body: buffer,
+			signal: options?.signal,
 		})
 		if (!res.ok) {
 			throw httpError(`R2 upload failed: ${res.status} ${res.statusText}`, 502)

@@ -24,6 +24,7 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 		file: Buffer | ReadableStream,
 		filename: string,
 		mimeType: string,
+		options?: { signal?: AbortSignal },
 	): Promise<UploadResult> {
 		const buffer =
 			file instanceof Buffer ? file : Buffer.from(await new Response(file).arrayBuffer())
@@ -40,6 +41,7 @@ export class CloudflareImagesAdapter implements MediaAdapter {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${this.config.apiToken}` },
 				body: form,
+				signal: options?.signal,
 			},
 		)
 

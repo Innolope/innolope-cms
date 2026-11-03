@@ -9,7 +9,12 @@ import {
 import { InnolopeApiError } from '@innolope/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import type { IndexNowStatus, InnolopeClient } from './api-client.js'
+import type {
+	IndexNowStatus,
+	InnolopeClient,
+	MediaIngestInput,
+	MediaIngestResult,
+} from './api-client.js'
 
 /**
  * Every tool declares an operation type; annotations (readOnlyHint/destructiveHint),
@@ -55,6 +60,9 @@ Content model:
 
 Projects:
 - Every project-scoped tool accepts an optional \`project\` (project id or slug) for that call. The active selection survives hosted reconnects. When a conversation touches more than one project, pass \`project\` on every write.
+
+Images:
+- To add an image: upload_media (or create_media_upload → PUT the bytes → complete_media_upload) → put deliveryUrl in the markdown as ![alt](deliveryUrl), and externalId into image/relation fields such as postImage → check_media. Never paste base64 image data or data: URIs into content.
 
 Updating content:
 - Before changing, publishing, submitting for review, or deleting an existing record, call get_content and copy its contentHash into expectedHash. Every bulk_update item needs its own reviewed hash. After CONTENT_CONFLICT or CONTENT_HASH_REQUIRED, re-read and reconcile; never silently fetch a fresh hash and retry stale changes. If a write times out, its outcome is unknown: read and reconcile before another write. Uncached external records must be imported/cached before conditional deletion.
@@ -322,7 +330,8 @@ function isPrivateAddress(address: string): boolean {
 	return ipv4IsPrivate(o)
 }
 
-const SENSITIVE_KEY = /connection|secret|token|password|passwd|credential|apikey|api_key|private/i
+const SENSITIVE_KEY =
+	/connection|secret|token|password|passwd|credential|apikey|api_key|private|^data$|sourceUrl|uploadUrl/i
 
 /**
  * Deep-copy `value` with every secret-bearing field replaced, so tool
@@ -647,7 +656,9 @@ export function registerTools(
 						: err instanceof Error
 							? err.message
 							: String(err)
-				return fail(`Error running ${def.name}: ${message}`)
+				return fail(
+					`Error running ${def.name}: ${message}${def.name.includes('media') ? ' Call list_media for context, then retry the corrected media tool.' : ''}`,
+				)
 			}
 		}
 		const handler = async (
@@ -1650,11 +1661,170 @@ export function registerTools(
 	})
 
 	// --- Media -----------------------------------------------------------------
+	const imageInput = {
+		sourceUrl: z.string().url().optional(),
+		data: z.string().optional(),
+		mimeType: z.string().optional(),
+		filename: z.string().optional(),
+		alt: z.string().optional(),
+		force: z.boolean().optional(),
+	}
+	const imageResult = z.object({
+		id: z.string(),
+		externalId: z.string().nullable(),
+		filename: z.string(),
+		fullPath: z.string(),
+		deliveryUrl: z.string(),
+		deliveryVerified: z.boolean(),
+		width: z.number().nullable(),
+		height: z.number().nullable(),
+		bytes: z.number(),
+		mimeType: z.string(),
+		sha256: z.string(),
+		duplicate: z.boolean(),
+		target: z.object({
+			kind: z.enum(['library', 'collection']),
+			collectionId: z.string().optional(),
+			collectionName: z.string().optional(),
+		}),
+		warnings: z.array(z.string()).optional(),
+	})
+	const imageLine = (r: MediaIngestResult, alt?: string) =>
+		`![${(alt ?? '').replace(/[[\]\r\n]/g, ' ')}](${r.deliveryUrl}) — id: ${r.id}, externalId: ${r.externalId ?? 'null'}${r.duplicate ? ' (duplicate: existing record)' : ''}${r.warnings?.length ? `; ${r.warnings.join('; ')}` : ''}`
+	defineTool({
+		name: 'upload_media',
+		operationType: 'create',
+		description:
+			'Upload one image or items (1–20, concurrency 4). Use sourceUrl for any URL the CMS can fetch, including Google Docs/Drive contentUri; use create_media_upload for files only the agent has; data accepts base64/data URI only up to 1 MB decoded. Allowed: JPEG, PNG, WebP, GIF; cap is min(project limit, storage limit), Cloudflare Images 10 MB. Identical bytes return the existing record; parallel calls are safe. Use deliveryUrl in markdown and externalId in relation fields. Call list_media to inspect the upload target.',
+		schema: { ...imageInput, items: z.array(z.object(imageInput)).min(1).max(20).optional() },
+		outputSchema: {
+			results: z.array(imageResult),
+			errors: z.array(z.object({ index: z.number(), error: z.string() })),
+			total: z.number(),
+			failed: z.number(),
+		},
+		handler: async (args) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			if (
+				args.items &&
+				Object.keys(imageInput).some((k) => args[k as keyof typeof imageInput] !== undefined)
+			)
+				return fail(
+					'Use either items or a single image. Call upload_media again with one input form.',
+				)
+			const items: MediaIngestInput[] = args.items ?? [
+				Object.fromEntries(Object.entries(args).filter(([k]) => k !== 'items')),
+			]
+			const outcomes: Array<{ result?: MediaIngestResult; error?: string }> = new Array(
+				items.length,
+			)
+			let next = 0
+			await Promise.all(
+				Array.from({ length: Math.min(4, items.length) }, async () => {
+					for (;;) {
+						const i = next++
+						if (i >= items.length) break
+						try {
+							outcomes[i] = { result: await client.ingestMedia(items[i]) }
+						} catch (e) {
+							outcomes[i] = {
+								error: `${e instanceof Error ? e.message : String(e)}. Call list_media to inspect the target, then upload_media with corrected input; use create_media_upload for local files.`,
+							}
+						}
+					}
+				}),
+			)
+			const results = outcomes.flatMap((o) => (o.result ? [o.result] : []))
+			const errors = outcomes.flatMap((o, index) => (o.error ? [{ index, error: o.error }] : []))
+			return {
+				...text(
+					`${errors.length ? `${errors.length} of ${items.length} failed: ${errors.map((e) => `item ${e.index + 1}: ${e.error}`).join('; ')}\n` : ''}${outcomes.map((o, i) => `${i + 1}. ${o.result ? imageLine(o.result, items[i].alt) : o.error}`).join('\n')}`,
+				),
+				isError: results.length === 0,
+				structuredContent: { results, errors, total: items.length, failed: errors.length },
+			}
+		},
+	})
+	defineTool({
+		name: 'create_media_upload',
+		operationType: 'create',
+		description:
+			'Create a 30-minute capability upload on the CMS domain for a local image. PUT file bytes with curl, then call complete_media_upload. JPEG, PNG, WebP, GIF only. Never pass large base64 through the model.',
+		schema: {
+			filename: z.string(),
+			mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']),
+			bytes: z.number().int().positive(),
+		},
+		outputSchema: {
+			uploadId: z.string(),
+			uploadUrl: z.string(),
+			method: z.literal('PUT'),
+			headers: z.record(z.string()),
+			expiresAt: z.string(),
+			maxBytes: z.number(),
+			curl: z.string(),
+		},
+		handler: async (input) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const result = await client.createMediaUpload(input)
+			const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`
+			const curl = `curl -X PUT -H ${quote(`Content-Type: ${input.mimeType}`)} --data-binary @<file> ${quote(result.uploadUrl)}`
+			return {
+				...text(
+					`${curl}\nThen call complete_media_upload({ uploadId: "${result.uploadId}" }). Expires ${result.expiresAt}; maxBytes ${result.maxBytes}.`,
+				),
+				structuredContent: { ...result, curl },
+			}
+		},
+	})
+	defineTool({
+		name: 'complete_media_upload',
+		operationType: 'create',
+		description:
+			'Complete a local-image upload after PUT; returns deliveryUrl and relation-ready externalId. Repeating completion returns the same result. Then insert deliveryUrl in markdown and call check_media.',
+		schema: {
+			uploadId: z.string().uuid(),
+			alt: z.string().optional(),
+			filename: z.string().optional(),
+			force: z.boolean().optional(),
+		},
+		outputSchema: imageResult.shape,
+		handler: async ({ uploadId, ...input }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const result = await client.completeMediaUpload(uploadId, input)
+			return { ...text(imageLine(result, input.alt)), structuredContent: { ...result } }
+		},
+	})
+	defineTool({
+		name: 'update_media',
+		operationType: 'update',
+		description:
+			'Edit only alt/filename in the project library or target media collection. Accepts a media/content id or external record id. Updates source database, cache and history; expectedHash is optional and enforced if supplied. Call list_media first to discover ids.',
+		schema: {
+			id: z.string(),
+			alt: z.string().optional(),
+			filename: z.string().optional(),
+			expectedHash: contentHashSchema.optional(),
+		},
+		outputSchema: { item: z.record(z.unknown()) },
+		handler: async ({ id, ...input }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const item = await client.updateMedia(id, input)
+			return {
+				...text(`Updated media ${id}. Call list_media to read it back.`),
+				structuredContent: { item },
+			}
+		},
+	})
 
 	defineTool({
 		name: 'list_media',
 		description:
-			'List the project media library (images, videos, files) with filename, type, size, URL, and id. Pass search to filter by filename or URL substring — useful to check whether a specific image was uploaded. Media is a project-level library: content references it by URL (inline markdown images or metadata fields), there is no per-item attachment table. Requires the media-integrations license.',
+			'List the configured agent upload target and its media (project library or imported collection), including filename, alt, URL, id and externalId. Use search or pagination for more. Use upload_media to add images. The project library requires the media-integrations license.',
 		operationType: 'read',
 		schema: {
 			type: z.enum(['image', 'video', 'file']).optional().describe('Filter by media type'),
@@ -1665,18 +1835,22 @@ export function registerTools(
 		handler: async ({ type, search, page, limit }) => {
 			const guard = await requireProject()
 			if (guard) return guard
-			const result = await client.listMedia({ type, search, page, limit })
+			const result = await client.listUploadMedia({ type, search, page, limit })
+			const destination = `Agent uploads: ${result.target.resolved.collectionLabel ?? result.target.resolved.kind ?? 'unresolved'}${result.target.problem ? ` — ${result.target.problem}` : ''}.`
 			if (result.data.length === 0) {
 				return text(
-					`No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Media is uploaded via the admin UI or POST /api/v1/media/upload.`,
+					`${destination} No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Call upload_media for a sourceUrl, or create_media_upload for a local file.`,
 				)
 			}
 			const lines = result.data.map(
 				(m) =>
-					`- [${m.type}] ${m.filename} (${Math.ceil(m.size / 1024)} KB) — ${m.url} (id: ${m.id}${m.origin ? `, origin: ${m.origin}` : ''})`,
+					`- [${m.type}] ${m.filename} (alt: ${m.alt ?? ''}, ${Math.ceil(m.size / 1024)} KB) — ${m.url} (id: ${m.id}${m.externalId ? `, externalId: ${m.externalId}` : ''}${m.origin ? `, origin: ${m.origin}` : ''})`,
 			)
 			return text(
-				`${result.pagination.total} media item(s)${projectSuffix()}, page ${result.pagination.page}:\n${lines.join('\n')}`,
+				capText(
+					`${destination} ${result.pagination.total} media item(s)${projectSuffix()}, page ${result.pagination.page}:\n${lines.join('\n')}`,
+					'Call list_media with search or another page for more.',
+				),
 			)
 		},
 	})
@@ -1720,10 +1894,32 @@ export function registerTools(
 					let library: string
 					try {
 						const basename = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
-						const found = basename
-							? await client.listMedia({ search: basename, limit: 100 })
+						const cfBase = (v: string) =>
+							/^(https:\/\/imagedelivery\.net\/[^/]+\/[^/?#]+)(?:\/|$)/.exec(v)?.[1]
+						const base = cfBase(url.href)
+						const search = base ? base.split('/').pop() : basename
+						const found = search
+							? await client.listUploadMedia({ search, limit: 100 })
 							: { data: [] }
-						if (found.data.some((m) => m.url === url.href || m.url === ref)) library = 'yes'
+						let match = found.data.find(
+							(m) =>
+								m.url === url.href ||
+								m.url === ref ||
+								m.fullPath === ref ||
+								(base && cfBase(m.url) === base),
+						)
+						if (!match && 'target' in found && found.target.resolved.kind === 'collection') {
+							try {
+								const libraryItems = await client.listMedia({ search, limit: 100 })
+								match = libraryItems.data.find(
+									(m) => m.url === url.href || m.url === ref || (base && cfBase(m.url) === base),
+								)
+							} catch (err) {
+								if (!(err instanceof InnolopeApiError && err.status === 403)) throw err
+							}
+						}
+						if (match)
+							library = `yes (id: ${match.id}${match.externalId ? `, externalId: ${match.externalId}` : ''})`
 						else if (found.data.some((m) => m.filename === basename)) {
 							library = 'filename match (different URL)'
 						} else library = 'no — external or deleted'

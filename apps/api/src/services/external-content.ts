@@ -30,6 +30,7 @@ import {
 import { rescanExternalCollection } from './external-schema.js'
 import { BODY_FIELD_NAMES } from './localized-fields.js'
 import { externalDocToContentItem } from './markdown-cache.js'
+import { resolveUploadTarget } from './media-ingest-policy.js'
 import { syncState } from './sync-state.js'
 
 export function sanitizeHtml(html: string): string {
@@ -823,7 +824,29 @@ export async function applyExternalMediaStorage(
 ) {
 	if (col?.source !== 'external' || !col.externalTable) return
 	const [project] = await app.db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
-	await applyMediaStorage(items, col.externalTable, getMediaStorageMap(project))
+	let map = getMediaStorageMap(project)
+	// Agent field overrides describe the source column too. Resolve that column on
+	// normal reads, so a newly uploaded storage key is discoverable as a usable URL.
+	if (project?.settings.mediaUploads?.fields?.path) {
+		const projectCollections = await app.db
+			.select()
+			.from(collections)
+			.where(eq(collections.projectId, projectId))
+		const { target } = resolveUploadTarget(project, projectCollections, {
+			role: 'editor',
+			licensed: true,
+		})
+		if (target?.kind === 'collection' && target.collection.id === col.id) {
+			map = {
+				...map,
+				[col.externalTable]: {
+					...target.entry,
+					pathColumn: target.fields.path ?? target.entry.pathColumn,
+				},
+			}
+		}
+	}
+	await applyMediaStorage(items, col.externalTable, map)
 }
 
 /** Resolve a single content item's `relation` fields in place (default depth 1). */

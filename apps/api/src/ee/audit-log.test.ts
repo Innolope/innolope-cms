@@ -4,6 +4,22 @@ import { deriveAuditAction } from './audit-log.js'
 const UUID = '123e4567-e89b-12d3-a456-426614174000'
 
 describe('deriveAuditAction', () => {
+	it('derives semantic media upload and field-edit actions without capability query secrets', () => {
+		expect(
+			deriveAuditAction('PATCH', '/api/v1/media/items/11111111-1111-4111-8111-111111111111'),
+		).toMatchObject({
+			action: 'media.update',
+			resourceType: 'media',
+			resourceId: '11111111-1111-4111-8111-111111111111',
+		})
+		expect(deriveAuditAction('POST', '/api/v1/media/ingest').action).toBe('media.ingest')
+		expect(
+			deriveAuditAction(
+				'POST',
+				'/api/v1/media/uploads/11111111-1111-4111-8111-111111111111/complete?token=secret',
+			).action,
+		).toBe('media.complete')
+	})
 	it('maps a collection create', () => {
 		expect(deriveAuditAction('POST', '/api/v1/content')).toEqual({
 			action: 'content.create',

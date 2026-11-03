@@ -455,6 +455,89 @@ export class InnolopeClient {
 		)
 	}
 
+	async mediaUploadTarget() {
+		return this.request<MediaUploadTarget>('/api/v1/media/upload-target')
+	}
+	async ingestMedia(input: MediaIngestInput) {
+		return this.request<MediaIngestResult>('/api/v1/media/ingest', {
+			method: 'POST',
+			body: JSON.stringify(input),
+		})
+	}
+	async createMediaUpload(input: { filename: string; mimeType: string; bytes: number }) {
+		return this.request<{
+			uploadId: string
+			uploadUrl: string
+			method: 'PUT'
+			headers: Record<string, string>
+			expiresAt: string
+			maxBytes: number
+		}>('/api/v1/media/uploads', { method: 'POST', body: JSON.stringify(input) })
+	}
+	async completeMediaUpload(
+		uploadId: string,
+		input: { alt?: string; filename?: string; force?: boolean },
+	) {
+		return this.request<MediaIngestResult>(
+			`/api/v1/media/uploads/${encodeURIComponent(uploadId)}/complete`,
+			{ method: 'POST', body: JSON.stringify(input) },
+		)
+	}
+	async updateMedia(id: string, input: { alt?: string; filename?: string; expectedHash?: string }) {
+		return this.request<Record<string, unknown>>(`/api/v1/media/items/${encodeURIComponent(id)}`, {
+			method: 'PATCH',
+			body: JSON.stringify(input),
+		})
+	}
+	async listUploadMedia(params?: {
+		page?: number
+		limit?: number
+		type?: string
+		search?: string
+	}) {
+		const target = await this.mediaUploadTarget()
+		if (
+			target.resolved.kind !== 'collection' ||
+			!target.resolved.collectionId ||
+			!target.resolved.fields
+		)
+			return { ...(await this.listMedia(params)), target }
+		const result = await this.listContent({
+			collectionId: target.resolved.collectionId,
+			page: params?.page,
+			limit: params?.limit,
+			search: params?.search,
+		})
+		const fields = target.resolved.fields
+		return {
+			target,
+			pagination: result.pagination,
+			data: result.data.map((item) => {
+				const meta = item.metadata
+				const fullPath = String(meta[fields.path ?? ''] ?? '')
+				const base = /^(https:\/\/imagedelivery\.net\/[^/]+\/[^/?#]+)(?:\/|$)/.exec(fullPath)?.[1]
+				const deliveryUrl =
+					base && !new URL(fullPath).search
+						? `${base}/${target.resolved.deliveryVariant ?? 'public'}`
+						: fullPath
+				return {
+					id: item.id,
+					externalId: item.externalId,
+					filename: String(meta[fields.filename ?? ''] ?? item.slug ?? item.id),
+					alt: String(meta[fields.alt ?? ''] ?? ''),
+					url: deliveryUrl,
+					fullPath,
+					deliveryUrl,
+					size: Number(meta[fields.size ?? ''] ?? 0),
+					mimeType: String(meta[fields.mimeType ?? ''] ?? ''),
+					type: 'image' as const,
+					adapter: 'imported',
+					origin: 'project' as const,
+					createdAt: item.createdAt,
+				}
+			}),
+		}
+	}
 	async listMedia(params?: { page?: number; limit?: number; type?: string; search?: string }) {
 		const query = new URLSearchParams()
 		if (params) {
@@ -775,6 +858,9 @@ export interface IndexNowStatus {
 }
 
 interface MediaItem {
+	externalId?: string | null
+	fullPath?: string
+	deliveryUrl?: string
 	id: string
 	type: 'image' | 'video' | 'file'
 	filename: string
@@ -790,6 +876,54 @@ interface MediaItem {
 	variants?: Record<string, string>
 }
 
+export interface MediaIngestInput {
+	sourceUrl?: string
+	data?: string
+	mimeType?: string
+	filename?: string
+	alt?: string
+	force?: boolean
+}
+export interface MediaIngestResult {
+	id: string
+	externalId: string | null
+	filename: string
+	fullPath: string
+	deliveryUrl: string
+	deliveryVerified: boolean
+	width: number | null
+	height: number | null
+	bytes: number
+	mimeType: string
+	sha256: string
+	duplicate: boolean
+	target: { kind: 'library' | 'collection'; collectionId?: string; collectionName?: string }
+	warnings?: string[]
+}
+export interface MediaUploadTarget {
+	setting: {
+		target: 'auto' | 'library' | 'collection'
+		collectionId: string | null
+		fields: Record<string, string>
+		deliveryVariant: string | null
+	}
+	resolved: {
+		kind: 'library' | 'collection' | null
+		collectionId: string | null
+		collectionName: string | null
+		collectionLabel: string | null
+		fields: Record<
+			'path' | 'filename' | 'alt' | 'mimeType' | 'size' | 'width' | 'height',
+			string | null
+		> | null
+		deliveryVariant: string | null
+	}
+	candidates: { id: string; name: string; label: string }[]
+	allowedTypes: string[]
+	maxBytes: number
+	canUpload: boolean
+	problem: string | null
+}
 interface Pagination {
 	page: number
 	limit: number

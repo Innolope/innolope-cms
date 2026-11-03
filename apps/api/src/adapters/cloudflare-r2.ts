@@ -80,6 +80,7 @@ export class CloudflareR2Adapter implements MediaAdapter {
 		file: Buffer | ReadableStream,
 		_filename: string,
 		mimeType: string,
+		options?: { signal?: AbortSignal },
 	): Promise<UploadResult> {
 		const buffer =
 			file instanceof Buffer ? file : Buffer.from(await new Response(file).arrayBuffer())
@@ -90,6 +91,7 @@ export class CloudflareR2Adapter implements MediaAdapter {
 			method: 'PUT',
 			headers: this.sign('PUT', url, buffer, mimeType),
 			body: buffer,
+			signal: options?.signal,
 		})
 
 		if (!response.ok) {
