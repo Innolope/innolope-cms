@@ -26,19 +26,33 @@ interface KebabMenuProps {
 export function KebabMenu({ items, align = 'right', label = 'Open menu' }: KebabMenuProps) {
 	const [open, setOpen] = useState(false)
 	const ref = useRef<HTMLDivElement>(null)
+	const trigger = useRef<HTMLButtonElement>(null)
 
 	useEffect(() => {
 		if (!open) return
 		const handler = (e: MouseEvent) => {
 			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
 		}
+		// Esc closes the menu, and only the menu: the capture phase runs before a
+		// surrounding modal's handler, which skips keys already marked handled.
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== 'Escape') return
+			e.preventDefault()
+			setOpen(false)
+			trigger.current?.focus()
+		}
 		document.addEventListener('mousedown', handler)
-		return () => document.removeEventListener('mousedown', handler)
+		document.addEventListener('keydown', onKeyDown, true)
+		return () => {
+			document.removeEventListener('mousedown', handler)
+			document.removeEventListener('keydown', onKeyDown, true)
+		}
 	}, [open])
 
 	return (
 		<div className="relative" ref={ref}>
 			<button
+				ref={trigger}
 				type="button"
 				onClick={() => setOpen((o) => !o)}
 				aria-label={label}

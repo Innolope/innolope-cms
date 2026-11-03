@@ -695,24 +695,13 @@ function CollectionContentEditor() {
 	const aiLicensed = hasFeature(license, 'ai-assistant')
 	const schedulingLicensed = hasFeature(license, 'scheduling')
 	const [showAi, setShowAi] = useState(false)
-	// Site-design preview beside the editor. Remembered per collection: a writer who
-	// keeps it open for one article wants it open for the next one too.
-	const previewOpenKey = collection?.id ? `innolope:article-preview:open:${collection.id}` : null
+	// The record in its site's design, in a modal over the editor. Moving to another
+	// record (back/forward) closes it rather than swapping the article underneath.
 	const [showPreview, setShowPreview] = useState(false)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `contentId` is the trigger.
 	useEffect(() => {
-		if (!previewOpenKey) return
-		try {
-			setShowPreview(localStorage.getItem(previewOpenKey) === '1')
-		} catch {}
-	}, [previewOpenKey])
-	const togglePreview = (open: boolean) => {
-		setShowPreview(open)
-		if (!previewOpenKey) return
-		try {
-			if (open) localStorage.setItem(previewOpenKey, '1')
-			else localStorage.removeItem(previewOpenKey)
-		} catch {}
-	}
+		setShowPreview(false)
+	}, [contentId])
 	const [aiTargetField, setAiTargetField] = useState<string | null>(null)
 	const [aiSelectedText, _setAiSelectedText] = useState<string | null>(null)
 	// Field names currently being AI-translated (drives per-field spinner state).
@@ -2214,14 +2203,10 @@ function CollectionContentEditor() {
 							{isArticleLayout && collection && (
 								<button
 									type="button"
-									onClick={() => togglePreview(!showPreview)}
-									aria-pressed={showPreview}
+									onClick={() => setShowPreview(true)}
+									aria-haspopup="dialog"
 									title={t('editor.articlePreview.toggleHint')}
-									className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-sm transition-colors ${
-										showPreview
-											? 'bg-surface-alt border-border-strong text-text'
-											: 'bg-surface-alt/40 border-border text-text-secondary hover:text-text hover:bg-surface-alt'
-									}`}
+									className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border bg-surface-alt/40 border-border text-sm text-text-secondary hover:text-text hover:bg-surface-alt transition-colors"
 								>
 									<EyeIcon className="w-4 h-4" />
 									{t('editor.articlePreview.toggle')}
@@ -2397,7 +2382,7 @@ function CollectionContentEditor() {
 								? null
 								: `/collections/${encodeURIComponent(slug)}/${encodeURIComponent(contentId)}/preview`
 						}
-						onClose={() => togglePreview(false)}
+						onClose={() => setShowPreview(false)}
 					/>
 				)}
 

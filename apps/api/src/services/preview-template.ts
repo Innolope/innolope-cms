@@ -156,6 +156,9 @@ function rewriteCssUrls(css: string, base: string): string {
 		const decoded = value.replace(/\\([0-9a-f]{1,6})\s?|\\([^\r\n])/gi, (_match, hex, char) =>
 			hex ? String.fromCodePoint(Math.min(Number.parseInt(hex, 16) || 0xfffd, 0x10ffff)) : char,
 		)
+		// `url(#gradient)` names an element of the page itself whatever the base URL;
+		// resolving it would point SVG fills, clips and masks at another document.
+		if (decoded.trim().startsWith('#')) return false
 		node.nodes = [
 			{
 				type: 'string',
