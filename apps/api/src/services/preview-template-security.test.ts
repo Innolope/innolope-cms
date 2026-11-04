@@ -538,6 +538,39 @@ describe('capture additional boundary contracts', () => {
 		const result = await capturePreviewTemplate(PAGE)
 		expect(result.slots.image?.sample).toContain('/cover.jpg')
 	})
+	// Image components often declare `width="100%"` and no <figure>: the page still says
+	// which image leads the post.
+	it.each([
+		['marked as the main image', '<img src="/lead.jpg" width="100%" fetchpriority="high">'],
+		[
+			"described by the post's title",
+			'<img src="/lead.jpg" alt="Sample" width="100%" height="auto">',
+		],
+		[
+			'offered at large sizes',
+			'<img src="/lead.jpg" srcset="/lead-480.jpg 480w, /lead-1200.jpg 1200w">',
+		],
+	])('finds a lead image %s without a figure or a declared size', async (_label, image) => {
+		servePage(
+			'',
+			body.replace(
+				'<div class="post-body">',
+				`<div class="lead">${image}</div><div class="post-body">`,
+			),
+		)
+		const result = await capturePreviewTemplate(PAGE)
+		expect(result.slots.image?.sample).toContain('/lead')
+	})
+	it('does not take a small unmarked image without a figure as the cover', async () => {
+		servePage(
+			'',
+			body.replace(
+				'<div class="post-body">',
+				'<div class="lead"><img src="/badge.png" alt="Badge" srcset="/badge-120.png 120w"></div><div class="post-body">',
+			),
+		)
+		expect((await capturePreviewTemplate(PAGE)).slots.image).toBeNull()
+	})
 	it.each([
 		[
 			'declared small, even in a figure',

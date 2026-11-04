@@ -11,7 +11,7 @@ import {
 import { getTableName, type SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectPlugin } from '../plugins/project.js'
 import { collectionPreviewTemplateRoutes } from '../routes/v1/collection-preview-templates.js'
 
@@ -233,6 +233,8 @@ describe('preview route guards and failure isolation (mock database)', () => {
 		expect(capture).toHaveBeenCalledWith(URL, {
 			selectors: undefined,
 			hints: { title: 'Known title', bodyText: 'Known prose link.' },
+			// No Browser Run token in the test environment.
+			render: null,
 		})
 		expect(first.json().template).toMatchObject({ ...captured, collectionId: CID, selectors: null })
 		expect(first.json().template.capturedBy).toBeUndefined()
@@ -280,7 +282,11 @@ describe('preview route guards and failure isolation (mock database)', () => {
 			headers: headers(),
 			payload: { url: URL },
 		})
-		expect(capture).toHaveBeenCalledWith(URL, { hints: undefined, selectors: undefined })
+		expect(capture).toHaveBeenCalledWith(URL, {
+			hints: undefined,
+			selectors: undefined,
+			render: null,
+		})
 		expect(result.statusCode).toBe(500)
 		expect(result.body).not.toContain('private HTML')
 		expect(warn).toHaveBeenCalledWith(
@@ -316,5 +322,58 @@ describe('preview route guards and failure isolation (mock database)', () => {
 				.statusCode,
 		).toBe(429)
 		expect(capture).toHaveBeenCalledTimes(9)
+	})
+	describe('with a Browser Run token configured', () => {
+		const TOKEN = 'browser-run-token-must-not-leak'
+		// Set before the outer beforeEach builds the app: the route reads the env once.
+		beforeAll(() => {
+			vi.stubEnv('CLOUDFLARE_BROWSER_RUN_API_TOKEN', TOKEN)
+			vi.stubEnv('CLOUDFLARE_BROWSER_RUN_ACCOUNT_ID', 'acct')
+		})
+		afterAll(() => {
+			vi.unstubAllEnvs()
+		})
+		afterEach(() => {
+			vi.unstubAllGlobals()
+		})
+
+		it.each([
+			[
+				'logs the host, status and browser time of a page it loads',
+				new Response(
+					JSON.stringify({ success: true, result: '<html></html>', meta: { status: 200 } }),
+					{
+						headers: { 'content-type': 'application/json', 'x-browser-ms-used': '4200' },
+					},
+				),
+				'info',
+				{ host: 'example.com', status: 200, browserMs: 4200 },
+			],
+			[
+				'logs why loading failed when the token is refused',
+				new Response(JSON.stringify({ success: false }), { status: 403 }),
+				'warn',
+				{ host: 'example.com', reason: 'unavailable' },
+			],
+		] as const)('passes the capture a browser renderer that %s', async (_label, reply, level, logged) => {
+			const fetchMock = vi.fn(async () => reply)
+			vi.stubGlobal('fetch', fetchMock)
+			const log = vi.spyOn(app.log, level)
+			capture.mockImplementation(async (url: string, options: { render?: unknown }) => {
+				expect(typeof options.render).toBe('function')
+				const render = options.render as (u: string, s: AbortSignal) => Promise<unknown>
+				await render(url, new AbortController().signal).catch(() => {})
+				return captured
+			})
+			await app.inject({ method: 'POST', url: path(), headers: headers(), payload: { url: URL } })
+			expect(fetchMock).toHaveBeenCalledOnce()
+			expect(log).toHaveBeenCalledWith(logged, expect.any(String))
+			// Only the renderer's own lines: Fastify's request log isn't this route's doing.
+			const logs = JSON.stringify(
+				log.mock.calls.filter(([, message]) => /browser/i.test(String(message))),
+			)
+			expect(logs).not.toContain(TOKEN)
+			expect(logs).not.toContain('/articles/sample')
+		})
 	})
 })

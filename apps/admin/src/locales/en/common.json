@@ -448,7 +448,7 @@
 				"capture": "Use this article",
 				"recapture": "Copy layout",
 				"capturing": "Copying layout…",
-				"capturingHint": "Fetching the page and its styles. This can take up to half a minute.",
+				"capturingHint": "Fetching the page and its styles. This can take up to a minute.",
 				"useSuggested": "Use this record's page: {{url}}",
 				"detection": "Detection settings",
 				"detectionHint": "If the preview fills the wrong part of the page, point to the right element with a CSS selector. Leave a field empty to detect it automatically.",
@@ -464,6 +464,7 @@
 				"NOT_HTML": "That link isn't a web page. Paste the address of an article page.",
 				"TOO_LARGE": "That page is too large to copy. Try a shorter article from the same site.",
 				"CLIENT_RENDERED": "That page is built by JavaScript in the browser, so its HTML has no article to copy. Sites that render on the server (WordPress, Ghost, most Next.js and Astro sites) work best.",
+				"RENDER_FAILED": "That page is built by JavaScript, and loading it in a browser didn't work this time. Try again in a minute.",
 				"NO_ARTICLE_FOUND": "Couldn't find an article on that page. Paste a link to a single article, or set the selectors under Detection settings.",
 				"SELECTOR_NOT_FOUND": "One of the selectors under Detection settings doesn't match anything on that page."
 			},
