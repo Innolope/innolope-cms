@@ -6,6 +6,11 @@ import { z } from 'zod'
 import { checkCollectionAccess } from '../../lib/collection-access.js'
 import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
+import {
+	BrowserRenderError,
+	browserRendererFromEnv,
+	type PageRenderer,
+} from '../../services/browser-render.js'
 import { expandUrlTemplate } from '../../services/indexnow.js'
 import {
 	capturePreviewTemplate,
@@ -117,6 +122,28 @@ function response(row: typeof collectionPreviewTemplates.$inferSelect) {
 }
 
 export async function collectionPreviewTemplateRoutes(app: FastifyInstance) {
+	// Pages built by JavaScript are loaded in Cloudflare Browser Run when a token is
+	// configured; without one they fail with CLIENT_RENDERED as before.
+	const browser = browserRendererFromEnv()
+	const render: PageRenderer | null = browser
+		? async (target, signal) => {
+				const host = new URL(target).host
+				try {
+					const page = await browser(target, signal)
+					app.log.info(
+						{ host, status: page.status, browserMs: page.browserMs },
+						'Preview page loaded in a browser',
+					)
+					return page
+				} catch (error) {
+					app.log.warn(
+						{ host, reason: error instanceof BrowserRenderError ? error.reason : 'failed' },
+						'Loading a preview page in a browser failed',
+					)
+					throw error
+				}
+			}
+		: null
 	app.get(
 		'/:id/preview-template',
 		{ preHandler: [app.requireProject('viewer')] },
@@ -147,7 +174,7 @@ export async function collectionPreviewTemplateRoutes(app: FastifyInstance) {
 			const { url, selectors } = parsed.data
 			try {
 				const hints = await recordHints(app, collection, url)
-				const captured = await capturePreviewTemplate(url, { selectors, hints })
+				const captured = await capturePreviewTemplate(url, { selectors, hints, render })
 				const values = {
 					...captured,
 					collectionId: collection.id,
