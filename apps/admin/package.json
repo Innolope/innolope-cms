@@ -16,13 +16,13 @@
 	"dependencies": {
 		"@innolope/config": "workspace:^",
 		"@tanstack/react-router": "^1.170.10",
-		"@tiptap/extension-code-block-lowlight": "^3.24.0",
-		"@tiptap/extension-image": "^3.24.0",
-		"@tiptap/extension-link": "^3.24.0",
-		"@tiptap/extension-placeholder": "^3.24.0",
-		"@tiptap/pm": "^3.24.0",
-		"@tiptap/react": "^3.24.0",
-		"@tiptap/starter-kit": "^3.24.0",
+		"@tiptap/extension-code-block-lowlight": "^3.32.0",
+		"@tiptap/extension-image": "^3.32.0",
+		"@tiptap/extension-link": "^3.32.0",
+		"@tiptap/extension-placeholder": "^3.32.0",
+		"@tiptap/pm": "^3.32.0",
+		"@tiptap/react": "^3.32.0",
+		"@tiptap/starter-kit": "^3.32.0",
 		"@types/turndown": "^5.0.6",
 		"diff": "8.0.4",
 		"dompurify": "^3.4.17",
@@ -49,10 +49,10 @@
 		"@vitest/coverage-v8": "^4.1.8",
 		"autoprefixer": "^10.5.0",
 		"jsdom": "^29.1.1",
-		"postcss": "^8.5.15",
+		"postcss": "^8.5.18",
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16",
+		"vite": "^8.1.6",
 		"vitest": "^4.1.8"
 	}
 }

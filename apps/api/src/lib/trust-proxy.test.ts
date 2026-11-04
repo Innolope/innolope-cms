@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { publicBaseUrl } from '../services/oauth-metadata.js'
-import { parseTrustProxy } from './trust-proxy.js'
+import { parseTrustProxy, trustProxyOption } from './trust-proxy.js'
 
 afterEach(() => vi.unstubAllEnvs())
 describe('R2 proxy trust is explicit and bounded', () => {
@@ -22,7 +22,7 @@ describe('R2 proxy trust is explicit and bounded', () => {
 	])('parses %s', (value, expected) =>
 		expect(parseTrustProxy(value as string | undefined)).toBe(expected))
 	it('uses the last trusted hop and preserves current behavior when unset', async () => {
-		for (const trustProxy of [parseTrustProxy('true'), parseTrustProxy(undefined)]) {
+		for (const trustProxy of [trustProxyOption('true'), trustProxyOption(undefined)]) {
 			const app = Fastify({ trustProxy })
 			app.get('/', (request) => ({ ip: request.ip }))
 			try {
@@ -35,6 +35,20 @@ describe('R2 proxy trust is explicit and bounded', () => {
 			} finally {
 				await app.close()
 			}
+		}
+	})
+	it('trusts exactly TRUST_PROXY hops for the client address', async () => {
+		const app = Fastify({ trustProxy: trustProxyOption('2') })
+		app.get('/', (request) => ({ ip: request.ip }))
+		try {
+			const response = await app.inject({
+				url: '/',
+				remoteAddress: '127.0.0.1',
+				headers: { 'x-forwarded-for': '198.51.100.100, 203.0.113.7, 10.0.0.2' },
+			})
+			expect(response.json().ip).toBe('203.0.113.7')
+		} finally {
+			await app.close()
 		}
 	})
 	it('honors forwarded origin for positive integer TRUST_PROXY consistently', () => {

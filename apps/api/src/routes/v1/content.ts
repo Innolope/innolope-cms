@@ -3,6 +3,7 @@ import {
 	contentHashSchema,
 	contentInputSchema,
 	contentListSchema,
+	contentUpdateSchema,
 	validateSchedule,
 } from '@innolope/config'
 import { collections, content, contentAnalytics, contentVersions, media, users } from '@innolope/db'
@@ -951,7 +952,7 @@ export async function contentRoutes(app: FastifyInstance) {
 				.object({
 					items: z
 						.array(
-							contentInputSchema
+							contentUpdateSchema
 								.pick({
 									slug: true,
 									markdown: true,
@@ -959,7 +960,6 @@ export async function contentRoutes(app: FastifyInstance) {
 									status: true,
 									publishedAt: true,
 								})
-								.partial()
 								.extend({ id: z.string().uuid(), ...contentRevisionSchema.shape }),
 						)
 						.min(1)
@@ -1493,7 +1493,7 @@ export async function contentRoutes(app: FastifyInstance) {
 					expectedVersion,
 					expectedUpdatedAt,
 					...input
-				} = contentInputSchema.partial().extend(contentRevisionSchema.shape).parse(request.body)
+				} = contentUpdateSchema.extend(contentRevisionSchema.shape).parse(request.body)
 				// Frontmatter normalization on update: strip the block and fold its fields
 				// into the incoming metadata (explicit metadata keys win). The merge with
 				// the stored row happens below for all metadata alike.

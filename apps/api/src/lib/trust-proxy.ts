@@ -6,3 +6,15 @@ export function parseTrustProxy(value: string | undefined): number | false {
 	const hops = Number(normalized)
 	return Number.isSafeInteger(hops) ? hops : false
 }
+
+/**
+ * Fastify option for TRUST_PROXY. Fastify 5.12 types no longer accept a hop
+ * count and its runtime now trusts nothing for one, so trust the nearest
+ * `hops` addresses ourselves (proxy-addr's own hop-count rule).
+ */
+export function trustProxyOption(
+	value: string | undefined,
+): false | ((address: string, hop: number) => boolean) {
+	const hops = parseTrustProxy(value)
+	return hops === false ? false : (_address, hop) => hop < hops
+}

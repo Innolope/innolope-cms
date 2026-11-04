@@ -28,6 +28,7 @@ export {
 	contentHashSchema,
 	contentInputSchema,
 	contentListSchema,
+	contentUpdateSchema,
 	envSchema,
 	externalStatusSupport,
 	isSchemalessExternalDb,

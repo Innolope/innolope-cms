@@ -585,17 +585,17 @@ export function registerTools(
 	 * through one formatter so all errors come back as isError results with
 	 * actionable text — handlers never leak raw throws to the SDK.
 	 */
-	function defineTool<Shape extends z.ZodRawShape>(def: {
+	function defineTool<Shape extends Record<string, z.ZodType>>(def: {
 		name: string
 		description: string
 		operationType: OperationType
 		/** Account-level tools explicitly opt out of the central project argument. */
 		projectScoped?: boolean
 		schema: Shape
-		outputSchema?: z.ZodRawShape
+		outputSchema?: Record<string, z.ZodType>
 		/** Register even in read-only mode (meta tools that don't touch content). */
 		availableInReadOnly?: boolean
-		handler: (args: z.objectOutputType<Shape, z.ZodTypeAny>) => Promise<ToolResult>
+		handler: (args: z.output<z.ZodObject<Shape>>) => Promise<ToolResult>
 	}): void {
 		if (disabled.has(def.name) || disabled.has(def.operationType)) return
 		if (
@@ -613,7 +613,7 @@ export function registerTools(
 			destructiveHint: def.operationType === 'delete',
 		}
 
-		const execute = async (args: z.objectOutputType<Shape, z.ZodTypeAny>): Promise<ToolResult> => {
+		const execute = async (args: z.output<z.ZodObject<Shape>>): Promise<ToolResult> => {
 			const start = Date.now()
 			// Analytics only ever sees redacted arguments: connection strings,
 			// service-account JSON and tokens must not leave the process.
@@ -662,7 +662,7 @@ export function registerTools(
 			}
 		}
 		const handler = async (
-			args: z.objectOutputType<Shape, z.ZodTypeAny> & { project?: string },
+			args: z.output<z.ZodObject<Shape>> & { project?: string },
 		): Promise<ToolResult> => {
 			const { project, ...toolArgs } = args
 			let result: ToolResult
@@ -682,10 +682,10 @@ export function registerTools(
 					}
 					if (!client.getProjectId()) await selectProject(match.id)
 					result = await client.runWithProject(match.id, () =>
-						execute(toolArgs as z.objectOutputType<Shape, z.ZodTypeAny>),
+						execute(toolArgs as z.output<z.ZodObject<Shape>>),
 					)
 				} else {
-					result = await execute(toolArgs as z.objectOutputType<Shape, z.ZodTypeAny>)
+					result = await execute(toolArgs as z.output<z.ZodObject<Shape>>)
 				}
 			} catch (err) {
 				result = fail(
@@ -948,7 +948,7 @@ export function registerTools(
 			label: z.string().optional().describe('Display label (defaults to name)'),
 			description: z.string().optional().describe('Collection description'),
 			fields: z
-				.array(z.record(z.unknown()))
+				.array(z.record(z.string(), z.unknown()))
 				.optional()
 				.describe('Explicit field definitions (see get_collection_schema for the shape)'),
 			titleField: z.string().optional().describe('Name of the field used as the display title'),
@@ -1055,7 +1055,7 @@ export function registerTools(
 				'Markdown body (prose only, CommonMark — never rich-text editor JSON or a full HTML document). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 			),
 		metadata: z
-			.record(z.unknown())
+			.record(z.string(), z.unknown())
 			.optional()
 			.describe(
 				'Metadata fields. For fields get_collection_schema marks translatable, pass a locale map keyed by the project\'s configured locale codes — { "en": "...", "uk": "..." } — or a plain string, which is filed under this item\'s locale. Never wrap the whole item per language ({ "en": {...} } is rejected).',
@@ -1092,7 +1092,7 @@ export function registerTools(
 		items,
 		dryRun,
 	}: {
-		items: Array<z.objectOutputType<typeof bulkItemShape, z.ZodTypeAny>>
+		items: Array<z.output<z.ZodObject<typeof bulkItemShape>>>
 		dryRun?: boolean
 	}): Promise<ToolResult> => {
 		const guard = await requireProject()
@@ -1337,7 +1337,7 @@ export function registerTools(
 			title: z.string(),
 			locale: z.string().nullable(),
 			externalId: z.string().nullable(),
-			metadata: z.record(z.unknown()),
+			metadata: z.record(z.string(), z.unknown()),
 			metadataTruncated: z.boolean().optional(),
 			markdown: z.string(),
 		},
@@ -1416,7 +1416,7 @@ export function registerTools(
 					'Markdown body (prose only, CommonMark — never rich-text editor JSON or a full HTML document). Put the title in metadata.title, NOT here — do not start the body with an H1 repeating the title (sites render the title field separately, so a leading H1 shows it twice). Optional — omit for data-only records whose fields live in metadata. YAML frontmatter is stripped and merged into metadata (explicit metadata wins).',
 				),
 			metadata: z
-				.record(z.unknown())
+				.record(z.string(), z.unknown())
 				.optional()
 				.describe(
 					'Metadata (title, tags, etc.). For fields get_collection_schema marks translatable, pass a locale map keyed by the project\'s configured locale codes — { "en": "...", "uk": "..." }, or { "en": [...], "uk": [...] } for translatable array fields like tags — or a plain value, which is filed under this record\'s locale. Never wrap the whole record per language ({ "en": {...} } is rejected).',
@@ -1490,7 +1490,7 @@ export function registerTools(
 					"Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1). When the collection's body field is translatable, this replaces the body for the record's own locale and leaves the other translations alone.",
 				),
 			metadata: z
-				.record(z.unknown())
+				.record(z.string(), z.unknown())
 				.optional()
 				.describe(
 					'Updated metadata. For translatable fields pass a locale map keyed by the project\'s configured locale codes — { "uk": "..." } updates that one language only — or a plain string to update this record\'s locale. Never wrap the whole record per language ({ "en": {...} } is rejected).',
@@ -1760,7 +1760,7 @@ export function registerTools(
 			uploadId: z.string(),
 			uploadUrl: z.string(),
 			method: z.literal('PUT'),
-			headers: z.record(z.string()),
+			headers: z.record(z.string(), z.string()),
 			expiresAt: z.string(),
 			maxBytes: z.number(),
 			curl: z.string(),
@@ -1809,7 +1809,7 @@ export function registerTools(
 			filename: z.string().optional(),
 			expectedHash: contentHashSchema.optional(),
 		},
-		outputSchema: { item: z.record(z.unknown()) },
+		outputSchema: { item: z.record(z.string(), z.unknown()) },
 		handler: async ({ id, ...input }) => {
 			const guard = await requireProject()
 			if (guard) return guard
@@ -2225,7 +2225,7 @@ export function registerTools(
 		schema: {
 			collectionId: z.string().uuid().describe('Collection UUID to query'),
 			filters: z
-				.record(z.unknown())
+				.record(z.string(), z.unknown())
 				.describe('Metadata field filters, e.g. { category: "pricing", priority: "high" }'),
 			page: z.number().optional().describe('Page number (default: 1)'),
 			limit: z.number().optional().describe('Items per page (default: 25)'),
@@ -2306,7 +2306,7 @@ export function registerTools(
 							.describe(
 								'Updated markdown body (prose only — keep the title in metadata.title, not as a leading H1)',
 							),
-						metadata: z.record(z.unknown()).optional().describe('Updated metadata'),
+						metadata: z.record(z.string(), z.unknown()).optional().describe('Updated metadata'),
 						status: z.enum(CONTENT_STATUSES).optional().describe('New status'),
 					}),
 				)
