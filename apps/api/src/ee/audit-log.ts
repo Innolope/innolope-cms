@@ -38,6 +38,7 @@ export function deriveAuditAction(method: string, path: string): DerivedAction {
 	let resourceId: string | null = null
 	let subAction: string | null = null
 	for (const seg of segments.slice(1)) {
+		if (resourceType === 'media' && seg === 'items') continue
 		if (ID_SEGMENT.test(seg)) resourceId = seg
 		else subAction = seg
 	}

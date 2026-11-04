@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { CLIENT_HEADER } from '@innolope/config'
-import { httpRequest } from '@innolope/sdk'
+import { httpRequest, InnolopeApiError } from '@innolope/sdk'
 
 /**
  * Normalize an arbitrary label into a slug the CMS accepts
@@ -123,6 +124,9 @@ export class InnolopeClient {
 	private baseUrl: string
 	private apiKey: string
 	private projectId: string | undefined
+	private projectContext = new AsyncLocalStorage<string>()
+	private projectList?: { items: ProjectItem[]; expiresAt: number }
+	private projectListRequest?: Promise<ProjectItem[]>
 
 	constructor(baseUrl: string, apiKey: string, projectId?: string) {
 		this.baseUrl = baseUrl.replace(/\/$/, '')
@@ -154,7 +158,12 @@ export class InnolopeClient {
 	}
 
 	getProjectId(): string | undefined {
-		return this.projectId
+		return this.projectContext.getStore() ?? this.projectId
+	}
+
+	/** Isolate a tool's project across every asynchronous request it makes. */
+	runWithProject<T>(projectId: string, fn: () => T): T {
+		return this.projectContext.run(projectId, fn)
 	}
 
 	private async request<T>(
@@ -176,21 +185,46 @@ export class InnolopeClient {
 				[CLIENT_HEADER]: 'mcp',
 			},
 			apiKey: this.apiKey,
-			projectId: projectIdOverride ?? this.projectId,
+			projectId: projectIdOverride ?? this.getProjectId(),
 		})
 	}
 
 	// --- Project & provisioning ------------------------------------------------
 
-	async listProjects() {
-		return this.request<ProjectItem[]>('/api/v1/projects')
+	/**
+	 * Projects the credential can access. Cached for 60 s for the per-call
+	 * `project` lookups; `fresh` skips the cache for explicit discovery
+	 * (list_projects, use_project), so a project just created elsewhere shows up.
+	 */
+	async listProjects(opts?: { fresh?: boolean }) {
+		if (!opts?.fresh) {
+			if (this.projectList && this.projectList.expiresAt > Date.now()) return this.projectList.items
+			if (this.projectListRequest) return this.projectListRequest
+		}
+		const pending = this.request<ProjectItem[]>('/api/v1/projects', {
+			signal: AbortSignal.timeout(10_000),
+		})
+		this.projectListRequest = pending
+		try {
+			const items = await pending
+			if (this.projectListRequest === pending) {
+				this.projectList = { items, expiresAt: Date.now() + 60_000 }
+			}
+			return items
+		} finally {
+			if (this.projectListRequest === pending) this.projectListRequest = undefined
+		}
 	}
 
 	async createProject(input: { name: string; slug: string }) {
-		return this.request<ProjectItem>('/api/v1/projects', {
+		const project = await this.request<ProjectItem>('/api/v1/projects', {
 			method: 'POST',
 			body: JSON.stringify(input),
 		})
+		// An older in-flight list must not repopulate the cache after creation.
+		this.projectList = undefined
+		this.projectListRequest = undefined
+		return project
 	}
 
 	async createCollection(
@@ -270,9 +304,11 @@ export class InnolopeClient {
 	}
 
 	private requireProjectId(): string {
-		const id = this.projectId
+		const id = this.getProjectId()
 		if (!id)
-			throw new Error('No active project selected. Call create_project or use_project first.')
+			throw new Error(
+				'No active project selected. Call create_project or use_project first, or pass the project parameter (id or slug).',
+			)
 		return id
 	}
 
@@ -419,6 +455,105 @@ export class InnolopeClient {
 		)
 	}
 
+	async mediaUploadTarget() {
+		return this.request<MediaUploadTarget>('/api/v1/media/upload-target')
+	}
+	async ingestMedia(input: MediaIngestInput) {
+		return this.request<MediaIngestResult>('/api/v1/media/ingest', {
+			method: 'POST',
+			body: JSON.stringify(input),
+		})
+	}
+	async createMediaUpload(input: { filename: string; mimeType: string; bytes: number }) {
+		return this.request<{
+			uploadId: string
+			uploadUrl: string
+			method: 'PUT'
+			headers: Record<string, string>
+			expiresAt: string
+			maxBytes: number
+		}>('/api/v1/media/uploads', { method: 'POST', body: JSON.stringify(input) })
+	}
+	async completeMediaUpload(
+		uploadId: string,
+		input: { alt?: string; filename?: string; force?: boolean },
+	) {
+		return this.request<MediaIngestResult>(
+			`/api/v1/media/uploads/${encodeURIComponent(uploadId)}/complete`,
+			{ method: 'POST', body: JSON.stringify(input) },
+		)
+	}
+	async updateMedia(id: string, input: { alt?: string; filename?: string; expectedHash?: string }) {
+		return this.request<Record<string, unknown>>(`/api/v1/media/items/${encodeURIComponent(id)}`, {
+			method: 'PATCH',
+			body: JSON.stringify(input),
+		})
+	}
+	async listUploadMedia(params?: {
+		page?: number
+		limit?: number
+		type?: string
+		search?: string
+	}) {
+		const target = await this.mediaUploadTarget()
+		if (
+			target.resolved.kind !== 'collection' ||
+			!target.resolved.collectionId ||
+			!target.resolved.fields
+		) {
+			try {
+				return { ...(await this.listMedia(params)), target }
+			} catch (err) {
+				if (!(err instanceof InnolopeApiError) || err.status !== 403) throw err
+				return {
+					target,
+					data: [],
+					pagination: {
+						page: params?.page ?? 1,
+						limit: params?.limit ?? 20,
+						total: 0,
+						totalPages: 0,
+					},
+					note: 'The media library requires the media-integrations license.',
+				}
+			}
+		}
+		const result = await this.listContent({
+			collectionId: target.resolved.collectionId,
+			page: params?.page,
+			limit: params?.limit,
+			search: params?.search,
+		})
+		const fields = target.resolved.fields
+		return {
+			target,
+			pagination: result.pagination,
+			data: result.data.map((item) => {
+				const meta = item.metadata
+				const fullPath = String(meta[fields.path ?? ''] ?? '')
+				const base = /^(https:\/\/imagedelivery\.net\/[^/]+\/[^/?#]+)(?:\/|$)/.exec(fullPath)?.[1]
+				const deliveryUrl =
+					base && !new URL(fullPath).search
+						? `${base}/${target.resolved.deliveryVariant ?? 'public'}`
+						: fullPath
+				return {
+					id: item.id,
+					externalId: item.externalId,
+					filename: String(meta[fields.filename ?? ''] ?? item.slug ?? item.id),
+					alt: String(meta[fields.alt ?? ''] ?? ''),
+					url: deliveryUrl,
+					fullPath,
+					deliveryUrl,
+					size: Number(meta[fields.size ?? ''] ?? 0),
+					mimeType: String(meta[fields.mimeType ?? ''] ?? ''),
+					type: 'image' as const,
+					adapter: 'imported',
+					origin: 'project' as const,
+					createdAt: item.createdAt,
+				}
+			}),
+		}
+	}
 	async listMedia(params?: { page?: number; limit?: number; type?: string; search?: string }) {
 		const query = new URLSearchParams()
 		if (params) {
@@ -554,7 +689,7 @@ export class InnolopeClient {
 		// Return raw text (JSONL)
 		return httpRequest<string>(this.baseUrl, `/api/v1/content/export${qs ? `?${qs}` : ''}`, {
 			apiKey: this.apiKey,
-			projectId: this.projectId,
+			projectId: this.getProjectId(),
 			raw: true,
 		})
 	}
@@ -566,9 +701,10 @@ export class InnolopeClient {
 		summary: string
 		details?: string
 	}) {
+		const projectId = this.getProjectId()
 		return this.request<{ id: string; createdAt: string }>('/api/v1/feedback', {
 			method: 'POST',
-			body: JSON.stringify({ ...data, ...(this.projectId && { projectId: this.projectId }) }),
+			body: JSON.stringify({ ...data, ...(projectId && { projectId }) }),
 		})
 	}
 
@@ -738,6 +874,9 @@ export interface IndexNowStatus {
 }
 
 interface MediaItem {
+	externalId?: string | null
+	fullPath?: string
+	deliveryUrl?: string
 	id: string
 	type: 'image' | 'video' | 'file'
 	filename: string
@@ -753,6 +892,54 @@ interface MediaItem {
 	variants?: Record<string, string>
 }
 
+export interface MediaIngestInput {
+	sourceUrl?: string
+	data?: string
+	mimeType?: string
+	filename?: string
+	alt?: string
+	force?: boolean
+}
+export interface MediaIngestResult {
+	id: string
+	externalId: string | null
+	filename: string
+	fullPath: string
+	deliveryUrl: string
+	deliveryVerified: boolean
+	width: number | null
+	height: number | null
+	bytes: number
+	mimeType: string
+	sha256: string
+	duplicate: boolean
+	target: { kind: 'library' | 'collection'; collectionId?: string; collectionName?: string }
+	warnings?: string[]
+}
+export interface MediaUploadTarget {
+	setting: {
+		target: 'auto' | 'library' | 'collection'
+		collectionId: string | null
+		fields: Record<string, string>
+		deliveryVariant: string | null
+	}
+	resolved: {
+		kind: 'library' | 'collection' | null
+		collectionId: string | null
+		collectionName: string | null
+		collectionLabel: string | null
+		fields: Record<
+			'path' | 'filename' | 'alt' | 'mimeType' | 'size' | 'width' | 'height',
+			string | null
+		> | null
+		deliveryVariant: string | null
+	}
+	candidates: { id: string; name: string; label: string }[]
+	allowedTypes: string[]
+	maxBytes: number
+	canUpload: boolean
+	problem: string | null
+}
 interface Pagination {
 	page: number
 	limit: number

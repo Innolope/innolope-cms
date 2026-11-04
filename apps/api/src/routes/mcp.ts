@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { mcpProjectSelections } from '@innolope/db'
 import { InnolopeClient, registerTools, SERVER_INSTRUCTIONS } from '@innolope/mcp-server/lib'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type AuthUser, createJwt, verifyOAuthAccessToken } from '../plugins/auth.js'
 import { mcpResourceUrl, publicBaseUrl } from '../services/oauth-metadata.js'
@@ -11,6 +13,7 @@ declare module 'fastify' {
 	interface FastifyRequest {
 		/** User resolved from the `/mcp` OAuth access token. */
 		mcpUser?: AuthUser
+		mcpClientId?: string
 	}
 }
 
@@ -26,7 +29,7 @@ interface McpSession {
 }
 
 /** Sessions untouched for this long are closed and forgotten. */
-const SESSION_IDLE_MS = 30 * 60 * 1000
+const SESSION_IDLE_MS = 6 * 60 * 60 * 1000
 /** Hard cap on live sessions per process; the least-recently-used is evicted. */
 const MAX_SESSIONS = 500
 const SWEEP_INTERVAL_MS = 60 * 1000
@@ -111,6 +114,7 @@ export async function mcpRoutes(app: FastifyInstance) {
 				.send({ error: 'invalid_token', error_description: 'Missing or invalid access token' })
 		}
 		request.mcpUser = user
+		request.mcpClientId = user.clientId
 	}
 
 	// Reflect CORS on the actual (hijacked) responses. Preflight OPTIONS is handled
@@ -160,11 +164,48 @@ export async function mcpRoutes(app: FastifyInstance) {
 			const user = request.mcpUser as AuthUser
 			const internalToken = await createJwt(user)
 			const client = new InnolopeClient(internalApiUrl, internalToken)
+			const clientId = request.mcpClientId ?? ''
+			let initialProject: { id: string; name: string; slug: string } | undefined
+			try {
+				const [selection] = await app.db.transaction(async (tx) => {
+					await tx.execute(sql`SET LOCAL statement_timeout = '2000ms'`)
+					return tx
+						.select({ projectId: mcpProjectSelections.projectId })
+						.from(mcpProjectSelections)
+						.where(
+							and(
+								eq(mcpProjectSelections.userId, user.id),
+								eq(mcpProjectSelections.clientId, clientId),
+							),
+						)
+				})
+				if (selection) {
+					initialProject = (await client.listProjects()).find(
+						(project) => project.id === selection.projectId,
+					)
+				}
+			} catch {
+				app.log.warn('MCP project selection restore failed; starting without a selection')
+			}
 			const server = new McpServer(
 				{ name: 'innolope-cms', version: '0.1.0' },
 				{ instructions: SERVER_INSTRUCTIONS },
 			)
-			registerTools(server, client)
+			registerTools(server, client, {
+				initialProject,
+				onProjectSelected: async (projectId) => {
+					await app.db.transaction(async (tx) => {
+						await tx.execute(sql`SET LOCAL statement_timeout = '2000ms'`)
+						await tx
+							.insert(mcpProjectSelections)
+							.values({ userId: user.id, clientId, projectId })
+							.onConflictDoUpdate({
+								target: [mcpProjectSelections.userId, mcpProjectSelections.clientId],
+								set: { projectId, updatedAt: new Date() },
+							})
+					})
+				},
+			})
 			await evictIfFull()
 			const transport = new StreamableHTTPServerTransport({
 				sessionIdGenerator: () => randomUUID(),

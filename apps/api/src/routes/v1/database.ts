@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import {
 	collections,
 	content,
@@ -24,7 +23,7 @@ import {
 	type ObjectArrayShape,
 } from '../../adapters/mongo-introspect.js'
 import { tableNameToLabel } from '../../adapters/type-mapper.js'
-import { getImageDimensions, isRejectedImageMime } from '../../lib/image.js'
+import { isRejectedImageMime } from '../../lib/image.js'
 import {
 	conformsToSiteConvention,
 	customerVisibleUrl,
@@ -35,14 +34,8 @@ import {
 import { detectMediaPathFormat } from '../../lib/media-path-format.js'
 import { parseCloudflareImageValue, presignR2Delete } from '../../lib/media-sign.js'
 import { getMediaStorageMap, resolveMediaValue } from '../../lib/media-storage.js'
-import {
-	dedupeFilename,
-	isDuplicateKeyError,
-	isWritableImportedStorage,
-	uploadToImportedStorage,
-} from '../../lib/media-upload.js'
+import { isWritableImportedStorage } from '../../lib/media-upload.js'
 import { revealMediaCredentials, sealMediaCredentials } from '../../lib/secret-at-rest.js'
-import { getUser } from '../../plugins/auth.js'
 import { getProject } from '../../plugins/project.js'
 import {
 	buildCollectionFields,
@@ -50,6 +43,8 @@ import {
 	refineFieldsFromSamples,
 } from '../../services/collection-schema.js'
 import { PRESET_SAMPLE_SIZE } from '../../services/external-schema.js'
+import { recordAdminUpload } from '../../services/media-ingest.js'
+import { detectMediaFields } from '../../services/media-ingest-policy.js'
 
 /** Best-guess the media host (`r2` | `cloudflare-images` | `s3` | `cloudinary`) from a sample URL. */
 function detectProvider(url: string | undefined): string | undefined {
@@ -1287,100 +1282,19 @@ export async function databaseRoutes(app: FastifyInstance) {
 				return reply.status(400).send({ error: 'File exceeds the maximum upload size' })
 			}
 
-			let uploaded: { key: string }
-			try {
-				uploaded = await uploadToImportedStorage(entry, buffer, file.filename, file.mimetype)
-			} catch (err) {
-				const status = (err as { statusCode?: number }).statusCode || 502
-				return reply
-					.status(status)
-					.send({ error: err instanceof Error ? err.message : 'Upload failed' })
-			}
-
-			// Build the external row: the path column plus best-effort meta columns.
-			const splitCamel = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-			const fieldNames = (col.fields || []).map((f) => f.name)
-			const rowData: Record<string, unknown> = { [entry.pathColumn]: uploaded.key }
-			const fillMeta = (re: RegExp, value: unknown) => {
-				if (value == null) return
-				const match = fieldNames.find(
-					(n) => n !== entry.pathColumn && !(n in rowData) && re.test(splitCamel(n)),
-				)
-				if (match) rowData[match] = value
-			}
-			const dims = getImageDimensions(buffer)
-			fillMeta(/(^|_)(mimetype|mime)($|_)/i, file.mimetype)
-			fillMeta(/(^|_)(filename|name)($|_)/i, file.filename)
-			fillMeta(/(^|_)(filesize|size)($|_)/i, buffer.length)
-			if (dims) {
-				fillMeta(/(^|_)width($|_)/i, dims.width)
-				fillMeta(/(^|_)height($|_)/i, dims.height)
-			}
-
-			// Insert into the external table.
-			const ext = getSavedExternalDb(project)
-			let externalId: string | undefined
-			const adapter = createExternalDbAdapter({
-				type: ext.type as string,
-				connectionString: ext.connectionString as string,
-				database: (ext.database as string | undefined) || undefined,
-			})
-			await adapter.connect()
-			try {
-				let inserted: Awaited<ReturnType<typeof adapter.insert>>
-				try {
-					inserted = await adapter.insert(col.externalTable, rowData)
-				} catch (err) {
-					if (!isDuplicateKeyError(err)) throw err
-					// The library has a unique index (typically on filename) and this
-					// name already exists. De-duplicate the name columns and retry
-					// once; a second collision means the conflict isn't on the name.
-					for (const [key, value] of Object.entries(rowData)) {
-						if (typeof value === 'string' && /(^|_)(filename|name)($|_)/i.test(splitCamel(key))) {
-							rowData[key] = dedupeFilename(value)
-						}
-					}
-					try {
-						inserted = await adapter.insert(col.externalTable, rowData)
-					} catch (retryErr) {
-						if (isDuplicateKeyError(retryErr)) {
-							return reply.status(409).send({
-								error:
-									'A file with this name already exists in this library. Pick the existing file instead of re-uploading, or rename the file.',
-							})
-						}
-						throw retryErr
-					}
-				}
-				externalId = (inserted as { _id?: string })?._id
-			} finally {
-				await adapter.disconnect()
-			}
-
-			// Cache locally so the new media appears immediately in the collection list.
-			const base =
-				file.filename
-					.toLowerCase()
-					.replace(/\.[^.]+$/, '')
-					.replace(/[^a-z0-9]+/g, '-')
-					.replace(/^-+|-+$/g, '')
-					.slice(0, 60) || 'media'
-			const slug = `${base}-${randomUUID().slice(0, 8)}`
-			const [created] = await app.db
-				.insert(content)
-				.values({
-					projectId: pid,
-					slug,
-					collectionId: col.id,
-					metadata: rowData,
-					markdown: '',
-					html: '',
-					locale: 'en',
-					status: 'published',
-					createdBy: getUser(request).id,
-					...(externalId && { externalId }),
-				})
-				.returning()
+			const created = await recordAdminUpload(
+				app,
+				request,
+				{ buffer, filename: file.filename, mimeType: file.mimetype },
+				{
+					kind: 'collection',
+					collection: col,
+					entry,
+					fields: detectMediaFields(col, entry),
+					variant: entry.pathVariant ?? 'public',
+					fallbackVariant: entry.pathVariant ?? 'public',
+				},
+			)
 
 			return reply.status(201).send(created)
 		},

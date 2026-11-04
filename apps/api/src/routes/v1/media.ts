@@ -3,8 +3,8 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { cfImageVariants } from '../../lib/cf-images.js'
 import { isCloudMode } from '../../lib/cloud-mode.js'
-import { getImageDimensions, isRejectedImageMime, uploadRejection } from '../../lib/image.js'
-import { getUser } from '../../plugins/auth.js'
+import { isRejectedImageMime, uploadRejection } from '../../lib/image.js'
+import { mediaItemHash } from '../../lib/media-item-hash.js'
 import {
 	MediaConfigError,
 	type MediaOrigin,
@@ -13,6 +13,8 @@ import {
 } from '../../plugins/media.js'
 import { getProject } from '../../plugins/project.js'
 import { CloudflareReconnectError } from '../../services/cloudflare-oauth.js'
+import { recordAdminUpload } from '../../services/media-ingest.js'
+import { agentMediaRoutes } from './media-agent.js'
 
 /**
  * Ownership of a legacy row that predates the `origin` column: local files are
@@ -34,6 +36,7 @@ function inferOrigin(item: { origin: string | null; adapter: string; url: string
 }
 
 export async function mediaRoutes(app: FastifyInstance) {
+	await app.register(agentMediaRoutes)
 	// Media config — returns which env vars are set (booleans only, never actual values)
 	app.get('/config', { preHandler: [app.requireProject('viewer')] }, async () => {
 		return {
@@ -91,7 +94,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 			// and resolve ownership for legacy rows that predate the origin column.
 			data: items.map((item) => {
 				const variants = cfImageVariants(item.url)
-				const withOrigin = { ...item, origin: inferOrigin(item) }
+				const withOrigin = { ...item, origin: inferOrigin(item), contentHash: mediaItemHash(item) }
 				return variants ? { ...withOrigin, variants } : withOrigin
 			}),
 			pagination: {
@@ -134,62 +137,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 		const rejection = uploadRejection(file.mimetype, buffer)
 		if (rejection) return reply.status(400).send({ error: rejection })
 
-		const [project] = await app.db
-			.select()
-			.from(projects)
-			.where(eq(projects.id, getProject(request).id))
-			.limit(1)
-
-		let result: Awaited<ReturnType<typeof app.media.upload>>
-		let resolved: Awaited<ReturnType<typeof resolveMediaAdapter>>
-		try {
-			resolved = await resolveMediaAdapter(project?.settings, {
-				projectId: getProject(request).id,
-				app,
-			})
-			result = await resolved.adapter.upload(buffer, file.filename, file.mimetype)
-		} catch (err) {
-			if (err instanceof MediaConfigError || err instanceof CloudflareReconnectError) {
-				return reply.status(400).send({ error: err.message })
-			}
-			throw err
-		}
-
-		const type = file.mimetype.startsWith('image/')
-			? 'image'
-			: file.mimetype.startsWith('video/')
-				? 'video'
-				: 'file'
-
-		const dimensions = type === 'image' ? getImageDimensions(buffer) : null
-
-		const [created] = await app.db
-			.insert(media)
-			.values({
-				projectId: getProject(request).id,
-				type,
-				filename: result.filename,
-				mimeType: file.mimetype,
-				size: result.size,
-				url: result.url,
-				adapter: resolved.adapterName,
-				origin: resolved.origin,
-				externalId: result.id,
-				metadata: dimensions ? { width: dimensions.width, height: dimensions.height } : {},
-				createdBy: getUser(request).id,
-			})
-			.returning()
-
-		app.events.emit({
-			type: 'media:uploaded',
-			data: {
-				id: created.id,
-				filename: created.filename,
-				type: created.type,
-				projectId: getProject(request).id,
-			},
-			timestamp: new Date().toISOString(),
-		})
+		const created = await recordAdminUpload(app, request, { buffer, filename: file.filename, mimeType: file.mimetype }, { kind: 'library', variant: 'public', fallbackVariant: 'public' })
 
 		return reply.status(201).send(created)
 	})

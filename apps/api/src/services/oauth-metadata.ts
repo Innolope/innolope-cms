@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify'
+import { parseTrustProxy } from '../lib/trust-proxy.js'
 
 let warnedAboutHeaderFallback = false
 
@@ -17,9 +18,7 @@ export function publicBaseUrl(request: FastifyRequest): string {
 	const adminUrl = process.env.ADMIN_URL?.trim()
 	if (adminUrl && process.env.NODE_ENV === 'production') return adminUrl.replace(/\/$/, '')
 
-	const trustProxy = ['1', 'true', 'yes', 'on'].includes(
-		(process.env.TRUST_PROXY ?? '').trim().toLowerCase(),
-	)
+	const trustProxy = parseTrustProxy(process.env.TRUST_PROXY)
 	const forwardedProto = trustProxy
 		? (request.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim()
 		: undefined

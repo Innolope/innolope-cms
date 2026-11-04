@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { users } from '@innolope/db'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildTestApp, hasTestDb } from '../test/harness.js'
@@ -35,26 +35,26 @@ describe.skipIf(!hasTestDb)('first-admin registration race (real Postgres)', () 
 	})
 
 	it('refuses every concurrent registration once a user exists', async () => {
-		const [{ count: before }] = await app.db
-			.select({ count: users.id })
-			.from(users)
-			.where(eq(users.role, 'admin'))
-			.then((rows) => [{ count: rows.length }])
+		const emails = Array.from(
+			{ length: 4 },
+			(_, i) => `race-${i}-${randomUUID().slice(0, 6)}@example.com`,
+		)
 		const results = await Promise.all(
-			Array.from({ length: 4 }, (_, i) =>
+			emails.map((email) =>
 				app.inject({
 					method: 'POST',
 					url: '/api/v1/auth/register',
-					payload: {
-						email: `race-${i}-${randomUUID().slice(0, 6)}@example.com`,
-						name: 'Race',
-						password: 'Password123!',
-					},
+					payload: { email, name: 'Race', password: 'Password123!' },
 				}),
 			),
 		)
 		expect(results.map((r) => r.statusCode)).toEqual(Array(4).fill(403))
-		const after = await app.db.select({ id: users.id }).from(users).where(eq(users.role, 'admin'))
-		expect(after.length).toBe(before)
+		// Check these requests' own accounts, not a global admin count: other test
+		// files share the database and create admins in parallel.
+		const created = await app.db
+			.select({ id: users.id })
+			.from(users)
+			.where(inArray(users.email, emails))
+		expect(created).toHaveLength(0)
 	})
 })
