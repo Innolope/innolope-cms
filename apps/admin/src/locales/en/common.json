@@ -407,6 +407,7 @@
 			"toggleHint": "Show this record in your site's design",
 			"title": "Preview",
 			"close": "Close preview",
+			"closeHint": "Close preview (Esc)",
 			"frameTitle": "Record preview in the site's article layout",
 			"openSource": "Open the article the layout was copied from",
 			"loadFailed": "Couldn't load the preview.",
@@ -424,7 +425,7 @@
 				"label": "Preview width",
 				"desktop": "Desktop",
 				"tablet": "Tablet",
-				"mobile": "Phone"
+				"mobile": "Mobile"
 			},
 			"menu": {
 				"label": "Preview options",
@@ -447,7 +448,7 @@
 				"capture": "Use this article",
 				"recapture": "Copy layout",
 				"capturing": "Copying layout…",
-				"capturingHint": "Fetching the page and its styles. This can take up to half a minute.",
+				"capturingHint": "Fetching the page and its styles. This can take up to a minute.",
 				"useSuggested": "Use this record's page: {{url}}",
 				"detection": "Detection settings",
 				"detectionHint": "If the preview fills the wrong part of the page, point to the right element with a CSS selector. Leave a field empty to detect it automatically.",
@@ -463,6 +464,7 @@
 				"NOT_HTML": "That link isn't a web page. Paste the address of an article page.",
 				"TOO_LARGE": "That page is too large to copy. Try a shorter article from the same site.",
 				"CLIENT_RENDERED": "That page is built by JavaScript in the browser, so its HTML has no article to copy. Sites that render on the server (WordPress, Ghost, most Next.js and Astro sites) work best.",
+				"RENDER_FAILED": "That page is built by JavaScript, and loading it in a browser didn't work this time. Try again in a minute.",
 				"NO_ARTICLE_FOUND": "Couldn't find an article on that page. Paste a link to a single article, or set the selectors under Detection settings.",
 				"SELECTOR_NOT_FOUND": "One of the selectors under Detection settings doesn't match anything on that page."
 			},
@@ -669,6 +671,46 @@
 				"r2SecretAccessKey": "R2 Secret Access Key",
 				"r2Endpoint": "R2 Endpoint"
 			}
+		},
+		"agentUploads": {
+			"intro": "AI agents connected over MCP can upload images (upload_media) and put them straight into content. Choose where those images go: if your site reads media from its own database, send them to that media collection so the site can show them.",
+			"loadFailed": "Could not load the agent upload settings",
+			"saveFailed": "Could not save the agent upload settings",
+			"saved": "Agent upload settings saved",
+			"save": "Save",
+			"saving": "Saving…",
+			"resolvedCollection": "Agent uploads go to the {{name}} collection.",
+			"resolvedLibrary": "Agent uploads go to the project media library.",
+			"resolvedVariant": "Image URLs given to agents use the variant",
+			"limits": "Accepted: {{types}}, up to {{size}} MB per image.",
+			"target": "Upload destination",
+			"targets": {
+				"auto": "Automatic",
+				"library": "Project media library",
+				"collection": "A media collection"
+			},
+			"targetHelp": {
+				"auto": "Uses the imported media collection when there is exactly one that accepts uploads (or the one other collections link to), otherwise the project media library.",
+				"library": "Images are stored in the CMS media library. Use this when your site reads media through the Innolope API.",
+				"collection": "Images are stored in your own storage and a record is added to this collection, which your site reads directly."
+			},
+			"collection": "Media collection",
+			"pickCollection": "Choose a media collection",
+			"fieldsTitle": "Columns to fill",
+			"fieldsHelp": "Which column of a new media record receives each value. Leave a row on automatic to use the detected column.",
+			"autoDetect": "Automatic",
+			"autoDetected": "Automatic ({{field}})",
+			"fields": {
+				"alt": "Alt text",
+				"filename": "File name",
+				"path": "File path or URL",
+				"mimeType": "MIME type",
+				"size": "File size",
+				"width": "Width",
+				"height": "Height"
+			},
+			"deliveryVariant": "Image URL variant",
+			"deliveryVariantHelp": "Cloudflare Images variant or flexible transform for the URL agents put in markdown, for example format=auto,quality=80,width=1440. Transforms need flexible variants enabled on the Cloudflare account; if one doesn't serve, the named variant is used instead."
 		},
 		"sso": {
 			"loadFailed": "Failed to load SSO connections",
@@ -2086,6 +2128,10 @@
 			"mediaStorage": {
 				"title": "Media Storage",
 				"description": "Choose where uploaded media files are stored."
+			},
+			"agentUploads": {
+				"title": "Agent image uploads",
+				"description": "Where images that AI agents upload over MCP are stored."
 			},
 			"apiKeys": {
 				"title": "API Keys",

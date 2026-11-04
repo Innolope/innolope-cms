@@ -33,6 +33,7 @@ export interface MediaAdapter {
 		file: Uint8Array | ReadableStream,
 		filename: string,
 		mimeType: string,
+		options?: { signal?: AbortSignal },
 	): Promise<UploadResult>
 	delete(id: string): Promise<void>
 	getUrl(id: string, variant?: string): string

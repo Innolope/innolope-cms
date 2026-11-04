@@ -187,6 +187,8 @@ export const envSchema = z.object({
 	CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
 	CLOUDFLARE_API_TOKEN: z.string().optional(),
 	CLOUDFLARE_IMAGES_ACCOUNT_HASH: z.string().optional(),
+	CLOUDFLARE_BROWSER_RUN_API_TOKEN: z.string().optional(),
+	CLOUDFLARE_BROWSER_RUN_ACCOUNT_ID: z.string().optional(),
 	CLOUDFLARE_R2_BUCKET: z.string().optional(),
 	CLOUDFLARE_R2_ACCESS_KEY_ID: z.string().optional(),
 	CLOUDFLARE_R2_SECRET_ACCESS_KEY: z.string().optional(),

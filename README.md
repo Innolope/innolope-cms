@@ -212,6 +212,8 @@ docker-compose up
 | `CLOUDFLARE_API_TOKEN` | No | For Cloudflare media |
 | `CLOUDFLARE_IMAGES_ACCOUNT_HASH` | No | For image delivery |
 | `CLOUDFLARE_R2_BUCKET` | No | R2 bucket name |
+| `CLOUDFLARE_BROWSER_RUN_API_TOKEN` | No | Cloudflare API token with the Browser Rendering - Edit permission. When set, the article preview loads pages built by JavaScript in Cloudflare Browser Run instead of rejecting them. |
+| `CLOUDFLARE_BROWSER_RUN_ACCOUNT_ID` | No | Cloudflare account for Browser Run (default: `CLOUDFLARE_ACCOUNT_ID`) |
 | `POSTHOG_API_KEY` | No | PostHog project API key (enables analytics) |
 | `POSTHOG_HOST` | No | PostHog instance URL (default: `https://us.i.posthog.com`) |
 | `POSTHOG_DISABLED` | No | Set to `true` to force-disable PostHog |

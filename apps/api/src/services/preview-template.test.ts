@@ -366,6 +366,28 @@ describe('capturePreviewTemplate: stylesheets and fonts', () => {
 		expect(t.stats.stylesheets).toBeGreaterThanOrEqual(1)
 	})
 
+	it('keeps url(#id) pointing into the page instead of resolving it against the site', async () => {
+		serve({
+			[PAGE]: {
+				body: page(
+					`${HEADER}<article><h1>Hello world</h1><svg><linearGradient id="brand"/><clipPath id="clip"/></svg><div class="post-body" style="clip-path:url(#clip)">${paragraphs(5)}</div></article>${FOOTER}`,
+					'<link rel="stylesheet" href="/css/main.css"><style>.mark{mask:url(\'#clip\')}</style>',
+				),
+			},
+			'https://blog.example.com/css/main.css': {
+				body: '.logo path{fill:url(#brand)}.hero{background:url(img/bg.png)}',
+				headers: CSS,
+			},
+		})
+		const t = await capturePreviewTemplate(PAGE)
+
+		expect(t.html).toContain('fill:url(#brand)')
+		expect(t.html).toContain("mask:url('#clip')")
+		expect(t.html).toContain('clip-path:url(#clip)')
+		expect(t.html).not.toContain(`${PAGE}#`)
+		expect(t.html).toContain('https://blog.example.com/css/img/bg.png')
+	})
+
 	it('keeps an absolute <link> and warns when a stylesheet cannot be fetched', async () => {
 		serve({ [PAGE]: { body: articleWith('<link rel="stylesheet" href="/css/missing.css">') } })
 		const t = await capturePreviewTemplate(PAGE)

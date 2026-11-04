@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { AiSettingsPanel } from '../components/ai/ai-settings'
 import { hasFeature, LicenseGate, useLicense } from '../components/license-gate'
 import { SaveBar } from '../components/save-bar'
+import { AgentUploadSettings } from '../components/settings/agent-upload-settings'
 import { CustomDomainSettings } from '../components/settings/custom-domain-settings'
 import { DatabaseSettings } from '../components/settings/database-settings'
 import { GeneralSettings } from '../components/settings/general-settings'
@@ -193,6 +194,12 @@ function Settings() {
 					description={t('settingsPage.sections.mediaStorage.description')}
 				>
 					<MediaSettings />
+				</SettingsSection>
+				<SettingsSection
+					title={t('settingsPage.sections.agentUploads.title')}
+					description={t('settingsPage.sections.agentUploads.description')}
+				>
+					<AgentUploadSettings />
 				</SettingsSection>
 			</div>
 			<div className={tab === 'developer' ? '' : 'hidden'}>

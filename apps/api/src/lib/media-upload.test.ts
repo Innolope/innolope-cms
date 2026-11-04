@@ -65,6 +65,36 @@ describe('uploadToImportedStorage — Cloudflare Images', () => {
 })
 
 describe('isWritableImportedStorage', () => {
+	it('reports an R2 provider failure and forwards its bounded cancellation signal', async () => {
+		const signal = new AbortController().signal
+		const request = vi.fn(async () => new Response(null, { status: 503 }))
+		vi.stubGlobal('fetch', request)
+		await expect(
+			uploadToImportedStorage(
+				{
+					adapter: 'r2',
+					pathColumn: 'key',
+					credentials: {
+						accountId: 'account',
+						accessKeyId: 'access',
+						secretAccessKey: 'secret',
+						bucket: 'bucket',
+					},
+				},
+				Buffer.from('bytes'),
+				'chart.png',
+				'image/png',
+				{ signal },
+			),
+		).rejects.toMatchObject({
+			statusCode: 502,
+			message: expect.stringContaining('R2 upload failed: 503'),
+		})
+		expect(request).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ signal, method: 'PUT' }),
+		)
+	})
 	it('accepts the storages we can upload into', () => {
 		expect(isWritableImportedStorage(cfEntry({}))).toBe(true)
 		expect(

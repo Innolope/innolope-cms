@@ -3,6 +3,7 @@ import { parse } from 'parse5'
 import { adapter } from 'parse5-htmlparser2-tree-adapter'
 import valueParser, { type FunctionNode } from 'postcss-value-parser'
 import { safeFetch, validatePublicUrl } from '../adapters/connection-guard.js'
+import type { PageRenderer, RenderedPage } from './browser-render.js'
 
 export type PreviewCaptureErrorCode =
 	| 'INVALID_URL'
@@ -14,6 +15,7 @@ export type PreviewCaptureErrorCode =
 	| 'CLIENT_RENDERED'
 	| 'NO_ARTICLE_FOUND'
 	| 'SELECTOR_NOT_FOUND'
+	| 'RENDER_FAILED'
 
 const messages: Record<PreviewCaptureErrorCode, string> = {
 	INVALID_URL: 'Paste an absolute http:// or https:// article URL.',
@@ -28,16 +30,22 @@ const messages: Record<PreviewCaptureErrorCode, string> = {
 	NO_ARTICLE_FOUND: 'No article prose was found. Try another article or specify a body selector.',
 	SELECTOR_NOT_FOUND:
 		'A supplied CSS selector is invalid or matches no usable element. Check the selector and try again.',
+	RENDER_FAILED:
+		'The page is built by JavaScript, and loading it in a browser failed. Try again in a minute.',
 }
 
 export class PreviewCaptureError extends Error {
 	readonly statusCode: number
-	constructor(readonly code: PreviewCaptureErrorCode) {
-		super(messages[code])
+	/** `cause`: what went wrong underneath, for the server log only. */
+	constructor(
+		readonly code: PreviewCaptureErrorCode,
+		options?: { cause?: unknown },
+	) {
+		super(messages[code], options)
 		this.name = 'PreviewCaptureError'
 		this.statusCode = ['INVALID_URL', 'BLOCKED_URL', 'SELECTOR_NOT_FOUND'].includes(code)
 			? 400
-			: ['FETCH_FAILED', 'BLOCKED_BY_SITE'].includes(code)
+			: ['FETCH_FAILED', 'BLOCKED_BY_SITE', 'RENDER_FAILED'].includes(code)
 				? 502
 				: 422
 	}
@@ -64,6 +72,8 @@ export interface PreviewLimits {
 	templateBytes: number
 	requestTimeoutMs: number
 	totalTimeoutMs: number
+	/** Extra time a capture gets when it has to load the page in a browser. */
+	renderTimeoutMs: number
 }
 export const PREVIEW_LIMITS: PreviewLimits = {
 	pageBytes: 5_000_000,
@@ -76,6 +86,7 @@ export const PREVIEW_LIMITS: PreviewLimits = {
 	templateBytes: 10_000_000,
 	requestTimeoutMs: 10_000,
 	totalTimeoutMs: 30_000,
+	renderTimeoutMs: 20_000,
 }
 export interface PreviewTemplate {
 	sourceUrl: string
@@ -156,6 +167,9 @@ function rewriteCssUrls(css: string, base: string): string {
 		const decoded = value.replace(/\\([0-9a-f]{1,6})\s?|\\([^\r\n])/gi, (_match, hex, char) =>
 			hex ? String.fromCodePoint(Math.min(Number.parseInt(hex, 16) || 0xfffd, 0x10ffff)) : char,
 		)
+		// `url(#gradient)` names an element of the page itself whatever the base URL;
+		// resolving it would point SVG fills, clips and masks at another document.
+		if (decoded.trim().startsWith('#')) return false
 		node.nodes = [
 			{
 				type: 'string',
@@ -254,12 +268,25 @@ const PREVIEW_LETTERS: Array<[number, number]> = [
 	[0x400, 0x52f],
 ]
 
+/** Plain-capture failures that loading the page in a browser can fix. */
+const RENDERABLE = new Set<PreviewCaptureErrorCode>([
+	'CLIENT_RENDERED',
+	'NO_ARTICLE_FOUND',
+	'SELECTOR_NOT_FOUND',
+])
+
 export async function capturePreviewTemplate(
 	url: string,
 	options: {
 		selectors?: PreviewSelectors
 		hints?: { title?: string; bodyText?: string }
 		limits?: Partial<PreviewLimits>
+		/**
+		 * Loads the page in a browser when its served HTML has no article because
+		 * scripts build it (`browserRendererFromEnv`). Without one those pages fail
+		 * with CLIENT_RENDERED.
+		 */
+		render?: PageRenderer | null
 	} = {},
 ): Promise<PreviewTemplate> {
 	let parsed: URL
@@ -273,8 +300,21 @@ export async function capturePreviewTemplate(
 	for (const value of Object.values(limits)) {
 		if (!Number.isFinite(value) || value < 0) throw new PreviewCaptureError('INVALID_URL')
 	}
-	const expiresAt = Date.now() + limits.totalTimeoutMs
-	const deadline = AbortSignal.timeout(Math.max(1, limits.totalTimeoutMs))
+	// One deadline for the whole capture, pushed back once if the page has to be
+	// loaded in a browser so stylesheets and fonts still get their usual time.
+	let expiresAt = Date.now() + limits.totalTimeoutMs
+	const deadlineController = new AbortController()
+	const deadline = deadlineController.signal
+	let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+	const armDeadline = () => {
+		clearTimeout(deadlineTimer)
+		deadlineTimer = setTimeout(
+			() => deadlineController.abort(),
+			Math.max(1, expiresAt - Date.now()),
+		)
+		deadlineTimer.unref?.()
+	}
+	armDeadline()
 	async function bounded<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 		return new Promise<T>((resolve, reject) => {
 			const cleanup = () => signal.removeEventListener('abort', abort)
@@ -415,21 +455,75 @@ export async function capturePreviewTemplate(
 		page = await fetchPage(next)
 	}
 	pageDownloaded = true
-	const source = page.source
 	// Challenge pages set `_cf_chl_opt` and load `/cdn-cgi/challenge-platform/h/…`. Plain
 	// `challenge-platform` also matches the passive `scripts/jsd` beacon Cloudflare bot
 	// management injects into every normal page, so it must not count on its own.
-	if (
-		/<title[^>]*>\s*just a moment[.!…\s]*<\/title|_cf_chl_opt|\/cdn-cgi\/challenge-platform\/h\//i.test(
-			source,
+	const parsePage = (source: string) => {
+		if (
+			/<title[^>]*>\s*just a moment[.!…\s]*<\/title|_cf_chl_opt|\/cdn-cgi\/challenge-platform\/h\//i.test(
+				source,
+			)
 		)
-	)
-		throw new PreviewCaptureError('BLOCKED_BY_SITE')
-	const finalUrl = page.url
-	const $ = loadHtml(source)
-	if ($('body').text().trim().length < 400 && /just a moment(?:\.{2,}|…)/i.test($('body').text()))
-		throw new PreviewCaptureError('BLOCKED_BY_SITE')
-	const slots = detectSlots($, options)
+			throw new PreviewCaptureError('BLOCKED_BY_SITE')
+		const doc = loadHtml(source)
+		if (
+			doc('body').text().trim().length < 400 &&
+			/just a moment(?:\.{2,}|…)/i.test(doc('body').text())
+		)
+			throw new PreviewCaptureError('BLOCKED_BY_SITE')
+		return doc
+	}
+	let finalUrl = page.url
+	let $ = parsePage(page.source)
+	let slots: ReturnType<typeof detectSlots>
+	try {
+		slots = detectSlots($, options)
+	} catch (error) {
+		// Served HTML with no article but scripts: the scripts may build it. Load the page
+		// once in a browser and copy what they drew.
+		if (
+			!options.render ||
+			!(error instanceof PreviewCaptureError) ||
+			!RENDERABLE.has(error.code) ||
+			!$('script').length
+		)
+			throw error
+		expiresAt += limits.renderTimeoutMs
+		armDeadline()
+		const renderSignal = AbortSignal.any([
+			deadline,
+			AbortSignal.timeout(Math.max(1, limits.renderTimeoutMs)),
+		])
+		let rendered: RenderedPage
+		try {
+			rendered = await bounded(options.render(finalUrl, renderSignal), renderSignal)
+		} catch (cause) {
+			throw new PreviewCaptureError('RENDER_FAILED', { cause })
+		}
+		if (rendered.status !== null && [401, 403, 429].includes(rendered.status))
+			throw new PreviewCaptureError('BLOCKED_BY_SITE')
+		if (rendered.status !== null && rendered.status >= 400)
+			throw new PreviewCaptureError('FETCH_FAILED')
+		if (Buffer.byteLength(rendered.html) > limits.pageBytes)
+			throw new PreviewCaptureError('TOO_LARGE')
+		$ = parsePage(rendered.html)
+		finalUrl = rendered.finalUrl ?? finalUrl
+		try {
+			slots = detectSlots($, options)
+		} catch (renderedError) {
+			// Even with its scripts run the page shows no article (a login wall, a block on
+			// automated browsers): "built by JavaScript" no longer describes it.
+			if (
+				renderedError instanceof PreviewCaptureError &&
+				(renderedError.code === 'CLIENT_RENDERED' || renderedError.code === 'NO_ARTICLE_FOUND')
+			)
+				throw new PreviewCaptureError('NO_ARTICLE_FOUND')
+			throw renderedError
+		}
+		warnings.add(
+			"Loaded in a browser because the page's HTML had no article; the layout is what its scripts drew.",
+		)
+	}
 	const body = $('[data-innolope-slot="body"]').first()
 	const classMap: Record<string, string> = {}
 	for (const tag of 'p h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code a img figure figcaption table thead tbody tr th td hr strong em'.split(
@@ -985,6 +1079,21 @@ function detectSlots(
 			.first()[0]
 		return !firstProse || position < inBody.indexOf(firstProse)
 	}
+	// Image components often declare `width="100%"` and no <figure>; the page still marks
+	// its lead image: the browser's priority hint, the post's own title as alt text, or
+	// a srcset offering it at large sizes.
+	const titleText = normalize(title?.text() ?? '')
+	const leadSignal = (el: Selection) => {
+		if (el.attr('fetchpriority')?.trim().toLowerCase() === 'high') return true
+		const alt = normalize(el.attr('alt') ?? '')
+		if (alt && titleText && alt === titleText) return true
+		const widths = (el.attr('srcset') ?? el.attr('data-srcset') ?? '')
+			.split(',')
+			.map((candidate) => /\s(\d+)w\s*$/.exec(candidate.trim())?.[1])
+			.map(Number)
+			.filter(Number.isFinite)
+		return widths.length > 0 && Math.max(...widths) >= 600
+	}
 	let image = imageOverride
 	let imageStrategy: PreviewSlotInfo['strategy'] = 'override'
 	const order: Array<Selection[0]> = scope.find('*').toArray()
@@ -1019,7 +1128,8 @@ function detectSlots(
 						(beforeBody.has(el) || bodyEl.find('img').toArray().includes(el)) &&
 						($(el).closest('figure,picture').length > 0 ||
 							Number($(el).attr('width')) >= 400 ||
-							Number($(el).attr('height')) >= 250),
+							Number($(el).attr('height')) >= 250 ||
+							leadSignal($(el))),
 				)
 				.first()
 			if (match.length) {

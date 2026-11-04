@@ -1,5 +1,6 @@
 import { lookup, resolveSrv } from 'node:dns/promises'
 import { isIP, isIPv6 } from 'node:net'
+import { guardedRequest, screenedLookup } from './guarded-request.js'
 
 /** Hostnames that are always internal, whatever they resolve to. */
 const BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal', 'metadata'])
@@ -234,6 +235,10 @@ export function isPrivateAddress(address: string): boolean {
 	return isPrivateIpv4(parts)
 }
 
+// Re-resolve only through this lookup when opening a socket. Keeping the hostname
+// in the URL preserves TLS SNI/certificate verification and HTTP Host semantics.
+export const publicLookup = screenedLookup((address) => isPrivateAddress(address))
+
 export interface SafeFetchOptions {
 	/** How many redirects to follow, each re-screened. Default 5; 0 hands the 3xx back. */
 	maxRedirects?: number
@@ -257,7 +262,11 @@ export async function safeFetch(
 	for (let hop = 0; ; hop++) {
 		const problem = await validatePublicUrl(current)
 		if (problem) throw new Error(problem)
-		const res = await fetch(current, { ...init, method, body, redirect: 'manual' })
+		const res = await guardedRequest(
+			current,
+			{ method, headers: init.headers, body, signal: init.signal },
+			publicLookup,
+		)
 		const location = res.headers.get('location')
 		if (![301, 302, 303, 307, 308].includes(res.status) || !location) return res
 		if (hop >= maxRedirects) return res

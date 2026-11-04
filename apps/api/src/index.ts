@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { envSchema } from '@innolope/config'
 import * as Sentry from '@sentry/node'
 import { buildApp } from './app.js'
+import { redactTelemetryRequest } from './lib/request-url.js'
 
 // Load apps/api/.env in local dev so the API has DATABASE_URL/AUTH_SECRET etc. on
 // every start. This does not rely on a CLI flag — `tsx watch` does not re-apply
@@ -19,6 +20,14 @@ if (process.env.SENTRY_DSN) {
 		dsn: process.env.SENTRY_DSN,
 		environment: process.env.NODE_ENV || 'development',
 		tracesSampleRate: 0.1,
+		beforeSend(event) {
+			redactTelemetryRequest(event.request)
+			return event
+		},
+		beforeSendTransaction(event) {
+			redactTelemetryRequest(event.request)
+			return event
+		},
 	})
 }
 

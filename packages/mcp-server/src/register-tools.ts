@@ -9,7 +9,12 @@ import {
 import { InnolopeApiError } from '@innolope/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import type { IndexNowStatus, InnolopeClient } from './api-client.js'
+import type {
+	IndexNowStatus,
+	InnolopeClient,
+	MediaIngestInput,
+	MediaIngestResult,
+} from './api-client.js'
 
 /**
  * Every tool declares an operation type; annotations (readOnlyHint/destructiveHint),
@@ -26,6 +31,10 @@ interface ToolResult {
 }
 
 export interface RegisterToolsOptions {
+	/** A hosted selection already checked against the user's current projects. */
+	initialProject?: { id: string; name: string; slug: string }
+	/** Best-effort durable selection; stdio leaves this unset. */
+	onProjectSelected?: (projectId: string) => Promise<void>
 	/** Register only read/metadata tools. Defaults to env INNOLOPE_MCP_READ_ONLY. */
 	readOnly?: boolean
 	/**
@@ -48,6 +57,12 @@ Content model:
 - Structured fields live in metadata (call get_collection_schema first); markdown is the prose body only.
 - The title goes in metadata.title ONLY, as a short plain string. Never repeat it as a leading H1 in the markdown body — sites render the title field separately, so a duplicate H1 shows the title twice on the page. Never put body prose in the title.
 - Markdown is the canonical body format. Never write rich-text editor state (Lexical/Slate/ProseMirror/EditorJS JSON) or raw HTML documents into the body or a content field — sites render CommonMark, and serialized editor JSON reaches the page as literal text.
+
+Projects:
+- Every project-scoped tool accepts an optional \`project\` (project id or slug) for that call. The active selection survives hosted reconnects. When a conversation touches more than one project, pass \`project\` on every write.
+
+Images:
+- To add an image: upload_media (or create_media_upload → PUT the bytes → complete_media_upload) → put deliveryUrl in the markdown as ![alt](deliveryUrl), and externalId into image/relation fields such as postImage → check_media. Never paste base64 image data or data: URIs into content.
 
 Updating content:
 - Before changing, publishing, submitting for review, or deleting an existing record, call get_content and copy its contentHash into expectedHash. Every bulk_update item needs its own reviewed hash. After CONTENT_CONFLICT or CONTENT_HASH_REQUIRED, re-read and reconcile; never silently fetch a fresh hash and retry stale changes. If a write times out, its outcome is unknown: read and reconcile before another write. Uncached external records must be imported/cached before conditional deletion.
@@ -82,7 +97,7 @@ const SERVER_MAX_RESPONSE_BYTES = (() => {
 const DEFAULT_CONTENT_BYTES = 50_000
 
 const NO_PROJECT_MESSAGE =
-	'No active project. Call use_project (or create_project) first — list_projects shows what is available.'
+	'No active project. Call use_project (or create_project) first, or pass the project parameter (id or slug) on this call — list_projects shows what is available.'
 
 /** The API's marker for a request that arrived without project context. */
 function isMissingProjectError(err: unknown): boolean {
@@ -315,7 +330,8 @@ function isPrivateAddress(address: string): boolean {
 	return ipv4IsPrivate(o)
 }
 
-const SENSITIVE_KEY = /connection|secret|token|password|passwd|credential|apikey|api_key|private/i
+const SENSITIVE_KEY =
+	/connection|secret|token|password|passwd|credential|apikey|api_key|private|^data$|sourceUrl|uploadUrl/i
 
 /**
  * Deep-copy `value` with every secret-bearing field replaced, so tool
@@ -530,6 +546,37 @@ export function registerTools(
 		isError: true,
 		content: [{ type: 'text' as const, text: body }],
 	})
+	const knownProjects = new Map<string, { name: string; slug: string }>()
+	let restoredProject = options.initialProject
+	if (restoredProject) {
+		client.setProject(restoredProject.id)
+		knownProjects.set(restoredProject.id, restoredProject)
+	}
+	// Preserve selection order even when an earlier durable write is slow.
+	let selectionWrite = Promise.resolve()
+	const selectProject = async (id: string) => {
+		client.setProject(id)
+		restoredProject = undefined
+		selectionWrite = selectionWrite.then(async () => {
+			try {
+				await options.onProjectSelected?.(id)
+			} catch {
+				console.error('[innolope-mcp] Could not persist project selection; continuing session.')
+			}
+		})
+		await selectionWrite
+	}
+	const withRestoredNotice = (result: ToolResult): ToolResult => {
+		if (!restoredProject) return result
+		const project = restoredProject
+		restoredProject = undefined
+		const notice = `Active project restored from your last selection: ${project.name} (slug: ${project.slug}, id: ${project.id}). If this conversation is about another project, call use_project or pass \`project\`.`
+		const [first, ...rest] = result.content
+		return {
+			...result,
+			content: [{ type: 'text', text: `${notice}\n${first?.text ?? ''}` }, ...rest],
+		}
+	}
 
 	/**
 	 * Register one tool: derives annotations from its operation type, applies
@@ -542,6 +589,8 @@ export function registerTools(
 		name: string
 		description: string
 		operationType: OperationType
+		/** Account-level tools explicitly opt out of the central project argument. */
+		projectScoped?: boolean
 		schema: Shape
 		outputSchema?: Record<string, z.ZodType>
 		/** Register even in read-only mode (meta tools that don't touch content). */
@@ -564,7 +613,7 @@ export function registerTools(
 			destructiveHint: def.operationType === 'delete',
 		}
 
-		const handler = async (args: z.output<z.ZodObject<Shape>>): Promise<ToolResult> => {
+		const execute = async (args: z.output<z.ZodObject<Shape>>): Promise<ToolResult> => {
 			const start = Date.now()
 			// Analytics only ever sees redacted arguments: connection strings,
 			// service-account JSON and tokens must not leave the process.
@@ -578,7 +627,8 @@ export function registerTools(
 					// drops the active project, and every project-scoped call then fails.
 					// Recover in place — re-select the only project when there is only
 					// one, and retry — instead of erroring a previously-working session.
-					if (!isMissingProjectError(err) || !(await autoSelectProject())) throw err
+					if (!isMissingProjectError(err) || client.getProjectId() || !(await autoSelectProject()))
+						throw err
 					result = await def.handler(args)
 				}
 				client.trackToolCall({
@@ -606,15 +656,59 @@ export function registerTools(
 						: err instanceof Error
 							? err.message
 							: String(err)
-				return fail(`Error running ${def.name}: ${message}`)
+				return fail(
+					`Error running ${def.name}: ${message}${def.name.includes('media') ? ' Call list_media for context, then retry the corrected media tool.' : ''}`,
+				)
 			}
+		}
+		const handler = async (
+			args: z.output<z.ZodObject<Shape>> & { project?: string },
+		): Promise<ToolResult> => {
+			const { project, ...toolArgs } = args
+			let result: ToolResult
+			try {
+				if (def.projectScoped !== false && project !== undefined) {
+					const projects = await client.listProjects()
+					for (const item of projects) knownProjects.set(item.id, item)
+					const match =
+						projects.find((item) => item.id === project) ??
+						projects.find((item) => item.slug === project)
+					if (!match) {
+						return withRestoredNotice(
+							fail(
+								`Unknown project "${project}". Pass the project parameter or call use_project with one of:\n${projects.map((item) => `- ${item.name} (slug: ${item.slug}, id: ${item.id})`).join('\n') || 'No projects available. Call create_project.'}`,
+							),
+						)
+					}
+					if (!client.getProjectId()) await selectProject(match.id)
+					result = await client.runWithProject(match.id, () =>
+						execute(toolArgs as z.output<z.ZodObject<Shape>>),
+					)
+				} else {
+					result = await execute(toolArgs as z.output<z.ZodObject<Shape>>)
+				}
+			} catch (err) {
+				result = fail(
+					`Error running ${def.name}: ${err instanceof InnolopeApiError ? formatApiError(err) : err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+			return withRestoredNotice(result)
 		}
 
 		server.registerTool(
 			def.name,
 			{
 				description: def.description,
-				inputSchema: def.schema,
+				inputSchema: {
+					...def.schema,
+					...(def.projectScoped !== false && {
+						project: z
+							.string()
+							.min(1)
+							.optional()
+							.describe('Project UUID or slug for this call only'),
+					}),
+				},
 				...(def.outputSchema && { outputSchema: def.outputSchema }),
 				annotations,
 			},
@@ -630,7 +724,10 @@ export function registerTools(
 	const autoSelectProject = async (): Promise<boolean> => {
 		try {
 			const projects = await client.listProjects()
+			// A deliberate selection may have completed while the lookup was pending.
+			if (client.getProjectId()) return true
 			if (projects.length === 1) {
+				knownProjects.set(projects[0].id, projects[0])
 				client.setProject(projects[0].id)
 				return true
 			}
@@ -650,7 +747,7 @@ export function registerTools(
 		const projects = await client.listProjects().catch(() => [])
 		if (projects.length === 0) return NO_PROJECT_MESSAGE
 		const lines = projects.map((p) => `- ${p.name} (slug: ${p.slug}, id: ${p.id})`)
-		return `No active project — the session's project selection was lost (this happens after a reconnect or server restart; it is safe to just re-select). Call use_project with one of:\n${lines.join('\n')}`
+		return `No active project. Pass the project parameter (id or slug) on this call, or call use_project with one of:\n${lines.join('\n')}`
 	}
 
 	/** Shared guard: fail (isError) when no project is active, instead of success-shaped text. */
@@ -668,7 +765,8 @@ export function registerTools(
 	 */
 	const projectSuffix = () => {
 		const id = client.getProjectId()
-		return id ? ` (project: ${id})` : ''
+		const project = id ? knownProjects.get(id) : undefined
+		return id ? ` (project: ${project ? `${project.slug}, id ${id}` : id})` : ''
 	}
 
 	const contentSummaryShape = {
@@ -743,12 +841,14 @@ export function registerTools(
 
 	defineTool({
 		name: 'list_projects',
+		projectScoped: false,
 		description:
 			'List the projects the current credential can access, with id, slug, name, and role. Use this to discover an existing project or confirm one before calling use_project.',
 		operationType: 'metadata',
 		schema: {},
 		handler: async () => {
-			const projects = await client.listProjects()
+			const projects = await client.listProjects({ fresh: true })
+			for (const project of projects) knownProjects.set(project.id, project)
 			if (projects.length === 0) {
 				return text('No projects yet. Call create_project to make one.')
 			}
@@ -767,8 +867,9 @@ export function registerTools(
 
 	defineTool({
 		name: 'use_project',
+		projectScoped: false,
 		description:
-			'Select the active project for subsequent tool calls. Provide either a projectId or a slug. All content/collection tools operate on the active project.',
+			'Select the active project for subsequent tool calls and save the selection across hosted reconnects. Provide either a projectId or a slug. To target another project for just one call, pass project (id or slug) on that tool; when working across projects, pass project on every write.',
 		operationType: 'metadata',
 		schema: {
 			projectId: z.string().uuid().optional().describe('Project UUID to activate'),
@@ -778,7 +879,7 @@ export function registerTools(
 			let id = projectId
 			let match: Awaited<ReturnType<typeof client.listProjects>>[number] | undefined
 			if (!id && slug) {
-				match = (await client.listProjects()).find((p) => p.slug === slug)
+				match = (await client.listProjects({ fresh: true })).find((p) => p.slug === slug)
 				if (!match)
 					return fail(
 						`No project found with slug "${slug}". Call list_projects to see valid slugs.`,
@@ -786,8 +887,12 @@ export function registerTools(
 				id = match.id
 			}
 			if (!id) return fail('Provide a projectId or slug (see list_projects).')
-			if (!match) match = (await client.listProjects().catch(() => [])).find((p) => p.id === id)
-			client.setProject(id)
+			if (!match)
+				match = (await client.listProjects({ fresh: true }).catch(() => [])).find(
+					(p) => p.id === id,
+				)
+			if (match) knownProjects.set(match.id, match)
+			await selectProject(id)
 			const label = match ? ` — ${match.name} (slug: ${match.slug})` : ''
 			const locales = match?.settings?.locales?.length
 				? ` Locales: ${match.settings.locales.join(', ')} (default: ${match.settings.defaultLocale ?? match.settings.locales[0]}) — pass \`locale\` on writes for non-default languages.`
@@ -800,6 +905,7 @@ export function registerTools(
 
 	defineTool({
 		name: 'create_project',
+		projectScoped: false,
 		description:
 			'Create a new, empty project and make it the active project. Returns the new project id. After creating, use create_collection to add content types and get_connection_string to obtain a per-project API key. Note: the Community plan allows only 1 project.',
 		operationType: 'create',
@@ -814,7 +920,8 @@ export function registerTools(
 		handler: async ({ name, slug }) => {
 			try {
 				const project = await client.createProject({ name, slug })
-				client.setProject(project.id)
+				knownProjects.set(project.id, project)
+				await selectProject(project.id)
 				return text(
 					`Project created and activated.\nName: ${project.name}\nSlug: ${project.slug}\nID: ${project.id}\n\nNext: create_collection to add content types, then get_connection_string for a per-project API key.`,
 				)
@@ -1256,7 +1363,7 @@ export function registerTools(
 			].join('\n')
 			return {
 				...text(
-					`Content hash: ${item.contentHash ?? 'unavailable — import/cache this record before editing'}. Pass as expectedHash after reviewing.\n` +
+					`Content hash: ${item.contentHash ?? 'unavailable — import/cache this record before editing'}. Pass as expectedHash after reviewing.${projectSuffix()}\n` +
 						capText(
 							body,
 							'Re-call get_content with a larger maxBytes to see more.',
@@ -1554,11 +1661,170 @@ export function registerTools(
 	})
 
 	// --- Media -----------------------------------------------------------------
+	const imageInput = {
+		sourceUrl: z.string().url().optional(),
+		data: z.string().optional(),
+		mimeType: z.string().optional(),
+		filename: z.string().optional(),
+		alt: z.string().optional(),
+		force: z.boolean().optional(),
+	}
+	const imageResult = z.object({
+		id: z.string(),
+		externalId: z.string().nullable(),
+		filename: z.string(),
+		fullPath: z.string(),
+		deliveryUrl: z.string(),
+		deliveryVerified: z.boolean(),
+		width: z.number().nullable(),
+		height: z.number().nullable(),
+		bytes: z.number(),
+		mimeType: z.string(),
+		sha256: z.string(),
+		duplicate: z.boolean(),
+		target: z.object({
+			kind: z.enum(['library', 'collection']),
+			collectionId: z.string().optional(),
+			collectionName: z.string().optional(),
+		}),
+		warnings: z.array(z.string()).optional(),
+	})
+	const imageLine = (r: MediaIngestResult, alt?: string) =>
+		`![${(alt ?? '').replace(/[[\]\r\n]/g, ' ')}](${r.deliveryUrl}) — id: ${r.id}, externalId: ${r.externalId ?? 'null'}${r.duplicate ? ' (duplicate: existing record)' : ''}${r.warnings?.length ? `; ${r.warnings.join('; ')}` : ''}`
+	defineTool({
+		name: 'upload_media',
+		operationType: 'create',
+		description:
+			'Upload one image or items (1–20, concurrency 4). Use sourceUrl for any URL the CMS can fetch, including Google Docs/Drive contentUri; use create_media_upload for files only the agent has; data accepts base64/data URI only up to 1 MB decoded. Allowed: JPEG, PNG, WebP, GIF; cap is min(project limit, storage limit), Cloudflare Images 10 MB. Identical bytes return the existing record; parallel calls are safe. Use deliveryUrl in markdown and externalId in relation fields. Call list_media to inspect the upload target.',
+		schema: { ...imageInput, items: z.array(z.object(imageInput)).min(1).max(20).optional() },
+		outputSchema: {
+			results: z.array(imageResult),
+			errors: z.array(z.object({ index: z.number(), error: z.string() })),
+			total: z.number(),
+			failed: z.number(),
+		},
+		handler: async (args) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			if (
+				args.items &&
+				Object.keys(imageInput).some((k) => args[k as keyof typeof imageInput] !== undefined)
+			)
+				return fail(
+					'Use either items or a single image. Call upload_media again with one input form.',
+				)
+			const items: MediaIngestInput[] = args.items ?? [
+				Object.fromEntries(Object.entries(args).filter(([k]) => k !== 'items')),
+			]
+			const outcomes: Array<{ result?: MediaIngestResult; error?: string }> = new Array(
+				items.length,
+			)
+			let next = 0
+			await Promise.all(
+				Array.from({ length: Math.min(4, items.length) }, async () => {
+					for (;;) {
+						const i = next++
+						if (i >= items.length) break
+						try {
+							outcomes[i] = { result: await client.ingestMedia(items[i]) }
+						} catch (e) {
+							outcomes[i] = {
+								error: `${e instanceof Error ? e.message : String(e)}. Call list_media to inspect the target, then upload_media with corrected input; use create_media_upload for local files.`,
+							}
+						}
+					}
+				}),
+			)
+			const results = outcomes.flatMap((o) => (o.result ? [o.result] : []))
+			const errors = outcomes.flatMap((o, index) => (o.error ? [{ index, error: o.error }] : []))
+			return {
+				...text(
+					`${errors.length ? `${errors.length} of ${items.length} failed: ${errors.map((e) => `item ${e.index + 1}: ${e.error}`).join('; ')}\n` : ''}${outcomes.map((o, i) => `${i + 1}. ${o.result ? imageLine(o.result, items[i].alt) : o.error}`).join('\n')}`,
+				),
+				isError: results.length === 0,
+				structuredContent: { results, errors, total: items.length, failed: errors.length },
+			}
+		},
+	})
+	defineTool({
+		name: 'create_media_upload',
+		operationType: 'create',
+		description:
+			'Create a 30-minute capability upload on the CMS domain for a local image. PUT file bytes with curl, then call complete_media_upload. JPEG, PNG, WebP, GIF only. Never pass large base64 through the model.',
+		schema: {
+			filename: z.string(),
+			mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']),
+			bytes: z.number().int().positive(),
+		},
+		outputSchema: {
+			uploadId: z.string(),
+			uploadUrl: z.string(),
+			method: z.literal('PUT'),
+			headers: z.record(z.string(), z.string()),
+			expiresAt: z.string(),
+			maxBytes: z.number(),
+			curl: z.string(),
+		},
+		handler: async (input) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const result = await client.createMediaUpload(input)
+			const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`
+			const curl = `curl -X PUT -H ${quote(`Content-Type: ${input.mimeType}`)} --data-binary @<file> ${quote(result.uploadUrl)}`
+			return {
+				...text(
+					`${curl}\nThen call complete_media_upload({ uploadId: "${result.uploadId}" }). Expires ${result.expiresAt}; maxBytes ${result.maxBytes}.`,
+				),
+				structuredContent: { ...result, curl },
+			}
+		},
+	})
+	defineTool({
+		name: 'complete_media_upload',
+		operationType: 'create',
+		description:
+			'Complete a local-image upload after PUT; returns deliveryUrl and relation-ready externalId. Repeating completion returns the same result. Then insert deliveryUrl in markdown and call check_media.',
+		schema: {
+			uploadId: z.string().uuid(),
+			alt: z.string().optional(),
+			filename: z.string().optional(),
+			force: z.boolean().optional(),
+		},
+		outputSchema: imageResult.shape,
+		handler: async ({ uploadId, ...input }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const result = await client.completeMediaUpload(uploadId, input)
+			return { ...text(imageLine(result, input.alt)), structuredContent: { ...result } }
+		},
+	})
+	defineTool({
+		name: 'update_media',
+		operationType: 'update',
+		description:
+			'Edit only alt/filename in the project library or target media collection. Accepts a media/content id or external record id. Updates source database, cache and history; expectedHash is optional and enforced if supplied. Call list_media first to discover ids.',
+		schema: {
+			id: z.string(),
+			alt: z.string().optional(),
+			filename: z.string().optional(),
+			expectedHash: contentHashSchema.optional(),
+		},
+		outputSchema: { item: z.record(z.string(), z.unknown()) },
+		handler: async ({ id, ...input }) => {
+			const guard = await requireProject()
+			if (guard) return guard
+			const item = await client.updateMedia(id, input)
+			return {
+				...text(`Updated media ${id}. Call list_media to read it back.`),
+				structuredContent: { item },
+			}
+		},
+	})
 
 	defineTool({
 		name: 'list_media',
 		description:
-			'List the project media library (images, videos, files) with filename, type, size, URL, and id. Pass search to filter by filename or URL substring — useful to check whether a specific image was uploaded. Media is a project-level library: content references it by URL (inline markdown images or metadata fields), there is no per-item attachment table. Requires the media-integrations license.',
+			'List the configured agent upload target and its media (project library or imported collection), including filename, alt, URL, id and externalId. Use search or pagination for more. Use upload_media to add images. The project library requires the media-integrations license.',
 		operationType: 'read',
 		schema: {
 			type: z.enum(['image', 'video', 'file']).optional().describe('Filter by media type'),
@@ -1569,18 +1835,22 @@ export function registerTools(
 		handler: async ({ type, search, page, limit }) => {
 			const guard = await requireProject()
 			if (guard) return guard
-			const result = await client.listMedia({ type, search, page, limit })
+			const result = await client.listUploadMedia({ type, search, page, limit })
+			const destination = `Agent uploads: ${result.target.resolved.collectionLabel ?? result.target.resolved.kind ?? 'unresolved'}${result.target.problem ? ` — ${result.target.problem}` : ''}.${'note' in result && result.note ? ` ${result.note}` : ''}`
 			if (result.data.length === 0) {
 				return text(
-					`No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Media is uploaded via the admin UI or POST /api/v1/media/upload.`,
+					`${destination} No media found${search ? ` matching "${search}"` : ''}${projectSuffix()}. Call upload_media for a sourceUrl, or create_media_upload for a local file.`,
 				)
 			}
 			const lines = result.data.map(
 				(m) =>
-					`- [${m.type}] ${m.filename} (${Math.ceil(m.size / 1024)} KB) — ${m.url} (id: ${m.id}${m.origin ? `, origin: ${m.origin}` : ''})`,
+					`- [${m.type}] ${m.filename} (alt: ${m.alt ?? ''}, ${Math.ceil(m.size / 1024)} KB) — ${m.url} (id: ${m.id}${m.externalId ? `, externalId: ${m.externalId}` : ''}${m.origin ? `, origin: ${m.origin}` : ''})`,
 			)
 			return text(
-				`${result.pagination.total} media item(s)${projectSuffix()}, page ${result.pagination.page}:\n${lines.join('\n')}`,
+				capText(
+					`${destination} ${result.pagination.total} media item(s)${projectSuffix()}, page ${result.pagination.page}:\n${lines.join('\n')}`,
+					'Call list_media with search or another page for more.',
+				),
 			)
 		},
 	})
@@ -1624,10 +1894,32 @@ export function registerTools(
 					let library: string
 					try {
 						const basename = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
-						const found = basename
-							? await client.listMedia({ search: basename, limit: 100 })
+						const cfBase = (v: string) =>
+							/^(https:\/\/imagedelivery\.net\/[^/]+\/[^/?#]+)(?:\/|$)/.exec(v)?.[1]
+						const base = cfBase(url.href)
+						const search = base ? base.split('/').pop() : basename
+						const found = search
+							? await client.listUploadMedia({ search, limit: 100 })
 							: { data: [] }
-						if (found.data.some((m) => m.url === url.href || m.url === ref)) library = 'yes'
+						let match = found.data.find(
+							(m) =>
+								m.url === url.href ||
+								m.url === ref ||
+								m.fullPath === ref ||
+								(base && cfBase(m.url) === base),
+						)
+						if (!match && 'target' in found && found.target.resolved.kind === 'collection') {
+							try {
+								const libraryItems = await client.listMedia({ search, limit: 100 })
+								match = libraryItems.data.find(
+									(m) => m.url === url.href || m.url === ref || (base && cfBase(m.url) === base),
+								)
+							} catch (err) {
+								if (!(err instanceof InnolopeApiError && err.status === 403)) throw err
+							}
+						}
+						if (match)
+							library = `yes (id: ${match.id}${match.externalId ? `, externalId: ${match.externalId}` : ''})`
 						else if (found.data.some((m) => m.filename === basename)) {
 							library = 'filename match (different URL)'
 						} else library = 'no — external or deleted'
@@ -1961,6 +2253,7 @@ export function registerTools(
 
 	defineTool({
 		name: 'list_templates',
+		projectScoped: false,
 		description:
 			'List available collection templates with predefined field schemas. Use these when creating new collections for common content types like Knowledge Base, FAQ, Product Catalog, Documentation, Changelog, or API Reference.',
 		operationType: 'metadata',

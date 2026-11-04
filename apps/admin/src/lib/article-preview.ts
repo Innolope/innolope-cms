@@ -39,6 +39,7 @@ export function buildPreviewDocument(
 	for (const extra of bases) extra.remove()
 	base.target = '_blank'
 	if (!base.parentNode) doc.head.append(base)
+	inlineSvgUses(doc, base.getAttribute('href'))
 	fillPreviewSlots(doc, template.classMap, content)
 	return `${doc.doctype ? '<!DOCTYPE html>' : ''}${doc.documentElement.outerHTML}`
 }
@@ -115,6 +116,83 @@ export function fillPreviewSlots(
 			box.setAttribute('hidden', '')
 			box.setAttribute('data-innolope-image-hidden', '')
 		}
+	}
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const XLINK_NS = 'http://www.w3.org/1999/xlink'
+/** Enough for any icon set; a page repeating a large sprite can't balloon the preview. */
+const MAX_INLINED_USES = 500
+
+/** The id a `<use>` reference names when it points into the page itself, else null. */
+function sameDocumentId(ref: string | null, pageUrl: string | null): string | null {
+	const value = ref?.trim()
+	if (!value) return null
+	try {
+		const url = new URL(value, pageUrl ?? 'about:blank')
+		if (!url.hash) return null
+		if (!value.startsWith('#') && (!pageUrl || url.href.split('#')[0] !== pageUrl.split('#')[0]))
+			return null
+		return decodeURIComponent(url.hash.slice(1))
+	} catch {
+		return null
+	}
+}
+
+/**
+ * `<use href="#icon">` shows an element defined elsewhere in the page. With the
+ * preview's `<base>` pointing at the live site, browsers look for it there instead
+ * (the capture also writes the reference out in full), and the frame may not load
+ * it, so the icon goes blank. Replace each one with a copy of what it shows.
+ */
+function inlineSvgUses(doc: Document, pageUrl: string | null): void {
+	let inlined = 0
+	// A symbol can use another symbol; a few passes cover real icon sets and stop loops.
+	for (let pass = 0; pass < 3; pass++) {
+		const uses = Array.from(doc.getElementsByTagNameNS(SVG_NS, 'use'))
+		let changed = false
+		for (const use of uses) {
+			if (inlined >= MAX_INLINED_USES) return
+			const id = sameDocumentId(
+				use.getAttribute('href') ?? use.getAttributeNS(XLINK_NS, 'href'),
+				pageUrl,
+			)
+			const target = id ? doc.getElementById(id) : null
+			if (!target || target.contains(use) || target.namespaceURI !== SVG_NS) continue
+
+			const symbol = target.localName === 'symbol'
+			const copy = doc.createElementNS(SVG_NS, symbol ? 'svg' : 'g')
+			// The <use>'s own class, fill and style still apply to what it showed.
+			for (const attr of Array.from(use.attributes)) {
+				if (!/^(href|xlink:href|x|y|width|height)$/i.test(attr.name))
+					copy.setAttribute(attr.name, attr.value)
+			}
+			const x = use.getAttribute('x') ?? '0'
+			const y = use.getAttribute('y') ?? '0'
+			if (symbol) {
+				for (const name of ['viewBox', 'preserveAspectRatio']) {
+					const value = target.getAttribute(name)
+					if (value !== null) copy.setAttribute(name, value)
+				}
+				copy.setAttribute('x', x)
+				copy.setAttribute('y', y)
+				copy.setAttribute('width', use.getAttribute('width') ?? '100%')
+				copy.setAttribute('height', use.getAttribute('height') ?? '100%')
+				for (const child of Array.from(target.childNodes)) copy.append(child.cloneNode(true))
+			} else {
+				if (x !== '0' || y !== '0') {
+					const own = use.getAttribute('transform')
+					copy.setAttribute('transform', `${own ? `${own} ` : ''}translate(${x} ${y})`)
+				}
+				const clone = target.cloneNode(true) as Element
+				clone.removeAttribute('id')
+				copy.append(clone)
+			}
+			use.replaceWith(copy)
+			inlined++
+			changed = true
+		}
+		if (!changed) return
 	}
 }
 

@@ -61,6 +61,21 @@ export interface ProjectFieldPreset {
 }
 
 export interface ProjectSettings {
+	mediaUploads?: {
+		target?: 'auto' | 'library' | 'collection'
+		collectionId?: string
+		fields?: {
+			path?: string
+			filename?: string
+			alt?: string
+			mimeType?: string
+			size?: string
+			width?: string
+			height?: string
+		}
+		deliveryVariant?: string
+	}
+
 	/**
 	 * Field shapes mapped once in the field designer and offered for other fields
 	 * of the project, keyed by id (the field stores `custom:<id>`).

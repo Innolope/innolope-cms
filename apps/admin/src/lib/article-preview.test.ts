@@ -134,6 +134,60 @@ describe('buildPreviewDocument', () => {
 		expect(base[0].getAttribute('target')).toBe('_blank')
 	})
 
+	it('draws icons the page points to with <use> instead of linking back to the live site', () => {
+		const sprite =
+			'<svg style="display:none"><symbol id="icon-menu" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid"><path d="M3 6h18"/></symbol><path id="dot" d="M1 1h1"/></svg>'
+		const html = TEMPLATE_HTML.replace(
+			'<header>',
+			`<header>${sprite}` +
+				// As the capture writes it: resolved against the page's own address.
+				'<svg class="menu"><use href="https://blog.example.com/posts/sample#icon-menu" class="i" fill="red"/></svg>' +
+				'<svg class="small"><use xlink:href="#icon-menu" x="2" width="16" height="16"/></svg>' +
+				'<svg class="dot"><use href="#dot" x="5" y="6" transform="scale(2)"/></svg>' +
+				'<svg class="cdn"><use href="https://cdn.example.com/sprite.svg#icon-menu"/></svg>',
+		)
+		const doc = parse(buildPreviewDocument({ ...TEMPLATE, html }, { title: 'T', markdown: '' }))
+
+		const menu = doc.querySelector('svg.menu > svg')
+		expect(menu?.getAttribute('viewBox')).toBe('0 0 24 24')
+		expect(menu?.getAttribute('preserveAspectRatio')).toBe('xMidYMid')
+		expect(menu?.getAttribute('width')).toBe('100%')
+		// The <use>'s own styling still applies to what it showed.
+		expect(menu?.getAttribute('class')).toBe('i')
+		expect(menu?.getAttribute('fill')).toBe('red')
+		expect(menu?.querySelector('path')?.getAttribute('d')).toBe('M3 6h18')
+
+		const small = doc.querySelector('svg.small > svg')
+		expect([
+			small?.getAttribute('x'),
+			small?.getAttribute('width'),
+			small?.getAttribute('height'),
+		]).toEqual(['2', '16', '16'])
+
+		const dot = doc.querySelector('svg.dot > g')
+		expect(dot?.getAttribute('transform')).toBe('scale(2) translate(5 6)')
+		expect(dot?.querySelector('path')?.getAttribute('d')).toBe('M1 1h1')
+		// One element per id: the copy drops it.
+		expect(doc.querySelectorAll('[id="dot"]')).toHaveLength(1)
+
+		// Another file's sprite can't be copied in; it stays as it was.
+		expect(doc.querySelector('svg.cdn use')?.getAttribute('href')).toBe(
+			'https://cdn.example.com/sprite.svg#icon-menu',
+		)
+		expect(doc.querySelectorAll('svg.menu use, svg.small use, svg.dot use')).toHaveLength(0)
+	})
+
+	it('stops copying a <use> that points at the symbol holding it', () => {
+		const html = TEMPLATE_HTML.replace(
+			'<header>',
+			'<header><svg><symbol id="loop"><use href="#loop"/></symbol></svg><svg class="x"><use href="#loop"/></svg>',
+		)
+		const doc = parse(buildPreviewDocument({ ...TEMPLATE, html }, { title: 'T', markdown: '' }))
+		// Copied in, but only a few levels deep.
+		expect(doc.querySelector('svg.x > svg')).not.toBeNull()
+		expect(doc.querySelectorAll('svg.x svg').length).toBeLessThanOrEqual(3)
+	})
+
 	it('copes with a template that has no title or image slot', () => {
 		const bare: PreviewTemplateData = {
 			html: '<!DOCTYPE html><html><head><title>x</title></head><body><main data-innolope-slot="body"></main></body></html>',

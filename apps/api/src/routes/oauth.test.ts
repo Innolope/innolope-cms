@@ -140,6 +140,7 @@ describe('MCP OAuth access token', () => {
 		expect(decoded).not.toBeNull()
 		expect(decoded?.id).toBe('u1')
 		expect(decoded?.role).toBe('admin')
+		expect(decoded?.clientId).toBe('mcp_123')
 	})
 
 	it('rejects a token minted for a different audience', async () => {
